@@ -12,8 +12,9 @@ git 历史；micbot 保留作代码参考。
 
 沿用 micbot 的 Semantic Blueprint Protocol：Blueprint → Implementation 不可跳。
 每个 crate 真正动工（定义公开类型/trait/签名）前，先写一份 `docs/blueprints/<topic>.md`
-说清楚签名、错误、强类型契约、副作用，人工批准后再实现。本仓库尚未单独整理一份
-CLAUDE.md，流程细节暂时参考 micbot 仓库根目录的 `CLAUDE.md`。
+说清楚签名、错误、强类型契约、副作用，人工批准后再实现。强制约束见根目录
+[`CLAUDE.md`](CLAUDE.md)（从 micbot 裁剪，去掉了 TUI 依赖、旧 crate 名和历史 BP
+编号，保留通用部分）。
 
 ## 项目名
 

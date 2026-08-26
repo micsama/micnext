@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mic-message",
+    "crates/mic-store",
+    "crates/mic-tool",
+    "crates/mic-core",
+    "crates/mic-channel-web",
+    "crates/mic-channel-dingtalk",
+    "bin/micnext",
+]
+
+[workspace.package]
+edition = "2021"

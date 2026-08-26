@@ -6,8 +6,10 @@
 
 ## 验收
 
-- 启动方式待定（当前是空壳，尚无 binary 入口约定；见
-  `docs/brainstorm/next-gen-architecture.md` §九 前端形态）。
+- 启动：默认只有一种常驻模式——挂载 Web + 钉钉 Channel 长期运行（对应 micbot 的
+  `gateway`；TUI 已砍，没有交互式前台模式）。一次性调试调用（类似 micbot 的
+  `chat PROMPT`）留作后续可能加的 flag（暂定 `-p`/`--chat`），不进 Channel、不需要
+  常驻，用完即退出；具体接口形状动工前走 B2。
 - 收尾：`cargo fmt` + `cargo clippy -- -D warnings` + 与改动相关的测试。
 
 ## 设计约束

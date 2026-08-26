@@ -249,7 +249,7 @@ Web 重连按 `session_id` 从 Store 回放；是否增加离线 push 及其数�
 增量或批量均可。不带入 micbot 为多实例准备的 `begin_query`/`finish_query` 两段式。
 
 Skill 在 **prompt 层**（扫目录、读 `SKILL.md`、注入 system prompt），不是 Tool；
-注入 catalog 还是完整 body、是否按需加载见待办 14。
+注入 catalog 还是完整 body、是否按需加载见待办 15。
 
 trait 化只覆盖**模型 provider** 和 **Channel**；Store 不 trait 化，测试用内存 SQLite。
 
@@ -368,21 +368,24 @@ WS 维持用手写原生 JS。静态资源经 `rust-embed` 编译期嵌入。
 7. 查询工具接口：session 列举（执行实例信息从 `tool_call`+completion message
    派生，不是独立对象，见 4.8）。
 8. 钉钉 `conversation_id`→`open_conversation_id` 转换与失效处理。
-9. 新仓库命名与初始目录结构。
+9. 新仓库命名（目录结构已按本文 §7.1 搭好空壳，见 micnext 仓库）。
 10. ExecutionWrapper 接口（参考 PARKED 的 `bp-012-sandbox-runner.md`）。
 11. 工具白名单粒度（按 Tool 还是 Tool+参数模式）。
 12. Query 超时时长与 cancel 传播点。
 13. Web subscription 实体和离线 push 细节。
+14. 二进制入口模式：默认只有常驻模式（挂 Web+钉钉 Channel，对应 micbot 的
+    `gateway`，TUI 已砍无前台模式）；一次性调试调用（对应 micbot 的
+    `chat PROMPT`）留作后续 flag（暂定 `-p`/`--chat`），具体接口形状待定。
 
 **Agent 语义**（不上机制，但要先定语义）：
-14. 上下文构建顺序（system/soul/summary/历史/Skill/当前输入）；Skill 注入粒度；
+15. 上下文构建顺序（system/soul/summary/历史/Skill/当前输入）；Skill 注入粒度；
     summary 的展示/投递规则。
-15. 停止条件（最大 turn/tool call/token 预算，谁终止）。
-16. Provider 失败语义（可重试错误、是否计预算、流中断时未完成 assistant message 处理）。
-17. 工具调用协议（parse 失败/未知工具/并行调用/重复 tool_call_id，均须满足 I1）。
-18. Tool 结果尺寸边界（超大 stdout/附件/二进制，store 与模型视图两套规则）。
-19. usage 归属实体；失败/重试/压缩调用是否计入。
-20. 进程关闭顺序（停接入→等待/取消执行中 Query→落终态→停 Channel）。
+16. 停止条件（最大 turn/tool call/token 预算，谁终止）。
+17. Provider 失败语义（可重试错误、是否计预算、流中断时未完成 assistant message 处理）。
+18. 工具调用协议（parse 失败/未知工具/并行调用/重复 tool_call_id，均须满足 I1）。
+19. Tool 结果尺寸边界（超大 stdout/附件/二进制，store 与模型视图两套规则）。
+20. usage 归属实体；失败/重试/压缩调用是否计入。
+21. 进程关闭顺序（停接入→等待/取消执行中 Query→落终态→停 Channel）。
 
 ## 十一、与现有 BP-097 的关系
 

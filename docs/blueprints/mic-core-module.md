@@ -64,6 +64,10 @@ pub trait Service: Send + 'static {
 #[derive(Clone)]
 pub struct Kernel { /* 私有 */ }
 impl Kernel {
+    /// Channel 用：按 (channel, chat) 原子取得或新建 Root 会话。
+    pub async fn resolve_root_session(&self, channel: &str, chat: &str, init: mic_store::NewSession)
+        -> Result<mic_store::Session, KernelError>;
+    /// Task/Triggered 用。
     pub async fn create_session(&self, s: mic_store::NewSession) -> Result<SessionId, KernelError>;
     /// 写入后唤醒调度；与 Channel 入站同一路径。
     pub async fn append_user_input(&self, i: mic_store::UserInput) -> Result<SessionEntryId, KernelError>;

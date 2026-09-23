@@ -135,9 +135,9 @@ DSH 的 `glob`/`grep` 用 ripgrep 语法；`bash` 每次开启新 shell，不保
 
 | 阶段 | 可验收结果 |
 |---|---|
-| v0a Web 闭环 | 单模型流式对话、六个基础文件/shell 工具与 web_fetch、Web 多会话列表与切换、断线回放、固定 token、崩溃收尾 |
+| v0a Web 闭环 | DeepSeek 官方与 OpenAI 兼容（自定义地址/请求头）的流式对话、六个基础文件/shell 工具与 web_fetch、Web 多会话列表与切换、断线回放、固定 token、崩溃收尾 |
 | v0b 微信接入 | Web 设置页保存连接配置并提示重启；经核实可行的注册流程、微信独立会话收发、投递尝试与结果日志可验证 |
-| v1 定时与日常能力 | cron + 不经模型的 Web 看板、Skill、上下文压缩、用量展示、DeepSeek、边界插嘴 |
+| v1 定时与日常能力 | cron + 不经模型的 Web 看板、Skill、上下文压缩、用量展示、边界插嘴、Web 设置页改模型配置（写回配置文件，重启生效） |
 | v2 异步与扩展 | 后台 shell、异步子 agent、Hook、长期记忆、Webhook、Anthropic；具体范围由 v1 使用反馈收敛 |
 | v3 深入观察与交互 | trace/费用面板、重放比较、浏览器工具、语音等按需立项 |
 

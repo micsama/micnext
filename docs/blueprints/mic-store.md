@@ -1,6 +1,6 @@
 # B2: mic-store（连带 mic-message 修订）
 
-**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`）；v0 会话列举/分页及微信投递完成判据须另起 B2 补充，未批准
+**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`）；会话列举增量见 [`mic-store-session-list.md`](mic-store-session-list.md)（待批准），微信投递完成判据随 v0b
 **来源**: [`mic-store-design.md`](../brainstorm/mic-store-design.md)（B1）、
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §二、§四
 **依赖不变量**: `mic-store` 只依赖 `mic-message`，不依赖 `mic-tool`/`mic-core`/任何模块。
@@ -462,7 +462,7 @@ mic-store ← mic-message
 |---|---|---|
 | `mic-core` 启动 | 汇总各模块 `Migration` 后 `open`；`ensure_person`/`bind_identity`（配置）；`interrupt_stale_queries` | 新契约 |
 | `mic-core` 调度与执行 | `claim_next`/`finish_query`/`context_window`/`append_output`/`append_boundary`/`append_completion`/`record_model_call` | 新契约 |
-| `mic-gateway` | `resolve_identity`/`resolve_root_session`/`append_user_input`/`entries_after`（稳定回放）/`pending_deliveries`+`mark_delivered`（确认投递时点待 Gateway B2）/`session_usage` | 新契约；投递完成判据待补 |
+| `mic-gateway`（v0a Web） | 写经 `Kernel`（`resolve_root_session`/`append_user_input`，见 mic-core-module）；从 Store 只读 `entries_after`（稳定回放）/`session_usage` | 新契约；Web 会话无投递目标 |
 | 微信适配器 | 经 Gateway 入站和发送；编解码自己的 `DeliveryTarget.payload` | 新契约；是否需要显式 adapter ack 待接入方式核实 |
 | 模块（如 `mic-cron`） | `Migration`、`with_module_tx`、`create_session`（`Triggered`） | 新契约 |
 | `mic-tool` | 不使用（依赖不变量禁止） | 无影响 |

@@ -15,6 +15,6 @@ pub use store::Store;
 pub use types::{
     BoundaryInput, CancelReason, CompletionInput, ContextWindow, DeliveryTarget, FailureReason,
     Identity, Migration, ModelCallInput, ModelCallOutcome, ModelCallPurpose, NewSession,
-    OutputInput, PendingDelivery, Person, Query, QueryId, QueryState, Session, SessionKind,
-    ToolScope, Usage, UserInput,
+    OutputInput, PendingDelivery, Person, Query, QueryId, QueryState, Session, SessionCursor,
+    SessionKind, SessionPage, SessionSummary, ToolScope, Usage, UserInput,
 };

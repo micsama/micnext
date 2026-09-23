@@ -60,6 +60,29 @@ pub struct Session {
     pub created_at: i64,
 }
 
+/// 会话列表分页游标：上一页最后一项的排序键。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionCursor {
+    pub last_activity_at: i64,
+    pub session_id: SessionId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionSummary {
+    pub session: Session,
+    /// 最新 entry 的 `created_at`。
+    pub last_activity_at: i64,
+    /// 第一条用户文字消息的开头；没有则 `None`。
+    pub preview: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionPage {
+    pub items: Vec<SessionSummary>,
+    /// 还有更早的会话时给出，原样传回取下一页。
+    pub next: Option<SessionCursor>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryState {
     Executing,

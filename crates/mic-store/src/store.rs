@@ -1,3 +1,4 @@
+use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -10,10 +11,14 @@ use crate::row::{self, ENTRY_COLS, QUERY_COLS, SESSION_COLS};
 use crate::{
     BoundaryInput, CompletionInput, ContextWindow, FailureReason, Identity, Migration,
     ModelCallInput, ModelCallPurpose, NewSession, OutputInput, PendingDelivery, Person, Query,
-    QueryId, QueryState, Session, StoreError, Usage, UserInput,
+    QueryId, QueryState, Session, SessionCursor, SessionPage, SessionSummary, StoreError, Usage,
+    UserInput,
 };
 
 /// 可 claim 判别式，`e` 为 session_entries 别名。
+/// 会话列表预览截取的字符数。
+const PREVIEW_CHARS: u32 = 80;
+
 const CLAIMABLE: &str = "e.entry_kind = 'message' AND (
        (e.author_kind = 'user' AND e.content_kind IN ('text', 'attachment'))
     OR e.content_kind = 'completion'
@@ -227,6 +232,67 @@ impl Store {
                 params![id.0, pwd],
             )?;
             Ok(())
+        })
+        .await
+    }
+
+    /// 列出 `channel` 下已有用户输入的 Root 会话，按 `(last_activity_at, id)` 降序。
+    pub async fn list_root_sessions(
+        &self,
+        channel: &str,
+        before: Option<SessionCursor>,
+        limit: NonZeroU32,
+    ) -> Result<SessionPage, StoreError> {
+        let channel = channel.to_owned();
+        let limit = limit.get() as usize;
+        self.call(move |conn| {
+            // NOTE: 预览依赖 MessageContent 的 serde 外部标签形状 {"Text":{"content":..}}。
+            let mut items = conn
+                .prepare(&format!(
+                    "SELECT {SESSION_COLS}, act, preview FROM (
+                       SELECT s.*,
+                         (SELECT e.created_at FROM session_entries e
+                           WHERE e.session_id = s.id ORDER BY e.id DESC LIMIT 1) AS act,
+                         (SELECT substr(json_extract(e.payload, '$.Text.content'), 1, ?5)
+                            FROM session_entries e
+                           WHERE e.session_id = s.id AND e.author_kind = 'user'
+                             AND e.content_kind = 'text'
+                           ORDER BY e.id LIMIT 1) AS preview
+                       FROM sessions s
+                       WHERE s.kind = 'root' AND s.channel = ?1
+                         AND EXISTS (SELECT 1 FROM session_entries e
+                                      WHERE e.session_id = s.id AND e.author_kind = 'user')
+                     )
+                     WHERE ?2 IS NULL OR (act, id) < (?2, ?3)
+                     ORDER BY act DESC, id DESC
+                     LIMIT ?4"
+                ))?
+                .query_map(
+                    params![
+                        channel,
+                        before.map(|c| c.last_activity_at),
+                        before.map(|c| c.session_id.0),
+                        limit as i64 + 1,
+                        PREVIEW_CHARS,
+                    ],
+                    |r| {
+                        Ok(SessionSummary {
+                            session: row::session(r)?,
+                            last_activity_at: r.get(14)?,
+                            preview: r.get(15)?,
+                        })
+                    },
+                )?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let next = (items.len() > limit).then(|| {
+                items.truncate(limit);
+                let last = &items[limit - 1];
+                SessionCursor {
+                    last_activity_at: last.last_activity_at,
+                    session_id: last.session.id,
+                }
+            });
+            Ok(SessionPage { items, next })
         })
         .await
     }
@@ -453,7 +519,7 @@ impl Store {
         .await
     }
 
-    /// 稳定 entry 回放；Gateway 实时 chunk 的续传游标另由 Gateway B2 定义。
+    /// 稳定 entry 回放；游标只能是 entry id，实时增量不作游标。
     pub async fn entries_after(
         &self,
         session_id: SessionId,

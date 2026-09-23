@@ -1,6 +1,6 @@
 # v0a 模块地图：Web 闭环
 
-**状态**: 待批准（模块划分、依赖方向、对接方式、实现顺序）
+**状态**: 已批准（2026-09-23；模块划分、依赖方向、对接方式、实现顺序）。步 1 已完成
 **范围**: [`product-roadmap.md`](../brainstorm/product-roadmap.md) §三 v0a——DeepSeek 官方 + OpenAI 兼容两种模型的流式对话、
 六个基础工具 + `web_fetch`、Web 多会话列表与切换、断线回放、固定 token、崩溃收尾。
 微信（v0b）排在 Web 打通之后，本图不含。
@@ -29,7 +29,7 @@
 | # | 模块 | crate | 职责 | B2 | 状态 |
 |---|---|---|---|---|---|
 | M1 | 消息类型 | `mic-message` | Session 条目数据类型 | [mic-message](mic-message.md) | ✅ 已实现 |
-| M2 | 持久化 | `mic-store` | 内核表、claim、迁移 | [mic-store](mic-store.md) · [会话列举](mic-store-session-list.md) | ✅ / 增量待批准 |
+| M2 | 持久化 | `mic-store` | 内核表、claim、迁移、会话列举 | [mic-store](mic-store.md) | ✅ 已实现 |
 | M3 | 工具 port | `mic-tool` | `Tool` trait、模型可见说明、参数边界解析、结果与错误 | mic-tool（待起草） | — |
 | M4 | 装配 | `mic-core` | Module / Registry / Service / Kernel、配置、启动与退出 | [mic-core-module](mic-core-module.md) | 待批准 |
 | M5 | 模型 port | `mic-core` | `Provider` trait、流式事件、用量 | provider-port（待起草） | — |

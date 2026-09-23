@@ -1,6 +1,6 @@
 # B2: mic-store（连带 mic-message 修订）
 
-**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`）；会话列举增量见 [`mic-store-session-list.md`](mic-store-session-list.md)（待批准），微信投递完成判据随 v0b
+**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`，含会话列举增量）；微信投递完成判据随 v0b
 **来源**: [`mic-store-design.md`](../brainstorm/mic-store-design.md)（B1）、
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §二、§四
 **依赖不变量**: `mic-store` 只依赖 `mic-message`，不依赖 `mic-tool`/`mic-core`/任何模块。
@@ -197,6 +197,26 @@ pub struct ModelCallInput {
     pub started_at: i64,
     pub finished_at: i64,
 }
+
+/// 会话列表分页游标：上一页最后一项的排序键。Gateway 在边界把查询参数解析成本类型。
+pub struct SessionCursor {
+    pub last_activity_at: i64,
+    pub session_id: SessionId,
+}
+
+pub struct SessionSummary {
+    pub session: Session,
+    /// 最新 entry 的 `created_at`。
+    pub last_activity_at: i64,
+    /// 第一条 `User` + `Text` 的前 80 个字符；没有则 `None`（只发了附件）。
+    pub preview: Option<String>,
+}
+
+pub struct SessionPage {
+    pub items: Vec<SessionSummary>,
+    /// 还有更早的会话时给出，原样传回取下一页。
+    pub next: Option<SessionCursor>,
+}
 ```
 
 ## 四、关键规则
@@ -260,6 +280,16 @@ Query 的 `claimed_end_id`（无则 0）；在下界之后的可 claim entry 序
 `open_in_memory(&该模块迁移)` 建库，跑一遍该模块的读写操作，断言
 ① `sqlite_master` 里除内核表外只有 `{module}_` 前缀的表；② 内核表行数不变。
 
+### 4.6 会话列举
+
+- 只列已有用户输入的 Root 会话；Task/Triggered 从父会话或定时看板进入。v0 不做改名、删除、归档。
+- **活跃时间算出来、不落列**：一处真相是 entry 本身，取按 id 最新一条 entry 的
+  `created_at`，走 `idx_entries_session`。个人规模全量排序可接受；出现性能摩擦再加索引或冗余列。
+- 预览在 SQL 侧用 `json_extract(payload, '$.Text.content')` 截取，依赖 `MessageContent`
+  的 serde 外部标签形状；序列化由本 crate 独占，形状变化时与写入一起改。预览只作展示，不作标识。
+- 游标是强类型的排序位置，不存在"非法游标"，结果可能为空页；不新增错误变体。
+- 翻页期间某会话有新消息会跳到最前，后续页可能缺席或重复一次；列表以刷新/实时事件为准，不做快照游标。
+
 ## 五、公开签名
 
 ```rust
@@ -288,6 +318,10 @@ impl Store {
     /// id 可能来自外部（Gateway 路径参数），不存在返回 `None`。
     pub async fn session(&self, id: SessionId) -> Result<Option<Session>, StoreError>;
     pub async fn set_pwd(&self, id: SessionId, pwd: &str) -> Result<(), StoreError>;
+    /// 列出 `channel` 下已有用户输入的 Root 会话，按 `(last_activity_at, id)` 降序。
+    /// `before = None` 取第一页；`limit` 上界由调用方在边界限定。
+    pub async fn list_root_sessions(&self, channel: &str, before: Option<SessionCursor>,
+        limit: NonZeroU32) -> Result<SessionPage, StoreError>;
 
     // ---- 写 entry ----
     pub async fn append_user_input(&self, input: UserInput) -> Result<SessionEntryId, StoreError>;
@@ -306,7 +340,7 @@ impl Store {
 
     // ---- 读 ----
     pub async fn context_window(&self, session_id: SessionId) -> Result<ContextWindow, StoreError>;
-    /// 稳定 entry 回放；Gateway 实时 chunk 的续传游标另由 Gateway B2 定义。
+    /// 稳定 entry 回放；游标只能是 entry id，实时增量不作游标。
     pub async fn entries_after(&self, session_id: SessionId, after: Option<SessionEntryId>)
         -> Result<Vec<SessionEntry>, StoreError>;
 
@@ -462,7 +496,7 @@ mic-store ← mic-message
 |---|---|---|
 | `mic-core` 启动 | 汇总各模块 `Migration` 后 `open`；`ensure_person`/`bind_identity`（配置）；`interrupt_stale_queries` | 新契约 |
 | `mic-core` 调度与执行 | `claim_next`/`finish_query`/`context_window`/`append_output`/`append_boundary`/`append_completion`/`record_model_call` | 新契约 |
-| `mic-gateway`（v0a Web） | 写经 `Kernel`（`resolve_root_session`/`append_user_input`，见 mic-core-module）；从 Store 只读 `entries_after`（稳定回放）/`session_usage` | 新契约；Web 会话无投递目标 |
+| `mic-gateway`（v0a Web） | 写经 `Kernel`（`resolve_root_session`/`append_user_input`，见 mic-core-module）；从 Store 只读 `entries_after`（稳定回放）/`list_root_sessions`（会话列表，查看微信会话时 `channel = "wechat"`）/`session_usage` | 新契约；Web 会话无投递目标 |
 | 微信适配器 | 经 Gateway 入站和发送；编解码自己的 `DeliveryTarget.payload` | 新契约；是否需要显式 adapter ack 待接入方式核实 |
 | 模块（如 `mic-cron`） | `Migration`、`with_module_tx`、`create_session`（`Triggered`） | 新契约 |
 | `mic-tool` | 不使用（依赖不变量禁止） | 无影响 |
@@ -472,5 +506,5 @@ mic-store ← mic-message
 
 - 入站去重（已知缺口，明确推迟；补法是 core v2 迁移加两列一索引）。
 - 人工审批的请求/决定内容变体（roadmap §四-6，方向收敛后再起 B2）。
-- 会话列举/分页（v0 Web 必需，roadmap §四-2，须补充 B2）、按时间段统计用量。
+- 按时间段统计用量；会话改名/标题生成、删除归档、列表项"执行中"标记。
 - `FileRef` 文件的写入、清理与尺寸上限（roadmap §四-7）。

@@ -6,7 +6,6 @@ members = [
     "crates/mic-tool",
     "crates/mic-core",
     "crates/mic-channel-web",
-    "crates/mic-channel-dingtalk",
     "bin/micnext",
 ]
 

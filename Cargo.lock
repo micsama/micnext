@@ -115,13 +115,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
-name = "mic-channel-dingtalk"
-version = "0.0.0"
-dependencies = [
- "mic-core",
-]
-
-[[package]]
 name = "mic-channel-web"
 version = "0.0.0"
 dependencies = [
@@ -168,7 +161,6 @@ dependencies = [
 name = "micnext"
 version = "0.0.0"
 dependencies = [
- "mic-channel-dingtalk",
  "mic-channel-web",
  "mic-core",
  "mic-message",

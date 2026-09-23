@@ -9,4 +9,3 @@ mic-store = { path = "../../crates/mic-store" }
 mic-tool = { path = "../../crates/mic-tool" }
 mic-core = { path = "../../crates/mic-core" }
 mic-channel-web = { path = "../../crates/mic-channel-web" }
-mic-channel-dingtalk = { path = "../../crates/mic-channel-dingtalk" }

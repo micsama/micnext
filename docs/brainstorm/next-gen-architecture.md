@@ -1,7 +1,9 @@
 # Brainstorm: 新一代 agent 架构（暂定项目名待定）
 
-**状态**: B1（头脑风暴，不写代码）
+**状态**: 历史 B1 草案，仅供追溯推理；不作为现行规格或待办清单
 **创建**: 2026-08-25
+**现行入口**: [`product-roadmap.md`](product-roadmap.md) 与对应 B2。本文含已放弃的
+钉钉、旧 Channel、同步子 agent 等方案；旧待办和时序不继续维护。
 **背景**: 见 [[micbot-rearchitecture-retro-2026-08]]（memory）与 `docs/project-positioning.md`。
 
 ## 一、定位事实
@@ -34,7 +36,7 @@
 |---|---|---|---|
 | **Person** | 行为与权限主体，与 Session 正交：工具权限、上下文角色隔离、（将来）工作区隔离、cron 归属 | 不是发送目标；Session 不"属于"某个 Person | — |
 | **Session** | 消息历史、投递地址的容器：`parent_session_id`、`kind`、发送目标、pwd、tool 收窄集 | 不做推理；不普遍归属某个 Person；不跨 session 读对方运行时状态；**不持久化待执行队列**——待执行的是"尚未被任何 Query claim 的 message"，队列从 message 表派生，见 4.5 | — |
-| **Message** | Session 内一条事实，沿用当前项目的 `MessageAuthor` provenance（User/Assistant/Tool/Harness/Notification） | 不归属 Query（Query 只标记自己 claim 的区间） | Session, Person |
+| **Message** | Session 内一条事实，沿用 micbot 已验证的 `MessageAuthor` provenance 六分：`User`/`Assistant`/`Tool`/`HarnessNote`（框架事实型标记，不期待模型动作，不投递）/`Notification{source}`（三方通知，要投递给用户）/`HarnessRequest`（框架主动发起、期待模型动作，只活在单次模型请求视图，**不落盘**——因此不进 `mic-message` 的持久化类型，见 [[mic-message-types]]） | 不归属 Query（Query 只标记自己 claim 的区间） | Session, Person |
 | **Query** | Session 的一次执行（一轮 agent 循环），**创建即 `Executing`**，创建时一次性 claim 最长的同 author 连续未 claim message 前缀，无中间可变状态 | 不带 `trigger` 字段——"我因何而生"写在所属 Session 上；不存在 `Created` 状态，claim 区间创建后不再漂移 | Session, Person, Agent |
 | **ExecutionContext** | **每次 Query 执行前合成的值**，非存储实体：session 侧`发送目标+pwd+tool 收窄集` ⊕ 本次 `person` → `tool_allow = person 权限上限 ∩ session 收窄集` | 不含消息历史；不落盘 | Session, Person |
 | **Agent** | 无状态模型-工具循环；输入 `{system prompt, 上下文, Tool 子集, 模型配置}`；输出事件流 | 不知道 Session/Channel/Person，不落盘，不发送 | 注入的 Tool 子集 |
@@ -106,7 +108,7 @@ tool 收窄集字段，父授予多少，子的字段就写多少（只能收窄
 - per-session 严格串行（同一 session 最多一个 `Executing` Query）；跨 session 并行，
   **不设全局上限**。单进程个人工具的真实并发量级是个位数（用户聊天 + 若干 cron
   到点 + 偶尔一层子 agent），不存在需要限流保护的共享资源池场景；真正的外部瓶颈是
-  模型 API 的费用/速率，交给已有的 [BP-038 重试/退避](../blueprints/bp-038-retry-fallback-resilience.md)
+  模型 API 的费用/速率，交给旧项目的 BP-038 重试/退避设计
   处理，不在 Session 调度层建全局槽位。
 - 曾考虑"全局并发上限 + `wait=true` 父 await 期间释放 slot、子完成后重新获取"的
   借还协议，是为了避免假想中的资源竞争/死锁场景而提前建的机制（违反设计原则 5），
@@ -120,13 +122,46 @@ tool 收窄集字段，父授予多少，子的字段就写多少（只能收窄
 自然切分：`A1,A2,B1,B2,A3` → 依次 claim 出 `[A1,A2]`、`[B1,B2]`、`[A3]` 三个 Query。
 这样 Query 创建后不需要再合并、再冻结——claim 区间在创建那一刻就是最终值。
 
+**哪些 author 会进入这个候选池（第二轮交叉验证收紧的措辞）**：`User`（入站用户
+消息）、Session 的明确起始消息（`Cron`/`Task` 创建时写入的起始消息）、`Tool`
+（异步任务的 completion message，见 §八场景 3）——这三类会被 claim。
+**`Tool` 这一类必须按 content 再切一刀**：`author=Tool` 同时覆盖普通
+`tool_result`（当前 Query 内产生，绝不能触发新 Query，否则每轮工具调用后
+都会重新 claim，死循环）和 `wait=false` 的 completion message。两者靠 content
+判别式区分——completion 是 `content=Completion{exec_id, outcome}`（§4.9 新增的
+第五类），普通结果是 `content=ToolResult`，不需要额外加 `claimable` 字段，
+精确判别式见 [`mic-store-design.md`](mic-store-design.md) §四。注意 §六表格里
+micbot 的"完成后写一条 Notification message"那个形状不能直接搬：本项目的
+`Notification` 已定义为只投递不 claim，用它会让父永远收不到 completion。
+
+**`Query.person` 对 completion 触发的 Query 怎么取**：必须沿用**触发那次
+tool call 的 Query 的 person**，不能取 session creator 或任何默认值——按 I3
+`tool_allow = Person 权限上限 ∩ Session 收窄集`，取错方向就是提权：群聊里低权限
+成员发起一个 `wait=false` 任务，completion 触发的后续 Query 若拿到高权限
+person，等于用"发起异步任务再等它完成"绕开权限上限（反方向则是高权限用户的
+任务收尾莫名失败）。person 不需要从库里反查——执行实例句柄在内存里带着当时的
+`ExecutionContext`，注入 completion 时直接带过来；崩溃重启的实例按 §4.7
+`Interrupted` 处理、不产生 completion，内存来源是充分的。
+
+`HarnessNote`/`Notification` 不会：判据是"后面是否有必然紧跟的新 Query 会通过
+模型回复自然转达这件事"——有（比如打断提示，紧跟的就是触发打断的那条用户消息
+自己的 Query）用 `HarnessNote`，不参与 claim；没有（比如崩溃恢复后的失败记录，
+见 §4.7）用 `Notification`，只走投递，也不参与 claim。`ContextBoundary` 从不
+参与 claim——它不走"入 message 表等待被 claim"这条路径，是压缩/`/clear` 流程
+直接写入的（见 §4.9）。不需要为此加 `claimable: bool` 之类的字段，`mic-core`
+按既有的 author 判别式 match 即可，具体类型契约见
+[`mic-message-types.md`](mic-message-types.md) §五。
+
 当前 Query 执行期间不并发消费。语义沿用当前 TUI：不做 streaming 中途硬打断；当前
 Query 跑到 turn/工具边界时，**在途 tool_call 必须先补齐配对的 tool_result**（I1），
 然后收尾，Session 再从 message 表里 claim 下一批。这个"打断"本身很简单：当前
 Query 结束就是 `Cancelled`，新消息开启新 Query，不是什么复杂机制。收尾时额外注入
-一条 `Harness`/`Notification` 消息，说明"上一轮执行被新消息打断"；下一个 Query
-天然能在上下文里看到这条提示，模型据此先回应新消息，再自行判断要不要、如何继续
-被打断的工作——这是模型的判断，不是架构层要解决的问题。
+一条 `HarnessNote` 消息，说明"上一轮执行被新消息打断"——用 `HarnessNote` 而不是
+`Notification`：这里必然紧跟着一个新 Query（就是触发打断的那条消息自己的），
+模型会给用户一个新回复，"被打断"这件事由那条回复自然传达，不需要额外主动投递
+一条独立通知；`HarnessNote` 只进历史给下一个 Query 的上下文读，不触发投递。下一个
+Query 天然能在上下文里看到这条提示，模型据此先回应新消息，再自行判断要不要、如何
+继续被打断的工作——这是模型的判断，不是架构层要解决的问题。
 
 群聊仍共享一个 Root session，但一次 Query 只 claim 同一 author 的连续入站消息；
 不同 author 的消息分别排队，不合并进同一 Query。这样 `Query.person` 唯一确定，
@@ -158,7 +193,9 @@ graph LR
 
 SQLite 分不清"没执行"和"执行了但没落盘"，不上事务型 job 系统：启动时把遗留
 `Executing` Query 收尾为 `Failed{reason: Interrupted}`；**不自动重放**未知是否已
-执行的调用（I4）；`Task` 按终态通知父，`Root`/`Cron` 留可见失败记录；只有明确
+执行的调用（I4）；`Task` 按终态通知父，`Root`/`Cron` 留可见失败记录（author 为
+`Notification`——这里不像 §4.5 那样必然有紧随其后的新 Query 替它转达，只能靠
+投递本身让用户看到）；只有明确
 声明幂等的操作才重试（入站去重、投递补发）。Store 的承诺是"重建已提交事实并对
 未完成 Query 确定性收尾"，不是"重建任意时刻的执行进度"。
 
@@ -185,7 +222,19 @@ Session 不增加独立的 `Open/Closed` 生命周期状态。**待执行 messag
 
 ### 4.9 消息类型闭集 + 压缩模型
 
-`text`/`tool_call`/`tool_result`/`attachment`。压缩不新增 `summary` 消息类型，
+`text`/`tool_call`/`tool_result`/`completion`/`attachment`。`completion` 是
+`wait=false` 任务的终态回报（`{exec_id, outcome}`），闭集从四类扩到五类：原方案
+打算复用 `text` 承载它，但 exec_id 只能埋进散文，§4.8"配对 tool_call 与
+completion"就只能靠正则扒文本，查询工具无法可靠工作（比如同时跑三个后台任务时
+分不清哪条对应哪个）。`completion` 与 `tool_result` 不合并——后者已被
+`Dispatched` 唯一占用，同一 `tool_call_id` 再来一条会破坏 I1（§4.2）。终态本身
+（`Completed`/`Failed`/`Cancelled`）在 `wait=true` 回填和 `wait=false` completion
+两条路径上是同一个类型，不复制两份。**异步任务的中间进度不落盘**：执行实例的
+stdout 攒在内存句柄上，"跑到哪了"由查询工具直接读句柄回答，不走 message 表——
+落盘中间态等于请回 §六 砍掉的逐条落盘写路径，收益仅限"崩溃时保住部分输出"；
+真需要时加一个不可 claim 的进度变体即可，是纯增量。
+
+压缩不新增 `summary` 消息类型，
 沿用当前 micbot 已验证的 `Message` + `ContextBoundary` 二元模型：Session 内除
 `Message` 外再有一类 `ContextBoundary` 条目（`Compaction{summary, occurred_at}`
 /`UserClear{occurred_at}`），上下文构建只读**最后一个 boundary 之后**的
@@ -386,6 +435,11 @@ WS 维持用手写原生 JS。静态资源经 `rust-embed` 编译期嵌入。
 19. Tool 结果尺寸边界（超大 stdout/附件/二进制，store 与模型视图两套规则）。
 20. usage 归属实体；失败/重试/压缩调用是否计入。
 21. 进程关闭顺序（停接入→等待/取消执行中 Query→落终态→停 Channel）。
+22. Web 端 Markdown 代码块语法高亮：方向倾向**客户端 JS**（如 highlight.js 一类
+    成熟库，走 `rust-embed` 嵌入，零 Rust 二进制体积成本），区别于 micbot TUI 时代
+    服务端 `syntect`+`two-face` 方案——后者是因为终端场景没有 JS 运行时才被迫服务端
+    渲染，web 场景该约束不存在，交给 web 端本就该干的事。具体库选型、语言集裁剪、
+    主题配色留到 `mic-channel-web` B2 时定。
 
 ## 十一、与现有 BP-097 的关系
 

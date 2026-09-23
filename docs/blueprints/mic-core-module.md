@@ -1,6 +1,6 @@
 # B2: mic-core 模块装配（Module / Registry / Service / Kernel 句柄）
 
-**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-core`、`bin/micnext`）；占定方法见 §三。微信设置采用保存后重启生效，凭据写入和重启按钮仍待 Channel/Gateway B2
+**状态**: 已实现部分 CLOSED（2026-09-23，`crates/mic-core`、`bin/micnext`）；`[models]` 分组与 `provider` 登记为修订待批准（随 provider-port B2）；占定方法见 §三。微信设置采用保存后重启生效，凭据写入和重启按钮仍待 Channel/Gateway B2
 **来源**: [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.1、§2.2、§2.4、§四-1
 **依赖不变量**: 定义在 `mic-core`；模块 crate 依赖 `mic-core`（+ 需要的下层 crate），
 模块之间不互相依赖，只由二进制装配。
@@ -22,7 +22,7 @@
 配置位置、启动顺序与错误，以及二进制入口的命令行。**各 port 的 trait 本身不在本文**：
 `Tool`（mic-tool B2）、`Channel` / `DirectRoute`（Gateway B2）、`Provider`、`Hook`、
 `ContextContributor`（roadmap §四-8）各自在对应 B2 定义，批准时连同 `Registry` 上的登记
-方法一起加入。本文立即生效的登记项只有 `migrations` 与 `service`。
+方法一起加入。本文立即生效的登记项为 `migrations`、`service` 与 `provider`（trait 见 provider-port B2）。
 
 ## 三、公开类型与签名
 
@@ -46,6 +46,8 @@ pub struct Registry { /* 私有 */ }
 impl Registry {
     pub fn migrations(&mut self, m: &'static [mic_store::Migration]);
     pub fn service(&mut self, s: impl Service);
+    /// 模型模块按 `[models.<name>]` 条目名登记（provider-port B2）。
+    pub fn provider(&mut self, name: impl Into<String>, p: impl Provider);
     // 以下随各 port 的 B2 加入，名字先占定：
     // tool / channel / provider / hook / context(slot, …)
 }
@@ -117,12 +119,38 @@ tick_secs = 30
 ```
 
 - 段存在 = 启用；段缺失 = 编译进来但不启用（不 install，不建表，不起 Service）。
-- 顶层段名不是 `core` 也不是任何已编译模块名 → `AssembleError::UnknownModule`。
-- 模块名不得为 `core`：内部互信，不做运行时检查。
+- 顶层段名不是保留段（`core`、`models`）也不是任何已编译的普通模块名 →
+  `AssembleError::UnknownModule`。
+- 模块名不得为 `core`、`models`：内部互信，不做运行时检查。
 - **拒绝未知字段**：`[core]` 与各模块的配置结构体一律 `#[serde(deny_unknown_fields)]`；
   框架无法替模块强制，靠 review 守。
-- **`[core]` 现有字段**：`data_dir`（可选）。owner person、模型选择等随 M6 / M5 B2 加入。
+- **`[core]` 现有字段**：`data_dir`（可选）。owner person 等随 M6 B2 加入。
   `[core]` 段本身可省略；解析失败 → `AssembleError::Core`。
+
+### 按用户概念分组的段：`[models]`
+
+用户眼里是一类东西的配置放在同一个表下，不按 crate 分段（CLAUDE.md "配置合并同类项"）。
+目前只有模型：
+
+```toml
+[models]
+default = "ds"          # 当前用哪个
+
+[models.ds]
+kind = "openai"         # 由哪个模型模块实现
+model = "deepseek-chat" # 其余字段归该模块解析
+```
+
+- `[models]` 与 `core` 一样是保留段名，由内核解析：字符串键 `default`，其余每个子表是
+  一个模型条目，必须有 `kind`。
+- 模型模块（如 `mic-provider-openai`，`name() = "openai"`）**没有顶层段**：有条目的
+  `kind` 等于它的名字才 install，`ModuleConfig` 为 `{条目名 → 去掉 kind 的条目}`；
+  模块按条目名 `Registry::provider` 登记。
+- `kind` 没有对应的已编译模块 → `AssembleError::UnknownModelKind`；`default` 不是任何
+  条目名 → `AssembleError::UnknownDefaultModel`；`[models]` 形状不对 → `AssembleError::Models`；
+  模型模块又出现在顶层段 → `AssembleError::UnknownModule`（它不接受顶层段）。
+- `default` 与 `[models]` 目前可省略；由第一个消费者 M6 改为必填。
+- 以后的模型路由（fallback、按复杂度选模型）是另一种 `kind`，引用其它条目名，形状不变。
 
 ### 位置（XDG 约定，macOS 同样适用）
 
@@ -144,8 +172,8 @@ Web 设置页需要微信注册/连接入口。配置保存后重启生效，不
 ## 五、启动与运行顺序
 
 1. 二进制按 cargo feature 组装 `Vec<Box<dyn Module>>`，读配置文件（外部输入，TOML 解析失败即报错）。
-2. `Assembly::new`：检查模块重名与未知段 → 解析 `[core]` → 按装配根顺序逐个已启用
-   模块 `install`，冲突即返回错误。
+2. `Assembly::new`：检查模块重名 → 解析 `[models]`、按 `kind` 分组 → 检查未知段 →
+   解析 `[core]` → 按装配根顺序逐个已启用模块 `install` → 核对 `default`，冲突即返回错误。
 3. `run`：创建数据目录 → 汇总 migrations → `Store::open` → `interrupt_stale_queries` →
    为每个 Service `tokio::spawn`（M6 起同时跑内核主循环）。
 4. 退出：外部 `stop`（Ctrl-C/SIGTERM）→ 广播给所有 Service 并等待返回；任一 Service
@@ -166,7 +194,13 @@ pub enum AssembleError {
     Core { source: BoxError },
     #[error("模块 `{module}` 装配失败")]
     Install { module: &'static str, source: BoxError },
-    // 随各 port 加入：DuplicateTool / DuplicateChannel / DuplicateProvider …
+    #[error("[models] 配置有误")]
+    Models { source: BoxError },
+    #[error("模型 `{model}` 的 kind = \"{kind}\" 没有对应的模块（写错，或未编译进来）")]
+    UnknownModelKind { model: String, kind: String },
+    #[error("[models] default = \"{name}\" 不是任何模型条目")]
+    UnknownDefaultModel { name: String },
+    // 随各 port 加入：DuplicateTool / DuplicateChannel …
 }
 
 #[derive(Debug, thiserror::Error)]

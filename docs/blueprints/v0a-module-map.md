@@ -30,11 +30,11 @@
 |---|---|---|---|---|---|
 | M1 | 消息类型 | `mic-message` | Session 条目数据类型 | [mic-message](mic-message.md) | ✅ 已实现 |
 | M2 | 持久化 | `mic-store` | 内核表、claim、迁移、会话列举 | [mic-store](mic-store.md) | ✅ 已实现 |
-| M3 | 工具 port | `mic-tool` | `Tool` trait、模型可见说明、参数边界解析、结果与错误 | mic-tool（待起草） | — |
+| M3 | 工具 port | `mic-tool` | `Tool` trait、模型可见说明、参数边界解析、结果与错误（沿用 micbot 输入/业务/依赖三分类，同步改 `ExecOutcome` 与模型视图的 `[failed]` 头） | mic-tool（待起草） | — |
 | M4 | 装配 | `mic-core` | Module / Registry / Service / Kernel、配置、启动与退出 | [mic-core-module](mic-core-module.md) | ✅ 已实现 |
-| M5 | 模型 port | `mic-core` | `Provider` trait、流式事件、用量 | provider-port（待起草） | — |
+| M5 | 模型 port | `mic-core` | `Provider` trait、流式事件、用量、失败分类；`ToolSpec`（放 `mic-tool`，M3 沿用） | provider-port（待批准） | — |
 | M6 | 执行主路径 | `mic-core` | 调度（claim/串行）、Agent 循环、落盘、崩溃收尾、实时事件 | query-execution（待起草） | — |
-| M7 | 模型实现 | `mic-provider-openai` | Chat Completions 协议的 `Provider`：DeepSeek 官方预设（只填模型名 + key，key 缺省读 `DEEPSEEK_API_KEY`）与通用 OpenAI 兼容（地址、key、模型名、自定义请求头） | provider-openai（待起草） | — |
+| M7 | 模型实现 | `mic-provider-openai` | Chat Completions 协议的 `Provider`：DeepSeek 官方预设（只填模型名 + key，key 缺省读 `DEEPSEEK_API_KEY`）与通用 OpenAI 兼容（地址、key、模型名、自定义请求头） | provider-openai（待批准） | — |
 | M8 | 基础工具 | `mic-tool-fs`、`mic-tool-shell`、`mic-tool-web-fetch` | `read/glob/grep/write/edit`、`bash`、`web_fetch` | tools-basic（待起草，一份覆盖三个 crate） | — |
 | M9 | 网关 | `mic-gateway`（由 `mic-channel-web` 改名） | HTTP API、固定 token、SSE、嵌入前端产物 | gateway（待起草） | — |
 | M10 | Web 前端 | `web/`（TS） | 会话列表/切换、流式显示、断线重连 | web-ui（待起草） | — |
@@ -48,7 +48,7 @@
 |---|---|---|---|
 | 装配 | 各模块 → mic-core | 实现 `Module`，在 `install` 里向 `Registry` 登记贡献 | M4 |
 | 工具 | M8 → mic-core | `Registry::tool(impl Tool)`；模型可见说明由工具自带，core 只汇总 | M3 |
-| 模型 | M7 → mic-core | `Registry::provider(impl Provider)`；配置里选用哪个 | M5 |
+| 模型 | M7 → mic-core | `Registry::provider(name, impl Provider)`；模型统一配在 `[models.<名字>]`（`kind` 选实现），`[models] default` 选用哪个 | M5 |
 | 入站 | M9 → mic-core | `Kernel` 上的写入口：`resolve_root_session`（建/取会话，M4 实现）、`append_user_input`（写入并唤醒调度，M4 占定、M6 实现）；Gateway 不直接写 Store | M4 / M6 |
 | 实时事件 | mic-core → M9（及以后各 Channel） | `Kernel` 上订阅，可按会话或全部：文本/推理增量、工具开始结束、entry 已落盘（带 id）、Query 终态；增量与落盘 entry 的关联方式由 M6 定；事件可丢，真相在 Store | M6 |
 | 稳定历史 | mic-store → M9 | 只读：`entries_after`、`list_root_sessions`、`session_usage`；取得 Store 只读句柄的方式在 M6 定 | M2 / M6 |
@@ -78,7 +78,7 @@ v0a 已定的简化（各 B2 照此写，不再讨论）：
 
 ## 三、实现顺序与单独验收
 
-每步完成即可独立验收并提交；同一行内的模块互不依赖，可任意先后。
+每步完成即可独立验收并提交；同一行内的模块互不依赖，可任意先后。步 3 与 3' 共用的 `ToolSpec` 由 M5 定义在 `mic-tool`，两步互不阻塞。
 
 | 步 | 模块 | 单独验收 |
 |---|---|---|

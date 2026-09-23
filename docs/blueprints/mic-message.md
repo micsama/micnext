@@ -156,6 +156,8 @@ author：boundary 不参与 claim 与投递。
 
 `author` 与 `content` 的合法组合不做类型层或运行时校验，由唯一写者的构造路径保证。
 
+条目如何呈现给模型（`ModelView`、方括号头）见 [`provider-port.md`](provider-port.md) §三.5。
+
 **一次模型响应的落盘形状**：拆成若干条连续的 `author=Assistant` entry（`Reasoning`
 → `Text` → `ToolCall`…）。Provider 构建请求时把它们重组为一个 assistant turn；
 两次响应之间必然隔着 `ToolResult` 或新 Query 的输入，边界无歧义。

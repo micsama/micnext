@@ -3,6 +3,7 @@
 //! 契约：docs/blueprints/mic-store.md。
 
 mod error;
+mod limits;
 mod row;
 mod schema;
 mod store;

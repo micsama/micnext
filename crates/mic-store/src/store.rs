@@ -7,6 +7,7 @@ use mic_message::{
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
+use crate::limits::PREVIEW_CHARS;
 use crate::row::{self, ENTRY_COLS, QUERY_COLS, SESSION_COLS};
 use crate::{
     BoundaryInput, CompletionInput, ContextWindow, FailureReason, Identity, Migration,
@@ -16,9 +17,6 @@ use crate::{
 };
 
 /// 可 claim 判别式，`e` 为 session_entries 别名。
-/// 会话列表预览截取的字符数。
-const PREVIEW_CHARS: u32 = 80;
-
 const CLAIMABLE: &str = "e.entry_kind = 'message' AND (
        (e.author_kind = 'user' AND e.content_kind IN ('text', 'attachment'))
     OR e.content_kind = 'completion'

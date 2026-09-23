@@ -1,8 +1,6 @@
 # B2: mic-message
 
-**状态**: 已批准（2026-09-23），待实现——`crates/mic-message/src/lib.rs` 仍是上一版，
-需按本文改：`Assistant.id→model`、新增 `FileRef`/`ContentPart`/`Reasoning`、
-`ExecOutcome::Completed.output` 改为 `Vec<ContentPart>`、`Attachment` 改包 `FileRef`
+**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-message/src/lib.rs`）
 **来源**: [`mic-message-types.md`](../brainstorm/mic-message-types.md)（B1）、
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §二
 **依赖不变量**: L0——零内部依赖，只被依赖。

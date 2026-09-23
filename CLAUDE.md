@@ -4,7 +4,7 @@
 
 ## 验收
 
-- 唯一常驻模式：挂载 Web + 钉钉 Channel 长期运行。一次性调试调用（暂定 `-p`/`--chat`）不进 Channel、用完即退，接口形状动工前走 B2。
+- 唯一常驻模式：挂载 Gateway（Web）+ 已启用的 Channel 长期运行。一次性调试调用（暂定 `-p`/`--chat`）不进 Channel、用完即退，接口形状动工前走 B2。
 - 收尾：`cargo fmt` + `cargo clippy -- -D warnings`；改动覆盖到已有测试才跑测试。
 
 ## 设计约束
@@ -13,7 +13,7 @@
 - **simple != small**：禁止用 bool 切行为或 action 字符串分发核心逻辑。删机制前说明复杂度去向；领域规则由懂领域的一侧解析，不推给调用方约定。
 - **删除查四项**：正确性、隐私边界、失败行为、可审计性全过才许删；不懂来源先查 `git log`。
 - **Fail Fast**：配置缺失、实现不匹配、不变量破坏 → 启动报错或 `Err`；禁止静默 fallback。
-- **边界收严、收全、不猜**：外部数据在边界一次 parse 成强类型，禁止裸 `serde_json::Value` 漂流；上游字段暂无消费者也完整接收。边界后默认数据合法。
+- **边界收严、收全、不猜**：外部数据在边界一次 parse 成强类型，禁止裸 `serde_json::Value` 漂流；上游字段暂无消费者也完整接收。边界后默认数据合法，内部调用互信，不做防御性校验和重复检查。外部 = HTTP/Channel 入站、模型输出（含 tool args）、配置、磁盘上的库文件版本。
 - **一处真相**：事实和计算只留一个来源；元数据归最早知道它的 emit 侧，第二个消费者出现时下沉共享。换消费者仍需要的元数据属于协议字段。
 - **一条主路径**：仅边界参数不同的流程复用全部事件、落盘和取消，不新增终态、event 或 runner；主路径若需读场景专属状态或分支则拆开。
 - **抽象有进有出**：新增封装、状态或协议事件必须指出最终消费者和直接收益；消费者消失时连生产者一起删。
@@ -24,7 +24,7 @@
 
 - 优先 `tokio` / `serde` / `thiserror`（库内）/ `anyhow`（二进制收口），不造同类轮子；Web 前端资源嵌入用 `rust-embed`。
 - 注释只写结论，不写防御性过程说明；特殊注释用 `TODO` / `FIXME` / `NOTE` / `HACK` / `WARN` / `SAFETY`，unsafe 必须有 `SAFETY`。
-- **测试从简**：小项目，默认不写测试，靠 review 和手工验收守。确有必要才加模块级单元测试，实现文件只声明 `#[cfg(test)] #[path = "<name>_test.rs"] mod tests;`；不建 `tests/` 集成测试。默认不读 `_test.rs`。
+- **测试从简**：小项目，默认不写测试，靠 review 和手工验收守。确有必要才加：单元测试放同名子模块文件，`foo.rs` 只声明 `#[cfg(test)] mod tests;`，测试写在 `foo/tests.rs`（`lib.rs` 对应 `src/tests.rs`）；只经公开 API 验证 crate 契约时才用 `tests/`，每个 crate 至多一个文件。默认不读 `tests.rs` 与 `tests/`。
 
 ## Semantic Blueprint Protocol
 
@@ -55,8 +55,8 @@ Blueprint → Implementation 不可跳；Brainstorm 按需前置。Human 决定�
 
 - `mic-message` 是 L0：零内部依赖，只被依赖。
 - `mic-store` / `mic-tool` 只依赖 `mic-message`，互不依赖，也不依赖 `mic-core`。
-- `mic-core` 依赖 `mic-message` + `mic-store` + `mic-tool`，不反向依赖任何 Channel。
-- `mic-channel-web` / `mic-channel-dingtalk` 依赖 `mic-core`；`mic-core` 不知道具体 Channel。
+- `mic-core` 依赖 `mic-message` + `mic-store` + `mic-tool`，不依赖任何 Channel 或功能模块。
+- `mic-gateway`、各 Channel、各功能模块（如 `mic-cron`）依赖 `mic-core`（port）+ 需要的下层 crate；模块之间不互相依赖，只由二进制装配。
 - 不得成环。新增跨 crate 依赖先回 B2；`lib.rs` 只 re-export 公开 API，内部默认 `pub(crate)`。
 
 本文件条目长期无引用或已被其他条目覆盖则删除。

@@ -7,3 +7,9 @@ edition.workspace = true
 mic-message = { path = "../mic-message" }
 mic-store = { path = "../mic-store" }
 mic-tool = { path = "../mic-tool" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "macros"] }
+tokio-util = "0.7"
+toml = "0.9"
+tracing = "0.1"

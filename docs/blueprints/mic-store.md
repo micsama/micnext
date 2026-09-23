@@ -22,7 +22,8 @@ persons / person_identities / model_calls 六张内核表，外加模块私有�
   `tokio::task::spawn_blocking`；公开方法全部 `async fn`。锁中毒直接 `expect`。
 - 外部依赖：`rusqlite`（`bundled`）、`serde`（derive，tool_scope/reason/outcome 等 JSON 列）、`serde_json`、
   `thiserror`、`tokio`（`rt`）、`mic-message`。
-- 不生成时间戳：所有 `created_at`/`now` 由调用方传入（"发生时间"只有 emit 侧知道）。
+- 不生成时间戳：所有 `created_at`/`now` 由调用方传入（"发生时间"只有 emit 侧知道）；
+  单位统一为 Unix 毫秒（`i64`）。
 
 ## 二、mic-message 依赖
 

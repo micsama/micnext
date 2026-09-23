@@ -1,6 +1,6 @@
 # v0a 模块地图：Web 闭环
 
-**状态**: 已批准（2026-09-23；模块划分、依赖方向、对接方式、实现顺序）。步 1 已完成
+**状态**: 已批准（2026-09-23；模块划分、依赖方向、对接方式、实现顺序）。步 1、2 已完成
 **范围**: [`product-roadmap.md`](../brainstorm/product-roadmap.md) §三 v0a——DeepSeek 官方 + OpenAI 兼容两种模型的流式对话、
 六个基础工具 + `web_fetch`、Web 多会话列表与切换、断线回放、固定 token、崩溃收尾。
 微信（v0b）排在 Web 打通之后，本图不含。
@@ -31,14 +31,14 @@
 | M1 | 消息类型 | `mic-message` | Session 条目数据类型 | [mic-message](mic-message.md) | ✅ 已实现 |
 | M2 | 持久化 | `mic-store` | 内核表、claim、迁移、会话列举 | [mic-store](mic-store.md) | ✅ 已实现 |
 | M3 | 工具 port | `mic-tool` | `Tool` trait、模型可见说明、参数边界解析、结果与错误 | mic-tool（待起草） | — |
-| M4 | 装配 | `mic-core` | Module / Registry / Service / Kernel、配置、启动与退出 | [mic-core-module](mic-core-module.md) | 待批准 |
+| M4 | 装配 | `mic-core` | Module / Registry / Service / Kernel、配置、启动与退出 | [mic-core-module](mic-core-module.md) | ✅ 已实现 |
 | M5 | 模型 port | `mic-core` | `Provider` trait、流式事件、用量 | provider-port（待起草） | — |
 | M6 | 执行主路径 | `mic-core` | 调度（claim/串行）、Agent 循环、落盘、崩溃收尾、实时事件 | query-execution（待起草） | — |
 | M7 | 模型实现 | `mic-provider-openai` | Chat Completions 协议的 `Provider`：DeepSeek 官方预设（只填模型名 + key，key 缺省读 `DEEPSEEK_API_KEY`）与通用 OpenAI 兼容（地址、key、模型名、自定义请求头） | provider-openai（待起草） | — |
 | M8 | 基础工具 | `mic-tool-fs`、`mic-tool-shell`、`mic-tool-web-fetch` | `read/glob/grep/write/edit`、`bash`、`web_fetch` | tools-basic（待起草，一份覆盖三个 crate） | — |
 | M9 | 网关 | `mic-gateway`（由 `mic-channel-web` 改名） | HTTP API、固定 token、SSE、嵌入前端产物 | gateway（待起草） | — |
 | M10 | Web 前端 | `web/`（TS） | 会话列表/切换、流式显示、断线重连 | web-ui（待起草） | — |
-| M11 | 装配根 | `bin/micnext` | 读配置、组装模块、信号、日志；一次性 `-p` 调试入口 | 随 M4；`-p` 随 M6 | — |
+| M11 | 装配根 | `bin/micnext` | 读配置、组装模块、信号、日志；一次性 `-p` 调试入口 | 随 M4；`-p` 随 M6 | ✅ 骨架已实现 |
 
 ## 二、对接方式
 
@@ -49,7 +49,7 @@
 | 装配 | 各模块 → mic-core | 实现 `Module`，在 `install` 里向 `Registry` 登记贡献 | M4 |
 | 工具 | M8 → mic-core | `Registry::tool(impl Tool)`；模型可见说明由工具自带，core 只汇总 | M3 |
 | 模型 | M7 → mic-core | `Registry::provider(impl Provider)`；配置里选用哪个 | M5 |
-| 入站 | M9 → mic-core | `Kernel` 上的写入口：`resolve_root_session`（建/取会话）、`append_user_input`（写入并唤醒调度）；Gateway 不直接写 Store | M4 已占定，M6 落实 |
+| 入站 | M9 → mic-core | `Kernel` 上的写入口：`resolve_root_session`（建/取会话，M4 实现）、`append_user_input`（写入并唤醒调度，M4 占定、M6 实现）；Gateway 不直接写 Store | M4 / M6 |
 | 实时事件 | mic-core → M9（及以后各 Channel） | `Kernel` 上订阅，可按会话或全部：文本/推理增量、工具开始结束、entry 已落盘（带 id）、Query 终态；增量与落盘 entry 的关联方式由 M6 定；事件可丢，真相在 Store | M6 |
 | 稳定历史 | mic-store → M9 | 只读：`entries_after`、`list_root_sessions`、`session_usage`；取得 Store 只读句柄的方式在 M6 定 | M2 / M6 |
 | 前后端 | M9 ↔ M10 | HTTP JSON + SSE；衔接顺序见下 | M9 |
@@ -72,8 +72,9 @@ v0a 已定的简化（各 B2 照此写，不再讨论）：
 - **Web 新建会话** = Gateway 生成 `chat` 后调 `Kernel::resolve_root_session`，首条消息后进入列表。
 - **工具默认放行**，可达范围 = 进程 OS 权限（roadmap §2.3）。
 - **配置文件是唯一真相**：v0a 手写；以后 Web 设置页改的是同一个文件（保留注释写回），
-  保存后重启生效，与微信设置同一套，不做热更新。所以配置路径运行时指定、不编译进二进制；
-  含 key 的配置文件权限应为 600。设置页的写回接口随 Web 设置页的 B2 定，不在 v0a。
+  保存后重启生效，与微信设置同一套，不做热更新。配置与数据位置按 XDG 约定，默认
+  `~/.config/micnext/config.toml` 与 `~/.local/share/micnext/`，可用 `--config` 与
+  `[core] data_dir` 覆盖（见 M4 B2 §四）；含 key 的配置文件权限应为 600。设置页的写回接口随 Web 设置页的 B2 定，不在 v0a。
 
 ## 三、实现顺序与单独验收
 
@@ -82,7 +83,7 @@ v0a 已定的简化（各 B2 照此写，不再讨论）：
 | 步 | 模块 | 单独验收 |
 |---|---|---|
 | 1 | M2 会话列举增量 | 临时工程调用：排序、翻页、预览截断 |
-| 2 | M4 + M11 骨架 | `micnext --config x.toml` 起停：建库、未知配置段报错、Ctrl-C 干净退出 |
+| 2 | M4 + M11 骨架 | `micnext --config x.toml` 起停：建库、未知配置段/字段报错、Ctrl-C 干净退出 |
 | 3 | M3 → M8 | 临时工程直接调用各工具：参数解析错误、执行结果、错误形状 |
 | 3' | M5 → M7 | 临时工程发一轮流式请求，打印增量与用量 |
 | 4 | M6 + `-p` | `micnext -p "列出当前目录"`：落盘回复与工具调用；杀进程后重启收尾为 Interrupted |

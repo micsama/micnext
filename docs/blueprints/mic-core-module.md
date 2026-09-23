@@ -1,6 +1,6 @@
 # B2: mic-core 模块装配（Module / Registry / Service / Kernel 句柄）
 
-**状态**: 待批准；微信设置采用保存后重启生效，凭据写入和重启按钮仍待 Channel/Gateway B2
+**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-core`、`bin/micnext`）；占定方法见 §三。微信设置采用保存后重启生效，凭据写入和重启按钮仍待 Channel/Gateway B2
 **来源**: [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.1、§2.2、§2.4、§四-1
 **依赖不变量**: 定义在 `mic-core`；模块 crate 依赖 `mic-core`（+ 需要的下层 crate），
 模块之间不互相依赖，只由二进制装配。
@@ -19,10 +19,10 @@
 ## 二、范围
 
 本文只定装配框架：`Module`、`ModuleConfig`、`Registry`、`Service`、`Kernel` 句柄、
-启动顺序与错误。**各 port 的 trait 本身不在本文**：`Tool`（mic-tool B2）、`Channel` /
-`DirectRoute`（roadmap §四-2～3 Gateway B2）、`Provider`、`Hook`、`ContextContributor`
-（roadmap §四-8）各自在对应 B2 定义，批准时连同 `Registry` 上的登记方法一起加入——不预留
-没有实现的方法。本文立即生效的登记项只有 `migrations` 与 `service`。
+配置位置、启动顺序与错误，以及二进制入口的命令行。**各 port 的 trait 本身不在本文**：
+`Tool`（mic-tool B2）、`Channel` / `DirectRoute`（Gateway B2）、`Provider`、`Hook`、
+`ContextContributor`（roadmap §四-8）各自在对应 B2 定义，批准时连同 `Registry` 上的登记
+方法一起加入。本文立即生效的登记项只有 `migrations` 与 `service`。
 
 ## 三、公开类型与签名
 
@@ -37,7 +37,7 @@ pub trait Module {
 }
 
 /// 本模块配置段的原始内容，只能由模块自己一次 parse 成强类型。
-pub struct ModuleConfig(/* toml::Table */);
+pub struct ModuleConfig(/* toml::Value */);
 impl ModuleConfig {
     pub fn parse<T: serde::de::DeserializeOwned>(self) -> Result<T, BoxError>;
 }
@@ -52,7 +52,7 @@ impl Registry {
 
 pub trait Service: Send + 'static {
     /// 第二阶段：Store 已打开、迁移已跑完。`stop` 触发后应尽快返回 `Ok(())`。
-    /// 返回 `Err` 或在未收到 `stop` 时返回 → 进程以错误退出（见 §五）。
+    /// 返回 `Err`、panic、或在未收到 `stop` 时返回 → 进程以错误退出（见 §五）。
     fn run(
         self: Box<Self>,
         kernel: Kernel,
@@ -69,10 +69,6 @@ impl Kernel {
         -> Result<mic_store::Session, KernelError>;
     /// Task/Triggered 用。
     pub async fn create_session(&self, s: mic_store::NewSession) -> Result<SessionId, KernelError>;
-    /// 写入后唤醒调度；与 Channel 入站同一路径。
-    pub async fn append_user_input(&self, i: mic_store::UserInput) -> Result<SessionEntryId, KernelError>;
-    /// 与 `send_message` 工具同一执行路径（roadmap §2.4），随 Channel B2 一起落地。
-    pub async fn send_message(&self, m: SendMessage) -> Result<SessionEntryId, KernelError>;
     /// 只许访问本模块 `{name}_` 前缀的表；由模块单元测试把关（mic-store §4.5）。
     pub async fn with_module_tx<R, F>(&self, f: F) -> Result<R, KernelError>
     where
@@ -80,30 +76,41 @@ impl Kernel {
         R: Send + 'static;
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum KernelError {
+    #[error(transparent)]
+    Store(#[from] mic_store::StoreError),
+    // 调度、投递相关变体随 M6 / Channel B2 加入。
+}
+
 /// 装配入口，由二进制调用。
 pub struct Assembly { /* 私有 */ }
 impl Assembly {
     pub fn new(modules: Vec<Box<dyn Module>>, config: toml::Table) -> Result<Self, AssembleError>;
-    /// 打开 Store、启动 Service 与内核主循环，直到 `stop` 或任一 Service 失败。
+    /// 打开 Store、启动 Service（M6 起含内核主循环），直到 `stop` 或任一 Service 失败。
     pub async fn run(self, stop: CancellationToken) -> Result<(), RunError>;
 }
 ```
 
-`SendMessage`、`KernelError` 的具体变体随调度器 / Channel B2 定；本文只定它们挂在
-`Kernel` 上。
+### 占定、暂不实现的 `Kernel` 方法
+
+| 方法 | 语义 | 落地时机 |
+|---|---|---|
+| `append_user_input(UserInput) -> SessionEntryId` | 写入后唤醒调度；与 Channel 入站同一路径 | M6（与调度器一起；不做"只写不唤醒"的中间版本） |
+| `send_message(SendMessage) -> SessionEntryId` | 与 `send_message` 工具同一执行路径（roadmap §2.4）；结果只承诺已排队 | 随该工具与出站设计（v0b） |
+
+`SendMessage` 字段先占定为 `text`、`to: Option<_>`（收件人）、`via: Option<_>`（Channel；
+省略 = 回来源会话），以后可能加文件等附件；各字段的具体类型随落地时的 B2 定。
 
 ## 四、配置
 
-单个 TOML 文件。`[core]` 段归内核（数据目录、模型、persons 等，形状随各 B2 定），
-其余每个顶层段对应一个模块：
+单个 TOML 文件。`[core]` 段归内核，其余每个顶层段对应一个模块：
 
 ```toml
 [core]
-data_dir = "~/.micnext"
+data_dir = "~/.micnext"   # 可省略
 
 [fs]            # 空表也算启用
-
-[shell]
 
 [cron]
 tick_secs = 30
@@ -112,6 +119,24 @@ tick_secs = 30
 - 段存在 = 启用；段缺失 = 编译进来但不启用（不 install，不建表，不起 Service）。
 - 顶层段名不是 `core` 也不是任何已编译模块名 → `AssembleError::UnknownModule`。
 - 模块名不得为 `core`：内部互信，不做运行时检查。
+- **拒绝未知字段**：`[core]` 与各模块的配置结构体一律 `#[serde(deny_unknown_fields)]`；
+  框架无法替模块强制，靠 review 守。
+- **`[core]` 现有字段**：`data_dir`（可选）。owner person、模型选择等随 M6 / M5 B2 加入。
+  `[core]` 段本身可省略；解析失败 → `AssembleError::Core`。
+
+### 位置（XDG 约定，macOS 同样适用）
+
+| 内容 | 默认 | 覆盖 |
+|---|---|---|
+| 配置文件 | `$XDG_CONFIG_HOME/micnext/config.toml`，未设则 `~/.config/micnext/config.toml` | `micnext --config <path>` |
+| 数据库 | `$XDG_DATA_HOME/micnext/micnext.db`，未设则 `~/.local/share/micnext/micnext.db` | `[core] data_dir`（库为 `<data_dir>/micnext.db`；须为绝对路径或 `~/` 开头，相对路径报错——常驻时工作目录不可预期） |
+| 日志 | stderr；以后落文件放 `$XDG_STATE_HOME/micnext/` | — |
+
+- 配置文件不存在：未给 `--config` 时在默认位置生成带注释的模板（权限 600，模板即
+  `bin/micnext/src/default-config.toml`），在 stderr 用中文提示路径后照常启动；显式
+  `--config` 指向的文件不存在 → 报错（多半是路径写错，不替用户猜）。
+- 数据目录不存在 → `run` 自动创建。
+- 配置文件路径解析归二进制，数据目录解析归 `mic-core`（`[core]` 的一部分）。
 
 Web 设置页需要微信注册/连接入口。配置保存后重启生效，不做热更新；注册凭据的
 保存格式、写入错误和连接状态回显仍待接入接口核实后在 Channel/Gateway B2 定义。
@@ -119,53 +144,74 @@ Web 设置页需要微信注册/连接入口。配置保存后重启生效，不
 ## 五、启动与运行顺序
 
 1. 二进制按 cargo feature 组装 `Vec<Box<dyn Module>>`，读配置文件（外部输入，TOML 解析失败即报错）。
-2. `Assembly::new`：逐个已启用模块 `install`，冲突即返回错误。
-3. `run`：汇总 migrations → `Store::open` → `interrupt_stale_queries` 等内核启动步骤 →
-   为每个 Service `tokio::spawn`，同时跑内核主循环。
+2. `Assembly::new`：检查模块重名与未知段 → 解析 `[core]` → 按装配根顺序逐个已启用
+   模块 `install`，冲突即返回错误。
+3. `run`：创建数据目录 → 汇总 migrations → `Store::open` → `interrupt_stale_queries` →
+   为每个 Service `tokio::spawn`（M6 起同时跑内核主循环）。
 4. 退出：外部 `stop`（Ctrl-C/SIGTERM）→ 广播给所有 Service 并等待返回；任一 Service
-   失败 → 广播 `stop`，等其余返回后 `RunError::Service{module, source}`。
+   失败 → 广播 `stop`，等其余返回后报第一个错误。没有 Service 时 `run` 等待外部 `stop`。
+
+时间戳单位统一为 Unix 毫秒（见 mic-store B2）。
 
 ## 六、错误
 
 ```rust
 #[derive(Debug, thiserror::Error)]
 pub enum AssembleError {
-    #[error("config section [{name}] has no compiled-in module")]
+    #[error("配置段 [{name}] 没有对应的模块（名字写错，或该模块未编译进来）")]
     UnknownModule { name: String },
-    #[error("module `{name}` registered twice")]
+    #[error("模块 `{name}` 重复注册")]
     DuplicateModule { name: &'static str },
-    #[error("module `{module}` failed to install: {source}")]
+    #[error("[core] 配置有误")]
+    Core { source: BoxError },
+    #[error("模块 `{module}` 装配失败")]
     Install { module: &'static str, source: BoxError },
     // 随各 port 加入：DuplicateTool / DuplicateChannel / DuplicateProvider …
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
+    #[error("无法创建数据目录 {path}")]
+    DataDir { path: PathBuf, source: std::io::Error },
     #[error(transparent)]
     Store(#[from] mic_store::StoreError),
-    #[error("service of module `{module}` failed: {source}")]
+    /// `Err` 返回或 panic。
+    #[error("模块 `{module}` 的后台任务失败")]
     Service { module: &'static str, source: BoxError },
+    #[error("模块 `{module}` 的后台任务未收到停止信号就退出了")]
+    ServiceExited { module: &'static str },
 }
 ```
 
-`install` 里配置 parse 失败直接经 `ModuleConfig::parse` 的 `BoxError` 归入 `Install`。
+`install` 里配置 parse 失败直接经 `ModuleConfig::parse` 的 `BoxError` 归入 `Install`；
+模块段不是表同样归入 `Install`。
 
-## 七、约束
+## 七、二进制入口（M11）
+
+- 命令行：`micnext [--config <path>]`；其它参数 → 报用法错误。一次性调试 `-p` 随 M6 B2。
+- Ctrl-C 与 SIGTERM 触发 `stop`，干净退出码 0；装配或运行错误 → 非 0。
+- 面向用户的提示与错误（首次生成配置、用法、配置错误）用中文直接写 stderr：
+  `错误：…` 加逐行 `原因：…`，先说明怎么修；运行日志仍走 tracing。
+- 日志 `tracing` 输出到 stderr，默认 `info`，`RUST_LOG` 覆盖（格式非法即报错）。
+
+## 八、约束
 
 - 模块之间不互相依赖。模块 A 需要模块 B 的能力 → 在 core 定一个窄 port，B 贡献实现
   （同 roadmap §2.4 `send_message` 模式）。
 - 一个模块可贡献任意多种 port；一个模块 = 一个 crate。
 - 同一槽位的多个贡献（context、hook）按模块在装配根里的顺序排列，不设数字优先级。
 
-## 八、副作用与依赖
+## 九、副作用与依赖
 
-- `install` 无副作用；`run` 打开数据库、起后台任务。
-- `mic-core` 新增外部依赖：`toml`（配置解析）、`tokio-util`（仅 `CancellationToken`，
-  体积小）。已有：`mic-message`、`mic-store`、`mic-tool`。
+- `install` 无副作用；`run` 创建数据目录、打开数据库、起后台任务。
+- `mic-core` 外部依赖：`toml`（配置解析）、`tokio-util`（仅 `CancellationToken`）、
+  `tokio`、`serde`、`thiserror`、`tracing`。内部：`mic-message`、`mic-store`、`mic-tool`。
+- `bin/micnext` 外部依赖：`anyhow`、`tokio`、`tokio-util`、`toml`、`tracing`、
+  `tracing-subscriber`；内部只依赖 `mic-core`（其余 crate 随各模块装配时加入）。
 - `mic-store` 需要公开 `Migration`、`NewSession`、`UserInput` 与 `rusqlite` re-export
   ——已在 mic-store B2 内，无新增。
 
-## 九、调用方
+## 十、调用方
 
 | 调用方 | 用途 | 兼容性 |
 |---|---|---|

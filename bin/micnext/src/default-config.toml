@@ -1,0 +1,5 @@
+# micnext 配置。段存在 = 启用该模块；改完重启生效。
+# 数据库默认在 ~/.local/share/micnext/micnext.db，需要改位置时取消下面两行的注释。
+
+# [core]
+# data_dir = "~/.local/share/micnext"

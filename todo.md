@@ -6,7 +6,7 @@
 | 状态 | 主题 | 文档 |
 |---|---|---|
 | B1 第二轮收敛中 | 产品定位、Web + 微信、定时看板、同步/异步与 v0–v3 路线；全项目待决策项见 §四 | [`docs/brainstorm/product-roadmap.md`](docs/brainstorm/product-roadmap.md) |
-| B2 已批准，待实现；v0 会话列举/回放增量待补 | mic-store | [`docs/blueprints/mic-store.md`](docs/blueprints/mic-store.md) |
+| 待起 B2 | mic-store 增量：v0 会话列举/分页、投递完成判据 | [`docs/blueprints/mic-store.md`](docs/blueprints/mic-store.md) |
 | B2 待批准 | mic-core 模块装配：Module / Registry / Service / Kernel 句柄 | [`docs/blueprints/mic-core-module.md`](docs/blueprints/mic-core-module.md) |
 | B1 部分已定，接入方式待核实后起 B2 | 微信配置保存后重启、凭据边界、Gateway 鉴权与投递完成判据；Web 跨 Channel 列表/切换及 SSE 重连 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §二-10～12、§四-1～3 |
 | B1 待核对，再起 B2 | 定时任务看板事实来源与异步 shell/子 agent 生命周期 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-4～5 |

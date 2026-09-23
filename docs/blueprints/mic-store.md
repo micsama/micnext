@@ -1,6 +1,6 @@
 # B2: mic-store（连带 mic-message 修订）
 
-**状态**: 既有契约已批准（2026-09-23），待实现；v0 会话列举/分页及微信投递完成判据须另起 B2 补充，未批准
+**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`）；v0 会话列举/分页及微信投递完成判据须另起 B2 补充，未批准
 **来源**: [`mic-store-design.md`](../brainstorm/mic-store-design.md)（B1）、
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §二、§四
 **依赖不变量**: `mic-store` 只依赖 `mic-message`，不依赖 `mic-tool`/`mic-core`/任何模块。
@@ -20,8 +20,8 @@ persons / person_identities / model_calls 六张内核表，外加模块私有�
 - 具体结构体 `Store`，不 trait 化；测试用内存 SQLite。
 - 内部单个 `rusqlite::Connection`，`Arc<std::sync::Mutex<_>>` +
   `tokio::task::spawn_blocking`；公开方法全部 `async fn`。锁中毒直接 `expect`。
-- 外部依赖：`rusqlite`（`bundled`）、`serde_json`、`thiserror`、`tokio`（`rt`）、
-  `mic-message`。
+- 外部依赖：`rusqlite`（`bundled`）、`serde`（derive，tool_scope/reason/outcome 等 JSON 列）、`serde_json`、
+  `thiserror`、`tokio`（`rt`）、`mic-message`。
 - 不生成时间戳：所有 `created_at`/`now` 由调用方传入（"发生时间"只有 emit 侧知道）。
 
 ## 二、mic-message 依赖
@@ -234,7 +234,8 @@ Query 的 `claimed_end_id`（无则 0）；在下界之后的可 claim entry 序
   `{channel}:{external_id}`。配置名禁止含 `:`（由 mic-core 校验配置时 Fail Fast），
   两类名字不会冲突。
 - `bind_identity` 可改绑：自动注册的身份后来在配置里认领时，新消息归新 person，
-  历史 entry 保留原 person_id。返回旧 person 供调用方记日志。
+  历史 entry 保留原 person_id。返回旧 person 供调用方记日志。首次绑定时
+  `display_name` 为空串，该身份下次入站经 `resolve_identity` 刷新。
 - 权限上限不进 store，由 mic-core 从配置计算。
 
 ### 4.4 投递

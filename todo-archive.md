@@ -7,3 +7,4 @@
 |---|---|---|
 | B1 收尾，契约并入 B2 | mic-message 类型设计 | [`docs/brainstorm/mic-message-types.md`](docs/brainstorm/mic-message-types.md) / [`docs/blueprints/mic-message.md`](docs/blueprints/mic-message.md) |
 | 实现完成（CLOSED） | mic-message 类型 | [`docs/blueprints/mic-message.md`](docs/blueprints/mic-message.md) |
+| 实现完成（CLOSED） | mic-store 核心持久化 | [`docs/blueprints/mic-store.md`](docs/blueprints/mic-store.md) |

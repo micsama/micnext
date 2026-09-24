@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
-use mic_core::{Assembly, KernelEvent, KernelEventKind, Module, OnceOutcome, OneShot};
+use mic_core::{
+    AssembleError, Assembly, KernelEvent, KernelEventKind, Module, OnceOutcome, OneShot,
+};
 use mic_message::{ContentPart, ExecOutcome, Message, MessageBody, ReplyBlock, ToolResultOutcome};
 use mic_store::RunState;
 use tokio::signal::unix::{signal, SignalKind};
@@ -18,6 +20,8 @@ use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 
 const DEFAULT_CONFIG: &str = include_str!("default-config.toml");
+/// 默认模板里模型段的起始注释；缺模型时把这段作为示例给出。
+const MODELS_EXAMPLE_MARK: &str = "# 模型：";
 const USAGE: &str = "用法：micnext [--config <配置文件路径>] [-p <提示词>]";
 /// `-p` 呈现工具参数与结果时的截断长度（字符）。
 const PREVIEW_CHARS: usize = 200;
@@ -45,6 +49,14 @@ async fn main() -> ExitCode {
                     "  原因：{}",
                     cause.to_string().trim_end().replace('\n', "\n        ")
                 );
+            }
+            if e.chain().any(|c| {
+                matches!(
+                    c.downcast_ref::<AssembleError>(),
+                    Some(AssembleError::MissingDefaultModel)
+                )
+            }) {
+                eprintln!("\n可以照抄默认模板里的这段：\n\n{}", models_example());
             }
             ExitCode::FAILURE
         }
@@ -298,6 +310,13 @@ fn write_default_config(path: &Path) -> Result<()> {
         .open(path)
         .and_then(|mut f| f.write_all(DEFAULT_CONFIG.as_bytes()))
         .with_context(ctx)
+}
+
+fn models_example() -> &'static str {
+    let at = DEFAULT_CONFIG
+        .find(MODELS_EXAMPLE_MARK)
+        .expect("默认模板含模型段");
+    DEFAULT_CONFIG[at..].trim_end()
 }
 
 /// `$XDG_CONFIG_HOME/micnext/config.toml` 或 `~/.config/micnext/config.toml`。

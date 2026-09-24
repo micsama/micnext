@@ -21,7 +21,7 @@ pub enum AssembleError {
     Models { source: BoxError },
     #[error("模型 `{model}` 的 kind = \"{kind}\" 没有对应的模块（写错，或未编译进来）")]
     UnknownModelKind { model: String, kind: String },
-    #[error("[models] 缺少 default：请指定用哪个模型条目")]
+    #[error("还没有指定要用的模型：在 [models] 下写 default = \"<条目名>\"，模型本身写在 [models.<条目名>]")]
     MissingDefaultModel,
     #[error("[models] default = \"{name}\" 不是任何模型条目")]
     UnknownDefaultModel { name: String },

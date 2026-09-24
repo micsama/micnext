@@ -152,7 +152,7 @@ person 为 owner。与 Web、微信会话同一条主路径，只有入口参数
 ```rust
 pub enum AssembleError {
     // …既有变体
-    #[error("[models] 缺少 default：请指定用哪个模型条目")]
+    #[error("还没有指定要用的模型：在 [models] 下写 default = \"<条目名>\"，模型本身写在 [models.<条目名>]")]
     MissingDefaultModel,
 }
 
@@ -460,7 +460,7 @@ micnext [--config <path>] -p <prompt>     一次性（调试用）
    悬空 ToolCall 已补 `cancelled` 结果并有中断通知；第二次正常完成。
 7. 常驻进程运行时再起 `-p`（同一数据目录）→ 报数据目录被占用。
 8. 执行中插话（并入与请求顺序）的端到端验证随 M9（Web）做。
-9. 配置里删掉 `[models] default` → 启动报 `MissingDefaultModel`。
+9. 配置里删掉 `[models] default` → 启动报 `MissingDefaultModel`，二进制附上默认模板里的模型段作示例。
 
 ## 十、已知演进
 

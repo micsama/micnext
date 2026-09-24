@@ -3,8 +3,8 @@ use std::fs::{File, TryLockError};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mic_message::{MessageContent, PersonId, SessionId};
-use mic_store::{Migration, NewSession, QueryState, SessionKind, Store, ToolScope, UserInput};
+use mic_message::{ContentPart, PersonId, SessionId};
+use mic_store::{Migration, NewSession, RunState, SessionKind, Store, ToolScope};
 use mic_tool::ToolHandle;
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::event::{Events, KernelEvent};
 use crate::limits::WAKE_CHANNEL_CAPACITY;
-use crate::query::{now_ms, Engine};
+use crate::run::{now_ms, Engine};
 use crate::scheduler::panic_message;
 use crate::{
     kernel, recovery, scheduler, Activation, AssembleError, BoxError, Kernel, Module, ModuleConfig,
@@ -47,9 +47,9 @@ pub struct OneShot {
 pub enum OnceOutcome {
     Finished {
         session_id: SessionId,
-        state: QueryState,
+        state: RunState,
     },
-    /// 收到 `stop` 时本轮未结束；该 Query 留在 `Executing`，下次启动收尾为 `Interrupted`。
+    /// 收到 `stop` 时本轮未结束；该 run 留在 `Executing`，下次启动收尾为 `Interrupted`。
     Stopped { session_id: SessionId },
 }
 
@@ -233,7 +233,7 @@ impl Assembly {
                 }
             }
         }
-        // 先停执行（进行中的 Query 留在 Executing，下次启动收尾），再等 Service 退出。
+        // 先停执行（进行中的 run 留在 Executing，下次启动收尾），再等 Service 退出。
         drop(scheduler);
         while let Some(joined) = tasks.join_next_with_id().await {
             settle(joined, &owners, &shutdown, &mut failure);
@@ -280,24 +280,19 @@ impl Assembly {
         kernel::append_user_input(
             &store,
             &events,
-            UserInput {
-                session_id,
-                person_id: started.owner,
-                content: MessageContent::Text {
-                    content: once.prompt,
-                },
-                created_at: now_ms(),
-            },
+            session_id,
+            started.owner,
+            vec![ContentPart::Text { text: once.prompt }],
         )
         .await?;
-        let query = store
+        let run = store
             .claim_next(session_id, now_ms())
             .await?
-            .expect("刚写入的输入必然可 claim");
+            .expect("刚写入的输入必然可认领");
 
         let engine = Arc::new(self.engine(store, events));
         let mut task = JoinSet::new();
-        task.spawn(async move { engine.run_query(&session, ONCE_CHANNEL, query).await });
+        task.spawn(async move { engine.run(&session, ONCE_CHANNEL, run).await });
         let mut show = |event: Result<KernelEvent, crate::Lagged>| match event {
             Ok(e) if e.session_id == session_id => on_event(&e),
             Ok(_) => {}
@@ -312,7 +307,7 @@ impl Assembly {
                     while let Some(event) = rx.try_recv() {
                         show(event);
                     }
-                    let state = joined.map_err(|e| RunError::QueryPanicked {
+                    let state = joined.map_err(|e| RunError::RunPanicked {
                         session_id,
                         message: panic_message(e),
                     })??;

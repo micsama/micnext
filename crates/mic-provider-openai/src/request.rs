@@ -1,5 +1,5 @@
 use mic_core::{ModelRequest, ProviderError};
-use mic_message::{ContentPart, MessageAuthor, MessageContent, ModelView, Reasoning};
+use mic_message::{ContentPart, ModelView, Reasoning, ReplyBlock};
 
 use crate::config::{Dialect, Resolved};
 use crate::wire::{
@@ -18,24 +18,17 @@ pub(crate) fn build<'a>(
         });
     }
 
-    let mut turn: Option<AssistantTurn<'a>> = None;
     for m in &req.messages {
-        let view = m.model_view();
-        if let ModelView::Assistant(content) = view {
-            let MessageAuthor::Assistant { model } = &m.author else {
-                unreachable!("Assistant 视图只来自 Assistant 作者");
-            };
-            turn.get_or_insert_with(AssistantTurn::default)
-                .push(content, model == &cfg.model);
+        let Some(view) = m.model_view() else {
             continue;
-        }
-        if let Some(t) = turn.take() {
-            messages.push(t.finish(cfg.dialect));
-        }
+        };
         messages.push(match view {
             ModelView::User(parts) => WireMessage::User {
                 content: text_of(parts)?,
             },
+            ModelView::Assistant { model, blocks } => {
+                assistant(blocks, cfg.dialect, model == cfg.model)
+            }
             ModelView::Tool {
                 tool_call_id,
                 output,
@@ -43,11 +36,7 @@ pub(crate) fn build<'a>(
                 tool_call_id,
                 content: text_of(output)?,
             },
-            ModelView::Assistant(_) => unreachable!(),
         });
-    }
-    if let Some(t) = turn.take() {
-        messages.push(t.finish(cfg.dialect));
     }
 
     Ok(ChatRequest {
@@ -74,27 +63,18 @@ pub(crate) fn build<'a>(
     })
 }
 
-/// 连续 `Assistant` 视图合成的一个 assistant turn。
-#[derive(Default)]
-struct AssistantTurn<'a> {
-    text: String,
-    reasoning: String,
-    tool_calls: Vec<WireToolCall<'a>>,
-    /// 有条目不是本条目的模型产出的（换过模型）。
-    other_model: bool,
-}
-
-impl<'a> AssistantTurn<'a> {
-    fn push(&mut self, content: &'a MessageContent, same_model: bool) {
-        self.other_model |= !same_model;
-        match content {
-            MessageContent::Text { content } => self.text.push_str(content),
-            MessageContent::Reasoning(Reasoning::Visible { text, .. }) => {
-                self.reasoning.push_str(text)
-            }
+/// 一条 `Reply` 即一个 assistant turn。`same_model`：该回复由本条目的模型产出。
+fn assistant(blocks: &[ReplyBlock], dialect: Dialect, same_model: bool) -> WireMessage<'_> {
+    let mut text = String::new();
+    let mut reasoning = String::new();
+    let mut tool_calls = Vec::new();
+    for block in blocks {
+        match block {
+            ReplyBlock::Text { text: t } => text.push_str(t),
+            ReplyBlock::Reasoning(Reasoning::Visible { text: r, .. }) => reasoning.push_str(r),
             // 本 crate 不产出密文推理；其它来源的密文无法回传给本协议。
-            MessageContent::Reasoning(Reasoning::Redacted { .. }) => {}
-            MessageContent::ToolCall { id, name, args } => self.tool_calls.push(WireToolCall {
+            ReplyBlock::Reasoning(Reasoning::Redacted { .. }) => {}
+            ReplyBlock::ToolCall { id, name, args } => tool_calls.push(WireToolCall {
                 id,
                 kind: "function",
                 function: WireFunctionCall {
@@ -105,21 +85,17 @@ impl<'a> AssistantTurn<'a> {
                     },
                 },
             }),
-            other => unreachable!("Assistant 条目不承载 {other:?}"),
         }
     }
-
-    fn finish(self, dialect: Dialect) -> WireMessage<'a> {
-        // 思考模式下工具往返必须回传推理；其余推理不发，省 token。
-        let echo = dialect == Dialect::DeepSeek
-            && !self.other_model
-            && !self.tool_calls.is_empty()
-            && !self.reasoning.is_empty();
-        WireMessage::Assistant {
-            content: (!self.text.is_empty()).then_some(self.text),
-            reasoning_content: echo.then_some(self.reasoning),
-            tool_calls: self.tool_calls,
-        }
+    // 思考模式下工具往返必须回传推理；其余推理不发，省 token。
+    let echo = dialect == Dialect::DeepSeek
+        && same_model
+        && !tool_calls.is_empty()
+        && !reasoning.is_empty();
+    WireMessage::Assistant {
+        content: (!text.is_empty()).then_some(text),
+        reasoning_content: echo.then_some(reasoning),
+        tool_calls,
     }
 }
 

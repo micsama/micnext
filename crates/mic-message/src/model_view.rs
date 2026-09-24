@@ -3,15 +3,18 @@
 
 use chrono::{Local, SecondsFormat, TimeZone};
 
-use crate::{ContentPart, ExecOutcome, Message, MessageAuthor, MessageContent, ToolResultOutcome};
+use crate::{ContentPart, ExecOutcome, Message, MessageBody, ReplyBlock, ToolResultOutcome};
 
-/// 一条历史条目在模型请求里的呈现。
+/// 一条历史消息在模型请求里的呈现。
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModelView<'a> {
     /// user role。首个片段是 `Text`，以方括号头开头。
     User(Vec<ContentPart>),
-    /// 模型自己的输出（`Text`/`Reasoning`/`ToolCall`），由 Provider 合成 assistant turn。
-    Assistant(&'a MessageContent),
+    /// 一条 `Reply` 即一个 assistant turn；`model` 为请求模型名。
+    Assistant {
+        model: &'a str,
+        blocks: &'a [ReplyBlock],
+    },
     /// 工具结果，对应 `tool_call_id` 的那次调用。
     Tool {
         tool_call_id: &'a str,
@@ -20,16 +23,19 @@ pub enum ModelView<'a> {
 }
 
 impl Message {
-    pub fn model_view(&self) -> ModelView<'_> {
-        match (&self.author, &self.content) {
-            (MessageAuthor::Assistant { .. }, content) => ModelView::Assistant(content),
-            (
-                _,
-                MessageContent::ToolResult {
-                    tool_call_id,
-                    outcome,
-                },
-            ) => ModelView::Tool {
+    /// `Boundary` 不进上下文，返回 `None`。
+    pub fn model_view(&self) -> Option<ModelView<'_>> {
+        Some(match &self.body {
+            MessageBody::UserInput { person, parts } => ModelView::User(with_header(
+                format!("[user id={} at={}]", person.0, local_time(self.created_at)),
+                parts.clone(),
+            )),
+            MessageBody::Reply { model, blocks } => ModelView::Assistant { model, blocks },
+            MessageBody::ToolResult {
+                tool_call_id,
+                outcome,
+                ..
+            } => ModelView::Tool {
                 tool_call_id,
                 output: match outcome {
                     ToolResultOutcome::Terminal(outcome) => outcome_parts(outcome),
@@ -39,38 +45,24 @@ impl Message {
                     ))],
                 },
             },
-            (_, MessageContent::Completion { exec_id, outcome }) => ModelView::User(with_header(
+            MessageBody::Completion {
+                exec_id, outcome, ..
+            } => ModelView::User(with_header(
                 format!("[completion exec_id={}]", header_value(exec_id)),
                 outcome_parts(outcome),
             )),
-            (MessageAuthor::User { id }, content) => ModelView::User(with_header(
-                format!("[user id={} at={}]", id.0, local_time(self.created_at)),
-                user_parts(content),
-            )),
-            (MessageAuthor::HarnessNote, content) => {
-                ModelView::User(with_header("[runtime-note]".into(), user_parts(content)))
+            MessageBody::HarnessNote { text: note } => {
+                ModelView::User(vec![text(format!("[runtime-note]\n{note}"))])
             }
-            (MessageAuthor::Notification { source }, content) => ModelView::User(with_header(
-                format!(
-                    "[notification src={} at={}]",
+            MessageBody::Notification { source, text: note } => {
+                ModelView::User(vec![text(format!(
+                    "[notification src={} at={}]\n{note}",
                     header_value(source),
                     local_time(self.created_at)
-                ),
-                user_parts(content),
-            )),
-            (MessageAuthor::Tool { .. }, content) => {
-                unreachable!("Tool 条目只承载 ToolResult/Completion，实际为 {content:?}")
+                ))])
             }
-        }
-    }
-}
-
-/// 用户、通知、框架备注只承载 `Text`/`Attachment`（mic-store 写入口保证）。
-fn user_parts(content: &MessageContent) -> Vec<ContentPart> {
-    match content {
-        MessageContent::Text { content } => vec![text(content.clone())],
-        MessageContent::Attachment(file) => vec![ContentPart::File(file.clone())],
-        other => unreachable!("输入类条目不承载 {other:?}"),
+            MessageBody::Boundary { .. } => return None,
+        })
     }
 }
 

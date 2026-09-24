@@ -49,6 +49,10 @@ enum State {
 type Item = Result<ModelEvent, ProviderError>;
 
 impl Provider for OpenAiProvider {
+    fn model(&self) -> &str {
+        &self.cfg.model
+    }
+
     fn stream(&self, req: ModelRequest) -> BoxStream<Item> {
         let body = match request::build(&self.cfg, &req) {
             Ok(r) => serde_json::to_vec(&r).expect("请求体可序列化"),

@@ -1,4 +1,4 @@
-//! 会话级调度：同一会话至多一个 worker，跨会话并行。契约：docs/blueprints/query-execution.md §4.2。
+//! 会话级调度：同一会话至多一个 worker，跨会话并行。契约：docs/blueprints/run-execution.md §4.2。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -9,12 +9,12 @@ use tokio::sync::mpsc;
 use tokio::task::{Id, JoinSet};
 
 use crate::kernel::session_channel;
-use crate::query::{now_ms, Engine};
+use crate::run::{now_ms, Engine};
 use crate::RunError;
 
 enum Slot {
     Running,
-    /// worker 在跑时又被唤醒：结束后重起一次，接住它没来得及 claim 的输入。
+    /// worker 在跑时又被唤醒：结束后重起一次，接住它没来得及认领的输入。
     Dirty,
 }
 
@@ -48,7 +48,7 @@ pub(crate) async fn run(
                     Ok(done) => done,
                     Err(e) => {
                         let session_id = workers.owners[&e.id()];
-                        return RunError::QueryPanicked { session_id, message: panic_message(e) };
+                        return RunError::RunPanicked { session_id, message: panic_message(e) };
                     }
                 };
                 if let Err(e) = result {
@@ -77,7 +77,7 @@ impl Workers {
     }
 }
 
-/// 逐个执行该会话可 claim 的 Query，直到没有。
+/// 逐个执行该会话可认领的 run，直到没有。
 async fn worker(engine: Arc<Engine>, session_id: SessionId) -> Result<(), StoreError> {
     let session = engine
         .store
@@ -85,8 +85,8 @@ async fn worker(engine: Arc<Engine>, session_id: SessionId) -> Result<(), StoreE
         .await?
         .expect("被唤醒的会话必然存在");
     let channel = session_channel(&engine.store, &session).await?;
-    while let Some(query) = engine.store.claim_next(session_id, now_ms()).await? {
-        engine.run_query(&session, &channel, query).await?;
+    while let Some(run) = engine.store.claim_next(session_id, now_ms()).await? {
+        engine.run(&session, &channel, run).await?;
     }
     Ok(())
 }

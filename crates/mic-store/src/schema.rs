@@ -13,22 +13,22 @@ const CORE_MIGRATIONS: &[Migration] = &[Migration {
 }];
 
 const CORE_V1: &str = "
-CREATE TABLE persons (
+CREATE TABLE core_persons (
   id          INTEGER PRIMARY KEY,
   name        TEXT NOT NULL UNIQUE,
   created_at  INTEGER NOT NULL
 );
 
-CREATE TABLE person_identities (
+CREATE TABLE core_person_identities (
   channel       TEXT NOT NULL,
   external_id   TEXT NOT NULL,
-  person_id     INTEGER NOT NULL REFERENCES persons(id),
+  person_id     INTEGER NOT NULL REFERENCES core_persons(id),
   display_name  TEXT NOT NULL,
   created_at    INTEGER NOT NULL,
   PRIMARY KEY (channel, external_id)
 );
 
-CREATE TABLE sessions (
+CREATE TABLE core_sessions (
   id                  INTEGER PRIMARY KEY,
   kind                TEXT NOT NULL,
   channel             TEXT,
@@ -36,7 +36,7 @@ CREATE TABLE sessions (
   parent_tool_call_id TEXT,
   trigger_module      TEXT,
   trigger_ref         TEXT,
-  parent_session_id   INTEGER REFERENCES sessions(id),
+  parent_session_id   INTEGER REFERENCES core_sessions(id),
   delivery_channel    TEXT,
   delivery_version    INTEGER,
   delivery_payload    TEXT,
@@ -44,54 +44,53 @@ CREATE TABLE sessions (
   tool_scope          TEXT NOT NULL,
   created_at          INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX idx_root_chat ON sessions(channel, chat) WHERE kind = 'root';
-CREATE INDEX idx_sessions_delivery ON sessions(delivery_channel)
+CREATE UNIQUE INDEX idx_root_chat ON core_sessions(channel, chat) WHERE kind = 'root';
+CREATE INDEX idx_sessions_delivery ON core_sessions(delivery_channel)
   WHERE delivery_channel IS NOT NULL;
 
-CREATE TABLE session_entries (
-  id            INTEGER PRIMARY KEY,
-  session_id    INTEGER NOT NULL REFERENCES sessions(id),
-  entry_kind    TEXT NOT NULL,
-  author_kind   TEXT,
-  author_ident  TEXT,
-  content_kind  TEXT,
-  person_id     INTEGER REFERENCES persons(id),
-  payload       TEXT NOT NULL,
-  created_at    INTEGER NOT NULL,
-  delivered_at  INTEGER
+CREATE TABLE core_runs (
+  id           INTEGER PRIMARY KEY,
+  session_id   INTEGER NOT NULL REFERENCES core_sessions(id),
+  state        TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  finished_at  INTEGER
 );
-CREATE INDEX idx_entries_session ON session_entries(session_id, id);
-CREATE INDEX idx_entries_undelivered ON session_entries(session_id)
-  WHERE delivered_at IS NULL AND author_kind IN ('assistant', 'notification');
+CREATE INDEX idx_runs_executing ON core_runs(session_id) WHERE state = 'executing';
 
-CREATE TABLE queries (
-  id               INTEGER PRIMARY KEY,
-  session_id       INTEGER NOT NULL REFERENCES sessions(id),
-  person_id        INTEGER NOT NULL REFERENCES persons(id),
-  claimed_start_id INTEGER NOT NULL,
-  claimed_end_id   INTEGER NOT NULL,
-  state            TEXT NOT NULL,
-  reason           TEXT,
-  created_at       INTEGER NOT NULL,
-  finished_at      INTEGER
-);
-CREATE INDEX idx_queries_session ON queries(session_id, id);
-
-CREATE TABLE model_calls (
+CREATE TABLE core_model_calls (
   id                 INTEGER PRIMARY KEY,
-  session_id         INTEGER NOT NULL REFERENCES sessions(id),
-  query_id           INTEGER REFERENCES queries(id),
+  session_id         INTEGER NOT NULL REFERENCES core_sessions(id),
+  run_id             INTEGER REFERENCES core_runs(id),
   model              TEXT NOT NULL,
-  input_tokens       INTEGER NOT NULL,
-  output_tokens      INTEGER NOT NULL,
-  cache_read_tokens  INTEGER NOT NULL,
-  cache_write_tokens INTEGER NOT NULL,
-  reasoning_tokens   INTEGER NOT NULL,
-  outcome            TEXT NOT NULL,
+  error              TEXT,
+  input_tokens       INTEGER,
+  output_tokens      INTEGER,
+  cache_read_tokens  INTEGER,
+  cache_write_tokens INTEGER,
+  reasoning_tokens   INTEGER,
   started_at         INTEGER NOT NULL,
   finished_at        INTEGER NOT NULL
 );
-CREATE INDEX idx_model_calls_session ON model_calls(session_id);
+CREATE INDEX idx_model_calls_session ON core_model_calls(session_id);
+
+CREATE TABLE core_messages (
+  id             INTEGER PRIMARY KEY,
+  session_id     INTEGER NOT NULL REFERENCES core_sessions(id),
+  run_id         INTEGER REFERENCES core_runs(id),
+  model_call_id  INTEGER REFERENCES core_model_calls(id),
+  payload        TEXT NOT NULL,
+  created_at     INTEGER NOT NULL,
+  delivered_at   INTEGER,
+  kind           TEXT NOT NULL GENERATED ALWAYS AS (json_extract(payload, '$.kind')) VIRTUAL,
+  person_id      INTEGER GENERATED ALWAYS AS (json_extract(payload, '$.person')) VIRTUAL
+                 REFERENCES core_persons(id)
+);
+CREATE INDEX idx_messages_session ON core_messages(session_id, id);
+CREATE INDEX idx_messages_run ON core_messages(run_id);
+CREATE INDEX idx_messages_unclaimed ON core_messages(session_id, id)
+  WHERE run_id IS NULL AND kind IN ('UserInput', 'Completion');
+CREATE INDEX idx_messages_undelivered ON core_messages(session_id)
+  WHERE delivered_at IS NULL AND kind IN ('Reply', 'Notification');
 ";
 
 /// 设置连接级 pragma，先应用内核迁移，再按传入顺序应用各模块迁移。

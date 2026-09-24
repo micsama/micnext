@@ -1,10 +1,10 @@
-use mic_message::{SessionEntry, SessionId};
-use mic_store::{QueryId, QueryState};
+use mic_message::{Message, SessionId};
+use mic_store::{RunId, RunState};
 use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
 
 use crate::limits::EVENT_CAPACITY;
 
-/// 内核实时事件。可丢：订阅方落后即收到 `Lagged`，应断开并按稳定游标（entry id）重放。
+/// 内核实时事件。可丢：订阅方落后即收到 `Lagged`，应断开并按稳定游标（消息 id）重放。
 #[derive(Debug, Clone)]
 pub struct KernelEvent {
     pub session_id: SessionId,
@@ -15,21 +15,18 @@ pub struct KernelEvent {
 
 #[derive(Debug, Clone)]
 pub enum KernelEventKind {
-    /// 一轮开始（已 claim）。
-    QueryStarted { query_id: QueryId },
+    /// 一轮开始（已认领）。
+    RunStarted { run_id: RunId },
     /// 当前草稿的正文增量。
     TextDelta(String),
     /// 当前草稿的可见推理增量。
     ReasoningDelta(String),
-    /// 当前草稿结束：成功时其落盘 entry 已先以 `EntryAppended` 发出；失败（含重试前）时草稿作废。
-    DraftEnded,
-    /// 任一 entry 落盘，带 id。
-    EntryAppended(SessionEntry),
+    /// 本次调用尝试没有产生 `Reply`（失败、重试前、或成功但无内容），草稿作废。
+    DraftDiscarded,
+    /// 任一消息落盘，带 id。成功调用的 `Reply` 即当前草稿的终点。
+    MessageAppended(Message),
     /// 一轮结束，`state` 为落盘的终态。
-    QueryFinished {
-        query_id: QueryId,
-        state: QueryState,
-    },
+    RunFinished { run_id: RunId, state: RunState },
 }
 
 pub struct EventReceiver(broadcast::Receiver<KernelEvent>);

@@ -12,4 +12,5 @@
 | 实现完成（CLOSED） | mic-core 模块装配 + 二进制骨架（v0a 步 2） | [`docs/blueprints/mic-core-module.md`](docs/blueprints/mic-core-module.md) |
 | 实现完成（CLOSED） | 模型 port（M5）+ OpenAI 兼容实现（M7），含 mic-core `[models]` 装配修订（v0a 步 3'） | [`provider-port.md`](docs/blueprints/provider-port.md)、[`provider-openai.md`](docs/blueprints/provider-openai.md) |
 | 实现完成（CLOSED） | 工具 port（M3）+ 基础工具（M8：fs、shell、web_fetch），含 mic-core `Module::activation` 修订（v0a 步 3） | [`mic-tool.md`](docs/blueprints/mic-tool.md)、[`tools-basic.md`](docs/blueprints/tools-basic.md) |
-| 实现完成（CLOSED） | 执行主路径（M6：调度、Agent 循环、落盘、崩溃收尾、实时事件）+ `-p`，含 mic-store `extend_claim` 等修订（v0a 步 4） | [`query-execution.md`](docs/blueprints/query-execution.md) |
+| 实现完成（CLOSED） | 执行主路径（M6：调度、Agent 循环、落盘、崩溃收尾、实时事件）+ `-p`，含 mic-store `extend_claim` 等修订（v0a 步 4） | [`run-execution.md`](docs/blueprints/run-execution.md)（原 `query-execution.md`） |
+| 实现完成（CLOSED），契约并入各文档 | 存储结构重整：session / run / message / model_call，一次调用一条 `Reply`，用量不编造 | [`storage-restructure.md`](docs/blueprints/storage-restructure.md) |

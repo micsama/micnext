@@ -46,7 +46,7 @@ pub enum RunError {
     Store(#[from] mic_store::StoreError),
     /// 执行路径里的 panic（core、工具或 Provider 的缺陷）：进程报错退出，重启后该轮收尾为 Interrupted。
     #[error("会话 {session_id:?} 的执行崩溃：{message}")]
-    QueryPanicked {
+    RunPanicked {
         session_id: SessionId,
         message: String,
     },

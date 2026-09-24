@@ -1,11 +1,11 @@
 # B2: 模型 port（Provider trait、流式事件、用量、失败分类）
 
-**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-core/src/provider.rs`、`crates/mic-message/src/model_view.rs`，随步 3' 实跑验收）
+**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-core/src/provider.rs`、`crates/mic-message/src/model_view.rs`，随步 3' 实跑验收）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 修订（`model()`、`blocks`、`Option<Usage>`、视图按 `MessageBody`）
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M5；[`product-roadmap.md`](../brainstorm/product-roadmap.md)
-§四-8（Provider 失败语义）；[`mic-message.md`](mic-message.md) §三（一次响应的落盘形状）
-**依赖不变量**: 定义在 `mic-core`；`ToolSpec` 定义在 `mic-tool`（§三.1）；历史条目的模型视图定义在
+§四-8（Provider 失败语义）；[`mic-message.md`](mic-message.md) §三（一条 `Reply` 即一个 assistant turn）
+**依赖不变量**: 定义在 `mic-core`；`ToolSpec` 定义在 `mic-tool`（§三.1）；历史消息的模型视图定义在
 `mic-message`（§三.5）。Provider 实现
-crate（M7）依赖 `mic-core` + `mic-message` + `mic-tool`。
+crate（M7）依赖 `mic-core` + `mic-message` + `mic-store`（`Usage`）+ `mic-tool`。
 
 本文只写现行契约；修订过程见 git 历史。
 
@@ -51,6 +51,8 @@ pub struct ToolSpec {
 pub type BoxStream<T> = Pin<Box<dyn futures_core::Stream<Item = T> + Send>>;
 
 pub trait Provider: Send + Sync + 'static {
+    /// 请求时发给上游的模型名；调用记录与推理回传判定用同一口径。
+    fn model(&self) -> &str;
     /// 发起一次流式调用。连接失败也以流里的第一个 `Err` 返回。
     /// 丢弃流 = 取消调用（实现须随之中止 HTTP 请求）。
     /// 流以恰好一个 `Finished` 或一个 `Err` 结束，之后不再产出。
@@ -60,8 +62,8 @@ pub trait Provider: Send + Sync + 'static {
 pub struct ModelRequest {
     /// 系统提示；空串 = 不发。
     pub system: String,
-    /// 本次上下文内的历史条目，按 core 组装的顺序（query-execution §4.4），Provider 原样映射。Provider 经 `Message::model_view`（§三.5）
-    /// 取得每条的呈现，并把连续的 `Assistant` 视图重组为一个 assistant turn。
+    /// 本次上下文内的历史消息，按 core 组装的顺序（run-execution §4.4）。Provider 逐条经
+    /// `Message::model_view`（§三.5）映射，`None` 跳过；一条 `Reply` 即一个 assistant turn。
     pub messages: Vec<mic_message::Message>,
     /// 空 = 不开启工具调用。
     pub tools: Vec<mic_tool::ToolSpec>,
@@ -77,18 +79,17 @@ pub enum ModelEvent {
 }
 
 pub struct ModelResponse {
-    /// 上游报告的实际模型名，用于 `MessageAuthor::Assistant { model }`。
-    pub model: String,
-    /// 按生成顺序：`Reasoning`、`Text`、`ToolCall`（只会出现这三种）。
-    pub content: Vec<mic_message::MessageContent>,
+    /// 按生成顺序：推理、正文、工具调用。
+    pub blocks: Vec<mic_message::ReplyBlock>,
     pub stop: StopReason,
-    pub usage: mic_store::Usage,
+    /// 上游没报为 `None`。
+    pub usage: Option<mic_store::Usage>,
 }
 
 pub enum StopReason {
     /// 正常说完。
     EndTurn,
-    /// 要调用工具（`content` 含 `ToolCall`）。
+    /// 要调用工具（`blocks` 含 `ToolCall`）。
     ToolUse,
     /// 撞到输出长度上限，回复不完整。
     MaxTokens,
@@ -134,56 +135,58 @@ impl Registry {
 条目名唯一由 TOML 保证；模块只登记收到的名字（内部互信）。选中的 Provider 如何交给
 执行主路径随 M6 B2 定。
 
-### 3.5 `mic-message`：条目的模型视图
+### 3.5 `mic-message`：消息的模型视图
 
 框架消息（运行时备注、通知、后台任务完成）在请求里一律用 user role，首行方括号头标明来源，
 模型据此区分真实用户和框架；方案沿用 micbot（`Message::wire_content`）。呈现规则只此一处，
 所有 Provider 调用它，不各自拼接。
 
 ```rust
-/// 一条历史条目在模型请求里的呈现。
+/// 一条历史消息在模型请求里的呈现。
 pub enum ModelView<'a> {
     /// user role。首个片段是 `Text`，以方括号头开头。
     User(Vec<ContentPart>),
-    /// 模型自己的输出（`Text`/`Reasoning`/`ToolCall`），由 Provider 合成 assistant turn。
-    Assistant(&'a MessageContent),
+    /// 一条 `Reply` 即一个 assistant turn；`model` 为请求模型名。
+    Assistant { model: &'a str, blocks: &'a [ReplyBlock] },
     /// 工具结果，对应 `tool_call_id` 的那次调用。
     Tool { tool_call_id: &'a str, output: Vec<ContentPart> },
 }
 
 impl Message {
-    pub fn model_view(&self) -> ModelView<'_>;
+    /// `Boundary` 不进上下文，返回 `None`。
+    pub fn model_view(&self) -> Option<ModelView<'_>>;
 }
 ```
 
-| 条目 | 视图 | 首行头 |
+| 消息 | 视图 | 首行头 |
 |---|---|---|
-| `User` + `Text`/`Attachment` | `User` | `[user id=<id> at=<时间>]` |
-| `HarnessNote` + `Text` | `User` | `[runtime-note]` |
-| `Notification{source}` + `Text`/`Attachment` | `User` | `[notification src=<source> at=<时间>]` |
+| `UserInput` | `User` | `[user id=<id> at=<时间>]` |
+| `HarnessNote` | `User` | `[runtime-note]` |
+| `Notification{source}` | `User` | `[notification src=<source> at=<时间>]` |
 | `Completion{exec_id, outcome}` | `User` | `[completion exec_id=<id>]`，后接 outcome |
-| `Assistant` + 任意 | `Assistant` | — |
+| `Reply` | `Assistant` | — |
+| `Boundary` | `None` | — |
 | `ToolResult{Terminal(outcome)}` | `Tool` | outcome 为 `Completed` 时无头 |
 | `ToolResult{Dispatched{exec_id}}` | `Tool` | `[dispatched exec_id=<id>]`，说明结果稍后以 completion 送达 |
 
 - outcome：`Completed` 原样给出 `output`；`Failed{kind}` → `[failed kind=input|business|dependency]` + message；
   `Cancelled` → `[cancelled]` + message（分类定义见 [mic-tool](mic-tool.md) §三.1、§四.3）。
-- `at=` 只给用户与通知：它们的发生时刻可能明显早于在历史中的位置（排队、后台任务）；其余条目
+- `at=` 只给用户与通知：它们的发生时刻可能明显早于在历史中的位置（排队、后台任务）；其余消息
   位置即时序。格式为带本地时区偏移的 RFC 3339（秒精度）。
 - 头部取值里的 `]` 与控制字符替换为 `_`；正文逐字追加，不转义。头部只是提示格式，可审计的来源
-  以落盘的 `author` 为准。
-- `Attachment` 与 `File` 片段原样进视图；Provider 按自身能力决定能否发送（多模态的准备）。
+  以落盘的 `kind` 为准。
+- `File` 片段原样进视图；Provider 按自身能力决定能否发送（多模态的准备）。
 - 头部文本面向模型，用英文。
 
 ## 四、规则
 
-- **内容支持**：视图里含实现不支持的片段（v0a 为 `File`/`Attachment`）→ `Rejected`，不静默丢弃。
-- **推理回传**：是否把 `Reasoning` 回传给上游由实现按 `MessageAuthor::Assistant.model`
-  判断（换模型后丢弃签名），mic-message 已定。
-- **用量**：`usage` 只在 `Finished` 里给；上游不报某项即为 0。`input_tokens` 是本次全部输入
+- **内容支持**：视图里含实现不支持的片段（v0a 为 `File`）→ `Rejected`，不静默丢弃。
+- **推理回传**：是否把 `Reasoning` 回传给上游由实现按 `ModelView::Assistant.model == self.model()`
+  判断（换模型后不回传）；两端都是请求模型名，不受上游回报名的版本后缀干扰。
+- **用量**：`usage` 只在 `Finished` 里给；整个没报为 `None`，报了时输入输出必有，其余上游不报即
+  `None`，不编造 0。`input_tokens` 是本次全部输入
   （含缓存命中），`cache_read_tokens`/`cache_write_tokens` 是其中的缓存部分；`output_tokens`
-  含推理，`reasoning_tokens` 是其中的推理部分。各实现在边界换算成这一口径。失败调用的用量由 M6 记录
-  为已知部分或 0。
+  含推理，`reasoning_tokens` 是其中的推理部分。各实现在边界换算成这一口径。失败调用的用量全空。
 - **超时**：连接与流空闲超时由实现在自己的配置里定，超时归 `Transient`。
 
 ## 五、副作用与依赖
@@ -199,12 +202,11 @@ impl Message {
 |---|---|---|
 | `mic-provider-openai`（M7） | `name() = "openai"`；实现 `Provider`，按收到的条目逐个登记 | 新 crate，M7 B2 |
 | `mic-core` 装配 | `[models]` 解析、按 `kind` 分发、核对 `default` | mic-core-module B2 修订 |
-| `mic-core` 执行主路径（M6） | 取 `default` 对应 Provider、组请求、转发增量为实时事件、落盘 `Finished`、按分类重试 | 新契约，M6 B2 |
+| `mic-core` 执行主路径（M6） | 取 `default` 对应 Provider、组请求、转发增量为实时事件、`Finished` 落盘为调用行 + `Reply`、按分类重试 | [run-execution](run-execution.md) |
 | `mic-tool` 各工具（M3/M8） | 产出 `ToolSpec` | 新契约，[mic-tool](mic-tool.md) 沿用 |
-| `mic-message` | 新增 `ModelView`、`Message::model_view` | 纯新增，既有类型不变 |
+| `mic-message` | `ModelView`、`Message::model_view` | — |
 | `bin/micnext` | 无改动（Provider 模块照常放进模块列表） | — |
 
-当前无下游代码，不需要 parallel change。
 
 ## 七、已知演进
 

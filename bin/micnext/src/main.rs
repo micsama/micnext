@@ -1,5 +1,5 @@
 //! 装配根：读配置、组装模块、信号、日志、`-p` 呈现。
-//! 契约：docs/blueprints/mic-core-module.md §四、§七，docs/blueprints/query-execution.md §六。
+//! 契约：docs/blueprints/mic-core-module.md §四、§七，docs/blueprints/run-execution.md §六。
 //! 面向用户的提示与错误用中文直接写 stderr；运行日志走 tracing。
 
 use std::ffi::OsString;
@@ -11,11 +11,8 @@ use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
 use mic_core::{Assembly, KernelEvent, KernelEventKind, Module, OnceOutcome, OneShot};
-use mic_message::{
-    ContentPart, ExecOutcome, Message, MessageAuthor, MessageContent, SessionEntry,
-    ToolResultOutcome,
-};
-use mic_store::QueryState;
+use mic_message::{ContentPart, ExecOutcome, Message, MessageBody, ReplyBlock, ToolResultOutcome};
+use mic_store::RunState;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
@@ -116,7 +113,7 @@ async fn run() -> Result<ExitCode> {
             render.end_line();
             Ok(match outcome {
                 OnceOutcome::Finished {
-                    state: QueryState::Completed,
+                    state: RunState::Completed,
                     ..
                 } => ExitCode::SUCCESS,
                 OnceOutcome::Finished { state, .. } => {
@@ -173,8 +170,8 @@ struct Render {
 impl Render {
     fn on(&mut self, event: &KernelEvent) {
         match &event.kind {
-            KernelEventKind::QueryStarted { query_id } => {
-                eprintln!("[session {} · query {}]", event.session_id.0, query_id.0)
+            KernelEventKind::RunStarted { run_id } => {
+                eprintln!("[session {} · run {}]", event.session_id.0, run_id.0)
             }
             KernelEventKind::TextDelta(text) => {
                 if self.reasoning_open {
@@ -189,19 +186,26 @@ impl Render {
                 eprint!("{text}");
                 self.reasoning_open = true;
             }
-            KernelEventKind::DraftEnded => self.end_line(),
-            KernelEventKind::EntryAppended(SessionEntry::Message(m)) => self.entry(m),
-            KernelEventKind::EntryAppended(SessionEntry::Boundary(_))
-            | KernelEventKind::QueryFinished { .. } => {}
+            KernelEventKind::DraftDiscarded => self.end_line(),
+            KernelEventKind::MessageAppended(m) => self.message(m),
+            KernelEventKind::RunFinished { .. } => {}
         }
     }
 
-    fn entry(&mut self, m: &Message) {
-        let line = match (&m.author, &m.content) {
-            (_, MessageContent::ToolCall { name, args, .. }) => {
-                format!("▶ {name} {}", preview(&args.to_string()))
+    fn message(&mut self, m: &Message) {
+        let line = match &m.body {
+            MessageBody::Reply { blocks, .. } => {
+                self.end_line();
+                for block in blocks {
+                    if let ReplyBlock::ToolCall { name, args, .. } = block {
+                        eprintln!("▶ {name} {}", preview(&args.to_string()));
+                    }
+                }
+                return;
             }
-            (MessageAuthor::Tool { name }, MessageContent::ToolResult { outcome, .. }) => {
+            MessageBody::ToolResult {
+                tool_name, outcome, ..
+            } => {
                 let status = match outcome {
                     ToolResultOutcome::Terminal(ExecOutcome::Completed { output }) => {
                         let first = match output.first() {
@@ -219,13 +223,11 @@ impl Render {
                     }
                     ToolResultOutcome::Dispatched { exec_id } => format!("dispatched {exec_id}"),
                 };
-                format!("◀ {name} {status}")
+                format!("◀ {tool_name} {status}")
             }
-            (MessageAuthor::HarnessNote, MessageContent::Text { content }) => {
-                format!("[runtime-note] {content}")
-            }
-            (MessageAuthor::Notification { source }, MessageContent::Text { content }) => {
-                format!("[notification {source}] {content}")
+            MessageBody::HarnessNote { text } => format!("[runtime-note] {text}"),
+            MessageBody::Notification { source, text } => {
+                format!("[notification {source}] {text}")
             }
             _ => return,
         };

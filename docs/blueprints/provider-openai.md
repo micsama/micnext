@@ -1,6 +1,6 @@
 # B2: OpenAI 兼容模型实现（mic-provider-openai）
 
-**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-provider-openai`；§八 1～4 已用 DeepSeek `deepseek-flash` 与本地 ollama 实跑通过，含推理回传的工具往返）
+**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-provider-openai`；§八 1～4 已用 DeepSeek `deepseek-flash` 与本地 ollama 实跑通过，含推理回传的工具往返）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 修订（一条 `Reply` 一条 assistant 消息、用量不编造、`model()`），其 §四 实跑通过
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M7；[`provider-port.md`](provider-port.md)（实现的契约）；
 DeepSeek 协议细节参考 `../deepseek-harness/packages/llm/llm-deepseek`
 **依赖不变量**: 新 crate `mic-provider-openai`，依赖 `mic-core`（port）+ `mic-message` + `mic-store`
@@ -101,9 +101,9 @@ Provider 实例，`Registry::provider(条目名, 实例)`。Provider 类型不�
 - `stream: true`、`stream_options.include_usage: true`；有 `max_tokens` 才发。
 - `system` 非空 → 第一条 `role: system`。
 - `tools` 非空 → `tools: [{type: "function", function: {name, description, parameters}}]`。
-- 历史逐条取 `Message::model_view()` 映射（呈现规则不在本 crate）：
+- 历史逐条取 `Message::model_view()` 映射（呈现规则不在本 crate），`None` 跳过：
   - `User(parts)` → `role: user`，文本片段按行拼接。
-  - 连续的 `Assistant` 视图合成一条 `role: assistant`：`Text` 拼成 `content`，`ToolCall` →
+  - `Assistant { model, blocks }` → 一条 `role: assistant`：`Text` 拼成 `content`，`ToolCall` →
     `tool_calls[{id, type: "function", function: {name, arguments}}]`；`arguments`：`args` 为
     `Value::String` 时原样发回该字符串（即模型当初的原文，见 §四.3），否则发 `args` 的 JSON 文本。
     推理按 §四.2 处理。
@@ -118,13 +118,13 @@ Provider 实例，`Registry::provider(条目名, 实例)`。Provider 类型不�
 
 - 响应 delta 的 `reasoning_content` → `ReasoningDelta`，最终为 `Reasoning::Visible { signature: None }`。
   首个空串分片不产出事件。
-- 推理回传：只对**含工具调用**、且作者 `model` 等于本条目 `model` 的 assistant 轮次，把其推理作为
+- 推理回传：只对**含工具调用**、且 `Reply.model` 等于本条目 `model`（`self.model()`）的 assistant 轮次，把其推理作为
   `reasoning_content` 发回（思考模式下工具往返必需）；其余推理不发，省 token。
 - 用量：`cache_read_tokens` ← `prompt_cache_hit_tokens`。
 - 推理强度：条目取值原样发为顶层 `reasoning_effort`（`none` 即关闭思考），不用 `thinking` 字段。
 
 **Ollama**：delta 的 `reasoning` 字段 → `ReasoningDelta`（思考模型）；不回传推理；
-`cache_read_tokens` = 0。
+`cache_read_tokens` 为 `None`（上游不报）。
 
 **Generic**：不解析、不回传推理（通用服务的推理字段不统一，出现真实需求再加预设）；
 `cache_read_tokens` ← `prompt_tokens_details.cached_tokens`。
@@ -133,14 +133,16 @@ Provider 实例，`Registry::provider(条目名, 实例)`。Provider 类型不�
 
 - SSE 逐行解析为强类型分片（上游字段完整接收）；`data: [DONE]` 结束。
 - `content` 增量 → `TextDelta`；`tool_calls` 增量按 `index` 累积 `id`、`name`、`arguments`。
-- 结束时组装 `ModelResponse`：`model` 取上游报告值；`content` 依次为推理、正文、工具调用（空的不放）；
+- 结束时组装 `ModelResponse`：`blocks` 依次为推理、正文、工具调用（空的不放）；分片的 `model`
+  完整接收但不使用（调用记录用请求模型名）；
   `arguments` 解析为 JSON **对象**才存为 `Value::Object`；解析失败或不是对象（协议要求对象）则原文存为
   `Value::String`，由 `mic-tool` 边界报参数错误给模型（模型输出错误应回给模型自纠，而不是终止整轮）。
   于是存下的 `Value::String` 一定是原文，回传时（§四.1）逐字还原，不产生二次转义。
 - `finish_reason`：`stop` → `EndTurn`，`tool_calls` → `ToolUse`，`length` → `MaxTokens`，
   `content_filter` → `ContentFilter`；`insufficient_system_resource` → `Transient`；其它或缺失 → `Protocol`。
 - 用量：`input_tokens` ← `prompt_tokens`，`output_tokens` ← `completion_tokens`，
-  `reasoning_tokens` ← `completion_tokens_details.reasoning_tokens`，`cache_write_tokens` = 0。
+  `reasoning_tokens` ← `completion_tokens_details.reasoning_tokens`，`cache_write_tokens` 为 `None`；
+  上游没给的项为 `None`，整个 `usage` 没收到则 `ModelResponse.usage = None`，不编造 0。
   `usage` 可能附在最后一个分片或单独尾随，统一等到 `[DONE]` 再产出 `Finished`。
 
 ### 4.4 失败
@@ -193,4 +195,4 @@ Provider 实例，`Registry::provider(条目名, 实例)`。Provider 类型不�
 2. 带一个工具说明：确认得到 `StopReason::ToolUse` 与解析后的 `args`；把工具结果拼回再发一轮，
    确认推理回传后上游不报错。
 3. 错误 key → `Account`；不存在的模型名 → `Rejected`；缺 key 的配置 → 启动报错文案可读。
-4. 框架条目：历史里放一条 `HarnessNote`，确认请求体里是带 `[runtime-note]` 头的 user 消息。
+4. 框架消息：历史里放一条 `HarnessNote`，确认请求体里是带 `[runtime-note]` 头的 user 消息。

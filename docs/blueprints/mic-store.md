@@ -1,39 +1,40 @@
 # B2: mic-store（连带 mic-message 修订）
 
-**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`，含会话列举增量）；微信投递完成判据随 v0b
+**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`，含会话列举增量）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 重写为 session / run / message / model_call；微信投递完成判据随 v0b
 **来源**: [`mic-store-design.md`](../brainstorm/mic-store-design.md)（B1）、
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §二、§四
 **依赖不变量**: `mic-store` 只依赖 `mic-message`，不依赖 `mic-tool`/`mic-core`/任何模块。
 
 本文只写现行契约；修订过程见 git 历史。
 
-**校验边界**：内部调用互信，store 不对调用方做防御性检查（author 与写入函数是否
-匹配、query 是否仍在 Executing、可 claim 行是否带 person_id 等由写者保证）。只在
+**校验边界**：内部调用互信，store 不对调用方做防御性检查（run 是否仍在 `executing` 等由写者保证）；
+写入口的两条 `assert`（`append` 不收 `Reply`、输入不带 run）是调用方 bug 的断言，不是校验。只在
 真正的外部输入处失败：磁盘上库文件的版本、payload 反序列化、SQLite 本身。
 
 ## 一、crate 概览
 
-`crates/mic-store`：内核事实的持久化——sessions / session_entries / queries /
-persons / person_identities / model_calls 六张内核表，外加模块私有表的迁移与
+`crates/mic-store`：内核事实的持久化——`core_sessions` / `core_messages` / `core_runs` /
+`core_model_calls` / `core_persons` / `core_person_identities` 六张内核表，外加模块私有表的迁移与
 事务入口。
 
 - 具体结构体 `Store`，不 trait 化；测试用内存 SQLite。
 - 内部单个 `rusqlite::Connection`，`Arc<std::sync::Mutex<_>>` +
   `tokio::task::spawn_blocking`；公开方法全部 `async fn`。锁中毒直接 `expect`。
-- 外部依赖：`rusqlite`（`bundled`）、`serde`（derive，tool_scope/reason/outcome 等 JSON 列）、`serde_json`、
+- 外部依赖：`rusqlite`（`bundled`）、`serde`（derive，tool_scope 与 payload JSON 列）、`serde_json`、
   `thiserror`、`tokio`（`rt`）、`mic-message`。
 - 不生成时间戳：所有 `created_at`/`now` 由调用方传入（"发生时间"只有 emit 侧知道）；
   单位统一为 Unix 毫秒（`i64`）。
 
 ## 二、mic-message 依赖
 
-消息类型、推理内容、工具结果和一次响应的落盘形状只由
+`MessageBody`（消息种类闭集）、`ReplyBlock`、`ToolOutcome` 等落盘形状只由
 [`mic-message.md`](mic-message.md) 定义；本 crate 按该契约序列化与查询，不复制定义。
 
 ## 三、公开类型
 
 ```rust
-pub struct QueryId(pub i64);
+pub struct RunId(pub i64);
+pub struct ModelCallId(pub i64);
 
 /// 外部身份：某 Channel 上的某个发送者。
 pub struct Identity {
@@ -80,38 +81,30 @@ pub struct Session {
     pub created_at: i64,
 }
 
-pub enum QueryState {
+/// 一次 agent loop 的状态，列值为 snake_case。失败详情看调用行的 `error`。
+pub enum RunState {
     Executing,
     Completed,
-    Failed { reason: FailureReason },
-    Cancelled { reason: CancelReason },
-}
-
-pub enum FailureReason {
-    Timeout,
-    Provider { message: String },
+    /// 模型调用不可重试或重试用尽。
+    ProviderFailed,
+    /// 轮次用尽：模型已做过不带工具的总结，但任务未必完成（run-execution §4.3）。
+    MaxTurns,
+    /// 进程停止时仍在执行，启动时收尾。
     Interrupted,
-    /// 轮次用尽：模型已做过不带工具的总结，但任务未必完成（query-execution §4.3）。
-    MaxTurns { limit: u32 },
 }
 
-pub enum CancelReason {
-    User,
-    ParentCascade,
-}
-
-pub struct Query {
-    pub id: QueryId,
+pub struct Run {
+    pub id: RunId,
     pub session_id: SessionId,
-    pub person_id: PersonId,
-    pub claimed_start_id: SessionEntryId,
-    pub claimed_end_id: SessionEntryId,
-    pub state: QueryState,
+    pub state: RunState,
     pub created_at: i64,
+    pub finished_at: Option<i64>,
 }
 
 pub struct ContextWindow {
+    /// 最近一次 `Compaction` 的摘要。
     pub summary: Option<String>,
+    /// 最近一次 `Boundary` 之后、排除未认领输入的消息，按 id。
     pub messages: Vec<Message>,
 }
 
@@ -120,23 +113,20 @@ pub struct PendingDelivery {
     pub target: DeliveryTarget,
 }
 
-/// 一次模型调用的 token 用量。费用不落盘：展示时按当前价格配置换算。
+/// 一次模型调用的 token 用量；上游没报的项为 `None`。输入含缓存命中，输出含推理。
+/// 费用不落盘：展示时按当前价格配置换算。
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
-    pub cache_read_tokens: u64,
-    pub cache_write_tokens: u64,
-    pub reasoning_tokens: u64,
-}
-
-pub enum ModelCallPurpose {
-    Query(QueryId),
-    Compaction,
+    pub cache_read_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    pub reasoning_tokens: Option<u64>,
 }
 
 pub enum ModelCallOutcome {
-    Completed,
-    Failed { message: String },
+    /// `usage` 为 `None` = 上游没报。`blocks` 非空时写成一条 `Reply`。
+    Replied { usage: Option<Usage>, blocks: Vec<ReplyBlock> },
+    Failed { error: String },
 }
 
 /// 模块迁移。`module` 不得为 `"core"`（内核保留）；同一模块 `version` 从 1 连续递增。
@@ -150,38 +140,6 @@ pub struct Migration {
 ### 写入参数
 
 ```rust
-/// 可 claim 的用户输入：Channel 入站，以及 Task/Triggered 的起始消息。
-pub struct UserInput {
-    pub session_id: SessionId,
-    pub person_id: PersonId,
-    pub content: MessageContent,
-    pub created_at: i64,
-}
-
-/// `wait=false` 的终态回报（可 claim）。person 来自内存执行实例句柄。
-pub struct CompletionInput {
-    pub session_id: SessionId,
-    pub person_id: PersonId,
-    pub tool_name: String,
-    pub exec_id: String,
-    pub outcome: ExecOutcome,
-    pub created_at: i64,
-}
-
-/// 不可 claim 的产出：模型输出、工具结果、HarnessNote、Notification。
-pub struct OutputInput {
-    pub session_id: SessionId,
-    pub author: MessageAuthor,
-    pub content: MessageContent,
-    pub created_at: i64,
-}
-
-pub struct BoundaryInput {
-    pub session_id: SessionId,
-    pub boundary: ContextBoundary,
-    pub created_at: i64,
-}
-
 pub struct NewSession {
     pub kind: SessionKind,
     pub parent_session_id: Option<SessionId>,
@@ -191,14 +149,15 @@ pub struct NewSession {
     pub created_at: i64,
 }
 
-pub struct ModelCallInput {
+/// 一次模型调用尝试（含失败与重试）。
+pub struct NewModelCall {
     pub session_id: SessionId,
-    pub purpose: ModelCallPurpose,
+    pub run_id: Option<RunId>,
+    /// 请求模型名（`Provider::model()`）。
     pub model: String,
-    pub usage: Usage,
-    pub outcome: ModelCallOutcome,
     pub started_at: i64,
     pub finished_at: i64,
+    pub outcome: ModelCallOutcome,
 }
 
 /// 会话列表分页游标：上一页最后一项的排序键。Gateway 在边界把查询参数解析成本类型。
@@ -209,9 +168,9 @@ pub struct SessionCursor {
 
 pub struct SessionSummary {
     pub session: Session,
-    /// 最新 entry 的 `created_at`。
+    /// 最新消息的 `created_at`。
     pub last_activity_at: i64,
-    /// 第一条 `User` + `Text` 的前 80 个字符；没有则 `None`（只发了附件）。
+    /// 首条 `UserInput` 首个文本片段的前 80 个字符；没有则 `None`（只发了附件）。
     pub preview: Option<String>,
 }
 
@@ -224,31 +183,28 @@ pub struct SessionPage {
 
 ## 四、关键规则
 
-### 4.1 claim
+### 4.1 认领与并入
 
-可 claim 判别式（SQL 层，靠 `content_kind`/`author_kind` 判别列）：
+**未认领输入**（一个谓词，四处复用：认领、并入、启动补跑扫描、上下文排除）：
 
 ```sql
-entry_kind = 'message' AND (
-     (author_kind = 'user' AND content_kind IN ('text', 'attachment'))
-  OR content_kind = 'completion'
-)
+run_id IS NULL AND kind IN ('UserInput', 'Completion')
 ```
 
-`claim_next` 单事务：已有 `Executing` Query → `None`；取下界 = 本 session 最新
-Query 的 `claimed_end_id`（无则 0）；在下界之后的可 claim entry 序列上取
-**最长同 `person_id` 连续前缀**；插入 `Executing` Query。区间
-`[claimed_start_id, claimed_end_id]` 的含义是"本 session、区间内、满足判别式的行"，
-不是区间内所有行。
+**段**：本会话未认领输入按 id 排序后，开头连续同 `person_id` 的一段。
 
-分组键用 `person_id` 而非 author：两条不同 person 发起的 completion author 都是
-`Tool{同名}`，按 author 会被合并，破坏"一个 Query 一个 person"。同一 person 相邻
-的用户消息与 completion 会进同一个 Query。
+- `claim_next` 单事务：会话已有 `executing` run → `None`；没有段 → `None`；否则插入 `executing` run，
+  回填这段的 `run_id`。
+- `absorb(run)` 单事务：取同样的段，其 person 等于该 run 首条输入的 person 才回填；有回填返回 true。
 
-### 4.2 person 列
+分组键是 person 而非种类：同一 person 相邻的用户消息与 completion 进同一个 run；不同 person 发起的
+completion 不会合并，保证"一个 run 一个 person"。
 
-`session_entries.person_id` 只对可 claim entry 非 NULL，由 `append_user_input`/
-`append_completion` 写入；其余写入函数写 NULL。
+### 4.2 写入口
+
+按产出者分三个：`append` 写除 `Reply` 外的所有种类（`UserInput`/`Completion` 入站时未认领，`run`
+必为 `None`）；`record_model_call` 同一事务写调用行，`Replied` 且 `blocks` 非空时再写 `Reply`
+（`run_id`、`session_id` 同调用行，`model_call_id` 指向它）；认领与并入只回填输入的 `run_id`。
 
 ### 4.3 Person 与身份
 
@@ -257,16 +213,15 @@ Query 的 `claimed_end_id`（无则 0）；在下界之后的可 claim entry 序
   `{channel}:{external_id}`。配置名禁止含 `:`（由 mic-core 校验配置时 Fail Fast），
   两类名字不会冲突。
 - `bind_identity` 可改绑：自动注册的身份后来在配置里认领时，新消息归新 person，
-  历史 entry 保留原 person_id。返回旧 person 供调用方记日志。首次绑定时
+  历史消息保留原 person。返回旧 person 供调用方记日志。首次绑定时
   `display_name` 为空串，该身份下次入站经 `resolve_identity` 刷新。
 - 权限上限不进 store，由 mic-core 从配置计算。
 
 ### 4.4 投递
 
 `pending_deliveries(channel)`：`delivered_at IS NULL`，所属 session 的
-`delivery_channel = channel`，`author_kind IN ('assistant','notification')`，
-`content_kind IN ('text','attachment')`。`Reasoning`/`ToolCall`/`ToolResult`/
-`Completion` 与入站消息不投递。Root session 的 `channel`（入站来源）与
+`delivery_channel = channel`，`kind IN ('Reply','Notification')`，按 id。`Reply` 里哪些块对外可见由
+Channel 决定（通常只发 `Text`）。Root session 的 `channel`（入站来源）与
 `delivery_target.channel`（投递去向）是两个事实，通常相同但不强制。
 
 ### 4.5 迁移
@@ -286,10 +241,10 @@ Query 的 `claimed_end_id`（无则 0）；在下界之后的可 claim entry 序
 ### 4.6 会话列举
 
 - 只列已有用户输入的 Root 会话；Task/Triggered 从父会话或定时看板进入。v0 不做改名、删除、归档。
-- **活跃时间算出来、不落列**：一处真相是 entry 本身，取按 id 最新一条 entry 的
-  `created_at`，走 `idx_entries_session`。个人规模全量排序可接受；出现性能摩擦再加索引或冗余列。
-- 预览在 SQL 侧用 `json_extract(payload, '$.Text.content')` 截取，依赖 `MessageContent`
-  的 serde 外部标签形状；序列化由本 crate 独占，形状变化时与写入一起改。预览只作展示，不作标识。
+- **活跃时间算出来、不落列**：一处真相是消息本身，取按 id 最新一条消息的
+  `created_at`，走 `idx_messages_session`。个人规模全量排序可接受；出现性能摩擦再加索引或冗余列。
+- 预览在 SQL 侧用 `json_each(payload, '$.parts')` 取首条 `UserInput` 的首个 `Text` 片段，依赖
+  `MessageBody`/`ContentPart` 的 serde 形状；序列化由本 crate 独占，形状变化时与写入一起改。预览只作展示，不作标识。
 - 游标是强类型的排序位置，不存在"非法游标"，结果可能为空页；不新增错误变体。
 - 翻页期间某会话有新消息会跳到最前，后续页可能缺席或重复一次；列表以刷新/实时事件为准，不做快照游标。
 
@@ -326,39 +281,35 @@ impl Store {
     pub async fn list_root_sessions(&self, channel: &str, before: Option<SessionCursor>,
         limit: NonZeroU32) -> Result<SessionPage, StoreError>;
 
-    // ---- 写 entry ----
-    pub async fn append_user_input(&self, input: UserInput) -> Result<SessionEntryId, StoreError>;
-    pub async fn append_completion(&self, input: CompletionInput) -> Result<SessionEntryId, StoreError>;
-    /// NOTE: author 不为 `User`——用户输入走 `append_user_input`。
-    pub async fn append_output(&self, input: OutputInput) -> Result<SessionEntryId, StoreError>;
-    pub async fn append_boundary(&self, input: BoundaryInput) -> Result<SessionEntryId, StoreError>;
+    // ---- 写消息 ----
+    /// 除 `Reply` 外的所有种类；传 `Reply` 或给输入带 run 是调用方 bug，panic。
+    pub async fn append(&self, session_id: SessionId, run: Option<RunId>, body: MessageBody, at: i64)
+        -> Result<Message, StoreError>;
+    /// 同一事务写调用行；`Replied` 且 `blocks` 非空时再写指向它的 `Reply` 并返回。
+    pub async fn record_model_call(&self, call: NewModelCall)
+        -> Result<(ModelCallId, Option<Message>), StoreError>;
 
     // ---- 调度 ----
-    pub async fn claim_next(&self, session_id: SessionId, now: i64)
-        -> Result<Option<Query>, StoreError>;
-    pub async fn finish_query(&self, id: QueryId, state: QueryState, now: i64)
-        -> Result<(), StoreError>;
-    /// 启动时把遗留 `Executing` 收尾为 `Failed{Interrupted}`，返回被收尾的 Query。
-    pub async fn interrupt_stale_queries(&self, now: i64) -> Result<Vec<Query>, StoreError>;
-    /// 执行中吸收新输入：把 `claimed_end_id` 之后、与该 Query 同一 person 的连续可 claim
-    /// 前缀并入；没有可并入的返回 `None`（query-execution §3.5）。
-    pub async fn extend_claim(&self, query: QueryId) -> Result<Option<SessionEntryId>, StoreError>;
-    /// 有可 claim 但未被任何 Query 覆盖的输入的会话（启动补跑用）。
+    pub async fn claim_next(&self, session_id: SessionId, now: i64) -> Result<Option<Run>, StoreError>;
+    /// 执行中并入新输入（§4.1），有并入返回 true。调用方保证 run 处于 `executing`。
+    pub async fn absorb(&self, run: RunId) -> Result<bool, StoreError>;
+    /// 有未认领输入的会话（启动补跑用）。
     pub async fn sessions_with_unclaimed_input(&self) -> Result<Vec<SessionId>, StoreError>;
+    pub async fn finish_run(&self, id: RunId, state: RunState, now: i64) -> Result<(), StoreError>;
+    /// 启动时把遗留 `executing` 收尾为 `interrupted`，返回被收尾的 run。
+    pub async fn interrupt_stale_runs(&self, now: i64) -> Result<Vec<Run>, StoreError>;
 
     // ---- 读 ----
+    /// 该 run 的全部消息，按 id（启动收尾用）。
+    pub async fn run_messages(&self, run: RunId) -> Result<Vec<Message>, StoreError>;
     pub async fn context_window(&self, session_id: SessionId) -> Result<ContextWindow, StoreError>;
-    /// 稳定 entry 回放；游标只能是 entry id，实时增量不作游标。
-    pub async fn entries_after(&self, session_id: SessionId, after: Option<SessionEntryId>)
-        -> Result<Vec<SessionEntry>, StoreError>;
+    /// 稳定回放（含 `Boundary`）；游标只能是消息 id，实时增量不作游标。
+    pub async fn messages_after(&self, session_id: SessionId, after: Option<MessageId>)
+        -> Result<Vec<Message>, StoreError>;
 
     // ---- 投递 ----
     pub async fn pending_deliveries(&self, channel: &str) -> Result<Vec<PendingDelivery>, StoreError>;
-    pub async fn mark_delivered(&self, id: SessionEntryId, at: i64) -> Result<(), StoreError>;
-
-    // ---- 用量 ----
-    pub async fn record_model_call(&self, input: ModelCallInput) -> Result<(), StoreError>;
-    pub async fn session_usage(&self, session_id: SessionId) -> Result<Usage, StoreError>;
+    pub async fn mark_delivered(&self, id: MessageId, at: i64) -> Result<(), StoreError>;
 
     // ---- 模块表 ----
     pub async fn with_module_tx<R, F>(&self, f: F) -> Result<R, StoreError>
@@ -384,108 +335,51 @@ pub enum StoreError {
 
 ## 六、schema（core v1）
 
-```sql
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
+内核表统一 `core_` 前缀；`schema_migrations` 是所有模块共用的迁移登记表，不属于内核事实，保持原名。
+实际 SQL 见 `crates/mic-store/src/schema.rs`，列如下：
 
-CREATE TABLE schema_migrations (
-  module   TEXT PRIMARY KEY,
-  version  INTEGER NOT NULL
-);
-
-CREATE TABLE persons (
-  id          INTEGER PRIMARY KEY,
-  name        TEXT NOT NULL UNIQUE,
-  created_at  INTEGER NOT NULL
-);
-
-CREATE TABLE person_identities (
-  channel       TEXT NOT NULL,
-  external_id   TEXT NOT NULL,
-  person_id     INTEGER NOT NULL REFERENCES persons(id),
-  display_name  TEXT NOT NULL,
-  created_at    INTEGER NOT NULL,
-  PRIMARY KEY (channel, external_id)
-);
-
-CREATE TABLE sessions (
-  id                  INTEGER PRIMARY KEY,
-  kind                TEXT NOT NULL,        -- 'root' | 'task' | 'triggered'
-  channel             TEXT,                 -- root
-  chat                TEXT,                 -- root
-  parent_tool_call_id TEXT,                 -- task
-  trigger_module      TEXT,                 -- triggered
-  trigger_ref         TEXT,                 -- triggered
-  parent_session_id   INTEGER REFERENCES sessions(id),
-  delivery_channel    TEXT,                 -- 三列一组，同为 NULL 表示无发送目标
-  delivery_version    INTEGER,
-  delivery_payload    TEXT,
-  pwd                 TEXT NOT NULL,
-  tool_scope          TEXT NOT NULL,        -- ToolScope JSON
-  created_at          INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX idx_root_chat ON sessions(channel, chat) WHERE kind = 'root';
-CREATE INDEX idx_sessions_delivery ON sessions(delivery_channel)
-  WHERE delivery_channel IS NOT NULL;
-
-CREATE TABLE session_entries (
-  id            INTEGER PRIMARY KEY,        -- SessionEntryId
-  session_id    INTEGER NOT NULL REFERENCES sessions(id),
-  entry_kind    TEXT NOT NULL,              -- 'message' | 'boundary'
-  author_kind   TEXT,                       -- boundary 行 NULL
-  author_ident  TEXT,                       -- User.id / Assistant.model / Tool.name /
-                                            -- Notification.source；HarnessNote 与 boundary NULL
-  content_kind  TEXT,                       -- text|reasoning|tool_call|tool_result|
-                                            -- completion|attachment；boundary 行 NULL
-  person_id     INTEGER REFERENCES persons(id),  -- 仅可 claim 行非 NULL
-  payload       TEXT NOT NULL,              -- MessageContent / ContextBoundary JSON
-  created_at    INTEGER NOT NULL,
-  delivered_at  INTEGER
-);
-CREATE INDEX idx_entries_session ON session_entries(session_id, id);
-CREATE INDEX idx_entries_undelivered ON session_entries(session_id)
-  WHERE delivered_at IS NULL AND author_kind IN ('assistant', 'notification');
-
-CREATE TABLE queries (
-  id               INTEGER PRIMARY KEY,
-  session_id       INTEGER NOT NULL REFERENCES sessions(id),
-  person_id        INTEGER NOT NULL REFERENCES persons(id),
-  claimed_start_id INTEGER NOT NULL,
-  claimed_end_id   INTEGER NOT NULL,
-  state            TEXT NOT NULL,           -- executing|completed|failed|cancelled
-  reason           TEXT,                    -- FailureReason / CancelReason JSON
-  created_at       INTEGER NOT NULL,
-  finished_at      INTEGER
-);
-CREATE INDEX idx_queries_session ON queries(session_id, id);
-
-CREATE TABLE model_calls (
-  id                 INTEGER PRIMARY KEY,
-  session_id         INTEGER NOT NULL REFERENCES sessions(id),
-  query_id           INTEGER REFERENCES queries(id),  -- NULL 表示压缩调用
-  model              TEXT NOT NULL,
-  input_tokens       INTEGER NOT NULL,
-  output_tokens      INTEGER NOT NULL,
-  cache_read_tokens  INTEGER NOT NULL,
-  cache_write_tokens INTEGER NOT NULL,
-  reasoning_tokens   INTEGER NOT NULL,
-  outcome            TEXT NOT NULL,         -- ModelCallOutcome JSON
-  started_at         INTEGER NOT NULL,
-  finished_at        INTEGER NOT NULL
-);
-CREATE INDEX idx_model_calls_session ON model_calls(session_id);
+```
+core_persons            id, name UNIQUE, created_at
+core_person_identities  (channel, external_id) PK, person_id, display_name, created_at
+core_sessions           id, kind('root'|'task'|'triggered'), channel?, chat?, parent_tool_call_id?,
+                        trigger_module?, trigger_ref?, parent_session_id?,
+                        delivery_channel?, delivery_version?, delivery_payload?（三列同空同非空）,
+                        pwd, tool_scope(JSON), created_at
+core_runs               id, session_id, state, created_at, finished_at?
+core_model_calls        id, session_id, run_id?, model, error?,
+                        input_tokens?, output_tokens?, cache_read_tokens?, cache_write_tokens?,
+                        reasoning_tokens?, started_at, finished_at
+core_messages           id, session_id, run_id?, model_call_id?, payload, created_at, delivered_at?,
+                        kind       VIRTUAL 生成列 ← json_extract(payload, '$.kind')
+                        person_id  VIRTUAL 生成列 ← json_extract(payload, '$.person')
 ```
 
-- 判别列（`author_kind`/`author_ident`/`content_kind`）是写入时从 payload 投影的
-  查询列，只在插入函数一处生成，不单独更新。
-- `model_calls` 记录每次模型调用（含失败与重试），`purpose` 由 `query_id` 是否为
-  NULL 表达。
+- `payload` 是 `MessageBody` 的 serde（内部标签 `kind`），唯一真相；生成列写入方不填。
+  例外：`Reply` 的 `model` 不进 payload，读出时按 `model_call_id` JOIN `core_model_calls.model` 还原。
+- `core_model_calls`：每次调用尝试一行（含失败与重试），`run_id` 为空表示压缩调用；
+  `error IS NULL` ⇔ 成功；失败行用量全空；成功行 `input_tokens`、`output_tokens` 同空同非空。
+- 外键：`run_id` → `core_runs`，`model_call_id` → `core_model_calls`，`person_id` → `core_persons`，
+  `parent_session_id` → `core_sessions`。
+- 索引：`idx_root_chat`（root 的 `(channel, chat)` 唯一）；`idx_sessions_delivery`；
+  `core_messages(session_id, id)`；未认领 `(session_id, id) WHERE run_id IS NULL AND kind IN
+  ('UserInput','Completion')`；待投递 `(session_id) WHERE delivered_at IS NULL AND kind IN
+  ('Reply','Notification')`；`core_messages(run_id)`；`core_runs(session_id) WHERE state = 'executing'`；
+  `core_model_calls(session_id)`。
+
+### 不变量
+
+1. 每个会话至多一个 `executing` run。
+2. 输入的 `run_id` 只由认领/并入从空填成非空，之后不变；同一 run 的输入属于同一 person。
+3. 未认领输入不进模型上下文（`context_window` 排除），回放照常返回。
+4. `model_call_id` 只出现在 `Reply` 上，指向一次成功调用，二者 `run_id`、`session_id` 相同。
+5. run 进入终态时，其每个 `ToolCall` 块恰有一条同 run 的 `ToolResult`（启动收尾负责补齐，run-execution §4.6）。
+6. `run_id` 非空的消息与调用，`session_id` 等于该 run 的 `session_id`。
 
 ## 七、副作用
 
 - 文件系统：`open` 创建/打开 SQLite 文件及 WAL 附属文件。
 - 事务：`open` 的每个迁移版本、`resolve_identity`、`bind_identity`、
-  `resolve_root_session`、`claim_next`、`finish_query`、`interrupt_stale_queries`、
+  `resolve_root_session`、`record_model_call`、`claim_next`、`absorb`、`interrupt_stale_runs`、
   `with_module_tx`；其余单语句天然原子。
 - 不做：后台任务、定时清理、发送、解释 `DeliveryTarget.payload`/`trigger_ref`、
   校验 I3、计算权限、生成时间戳、管理 `FileRef` 指向的文件、换算费用。
@@ -502,13 +396,12 @@ mic-store ← mic-message
 
 | 调用方 | 用到什么 | 兼容性 |
 |---|---|---|
-| `mic-core` 启动 | 汇总各模块 `Migration` 后 `open`；`ensure_person`/`bind_identity`（配置）；`interrupt_stale_queries` | 新契约 |
-| `mic-core` 调度与执行 | `claim_next`/`finish_query`/`context_window`/`append_output`/`append_boundary`/`append_completion`/`record_model_call` | 新契约 |
-| `mic-gateway`（v0a Web） | 写经 `Kernel`（`resolve_root_session`/`append_user_input`，见 mic-core-module）；从 Store 只读 `entries_after`（稳定回放）/`list_root_sessions`（会话列表，查看微信会话时 `channel = "wechat"`）/`session_usage` | 新契约；Web 会话无投递目标 |
+| `mic-core` 启动 | 汇总各模块 `Migration` 后 `open`；`ensure_person`/`bind_identity`（配置）；`interrupt_stale_runs`/`run_messages`/`sessions_with_unclaimed_input` | 现行 |
+| `mic-core` 调度与执行 | `claim_next`/`absorb`/`finish_run`/`context_window`/`append`/`record_model_call` | 现行 |
+| `mic-gateway`（v0a Web） | 写经 `Kernel`（`resolve_root_session`/`append_user_input`，见 mic-core-module）；从 Store 只读 `messages_after`（稳定回放）/`list_root_sessions`（会话列表，查看微信会话时 `channel = "wechat"`）；用量读取随 M9 B2 定形状 | 待 M9；Web 会话无投递目标 |
 | 微信适配器 | 经 Gateway 入站和发送；编解码自己的 `DeliveryTarget.payload` | 新契约；是否需要显式 adapter ack 待接入方式核实 |
 | 模块（如 `mic-cron`） | `Migration`、`with_module_tx`、`create_session`（`Triggered`） | 新契约 |
 | `mic-tool` | 不使用（依赖不变量禁止） | 无影响 |
-| `mic-message` 现有实现 | 按独立 [`mic-message.md`](mic-message.md) 修订类型 | 无落盘数据、无下游代码，直接改，不需 parallel change |
 
 ## 十、未纳入
 

@@ -3,13 +3,16 @@
 use std::pin::Pin;
 use std::time::Duration;
 
-use mic_message::{Message, MessageContent};
+use mic_message::{Message, ReplyBlock};
 use mic_store::Usage;
 use mic_tool::ToolSpec;
 
 pub type BoxStream<T> = Pin<Box<dyn futures_core::Stream<Item = T> + Send>>;
 
 pub trait Provider: Send + Sync + 'static {
+    /// 请求时发给上游的模型名；调用记录与推理回传判定用同一口径。
+    fn model(&self) -> &str;
+
     /// 发起一次流式调用。连接失败也以流里的第一个 `Err` 返回。
     /// 丢弃流 = 取消调用（实现须随之中止 HTTP 请求）。
     /// 流以恰好一个 `Finished` 或一个 `Err` 结束，之后不再产出。
@@ -20,8 +23,8 @@ pub trait Provider: Send + Sync + 'static {
 pub struct ModelRequest {
     /// 系统提示；空串 = 不发。
     pub system: String,
-    /// 本次上下文内的历史条目，按 core 组装的顺序，Provider 原样映射。Provider 经 `Message::model_view`
-    /// 取得每条的呈现，并把连续的 `Assistant` 视图重组为一个 assistant turn。
+    /// 本次上下文内的历史消息，按 core 组装的顺序。Provider 逐条经 `Message::model_view` 映射，
+    /// `None` 跳过；一条 `Reply` 即一个 assistant turn。
     pub messages: Vec<Message>,
     /// 空 = 不开启工具调用。
     pub tools: Vec<ToolSpec>,
@@ -39,19 +42,18 @@ pub enum ModelEvent {
 
 #[derive(Debug, Clone)]
 pub struct ModelResponse {
-    /// 上游报告的实际模型名，用于 `MessageAuthor::Assistant { model }`。
-    pub model: String,
-    /// 按生成顺序：`Reasoning`、`Text`、`ToolCall`（只会出现这三种）。
-    pub content: Vec<MessageContent>,
+    /// 按生成顺序：推理、正文、工具调用。
+    pub blocks: Vec<ReplyBlock>,
     pub stop: StopReason,
-    pub usage: Usage,
+    /// 上游没报为 `None`。
+    pub usage: Option<Usage>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
     /// 正常说完。
     EndTurn,
-    /// 要调用工具（`content` 含 `ToolCall`）。
+    /// 要调用工具（`blocks` 含 `ToolCall`）。
     ToolUse,
     /// 撞到输出长度上限，回复不完整。
     MaxTokens,

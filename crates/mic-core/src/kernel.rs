@@ -1,9 +1,10 @@
-use mic_message::{Message, MessageAuthor, PersonId, SessionEntry, SessionEntryId, SessionId};
+use mic_message::{ContentPart, Message, MessageBody, MessageId, PersonId, SessionId};
 use mic_store::rusqlite::{self, Transaction};
-use mic_store::{NewSession, Session, SessionKind, Store, StoreError, UserInput};
+use mic_store::{NewSession, Session, SessionKind, Store, StoreError};
 use tokio::sync::mpsc;
 
 use crate::event::{EventReceiver, Events, KernelEventKind};
+use crate::run::now_ms;
 use crate::KernelError;
 
 /// 模块拿到的内核窄接口。Clone 廉价；核心表只经这些方法写。
@@ -50,13 +51,19 @@ impl Kernel {
         Ok(self.store.create_session(s).await?.id)
     }
 
-    /// 写入可 claim 的用户输入并唤醒该会话的调度（不等执行）。会话正在执行时，
-    /// 新输入由当前 Query 在下一个模型调用边界吸收。内核已停止时只写不唤醒，下次启动补跑。
-    pub async fn append_user_input(&self, input: UserInput) -> Result<SessionEntryId, KernelError> {
-        let entry = append_user_input(&self.store, &self.events, input).await?;
+    /// 写入未认领的用户输入并唤醒该会话的调度（不等执行）。会话正在执行时，
+    /// 新输入由当前 run 在下一个模型调用边界并入。内核已停止时只写不唤醒，下次启动补跑。
+    pub async fn append_user_input(
+        &self,
+        session_id: SessionId,
+        person: PersonId,
+        parts: Vec<ContentPart>,
+    ) -> Result<MessageId, KernelError> {
+        let message =
+            append_user_input(&self.store, &self.events, session_id, person, parts).await?;
         // 调度循环已退出（停止中）时发送失败，按上面的约定忽略。
-        let _ = self.wake.send(entry.session_id).await;
-        Ok(entry.id)
+        let _ = self.wake.send(session_id).await;
+        Ok(message.id)
     }
 
     /// 订阅之后产生的事件（全部会话，按 `channel`/`session_id` 字段过滤）。
@@ -74,34 +81,32 @@ impl Kernel {
     }
 }
 
-/// 写入用户输入并发 `EntryAppended`；`Kernel` 与 `-p` 共用。
+/// 写入用户输入并发 `MessageAppended`；`Kernel` 与 `-p` 共用。
 pub(crate) async fn append_user_input(
     store: &Store,
     events: &Events,
-    input: UserInput,
+    session_id: SessionId,
+    person: PersonId,
+    parts: Vec<ContentPart>,
 ) -> Result<Message, StoreError> {
-    let message = Message {
-        id: SessionEntryId(0),
-        session_id: input.session_id,
-        author: MessageAuthor::User {
-            id: input.person_id,
-        },
-        content: input.content.clone(),
-        created_at: input.created_at,
-        delivered_at: None,
-    };
     // 会话不存在时由外键在写入处报错，之后必能读到。
-    let id = store.append_user_input(input).await?;
-    let message = Message { id, ..message };
+    let message = store
+        .append(
+            session_id,
+            None,
+            MessageBody::UserInput { person, parts },
+            now_ms(),
+        )
+        .await?;
     let session = store
-        .session(message.session_id)
+        .session(session_id)
         .await?
-        .expect("刚写入 entry 的会话必然存在");
+        .expect("刚写入消息的会话必然存在");
     let channel = session_channel(store, &session).await?;
     events.emit(
-        message.session_id,
+        session_id,
         &channel,
-        KernelEventKind::EntryAppended(SessionEntry::Message(message.clone())),
+        KernelEventKind::MessageAppended(message.clone()),
     );
     Ok(message)
 }

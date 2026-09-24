@@ -8,9 +8,9 @@ mod kernel;
 mod limits;
 mod module;
 mod provider;
-mod query;
 mod recovery;
 mod request;
+mod run;
 mod scheduler;
 
 pub use assembly::{Assembly, OnceOutcome, OneShot};

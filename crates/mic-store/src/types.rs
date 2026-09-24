@@ -1,13 +1,13 @@
 use std::collections::BTreeSet;
 
-use mic_message::{
-    ContextBoundary, ExecOutcome, Message, MessageAuthor, MessageContent, PersonId, SessionEntryId,
-    SessionId,
-};
+use mic_message::{Message, PersonId, ReplyBlock, SessionId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct QueryId(pub i64);
+pub struct RunId(pub i64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ModelCallId(pub i64);
 
 /// 外部身份：某 Channel 上的某个发送者。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -70,9 +70,9 @@ pub struct SessionCursor {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSummary {
     pub session: Session,
-    /// 最新 entry 的 `created_at`。
+    /// 最新消息的 `created_at`。
     pub last_activity_at: i64,
-    /// 第一条用户文字消息的开头；没有则 `None`。
+    /// 首条用户输入的首个文本片段开头；没有则 `None`。
     pub preview: Option<String>,
 }
 
@@ -83,47 +83,33 @@ pub struct SessionPage {
     pub next: Option<SessionCursor>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QueryState {
+/// 一次 agent loop 的状态。失败详情看调用记录的 `error`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunState {
     Executing,
     Completed,
-    Failed { reason: FailureReason },
-    Cancelled { reason: CancelReason },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FailureReason {
-    Timeout,
-    Provider {
-        message: String,
-    },
-    Interrupted,
+    /// 模型调用不可重试或重试用尽。
+    ProviderFailed,
     /// 轮次用尽：模型已做过不带工具的总结，但任务未必完成。
-    MaxTurns {
-        limit: u32,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CancelReason {
-    User,
-    ParentCascade,
+    MaxTurns,
+    /// 进程停止时仍在执行，启动时收尾。
+    Interrupted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Query {
-    pub id: QueryId,
+pub struct Run {
+    pub id: RunId,
     pub session_id: SessionId,
-    pub person_id: PersonId,
-    pub claimed_start_id: SessionEntryId,
-    pub claimed_end_id: SessionEntryId,
-    pub state: QueryState,
+    pub state: RunState,
     pub created_at: i64,
+    pub finished_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextWindow {
+    /// 最近一次 `Compaction` 的摘要。
     pub summary: Option<String>,
+    /// 最近一次 `Boundary` 之后、排除未认领输入的消息，按 id。
     pub messages: Vec<Message>,
 }
 
@@ -133,26 +119,39 @@ pub struct PendingDelivery {
     pub target: DeliveryTarget,
 }
 
-/// 一次模型调用的 token 用量。费用不落盘：展示时按当前价格配置换算。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// 一次模型调用的 token 用量；上游没报的项为 `None`。输入含缓存命中，输出含推理。
+/// 费用不落盘：展示时按当前价格配置换算。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
-    pub cache_read_tokens: u64,
-    pub cache_write_tokens: u64,
-    pub reasoning_tokens: u64,
+    pub cache_read_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    pub reasoning_tokens: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelCallPurpose {
-    Query(QueryId),
-    Compaction,
+/// 一次模型调用尝试（含失败与重试）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewModelCall {
+    pub session_id: SessionId,
+    pub run_id: Option<RunId>,
+    /// 请求模型名。
+    pub model: String,
+    pub started_at: i64,
+    pub finished_at: i64,
+    pub outcome: ModelCallOutcome,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModelCallOutcome {
-    Completed,
-    Failed { message: String },
+    /// `usage` 为 `None` = 上游没报。`blocks` 非空时写成一条 `Reply`。
+    Replied {
+        usage: Option<Usage>,
+        blocks: Vec<ReplyBlock>,
+    },
+    Failed {
+        error: String,
+    },
 }
 
 /// 模块迁移。`module` 不得为 `"core"`（内核保留）；同一模块 `version` 从 1 连续递增。
@@ -163,42 +162,6 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
-/// 可 claim 的用户输入：Channel 入站，以及 Task/Triggered 的起始消息。
-#[derive(Debug, Clone, PartialEq)]
-pub struct UserInput {
-    pub session_id: SessionId,
-    pub person_id: PersonId,
-    pub content: MessageContent,
-    pub created_at: i64,
-}
-
-/// `wait=false` 的终态回报（可 claim）。person 来自内存执行实例句柄。
-#[derive(Debug, Clone, PartialEq)]
-pub struct CompletionInput {
-    pub session_id: SessionId,
-    pub person_id: PersonId,
-    pub tool_name: String,
-    pub exec_id: String,
-    pub outcome: ExecOutcome,
-    pub created_at: i64,
-}
-
-/// 不可 claim 的产出：模型输出、工具结果、HarnessNote、Notification。
-#[derive(Debug, Clone, PartialEq)]
-pub struct OutputInput {
-    pub session_id: SessionId,
-    pub author: MessageAuthor,
-    pub content: MessageContent,
-    pub created_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BoundaryInput {
-    pub session_id: SessionId,
-    pub boundary: ContextBoundary,
-    pub created_at: i64,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewSession {
     pub kind: SessionKind,
@@ -207,15 +170,4 @@ pub struct NewSession {
     pub pwd: String,
     pub tool_scope: ToolScope,
     pub created_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelCallInput {
-    pub session_id: SessionId,
-    pub purpose: ModelCallPurpose,
-    pub model: String,
-    pub usage: Usage,
-    pub outcome: ModelCallOutcome,
-    pub started_at: i64,
-    pub finished_at: i64,
 }

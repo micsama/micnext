@@ -78,6 +78,7 @@ pub(crate) struct WireFunction<'a> {
 pub(crate) struct Chunk {
     #[expect(dead_code, reason = "上游字段完整接收，暂无消费者")]
     pub(crate) id: Option<String>,
+    #[expect(dead_code, reason = "上游字段完整接收，暂无消费者")]
     pub(crate) model: String,
     #[expect(dead_code, reason = "上游字段完整接收，暂无消费者")]
     pub(crate) created: Option<i64>,

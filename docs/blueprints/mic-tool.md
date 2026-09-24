@@ -209,7 +209,7 @@ pub enum AssembleError {
 |---|---|---|
 | `mic-message` | 新增 `ExecFailureKind`；`ExecOutcome::Failed` 加 `kind` | 破坏性改动，但尚无落盘数据、无生产者，直接改，不需要 parallel change |
 | `mic-message` `model_view`（provider-port §三.5） | `Failed` 的头改为 §四.3 | provider-port 尚未批准，直接改其正文 |
-| `mic-store` | `CompletionInput.outcome` 与 JSON 列整体透传 `ExecOutcome` | 无代码改动 |
+| `mic-store` | `MessageBody::Completion.outcome` 随 payload 整体透传 `ExecOutcome` | 无代码改动 |
 | `mic-core` 装配 | `Registry::tool`、`AssembleError::DuplicateTool`，汇总为 `Vec<ToolHandle>` | 修订 mic-core-module B2 |
 | `mic-core` 执行主路径（M6） | 取 `spec()` 放进 `ModelRequest.tools`；拼 `prompt_hint()`；`invoke` 后转 `ExecOutcome` | 新契约，M6 B2 |
 | `mic-tool-fs` / `-shell` / `-web-fetch`（M8） | 实现 `Tool` | 新契约，tools-basic B2 |

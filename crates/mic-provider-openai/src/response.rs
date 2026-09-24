@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use mic_core::{ModelEvent, ModelResponse, ProviderError, StopReason};
-use mic_message::{MessageContent, Reasoning};
+use mic_message::{Reasoning, ReplyBlock};
 use mic_store::Usage;
 use reqwest::StatusCode;
 
@@ -13,7 +13,8 @@ use crate::wire::{Chunk, ErrorBody, WireUsage};
 /// 把分片累积为一次完整响应（provider-openai §四.3）。
 pub(crate) struct Accumulator {
     dialect: Dialect,
-    model: Option<String>,
+    /// 收到过分片；`[DONE]` 之前一片没有即协议错误。
+    started: bool,
     reasoning: String,
     text: String,
     /// 按上游 `index` 排序。
@@ -33,7 +34,7 @@ impl Accumulator {
     pub(crate) fn new(dialect: Dialect) -> Self {
         Self {
             dialect,
-            model: None,
+            started: false,
             reasoning: String::new(),
             text: String::new(),
             tool_calls: BTreeMap::new(),
@@ -44,7 +45,7 @@ impl Accumulator {
 
     /// 返回本分片产出的实时增量。
     pub(crate) fn push(&mut self, chunk: Chunk) -> Result<Vec<ModelEvent>, ProviderError> {
-        self.model = Some(chunk.model);
+        self.started = true;
         if let Some(usage) = chunk.usage {
             self.usage = Some(usage);
         }
@@ -96,9 +97,9 @@ impl Accumulator {
 
     /// 收到 `[DONE]` 后组装最终结果。
     pub(crate) fn finish(self) -> Result<ModelResponse, ProviderError> {
-        let Some(model) = self.model else {
+        if !self.started {
             return Err(protocol("[DONE] 之前没有任何分片".into()));
-        };
+        }
         let stop = match self.finish_reason.as_deref() {
             Some("stop") => StopReason::EndTurn,
             Some("tool_calls") => StopReason::ToolUse,
@@ -111,38 +112,34 @@ impl Accumulator {
             None => return Err(protocol("流结束时没有 finish_reason".into())),
         };
 
-        let mut content = Vec::new();
+        let mut blocks = Vec::new();
         if !self.reasoning.is_empty() {
-            content.push(MessageContent::Reasoning(Reasoning::Visible {
+            blocks.push(ReplyBlock::Reasoning(Reasoning::Visible {
                 text: self.reasoning,
                 signature: None,
             }));
         }
         if !self.text.is_empty() {
-            content.push(MessageContent::Text { content: self.text });
+            blocks.push(ReplyBlock::Text { text: self.text });
         }
         for (index, call) in self.tool_calls {
             let (Some(id), Some(name)) = (call.id, call.name) else {
                 return Err(protocol(format!("工具调用 #{index} 缺少 id 或 name")));
             };
-            content.push(MessageContent::ToolCall {
+            blocks.push(ReplyBlock::ToolCall {
                 id,
                 name,
                 args: parse_arguments(call.arguments),
             });
         }
-        if stop == StopReason::EndTurn && content.is_empty() {
+        if stop == StopReason::EndTurn && blocks.is_empty() {
             return Err(transient("上游返回了空回复".into(), None));
         }
 
         Ok(ModelResponse {
-            model,
-            content,
+            blocks,
             stop,
-            usage: self
-                .usage
-                .map(|u| usage(self.dialect, u))
-                .unwrap_or_default(),
+            usage: self.usage.map(|u| usage(self.dialect, u)),
         })
     }
 }
@@ -164,12 +161,9 @@ fn usage(dialect: Dialect, u: WireUsage) -> Usage {
     Usage {
         input_tokens: u.prompt_tokens,
         output_tokens: u.completion_tokens,
-        cache_read_tokens: cache_read_tokens.unwrap_or(0),
-        cache_write_tokens: 0,
-        reasoning_tokens: u
-            .completion_tokens_details
-            .and_then(|d| d.reasoning_tokens)
-            .unwrap_or(0),
+        cache_read_tokens,
+        cache_write_tokens: None,
+        reasoning_tokens: u.completion_tokens_details.and_then(|d| d.reasoning_tokens),
     }
 }
 

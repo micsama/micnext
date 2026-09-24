@@ -15,3 +15,4 @@ serde_json = "1"
 tokio = { version = "1", features = ["fs", "macros", "net", "sync"] }
 tokio-util = "0.7"
 tracing = "0.1"
+rust-embed = { version = "8", features = ["mime-guess"] }

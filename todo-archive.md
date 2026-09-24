@@ -15,3 +15,4 @@
 | 实现完成（CLOSED） | 执行主路径（M6：调度、Agent 循环、落盘、崩溃收尾、实时事件）+ `-p`，含 mic-store `extend_claim` 等修订（v0a 步 4） | [`run-execution.md`](docs/blueprints/run-execution.md)（原 `query-execution.md`） |
 | 实现完成（CLOSED），契约并入各文档 | 存储结构重整：session / run / message / model_call，一次调用一条 `Reply`，用量不编造 | [`storage-restructure.md`](docs/blueprints/storage-restructure.md) |
 | 实现完成（CLOSED） | 网关（M9）：配置与 token、HTTP 接口、SSE 回放交接，含 `Kernel` 只读委托与 mic-store `executing_run`（v0a 步 5） | [`gateway.md`](docs/blueprints/gateway.md) |
+| 实现完成（CLOSED） | Web 前端（M10）：Svelte 5 + Tailwind、消息呈现（Markdown/公式/高亮/复制）、流与重连、gateway 静态资源嵌入（v0a 步 6） | [`web-ui.md`](docs/blueprints/web-ui.md) |

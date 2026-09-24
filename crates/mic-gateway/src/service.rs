@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
+use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{middleware, Router};
 use mic_core::{BoxError, Kernel, Service};
@@ -10,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, TOKEN_BYTES};
-use crate::{api, stream};
+use crate::{api, stream, web};
 
 pub(crate) struct Gateway {
     pub(crate) config: Config,
@@ -36,6 +37,7 @@ impl Service for Gateway {
 }
 
 async fn serve(config: Config, kernel: Kernel, stop: CancellationToken) -> Result<(), BoxError> {
+    web::ensure_built()?;
     tokio::fs::create_dir_all(&config.workdir)
         .await
         .map_err(|e| format!("无法创建 Web 会话工作目录 {}：{e}", config.workdir))?;
@@ -65,9 +67,13 @@ async fn serve(config: Config, kernel: Kernel, stop: CancellationToken) -> Resul
         )
         .route("/sessions/{id}/messages", post(api::send_message))
         .route("/sessions/{id}/stream", get(stream::stream))
+        .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(middleware::from_fn_with_state(app.clone(), api::authorize))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));
-    let router = Router::new().nest("/api", api).with_state(app.clone());
+    let router = Router::new()
+        .nest("/api", api)
+        .fallback(get(web::asset))
+        .with_state(app.clone());
 
     // NOTE: 面向用户的提示，含 token，故不走 tracing。
     eprintln!("Web 已启动：http://{}/#token={}", config.listen, app.token);

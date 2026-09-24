@@ -101,7 +101,7 @@ impl Store {
 
 ## 四、HTTP 接口
 
-所有接口在 `/api` 下，JSON，UTF-8。`/api` 之外返回 404（静态资源随 M10）。
+所有接口在 `/api` 下，JSON，UTF-8。`/api` 下未知路径返回 404；`/api` 之外是 Web 前端静态资源，规则见 [`web-ui.md`](web-ui.md) §三。
 
 ### 4.1 鉴权
 
@@ -223,7 +223,7 @@ sequenceDiagram
 | `bin/micnext` | 装配 `GatewayModule`；配置模板加 `[gateway]` 说明段 | 新增 |
 | `mic-core` `Kernel` | 加四个只读委托（§3.2） | 纯新增 |
 | `mic-store` | 加 `executing_run`；`RunState::as_str()`（库列值，SSE 状态名同源，替代内部 `run_state_col`） | 纯新增 |
-| M10 Web 前端（待起草） | 按 §四、§五 调用；负责静态资源嵌入；从地址 `#token=` 取 token；其它 Channel 会话默认折叠 | 新契约 |
+| M10 Web 前端（[`web-ui.md`](web-ui.md)） | 按 §四、§五 调用；负责静态资源嵌入；从地址 `#token=` 取 token；其它 Channel 会话默认折叠 | 新契约 |
 | `v0a-module-map.md` | M9 去掉"嵌入前端产物"，归 M10；稳定历史一行写明经 `Kernel` 委托；用量读取改为随 v1 | 文档修订 |
 | `mic-core-module.md` §九 | `mic-channel-web` 改名一事落定 | 文档修订 |
 

@@ -1,0 +1,39 @@
+<script lang="ts" module>
+  // 路径取自 Lucide（ISC 许可），24×24、描边绘制。
+  const PATHS = {
+    plus: "M5 12h14M12 5v14",
+    menu: "M4 6h16M4 12h16M4 18h16",
+    x: "M18 6 6 18M6 6l12 12",
+    sun: "M12 3v1M12 20v1M4.22 4.22l.7.7M19.07 19.07l.7.7M3 12h1M20 12h1M4.22 19.78l.7-.7M19.07 4.93l.7-.7M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
+    moon: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z",
+    monitor: "M4 4h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM8 21h8M12 16v5",
+    copy: "M9 9h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1V9ZM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1",
+    check: "M20 6 9 17l-5-5",
+    chevron: "m9 18 6-6-6-6",
+    wrench:
+      "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
+    alert: "M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z",
+    arrowUp: "m5 12 7-7 7 7M12 19V5",
+    arrowDown: "M12 5v14M19 12l-7 7-7-7",
+    sparkles:
+      "M9.94 14.06 8 20l-1.94-5.94L0 12l6.06-1.94L8 4l1.94 6.06L16 12ZM19 3v4M21 5h-4",
+    folder: "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z",
+    loader: "M21 12a9 9 0 1 1-6.22-8.56",
+    file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6",
+  } as const;
+  export type IconName = keyof typeof PATHS;
+</script>
+
+<script lang="ts">
+  let { name, class: cls = "size-4" }: { name: IconName; class?: string } = $props();
+</script>
+
+<svg
+  class={cls}
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"><path d={PATHS[name]} /></svg>

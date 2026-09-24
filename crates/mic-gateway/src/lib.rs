@@ -7,6 +7,7 @@ mod error;
 mod limits;
 mod service;
 mod stream;
+mod web;
 
 use mic_core::{Activation, BoxError, Module, ModuleConfig, Registry};
 

@@ -6,9 +6,11 @@
 | 状态 | 主题 | 文档 |
 |---|---|---|
 | B1 第二轮收敛中 | 产品定位、Web + 微信、定时看板、同步/异步与 v0–v3 路线；全项目待决策项见 §四 | [`docs/brainstorm/product-roadmap.md`](docs/brainstorm/product-roadmap.md) |
-| 进行中（步 1、2、3、3'、4 完成；下一步 M9 网关 B2） | v0a 模块地图：Web 闭环的模块划分、对接方式、实现顺序（v0a 总索引） | [`docs/blueprints/v0a-module-map.md`](docs/blueprints/v0a-module-map.md) |
+| 进行中（步 1、2、3、3'、4 完成；存储重整后起 M9 网关 B2） | v0a 模块地图：Web 闭环的模块划分、对接方式、实现顺序（v0a 总索引） | [`docs/blueprints/v0a-module-map.md`](docs/blueprints/v0a-module-map.md) |
 | v0b，Web 打通后再做 | 微信配置保存后重启、凭据边界、Channel port 与投递完成判据 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §二-10～12、§四-1～3 |
 | B1 待核对，再起 B2 | 定时任务看板事实来源与异步 shell/子 agent 生命周期 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-4～5 |
+| B1 已收敛，待起 B2（排在 M9 前） | 存储结构重整：session / run / message / model_call，一次调用一条回复，消息指向产出者，用量不编造，不留兼容 | [`docs/brainstorm/storage-and-models.md`](docs/brainstorm/storage-and-models.md) §一 |
+| B1 方向已对齐，M10 后单独 B2 | 模型设置运行期化：存库、Web 管理、key 加密，删 `[models]` | [`docs/brainstorm/storage-and-models.md`](docs/brainstorm/storage-and-models.md) §二 |
 | 已知缺口，待定 | 模型条目误写成顶层段（如 `[openai] model = ...`）只报 serde 原文，未提示应写在 `[models.<名字>]`；改进需让装配识别模型模块（动 `Module` trait，走 B2） | [`mic-core-module.md`](docs/blueprints/mic-core-module.md) |
 | 已知缺口，待定义验收边界 | 入站去重、投递重复；模型/工具/历史尺寸、工具授权与进程退出 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-3、8～9 |
 | 待运行时骨架 | 日志路径与级别约定，定稿后补进 `CLAUDE.md` | — |

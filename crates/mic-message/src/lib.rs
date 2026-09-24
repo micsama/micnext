@@ -4,6 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
+mod model_view;
+
+pub use model_view::ModelView;
+
 /// ID 均由 `mic-store` 插入时用 SQLite rowid 回填。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub i64);
@@ -51,12 +55,41 @@ pub enum ContentPart {
     File(FileRef),
 }
 
+/// 工具失败按"谁改了才能成功"分类。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExecFailureKind {
+    /// 改参数就能成功：缺字段、类型错、未知字段、值越界、路径不存在、原文未匹配。
+    Input,
+    /// 参数合法但工具规则不允许：如目标是目录、文件非文本。
+    Business,
+    /// 外部环境出错，与参数无关：权限拒绝、磁盘/网络 I/O、子进程无法启动。
+    Dependency,
+}
+
+impl ExecFailureKind {
+    /// 呈现用的小写标签（模型视图的 `[failed kind=…]` 头、调试输出）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Input => "input",
+            Self::Business => "business",
+            Self::Dependency => "dependency",
+        }
+    }
+}
+
 /// 工具执行终态。`wait=true` 回填原 tool call 与 `wait=false` 的 completion 共用。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExecOutcome {
-    Completed { output: Vec<ContentPart> },
-    Failed { message: String },
-    Cancelled { message: String },
+    Completed {
+        output: Vec<ContentPart>,
+    },
+    Failed {
+        kind: ExecFailureKind,
+        message: String,
+    },
+    Cancelled {
+        message: String,
+    },
 }
 
 /// `wait=true` 得到 `Terminal`；`wait=false` 立即闭合于 `Dispatched`，终态稍后经

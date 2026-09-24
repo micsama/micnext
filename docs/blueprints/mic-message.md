@@ -1,6 +1,6 @@
 # B2: mic-message
 
-**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-message/src/lib.rs`）
+**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-message/src/lib.rs`）；`ExecFailureKind` 与 `ExecOutcome::Failed.kind`（见 [mic-tool](mic-tool.md) §三.1）、`model_view`（见 provider-port §三.5）修订已批准并实现
 **来源**: [`mic-message-types.md`](../brainstorm/mic-message-types.md)（B1）、
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §二
 **依赖不变量**: L0——零内部依赖，只被依赖。

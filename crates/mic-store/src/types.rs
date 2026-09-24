@@ -94,8 +94,14 @@ pub enum QueryState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureReason {
     Timeout,
-    Provider { message: String },
+    Provider {
+        message: String,
+    },
     Interrupted,
+    /// 轮次用尽：模型已做过不带工具的总结，但任务未必完成。
+    MaxTurns {
+        limit: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

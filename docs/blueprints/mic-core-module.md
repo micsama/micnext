@@ -1,6 +1,6 @@
 # B2: mic-core 模块装配（Module / Registry / Service / Kernel 句柄）
 
-**状态**: 已实现部分 CLOSED（2026-09-23，`crates/mic-core`、`bin/micnext`）；`[models]` 分组与 `provider` 登记为修订待批准（随 provider-port B2）；占定方法见 §三。微信设置采用保存后重启生效，凭据写入和重启按钮仍待 Channel/Gateway B2
+**状态**: 已实现部分 CLOSED（2026-09-23，`crates/mic-core`、`bin/micnext`）；`[models]` 分组与 `provider` 登记（随 provider-port）、`tool` 登记与 `DuplicateTool`（随 [mic-tool](mic-tool.md) §三.5）、`Module::activation` 与 `Activation`（随 [tools-basic](tools-basic.md) §三.1）修订已批准并实现；占定方法见 §三。执行主路径（M6）对本文 §三、§四、§六、§七 的修订（`run_once`、`Kernel::owner/append_user_input/subscribe`、`[core] owner/max_turns`、`[models] default` 必填、新错误变体、`-p`）见 [query-execution](query-execution.md)，以该文为准。微信设置采用保存后重启生效，凭据写入和重启按钮仍待 Channel/Gateway B2
 **来源**: [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.1、§2.2、§2.4、§四-1
 **依赖不变量**: 定义在 `mic-core`；模块 crate 依赖 `mic-core`（+ 需要的下层 crate），
 模块之间不互相依赖，只由二进制装配。

@@ -1,6 +1,6 @@
 # B2: 模型 port（Provider trait、流式事件、用量、失败分类）
 
-**状态**: 草稿，待批准
+**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-core/src/provider.rs`、`crates/mic-message/src/model_view.rs`，随步 3' 实跑验收）
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M5；[`product-roadmap.md`](../brainstorm/product-roadmap.md)
 §四-8（Provider 失败语义）；[`mic-message.md`](mic-message.md) §三（一次响应的落盘形状）
 **依赖不变量**: 定义在 `mic-core`；`ToolSpec` 定义在 `mic-tool`（§三.1）；历史条目的模型视图定义在
@@ -42,6 +42,9 @@ pub struct ToolSpec {
 放在 `mic-tool` 是因为生产者是 Tool（M3），而 `mic-tool` 不依赖 `mic-core`。M3 的 B2
 沿用此类型，不另定义。
 
+`parameters` 用 `Value` 不违反"边界收严"：它是本进程产出、发往模型的 JSON Schema，不是入站数据，
+框架不解读其结构，只原样放进请求。
+
 ### 3.2 `mic-core`：Provider
 
 ```rust
@@ -57,7 +60,7 @@ pub trait Provider: Send + Sync + 'static {
 pub struct ModelRequest {
     /// 系统提示；空串 = 不发。
     pub system: String,
-    /// 本次上下文内的历史条目，按 id 升序。Provider 经 `Message::model_view`（§三.5）
+    /// 本次上下文内的历史条目，按 core 组装的顺序（query-execution §4.4），Provider 原样映射。Provider 经 `Message::model_view`（§三.5）
     /// 取得每条的呈现，并把连续的 `Assistant` 视图重组为一个 assistant turn。
     pub messages: Vec<mic_message::Message>,
     /// 空 = 不开启工具调用。
@@ -163,8 +166,8 @@ impl Message {
 | `ToolResult{Terminal(outcome)}` | `Tool` | outcome 为 `Completed` 时无头 |
 | `ToolResult{Dispatched{exec_id}}` | `Tool` | `[dispatched exec_id=<id>]`，说明结果稍后以 completion 送达 |
 
-- outcome：`Completed` 原样给出 `output`；`Failed` → `[failed]` + message；`Cancelled` → `[cancelled]` + message。
-  工具失败的细分类（输入错误/业务错误/依赖错误）由 M3 B2 改 `ExecOutcome` 时一并改这里。
+- outcome：`Completed` 原样给出 `output`；`Failed{kind}` → `[failed kind=input|business|dependency]` + message；
+  `Cancelled` → `[cancelled]` + message（分类定义见 [mic-tool](mic-tool.md) §三.1、§四.3）。
 - `at=` 只给用户与通知：它们的发生时刻可能明显早于在历史中的位置（排队、后台任务）；其余条目
   位置即时序。格式为带本地时区偏移的 RFC 3339（秒精度）。
 - 头部取值里的 `]` 与控制字符替换为 `_`；正文逐字追加，不转义。头部只是提示格式，可审计的来源
@@ -197,7 +200,7 @@ impl Message {
 | `mic-provider-openai`（M7） | `name() = "openai"`；实现 `Provider`，按收到的条目逐个登记 | 新 crate，M7 B2 |
 | `mic-core` 装配 | `[models]` 解析、按 `kind` 分发、核对 `default` | mic-core-module B2 修订 |
 | `mic-core` 执行主路径（M6） | 取 `default` 对应 Provider、组请求、转发增量为实时事件、落盘 `Finished`、按分类重试 | 新契约，M6 B2 |
-| `mic-tool` 各工具（M3/M8） | 产出 `ToolSpec` | 新契约，M3 B2 沿用 |
+| `mic-tool` 各工具（M3/M8） | 产出 `ToolSpec` | 新契约，[mic-tool](mic-tool.md) 沿用 |
 | `mic-message` | 新增 `ModelView`、`Message::model_view` | 纯新增，既有类型不变 |
 | `bin/micnext` | 无改动（Provider 模块照常放进模块列表） | — |
 

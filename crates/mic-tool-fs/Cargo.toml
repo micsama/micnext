@@ -1,0 +1,16 @@
+[package]
+name = "mic-tool-fs"
+version = "0.0.0"
+edition.workspace = true
+
+[dependencies]
+mic-core = { path = "../mic-core" }
+mic-message = { path = "../mic-message" }
+mic-tool = { path = "../mic-tool" }
+grep-regex = "0.1"
+grep-searcher = "0.1"
+ignore = "0.4"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
+tokio = { version = "1", features = ["rt"] }

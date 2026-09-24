@@ -1,0 +1,10 @@
+//! build 后不改的旋钮。
+
+use std::time::Duration;
+
+/// 建连超时。
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// 两次收到数据之间的最长间隔（含等待首字节）。
+pub(crate) const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+/// 错误信息里保留的上游错误体长度（字符）。
+pub(crate) const ERROR_BODY_CHARS: usize = 500;

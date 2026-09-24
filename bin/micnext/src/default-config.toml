@@ -1,5 +1,19 @@
-# micnext 配置。段存在 = 启用该模块；改完重启生效。
-# 数据库默认在 ~/.local/share/micnext/micnext.db，需要改位置时取消下面两行的注释。
+# micnext 配置。按需启用的模块（如模型）段存在即启用；内置工具（shell、fs、web_fetch）始终启用。改完重启生效。
 
-# [core]
+[core]
+# 数据库默认在 ~/.local/share/micnext/micnext.db，需要改位置时取消下一行的注释。
 # data_dir = "~/.local/share/micnext"
+# 你的名字：Web 与 -p 的输入都以这个身份写入。
+owner = "dzmfg"
+# 一轮内带工具的模型调用上限；用尽后模型会做一次不带工具的总结。
+max_turns = 50
+
+# 模型：[models] default 指定当前用哪个，每个 [models.<名字>] 是一个可选模型。
+# DeepSeek 官方的 key 默认从环境变量 DEEPSEEK_API_KEY 读。
+[models]
+default = "ds"
+
+[models.ds]
+kind = "openai"
+preset = "deepseek"
+model = "deepseek-flash"

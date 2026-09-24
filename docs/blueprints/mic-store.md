@@ -91,6 +91,8 @@ pub enum FailureReason {
     Timeout,
     Provider { message: String },
     Interrupted,
+    /// 轮次用尽：模型已做过不带工具的总结，但任务未必完成（query-execution §4.3）。
+    MaxTurns { limit: u32 },
 }
 
 pub enum CancelReason {
@@ -338,6 +340,11 @@ impl Store {
         -> Result<(), StoreError>;
     /// 启动时把遗留 `Executing` 收尾为 `Failed{Interrupted}`，返回被收尾的 Query。
     pub async fn interrupt_stale_queries(&self, now: i64) -> Result<Vec<Query>, StoreError>;
+    /// 执行中吸收新输入：把 `claimed_end_id` 之后、与该 Query 同一 person 的连续可 claim
+    /// 前缀并入；没有可并入的返回 `None`（query-execution §3.5）。
+    pub async fn extend_claim(&self, query: QueryId) -> Result<Option<SessionEntryId>, StoreError>;
+    /// 有可 claim 但未被任何 Query 覆盖的输入的会话（启动补跑用）。
+    pub async fn sessions_with_unclaimed_input(&self) -> Result<Vec<SessionId>, StoreError>;
 
     // ---- 读 ----
     pub async fn context_window(&self, session_id: SessionId) -> Result<ContextWindow, StoreError>;

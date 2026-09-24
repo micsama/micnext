@@ -1,18 +1,33 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use mic_store::Migration;
+use mic_tool::{Tool, ToolHandle};
 use tokio_util::sync::CancellationToken;
 
-use crate::Kernel;
+use crate::{Kernel, Provider};
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 pub trait Module {
     /// 配置段名、迁移 module 名、表前缀共用此名。
     fn name(&self) -> &'static str;
+    /// 缺省 `WhenConfigured`。
+    fn activation(&self) -> Activation {
+        Activation::WhenConfigured
+    }
     /// 第一阶段：同步、纯声明。解析自己的配置段并登记贡献；不做 I/O，拿不到 Store。
     fn install(&self, reg: &mut Registry, cfg: ModuleConfig) -> Result<(), BoxError>;
+}
+
+/// 模块何时装配。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activation {
+    /// 配置里有同名段（或 `[models]` 里有对应 `kind` 的条目）才装配。
+    WhenConfigured,
+    /// 总是装配；没有同名段时收到空表。
+    Always,
 }
 
 /// 本模块配置段的原始内容，只能由模块自己一次 parse 成强类型。
@@ -40,6 +55,8 @@ pub struct Registry {
     pub(crate) current: &'static str,
     pub(crate) migrations: Vec<Migration>,
     pub(crate) services: Vec<(&'static str, Box<dyn Service>)>,
+    pub(crate) providers: Vec<(String, Arc<dyn Provider>)>,
+    pub(crate) tools: Vec<(&'static str, ToolHandle)>,
 }
 
 impl Registry {
@@ -49,5 +66,15 @@ impl Registry {
 
     pub fn service(&mut self, s: impl Service) {
         self.services.push((self.current, Box::new(s)));
+    }
+
+    /// 模型模块对收到的每个 `[models.<name>]` 条目登记一个实例，`name` 即条目名。
+    pub fn provider(&mut self, name: impl Into<String>, p: impl Provider) {
+        self.providers.push((name.into(), Arc::new(p)));
+    }
+
+    /// 工具模块在 `install` 中登记；一个模块可登记多个工具。
+    pub fn tool(&mut self, t: impl Tool) {
+        self.tools.push((self.current, ToolHandle::new(t)));
     }
 }

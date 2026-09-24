@@ -390,26 +390,8 @@ impl Store {
                 [session_id.0],
                 |r| r.get(0),
             )?;
-
-            // 最长同 person_id 连续前缀：(start, end, person)。
-            let mut span: Option<(i64, i64, i64)> = None;
-            {
-                let mut stmt = tx.prepare(&format!(
-                    "SELECT e.id, e.person_id FROM session_entries e
-                     WHERE e.session_id = ?1 AND e.id > ?2 AND {CLAIMABLE}
-                     ORDER BY e.id"
-                ))?;
-                let mut rows = stmt.query(params![session_id.0, lower])?;
-                while let Some(r) = rows.next()? {
-                    let (id, person): (i64, i64) = (r.get(0)?, r.get(1)?);
-                    match &mut span {
-                        None => span = Some((id, id, person)),
-                        Some((_, end, p)) if *p == person => *end = id,
-                        Some(_) => break,
-                    }
-                }
-            }
-            let Some((start, end, person)) = span else {
+            let Some((start, end, person)) = claimable_span(&tx, session_id.0, lower, None)?
+            else {
                 return Ok(None);
             };
 
@@ -430,6 +412,46 @@ impl Store {
                 state: QueryState::Executing,
                 created_at: now,
             }))
+        })
+        .await
+    }
+
+    /// 把 `query` 之后到达的、同一 person 的可 claim entry 并入该 Query，返回新的
+    /// `claimed_end_id`；没有可并入的返回 `None`。调用方保证 Query 处于 `Executing`。
+    pub async fn extend_claim(&self, query: QueryId) -> Result<Option<SessionEntryId>, StoreError> {
+        self.call(move |conn| {
+            let tx = conn.transaction()?;
+            let (session_id, person, lower): (i64, i64, i64) = tx.query_row(
+                "SELECT session_id, person_id, claimed_end_id FROM queries WHERE id = ?1",
+                [query.0],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )?;
+            let Some((_, end, _)) = claimable_span(&tx, session_id, lower, Some(person))? else {
+                return Ok(None);
+            };
+            tx.execute(
+                "UPDATE queries SET claimed_end_id = ?2 WHERE id = ?1",
+                params![query.0, end],
+            )?;
+            tx.commit()?;
+            Ok(Some(SessionEntryId(end)))
+        })
+        .await
+    }
+
+    /// 有尚未被任何 Query claim 的可 claim entry 的会话，按 id 升序。
+    pub async fn sessions_with_unclaimed_input(&self) -> Result<Vec<SessionId>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn
+                .prepare(&format!(
+                    "SELECT DISTINCT e.session_id FROM session_entries e
+                     WHERE {CLAIMABLE} AND e.id > COALESCE(
+                       (SELECT q.claimed_end_id FROM queries q WHERE q.session_id = e.session_id
+                        ORDER BY q.id DESC LIMIT 1), 0)
+                     ORDER BY e.session_id"
+                ))?
+                .query_map([], |r| Ok(SessionId(r.get(0)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
         })
         .await
     }
@@ -747,4 +769,31 @@ fn insert_message(
         ],
     )?;
     Ok(SessionEntryId(conn.last_insert_rowid()))
+}
+
+/// `lower` 之后可 claim entry 序列上最长同 person 连续前缀 `(start, end, person)`；
+/// 给定 `person` 时前缀必须属于该 person。
+fn claimable_span(
+    tx: &Transaction<'_>,
+    session_id: i64,
+    lower: i64,
+    person: Option<i64>,
+) -> rusqlite::Result<Option<(i64, i64, i64)>> {
+    let mut stmt = tx.prepare(&format!(
+        "SELECT e.id, e.person_id FROM session_entries e
+         WHERE e.session_id = ?1 AND e.id > ?2 AND {CLAIMABLE}
+         ORDER BY e.id"
+    ))?;
+    let mut rows = stmt.query(params![session_id, lower])?;
+    let mut span: Option<(i64, i64, i64)> = None;
+    while let Some(r) = rows.next()? {
+        let (id, p): (i64, i64) = (r.get(0)?, r.get(1)?);
+        match &mut span {
+            None if person.is_some_and(|want| want != p) => break,
+            None => span = Some((id, id, p)),
+            Some((_, end, cur)) if *cur == p => *end = id,
+            Some(_) => break,
+        }
+    }
+    Ok(span)
 }

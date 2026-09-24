@@ -5,6 +5,10 @@ members = [
     "crates/mic-store",
     "crates/mic-tool",
     "crates/mic-core",
+    "crates/mic-provider-openai",
+    "crates/mic-tool-shell",
+    "crates/mic-tool-fs",
+    "crates/mic-tool-web-fetch",
     "crates/mic-channel-web",
     "bin/micnext",
 ]

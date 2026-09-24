@@ -36,8 +36,8 @@
 | M6 | 执行主路径 | `mic-core` | 调度（认领/串行）、Agent 循环、落盘、崩溃收尾、实时事件 | [run-execution](run-execution.md) | ✅ 已实现 |
 | M7 | 模型实现 | `mic-provider-openai` | Chat Completions 协议的 `Provider`：DeepSeek 官方预设（只填模型名 + key，key 缺省读 `DEEPSEEK_API_KEY`）与通用 OpenAI 兼容（地址、key、模型名、自定义请求头） | [provider-openai](provider-openai.md) | ✅ |
 | M8 | 基础工具 | `mic-tool-fs`、`mic-tool-shell`、`mic-tool-web-fetch` | `read/glob/grep/write/edit`、`bash`、`web_fetch` | [tools-basic](tools-basic.md)（一份覆盖三个 crate，含 `Module::activation` 修订） | ✅ |
-| M9 | 网关 | `mic-gateway`（由 `mic-channel-web` 改名） | HTTP API、固定 token、SSE、嵌入前端产物 | gateway（待起草） | — |
-| M10 | Web 前端 | `web/`（TS） | 会话列表/切换、流式显示、断线重连 | web-ui（待起草） | — |
+| M9 | 网关 | `mic-gateway`（由 `mic-channel-web` 改名） | HTTP API、固定 token、SSE | [gateway](gateway.md) | ✅ |
+| M10 | Web 前端 | `web/`（TS） | 会话列表/切换、流式显示、断线重连；静态资源嵌入（`rust-embed`）；技术栈用较新的方案，重视观感与交互 | web-ui（待起草） | — |
 | M11 | 装配根 | `bin/micnext` | 读配置、组装模块、信号、日志；一次性 `-p` 调试入口 | 随 M4；`-p` 随 M6（[run-execution](run-execution.md) §六） | ✅ 已实现（含 `-p`） |
 
 ## 二、对接方式
@@ -51,7 +51,7 @@
 | 模型 | M7 → mic-core | `Registry::provider(name, impl Provider)`；模型统一配在 `[models.<名字>]`（`kind` 选实现），`[models] default` 选用哪个 | M5 |
 | 入站 | M9 → mic-core | `Kernel` 上的写入口：`resolve_root_session`（建/取会话，M4 实现）、`append_user_input`（写入并唤醒调度，M4 占定、M6 实现）；Gateway 不直接写 Store | M4 / M6 |
 | 实时事件 | mic-core → M9（及以后各 Channel） | `Kernel::subscribe` 订阅全部会话，事件带 `session_id`/`channel` 供过滤：文本/推理增量、草稿作废、消息已落盘（带 id）、run 起止；每次调用尝试恰好以 `Reply` 落盘或草稿作废之一结束（run-execution §3.1）；事件可丢，真相在 Store | M6 |
-| 稳定历史 | mic-store → M9 | 只读：`messages_after`、`list_root_sessions`；用量读取（`core_model_calls` 上的聚合）随 M9 B2 与消费者一起定形状；以 `Kernel` 上的只读委托方法提供 | M2 / M6 |
+| 稳定历史 | mic-store → M9 | 只读：`messages_after`、`list_root_sessions`；用量读取随 v1（v0a 不显示）；以 `Kernel` 上的只读委托方法提供（gateway §3.2） | M2 / M6 |
 | 前后端 | M9 ↔ M10 | HTTP JSON + SSE；衔接顺序见下 | M9 |
 
 v0a 已定的简化（各 B2 照此写，不再讨论）：

@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 mic-core = { path = "../../crates/mic-core" }
+mic-gateway = { path = "../../crates/mic-gateway" }
 mic-message = { path = "../../crates/mic-message" }
 mic-store = { path = "../../crates/mic-store" }
 mic-provider-openai = { path = "../../crates/mic-provider-openai" }

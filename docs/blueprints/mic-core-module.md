@@ -250,7 +250,7 @@ pub enum RunError {
 | 调用方 | 用途 | 兼容性 |
 |---|---|---|
 | `bin/micnext` | 装配根：`Assembly::new(mods, cfg)?.run(stop)` | 新契约（现为空壳） |
-| `mic-gateway`、微信适配模块 | 实现 `Module` 或通过 Gateway 接入；Channel 登记随 Gateway B2 | 新契约（`mic-channel-web` 改名为 `mic-gateway` 随 Gateway B2；微信进程形态待核实） |
+| `mic-gateway`、微信适配模块 | 实现 `Module` 或通过 Gateway 接入；Channel 登记随 Gateway B2 | 已改名为 `mic-gateway`（[gateway](gateway.md)）；微信进程形态待核实 |
 | `mic-cron` 等功能模块 | `Module` + `migrations` + `Service` + `Kernel` | 新 crate，建时各走 B2 |
 
 当前无下游代码，不需要 parallel change。

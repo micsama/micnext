@@ -9,7 +9,7 @@ members = [
     "crates/mic-tool-shell",
     "crates/mic-tool-fs",
     "crates/mic-tool-web-fetch",
-    "crates/mic-channel-web",
+    "crates/mic-gateway",
     "bin/micnext",
 ]
 

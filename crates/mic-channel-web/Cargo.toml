@@ -1,7 +1,0 @@
-[package]
-name = "mic-channel-web"
-version = "0.0.0"
-edition.workspace = true
-
-[dependencies]
-mic-core = { path = "../mic-core" }

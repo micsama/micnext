@@ -37,16 +37,6 @@ pub(crate) fn payload(body: &MessageBody) -> Result<String, StoreError> {
     Ok(value.to_string())
 }
 
-pub(crate) fn run_state_col(state: RunState) -> &'static str {
-    match state {
-        RunState::Executing => "executing",
-        RunState::Completed => "completed",
-        RunState::ProviderFailed => "provider_failed",
-        RunState::MaxTurns => "max_turns",
-        RunState::Interrupted => "interrupted",
-    }
-}
-
 pub(crate) struct SessionKindCols<'a> {
     pub kind: &'static str,
     pub channel: Option<&'a str>,

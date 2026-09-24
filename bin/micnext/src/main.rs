@@ -74,6 +74,7 @@ async fn run() -> Result<ExitCode> {
         .with_context(|| format!("配置文件 {} 不是合法的 TOML", path.display()))?;
 
     let modules: Vec<Box<dyn Module>> = vec![
+        Box::new(mic_gateway::GatewayModule),
         Box::new(mic_provider_openai::OpenAiModule),
         Box::new(mic_tool_shell::ShellModule),
         Box::new(mic_tool_fs::FsModule),

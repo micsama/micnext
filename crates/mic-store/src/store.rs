@@ -419,7 +419,7 @@ impl Store {
             tx.execute(
                 "INSERT INTO core_runs (session_id, state, created_at)
                  VALUES (?1, ?2, ?3)",
-                params![session_id.0, row::run_state_col(RunState::Executing), now],
+                params![session_id.0, RunState::Executing.as_str(), now],
             )?;
             let id = RunId(tx.last_insert_rowid());
             assign_run(&tx, id, &ids)?;
@@ -478,7 +478,7 @@ impl Store {
         self.call(move |conn| {
             conn.execute(
                 "UPDATE core_runs SET state = ?2, finished_at = ?3 WHERE id = ?1",
-                params![id.0, row::run_state_col(state), now],
+                params![id.0, state.as_str(), now],
             )?;
             Ok(())
         })
@@ -495,14 +495,25 @@ impl Store {
                      WHERE state = 'executing'
                      RETURNING {RUN_COLS}"
                 ))?
-                .query_map(
-                    params![row::run_state_col(RunState::Interrupted), now],
-                    row::run,
-                )?
+                .query_map(params![RunState::Interrupted.as_str(), now], row::run)?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             tx.commit()?;
             stale.sort_by_key(|r| r.id);
             Ok(stale)
+        })
+        .await
+    }
+
+    /// 会话的 `executing` run（不变量保证至多一个）。
+    pub async fn executing_run(&self, session_id: SessionId) -> Result<Option<RunId>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT id FROM core_runs WHERE session_id = ?1 AND state = 'executing'",
+                    [session_id.0],
+                    |r| Ok(RunId(r.get(0)?)),
+                )
+                .optional()?)
         })
         .await
     }

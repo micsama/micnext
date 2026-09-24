@@ -96,6 +96,19 @@ pub enum RunState {
     Interrupted,
 }
 
+impl RunState {
+    /// 库列值，也是对外（SSE）的状态名。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Executing => "executing",
+            Self::Completed => "completed",
+            Self::ProviderFailed => "provider_failed",
+            Self::MaxTurns => "max_turns",
+            Self::Interrupted => "interrupted",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Run {
     pub id: RunId,

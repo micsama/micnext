@@ -8,6 +8,15 @@ owner = "dzmfg"
 # 一轮内带工具的模型调用上限；用尽后模型会做一次不带工具的总结。
 max_turns = 50
 
+# Web 界面。启动时在终端打印带 token 的访问地址。
+[gateway]
+# 只在本机访问；改成 0.0.0.0:7878 会暴露到局域网，先想清楚。
+# listen = "127.0.0.1:7878"
+# Web 新会话的工作目录，不存在会自动创建。
+# workdir = "~/workspace/mic"
+# 访问 token：不写则每次启动随机生成；写了就固定用它（地址可收藏）。
+# token = "换成一串足够长的随机字符"
+
 # 模型：[models] default 指定当前用哪个，每个 [models.<名字>] 是一个可选模型。
 # DeepSeek 官方的 key 默认从环境变量 DEEPSEEK_API_KEY 读。
 [models]

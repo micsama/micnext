@@ -1,6 +1,10 @@
+use std::num::NonZeroU32;
+
 use mic_message::{ContentPart, Message, MessageBody, MessageId, PersonId, SessionId};
 use mic_store::rusqlite::{self, Transaction};
-use mic_store::{NewSession, Session, SessionKind, Store, StoreError};
+use mic_store::{
+    NewSession, RunId, Session, SessionCursor, SessionKind, SessionPage, Store, StoreError,
+};
 use tokio::sync::mpsc;
 
 use crate::event::{EventReceiver, Events, KernelEventKind};
@@ -64,6 +68,38 @@ impl Kernel {
         // 调度循环已退出（停止中）时发送失败，按上面的约定忽略。
         let _ = self.wake.send(session_id).await;
         Ok(message.id)
+    }
+
+    /// id 可能来自外部，不存在返回 `None`。
+    pub async fn session(&self, id: SessionId) -> Result<Option<Session>, KernelError> {
+        Ok(self.store.session(id).await?)
+    }
+
+    /// 列出 `channel` 下已有用户输入的 Root 会话，最近活跃在前。
+    pub async fn list_root_sessions(
+        &self,
+        channel: &str,
+        before: Option<SessionCursor>,
+        limit: NonZeroU32,
+    ) -> Result<SessionPage, KernelError> {
+        Ok(self
+            .store
+            .list_root_sessions(channel, before, limit)
+            .await?)
+    }
+
+    /// 稳定回放（含 `Boundary`）。
+    pub async fn messages_after(
+        &self,
+        session_id: SessionId,
+        after: Option<MessageId>,
+    ) -> Result<Vec<Message>, KernelError> {
+        Ok(self.store.messages_after(session_id, after).await?)
+    }
+
+    /// 该会话正在执行的 run。
+    pub async fn executing_run(&self, session_id: SessionId) -> Result<Option<RunId>, KernelError> {
+        Ok(self.store.executing_run(session_id).await?)
     }
 
     /// 订阅之后产生的事件（全部会话，按 `channel`/`session_id` 字段过滤）。

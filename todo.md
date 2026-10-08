@@ -8,7 +8,7 @@
 | B1 余项：B（模型输入呈现）、F（工具参数）、E 余项（会话身份）待定；A 并入阶段二 | 最小正交审查余项 | [`docs/brainstorm/orthogonality-review-2026-09-24.md`](docs/brainstorm/orthogonality-review-2026-09-24.md) |
 | B1 第二轮收敛中 | 产品定位、Web + 微信、定时看板、同步/异步与 v0–v3 路线；全项目待决策项见 §四 | [`docs/brainstorm/product-roadmap.md`](docs/brainstorm/product-roadmap.md) |
 | 进行中（步 1～6 与存储重整完成，v0a Web 闭环打通） | v0a 模块地图：Web 闭环的模块划分、对接方式、实现顺序（v0a 总索引） | [`docs/blueprints/v0a-module-map.md`](docs/blueprints/v0a-module-map.md) |
-| v0b：B1 产品行为已收敛，待起 B2（同号续会话、旧任务手动恢复、新输入带故障上下文、发送只重试一次、媒体 V2） | 微信 Channel：统一登录配置结果、对象与会话归属、失败与恢复边界 | [`docs/brainstorm/wechat-channel.md`](docs/brainstorm/wechat-channel.md)（2026-10-08 review 决定及 B2 余项）、协议事实 [`wechat-protocol.md`](docs/brainstorm/wechat-protocol.md)；旧约束 [`cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §二-10～12、§四-1～3 |
+| v0b：B2 DRAFT，待批准，未实现（同号续会话、故障待命、新输入带现场、发送只重试一次、媒体 V2） | 微信 Channel：登录 port、对象与会话归属、统一恢复、有限投递与 Web 设置 | [`docs/blueprints/wechat-channel.md`](docs/blueprints/wechat-channel.md)；决定来源 [`B1`](docs/brainstorm/wechat-channel.md)、协议事实 [`wechat-protocol.md`](docs/brainstorm/wechat-protocol.md) |
 | B1 方向已定，契约待起草 | 统一自动上下文压缩：全部 Channel 共用 core 能力，触发与执行协调待定 | [`docs/brainstorm/wechat-channel.md`](docs/brainstorm/wechat-channel.md) §四-D；后续单独起 B1/B2 |
 | B1 待核对，再起 B2 | 定时任务看板事实来源与异步 shell/子 agent 生命周期 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-4～5 |
 | B2：A 批与 §十（服务商/模型分层、env 取 key、连通测试）已实现；B 批（图片）未开工 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/model-settings.md`](docs/blueprints/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |

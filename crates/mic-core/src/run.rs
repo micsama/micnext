@@ -6,14 +6,15 @@ use std::sync::Arc;
 
 use mic_message::{ExecFailureKind, ExecOutcome, MessageBody, ReplyBlock, ToolResultOutcome};
 use mic_store::{
-    ModelCallOutcome, NewModelCall, Run, RunSettings, RunState, Session, Store, StoreError,
-    ToolScope,
+    ClaimedModel, ClaimedRun, ModelCallOutcome, NewModelCall, Run, RunSettings, RunState, Session,
+    Store, StoreError, ToolScope,
 };
 use mic_tool::{ToolContext, ToolHandle};
 use tokio::task::JoinSet;
 
 use crate::event::{Events, KernelEventKind};
 use crate::limits::{MAX_MODEL_ATTEMPTS, MAX_RETRY_WAIT, MAX_TURNS_WARN_PERCENT, RETRY_BASE};
+use crate::provider::{resolve_key, Factories};
 use crate::{
     request, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, StopReason,
 };
@@ -25,21 +26,23 @@ pub(crate) const NOTIFICATION_SOURCE: &str = "micnext";
 pub(crate) struct Engine {
     pub(crate) store: Store,
     pub(crate) events: Events,
-    pub(crate) provider: Arc<dyn Provider>,
-    /// `[models] default` 的条目名。
-    pub(crate) model: String,
+    pub(crate) factories: Arc<Factories>,
     pub(crate) tools: Vec<ToolHandle>,
 }
 
 impl Engine {
-    /// 以认领时定下的设置执行一个 run 并落盘终态。
+    /// 以认领时定下的设置与模型执行一个 run 并落盘终态；模型不可用时以 ProviderFailed 收尾。
     pub(crate) async fn run(
         &self,
         session: &Session,
         channel: &str,
-        run: Run,
-        settings: RunSettings,
+        claimed: ClaimedRun,
     ) -> Result<RunState, StoreError> {
+        let ClaimedRun {
+            run,
+            settings,
+            model,
+        } = claimed;
         self.events.emit(
             session.id,
             channel,
@@ -63,7 +66,14 @@ impl Engine {
             settings: &settings,
             tools,
         };
-        let state = exec.execute().await?;
+        let state = match self.provider(model) {
+            Ok(provider) => exec.execute(provider.as_ref()).await?,
+            Err(text) => {
+                tracing::warn!(session = session.id.0, run = run.id.0, %text, "model unavailable");
+                exec.notify(text).await?;
+                RunState::ProviderFailed
+            }
+        };
         self.store.finish_run(run.id, state, now_ms()).await?;
         tracing::info!(
             session = session.id.0,
@@ -83,6 +93,38 @@ impl Engine {
     }
 }
 
+impl Engine {
+    /// 本轮 Provider 实例；失败文案面向用户，说明怎么修。
+    fn provider(&self, model: ClaimedModel) -> Result<Arc<dyn Provider>, String> {
+        match model {
+            ClaimedModel::Missing => {
+                Err("还没有可用的模型。请在网页 设置 → 模型 添加一个，然后重新发送。".into())
+            }
+            ClaimedModel::Deleted { name, .. } => Err(format!(
+                "所选模型「{name}」已被删除。请在会话里重新选择模型后重新发送。"
+            )),
+            ClaimedModel::Selected {
+                name,
+                kind,
+                endpoint_json,
+                model_name,
+                model_json,
+                key,
+                ..
+            } => self
+                .factories
+                .get(&kind)
+                .and_then(|f| {
+                    let key = resolve_key(key, f.key_env(&endpoint_json));
+                    f.build(&endpoint_json, key, &model_name, &model_json)
+                })
+                .map_err(|e| {
+                    format!("模型「{name}」的配置有误（{e}）。请在 设置 → 模型 修改后重新发送。")
+                }),
+        }
+    }
+}
+
 struct Exec<'a> {
     engine: &'a Engine,
     session: &'a Session,
@@ -99,7 +141,7 @@ struct Call {
 }
 
 impl Exec<'_> {
-    async fn execute(&self) -> Result<RunState, StoreError> {
+    async fn execute(&self, provider: &dyn Provider) -> Result<RunState, StoreError> {
         let max_turns = self.settings.max_turns;
         let warn_at = (max_turns * MAX_TURNS_WARN_PERCENT / 100).max(1);
         let mut calls = 0;
@@ -110,7 +152,7 @@ impl Exec<'_> {
                     "You have used all {max_turns} model calls allowed for this request, and tools are no longer available. Summarize what you have done and what remains unfinished, and tell the user they can reply to continue."
                 ))
                 .await?;
-                return Ok(match self.call_model(&[]).await? {
+                return Ok(match self.call_model(provider, &[]).await? {
                     Ok(_) => RunState::MaxTurns,
                     Err(failed) => failed,
                 });
@@ -122,7 +164,7 @@ impl Exec<'_> {
                 .await?;
             }
             calls += 1;
-            let tool_calls = match self.call_model(&self.tools).await? {
+            let tool_calls = match self.call_model(provider, &self.tools).await? {
                 Ok(tool_calls) => tool_calls,
                 Err(failed) => return Ok(failed),
             };
@@ -146,6 +188,7 @@ impl Exec<'_> {
     /// 失败已落盘通知，返回终态。
     async fn call_model(
         &self,
+        provider: &dyn Provider,
         tools: &[ToolHandle],
     ) -> Result<Result<Vec<Call>, RunState>, StoreError> {
         let window = self.engine.store.context_window(self.session.id).await?;
@@ -153,11 +196,17 @@ impl Exec<'_> {
         let mut attempt = 1;
         loop {
             let started_at = now_ms();
-            let error = match self.stream(req.clone()).await {
-                Ok(reply) => return self.persist_reply(started_at, reply).await.map(Ok),
+            let error = match self.stream(provider, req.clone()).await {
+                Ok(reply) => {
+                    return self
+                        .persist_reply(provider, started_at, reply)
+                        .await
+                        .map(Ok)
+                }
                 Err(e) => e,
             };
             self.record(
+                provider,
                 started_at,
                 ModelCallOutcome::Failed {
                     error: error.to_string(),
@@ -169,12 +218,12 @@ impl Exec<'_> {
                     let wait = retry_after
                         .unwrap_or(RETRY_BASE * 2u32.pow(attempt - 1))
                         .min(MAX_RETRY_WAIT);
-                    tracing::warn!(model = %self.engine.model, %error, attempt, ?wait, "model call failed, retrying");
+                    tracing::warn!(model = provider.model(), %error, attempt, ?wait, "model call failed, retrying");
                     tokio::time::sleep(wait).await;
                     attempt += 1;
                 }
                 _ => {
-                    tracing::warn!(model = %self.engine.model, %error, attempt, "model call failed");
+                    tracing::warn!(model = provider.model(), %error, attempt, "model call failed");
                     self.notify(provider_failure_text(&error, attempt)).await?;
                     return Ok(Err(RunState::ProviderFailed));
                 }
@@ -183,8 +232,12 @@ impl Exec<'_> {
     }
 
     /// 一次尝试：转发增量，返回 `Finished` 的结果。
-    async fn stream(&self, req: ModelRequest) -> Result<ModelResponse, ProviderError> {
-        let mut stream = self.engine.provider.stream(req);
+    async fn stream(
+        &self,
+        provider: &dyn Provider,
+        req: ModelRequest,
+    ) -> Result<ModelResponse, ProviderError> {
+        let mut stream = provider.stream(req);
         loop {
             match poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
                 Some(Ok(ModelEvent::TextDelta(text))) => {
@@ -207,6 +260,7 @@ impl Exec<'_> {
     /// 落盘调用行与 `Reply`，结束草稿，截断时通知；返回其中的工具调用。
     async fn persist_reply(
         &self,
+        provider: &dyn Provider,
         started_at: i64,
         reply: ModelResponse,
     ) -> Result<Vec<Call>, StoreError> {
@@ -226,7 +280,7 @@ impl Exec<'_> {
             usage: reply.usage,
             blocks: reply.blocks,
         };
-        self.record(started_at, outcome).await?;
+        self.record(provider, started_at, outcome).await?;
         match reply.stop {
             StopReason::MaxTokens => {
                 self.notify("回复达到输出长度上限，内容不完整。".into())
@@ -242,7 +296,12 @@ impl Exec<'_> {
     }
 
     /// 落盘调用行并结束草稿：有 `Reply` 即发布它，否则作废。
-    async fn record(&self, started_at: i64, outcome: ModelCallOutcome) -> Result<(), StoreError> {
+    async fn record(
+        &self,
+        provider: &dyn Provider,
+        started_at: i64,
+        outcome: ModelCallOutcome,
+    ) -> Result<(), StoreError> {
         let publish = self.engine.events.publisher().await;
         let (_, reply) = self
             .engine
@@ -250,7 +309,7 @@ impl Exec<'_> {
             .record_model_call(NewModelCall {
                 session_id: self.session.id,
                 run_id: Some(self.run.id),
-                model: self.engine.provider.model().to_owned(),
+                model: provider.model().to_owned(),
                 started_at,
                 finished_at: now_ms(),
                 outcome,

@@ -8,3 +8,5 @@ pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 /// 错误信息里保留的上游错误体长度（字符）。
 pub(crate) const ERROR_BODY_CHARS: usize = 500;
+/// 测试连接的整体超时。
+pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(15);

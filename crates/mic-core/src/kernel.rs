@@ -1,16 +1,19 @@
 use std::num::NonZeroU32;
+use std::sync::Arc;
 
 use mic_message::{ContentPart, Message, MessageBody, MessageId, PersonId, SessionId};
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
+    CredentialWrite, EndpointId, EndpointView, EndpointWrite, ModelId, ModelView, ModelWrite,
     NewSession, Persona, PersonaId, RunId, Session, SessionCursor, SessionKind, SessionPage,
     SessionSummary, Settings, Store, StoreError,
 };
 use tokio::sync::mpsc;
 
 use crate::event::{EventReceiver, Events};
+use crate::provider::{resolve_key, Factories};
 use crate::run::now_ms;
-use crate::{request, KernelError};
+use crate::{request, KernelError, ProviderKindView};
 
 /// 模块拿到的内核窄接口。Clone 廉价；核心表只经这些方法写。
 #[derive(Clone)]
@@ -19,6 +22,22 @@ pub struct Kernel {
     owner: PersonId,
     events: Events,
     wake: mpsc::Sender<SessionId>,
+    factories: Arc<Factories>,
+}
+
+/// 创建/修改服务商的输入；`config_json` 由对应 kind 的工厂解析。
+pub struct EndpointDraft {
+    pub name: String,
+    pub kind: String,
+    pub config_json: String,
+    pub credential: CredentialWrite,
+}
+
+/// 创建/修改模型的输入；`config_json` 是该 kind 的模型参数。
+pub struct ModelDraft {
+    pub endpoint_id: EndpointId,
+    pub name: String,
+    pub config_json: String,
 }
 
 impl Kernel {
@@ -27,12 +46,14 @@ impl Kernel {
         owner: PersonId,
         events: Events,
         wake: mpsc::Sender<SessionId>,
+        factories: Arc<Factories>,
     ) -> Self {
         Self {
             store,
             owner,
             events,
             wake,
+            factories,
         }
     }
 
@@ -166,6 +187,140 @@ impl Kernel {
         persona: PersonaId,
     ) -> Result<(), KernelError> {
         Ok(self.store.set_session_persona(session, persona).await?)
+    }
+
+    /// 可创建的模型类型，来自各模型模块登记的工厂。
+    pub fn provider_kinds(&self) -> Vec<ProviderKindView> {
+        self.factories.kinds()
+    }
+
+    /// 未删除的服务商。
+    pub async fn endpoints(&self) -> Result<Vec<EndpointView>, KernelError> {
+        Ok(self.store.endpoints().await?)
+    }
+
+    /// 仅未删除的；id 可能来自外部，不存在返回 `None`。
+    pub async fn endpoint(&self, id: EndpointId) -> Result<Option<EndpointView>, KernelError> {
+        Ok(self.store.endpoint(id).await?)
+    }
+
+    /// 服务商未保存 key 时读的环境变量名（供界面标注）。
+    pub fn key_env(&self, kind: &str, endpoint_json: &str) -> Option<&'static str> {
+        self.factories.get(kind).ok()?.key_env(endpoint_json)
+    }
+
+    pub async fn create_endpoint(&self, draft: EndpointDraft) -> Result<EndpointId, KernelError> {
+        let write = self.checked_endpoint(draft)?;
+        Ok(self.store.create_endpoint(write, now_ms()).await?)
+    }
+
+    /// 下一轮 run 起生效；进行中的 run 不受影响。
+    pub async fn update_endpoint(
+        &self,
+        id: EndpointId,
+        draft: EndpointDraft,
+    ) -> Result<(), KernelError> {
+        let write = self.checked_endpoint(draft)?;
+        Ok(self.store.update_endpoint(id, write, now_ms()).await?)
+    }
+
+    /// 连同其下全部模型一起删除。
+    pub async fn delete_endpoint(&self, id: EndpointId) -> Result<(), KernelError> {
+        Ok(self.store.delete_endpoint(id, now_ms()).await?)
+    }
+
+    /// 用表单当前值联网取模型列表；`Keep` 沿用 `existing` 已存的 key。不写任何状态。
+    pub async fn test_endpoint(
+        &self,
+        draft: EndpointDraft,
+        existing: Option<EndpointId>,
+    ) -> Result<Vec<String>, KernelError> {
+        let factory = self.factories.get(&draft.kind)?;
+        let endpoint_json = factory.check_endpoint(&draft.config_json)?;
+        let stored = match (draft.credential, existing) {
+            (CredentialWrite::Set(key), _) => Some(key),
+            (CredentialWrite::Clear, _) => None,
+            (CredentialWrite::Keep, Some(id)) => self.store.endpoint_key(id).await?,
+            (CredentialWrite::Keep, None) => {
+                return Err(mic_store::ModelSettingsError::InvalidSecretEdit.into())
+            }
+        };
+        let key = resolve_key(stored, factory.key_env(&endpoint_json));
+        Ok(factory.list_models(&endpoint_json, key).await?)
+    }
+
+    /// 未删除的模型，可按服务商筛。
+    pub async fn models(&self) -> Result<Vec<ModelView>, KernelError> {
+        Ok(self.store.models().await?)
+    }
+
+    /// 仅未删除的；id 可能来自外部，不存在返回 `None`。
+    pub async fn model(&self, id: ModelId) -> Result<Option<ModelView>, KernelError> {
+        Ok(self.store.model(id).await?)
+    }
+
+    pub async fn default_model(&self) -> Result<Option<ModelId>, KernelError> {
+        Ok(self.store.default_model().await?)
+    }
+
+    /// 首个模型自动成为默认。
+    pub async fn create_model(&self, draft: ModelDraft) -> Result<ModelId, KernelError> {
+        let write = self.checked_model(draft).await?;
+        Ok(self.store.create_model(write, now_ms()).await?)
+    }
+
+    /// 下一轮 run 起生效；进行中的 run 不受影响。
+    pub async fn update_model(&self, id: ModelId, draft: ModelDraft) -> Result<(), KernelError> {
+        let write = self.checked_model(draft).await?;
+        Ok(self.store.update_model(id, write, now_ms()).await?)
+    }
+
+    pub async fn delete_model(&self, id: ModelId) -> Result<(), KernelError> {
+        Ok(self.store.delete_model(id, now_ms()).await?)
+    }
+
+    pub async fn set_default_model(&self, id: ModelId) -> Result<(), KernelError> {
+        Ok(self.store.set_default_model(id).await?)
+    }
+
+    /// 会话下一轮用的模型；执行中拒绝。
+    pub async fn set_session_model(
+        &self,
+        session: SessionId,
+        model: ModelId,
+    ) -> Result<(), KernelError> {
+        Ok(self.store.set_session_model(session, model).await?)
+    }
+
+    fn checked_endpoint(&self, draft: EndpointDraft) -> Result<EndpointWrite, KernelError> {
+        let config_json = self
+            .factories
+            .get(&draft.kind)?
+            .check_endpoint(&draft.config_json)?;
+        Ok(EndpointWrite {
+            name: draft.name,
+            kind: draft.kind,
+            config_json,
+            credential: draft.credential,
+        })
+    }
+
+    async fn checked_model(&self, draft: ModelDraft) -> Result<ModelWrite, KernelError> {
+        let endpoint = self
+            .store
+            .endpoint(draft.endpoint_id)
+            .await?
+            .ok_or(mic_store::ModelSettingsError::EndpointNotFound)?;
+        let config_json = self.factories.get(&endpoint.kind)?.check_model(
+            &endpoint.config_json,
+            &draft.name,
+            &draft.config_json,
+        )?;
+        Ok(ModelWrite {
+            endpoint_id: draft.endpoint_id,
+            name: draft.name,
+            config_json,
+        })
     }
 
     /// 订阅之后产生的事件（全部会话，按 `channel`/`session_id` 字段过滤）。

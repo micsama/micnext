@@ -1,10 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::fs::{File, TryLockError};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use mic_message::{ContentPart, PersonId, SessionId};
-use mic_store::{Migration, NewSession, RunState, SessionKind, Store, ToolScope};
+use mic_store::{Migration, NewSession, RunState, SecretKeyFile, SessionKind, Store, ToolScope};
 use mic_tool::ToolHandle;
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -13,11 +13,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::event::{Events, KernelEvent};
 use crate::limits::WAKE_CHANNEL_CAPACITY;
+use crate::provider::Factories;
 use crate::run::{now_ms, Engine};
 use crate::scheduler::panic_message;
 use crate::{
     kernel, recovery, scheduler, Activation, AssembleError, BoxError, Kernel, Module, ModuleConfig,
-    Provider, Registry, RunError, Service,
+    Registry, RunError, Service,
 };
 
 const DEFAULT_OWNER: &str = "dzmfg";
@@ -29,9 +30,8 @@ pub struct Assembly {
     migrations: Vec<Migration>,
     services: Vec<(&'static str, Box<dyn Service>)>,
     owner: String,
-    /// `[models] default` 的条目名与其 Provider。
-    model: String,
-    provider: Arc<dyn Provider>,
+    key_file: SecretKeyFile,
+    factories: Arc<Factories>,
     tools: Vec<ToolHandle>,
 }
 
@@ -56,15 +56,8 @@ pub enum OnceOutcome {
 struct CoreConfig {
     data_dir: Option<String>,
     owner: Option<String>,
-}
-
-/// `[models]` 解析结果：`default` 与按 `kind`（模块名）分组、已去掉 `kind` 的条目。
-#[derive(Default)]
-struct ModelsConfig {
-    default: Option<String>,
-    /// 条目名 → kind。
-    entries: BTreeMap<String, String>,
-    by_kind: BTreeMap<String, toml::Table>,
+    /// 模型 API key 的主密钥文件；二进制按配置文件位置补缺省值。
+    key_file: Option<String>,
 }
 
 /// `run` 与 `run_once` 共用的启动结果；`_lock` 持有期间独占数据目录。
@@ -86,13 +79,13 @@ impl Assembly {
             }
         }
 
-        let mut models = match config.remove("models") {
-            Some(v) => parse_models(v, &names)?,
-            None => ModelsConfig::default(),
-        };
-        if let Some(name) = config.keys().find(|k| {
-            *k != "core" && (!names.contains(k.as_str()) || models.by_kind.contains_key(*k))
-        }) {
+        if config.remove("models").is_some() {
+            return Err(AssembleError::RemovedModelsConfig);
+        }
+        if let Some(name) = config
+            .keys()
+            .find(|k| *k != "core" && !names.contains(k.as_str()))
+        {
             return Err(AssembleError::UnknownModule { name: name.clone() });
         }
 
@@ -109,6 +102,14 @@ impl Assembly {
         };
         let data_dir =
             resolve_data_dir(core.data_dir).map_err(|source| AssembleError::Core { source })?;
+        let key_file = core
+            .key_file
+            .ok_or_else(|| AssembleError::Core {
+                source: "缺少 key_file（主密钥文件路径）".into(),
+            })
+            .and_then(|path| {
+                resolve_abs("key_file", &path).map_err(|source| AssembleError::Core { source })
+            })?;
         let owner = core.owner.unwrap_or_else(|| DEFAULT_OWNER.to_owned());
         if owner.contains(':') {
             return Err(AssembleError::Core {
@@ -132,36 +133,11 @@ impl Assembly {
                         source: format!("[{module}] 必须是一个段（表），不能是单个值").into(),
                     });
                 }
-                let providers_before = reg.providers.len();
                 install(m.as_ref(), &mut reg, section)?;
-                // 模型模块只接受 [models.*] 条目，不该有顶层段。
-                if reg.providers.len() != providers_before {
-                    return Err(AssembleError::UnknownModule {
-                        name: module.to_owned(),
-                    });
-                }
-            } else if let Some(entries) = models.by_kind.remove(module) {
-                install(m.as_ref(), &mut reg, toml::Value::Table(entries))?;
             } else if m.activation() == Activation::Always {
                 install(m.as_ref(), &mut reg, toml::Value::Table(toml::Table::new()))?;
             }
         }
-
-        let model = models.default.ok_or(AssembleError::MissingDefaultModel)?;
-        let Some(kind) = models.entries.get(&model) else {
-            return Err(AssembleError::UnknownDefaultModel { name: model });
-        };
-        let provider = match reg.providers.iter().find(|(name, _)| *name == model) {
-            Some((_, p)) => p.clone(),
-            None => {
-                return Err(AssembleError::Install {
-                    module: names
-                        .get(kind.as_str())
-                        .expect("kind 已在 parse_models 校验"),
-                    source: format!("没有登记模型条目 `{model}` 的 Provider").into(),
-                })
-            }
-        };
 
         let mut owners: HashMap<&str, &'static str> = HashMap::new();
         for (module, tool) in &reg.tools {
@@ -174,13 +150,20 @@ impl Assembly {
             }
         }
 
+        let mut factories = Factories::default();
+        for factory in reg.providers {
+            factories
+                .insert(factory)
+                .map_err(|kind| AssembleError::DuplicateProviderKind { kind })?;
+        }
+
         Ok(Self {
             data_dir,
             migrations: reg.migrations,
             services: reg.services,
             owner,
-            model,
-            provider,
+            key_file: SecretKeyFile(key_file),
+            factories: Arc::new(factories),
             tools: reg.tools.into_iter().map(|(_, t)| t).collect(),
         })
     }
@@ -202,6 +185,7 @@ impl Assembly {
             started.owner,
             events.clone(),
             wake_tx,
+            self.factories.clone(),
         );
         let engine = Arc::new(self.engine(started.store.clone(), events));
         let mut scheduler = Box::pin(scheduler::run(engine, wake_rx, pending));
@@ -269,6 +253,7 @@ impl Assembly {
                     tool_scope: ToolScope::All,
                     created_at: now,
                     persona: None,
+                    model: None,
                 },
             )
             .await?;
@@ -281,14 +266,14 @@ impl Assembly {
             vec![ContentPart::Text { text: once.prompt }],
         )
         .await?;
-        let (run, settings) = store
+        let claimed = store
             .claim_next(session_id, now_ms())
             .await?
             .expect("刚写入的输入必然可认领");
 
         let engine = Arc::new(self.engine(store, events));
         let mut task = JoinSet::new();
-        task.spawn(async move { engine.run(&session, ONCE_CHANNEL, run, settings).await });
+        task.spawn(async move { engine.run(&session, ONCE_CHANNEL, claimed).await });
         let mut show = |event: Result<KernelEvent, crate::Lagged>| match event {
             Ok(e) if e.session_id == session_id => on_event(&e),
             Ok(_) => {}
@@ -340,7 +325,12 @@ impl Assembly {
             }
         }
         let db = data_dir.join("micnext.db");
-        let store = Store::open(&db, &std::mem::take(&mut self.migrations)).await?;
+        let store = Store::open(
+            &db,
+            &std::mem::take(&mut self.migrations),
+            self.key_file.clone(),
+        )
+        .await?;
         let interrupted = recovery::recover(&store).await?;
         let owner = store.ensure_person(&self.owner, now_ms()).await?;
         tracing::info!(db = %db.display(), interrupted, "store ready");
@@ -355,8 +345,7 @@ impl Assembly {
         Engine {
             store,
             events,
-            provider: self.provider.clone(),
-            model: self.model.clone(),
+            factories: self.factories.clone(),
             tools: self.tools.clone(),
         }
     }
@@ -393,46 +382,6 @@ fn install(m: &dyn Module, reg: &mut Registry, cfg: toml::Value) -> Result<(), A
         .map_err(|source| AssembleError::Install { module, source })
 }
 
-/// `[models]`：字符串键 `default`，其余每个子表是一个条目，必须有字符串 `kind`。
-fn parse_models(
-    value: toml::Value,
-    modules: &BTreeSet<&'static str>,
-) -> Result<ModelsConfig, AssembleError> {
-    let shape = |msg: String| AssembleError::Models { source: msg.into() };
-    let toml::Value::Table(table) = value else {
-        return Err(shape("[models] 必须是一个段（表）".into()));
-    };
-    let mut models = ModelsConfig::default();
-    for (key, value) in table {
-        match (key.as_str(), value) {
-            ("default", toml::Value::String(name)) => models.default = Some(name),
-            ("default", _) => return Err(shape("[models] default 必须是字符串".into())),
-            (_, toml::Value::Table(mut entry)) => {
-                let kind = match entry.remove("kind") {
-                    Some(toml::Value::String(kind)) => kind,
-                    Some(_) => return Err(shape(format!("[models.{key}] kind 必须是字符串"))),
-                    None => return Err(shape(format!("[models.{key}] 缺少 kind"))),
-                };
-                if !modules.contains(kind.as_str()) {
-                    return Err(AssembleError::UnknownModelKind { model: key, kind });
-                }
-                models.entries.insert(key.clone(), kind.clone());
-                models
-                    .by_kind
-                    .entry(kind)
-                    .or_default()
-                    .insert(key, toml::Value::Table(entry));
-            }
-            (_, _) => {
-                return Err(shape(format!(
-                    "[models] 下的 {key} 必须是模型条目（[models.{key}]）或 default"
-                )))
-            }
-        }
-    }
-    Ok(models)
-}
-
 /// `[core] data_dir`（绝对路径或 `~/` 开头），缺省按 XDG：`$XDG_DATA_HOME/micnext` 或 `~/.local/share/micnext`。
 fn resolve_data_dir(configured: Option<String>) -> Result<PathBuf, BoxError> {
     if let Some(dir) = configured {
@@ -447,6 +396,15 @@ fn resolve_data_dir(configured: Option<String>) -> Result<PathBuf, BoxError> {
         _ => home()?.join(".local/share"),
     };
     Ok(base.join("micnext"))
+}
+
+/// 绝对路径或 `~/` 开头。
+fn resolve_abs(field: &str, path: &str) -> Result<PathBuf, BoxError> {
+    match path.strip_prefix("~/") {
+        Some(rest) => Ok(home()?.join(rest)),
+        None if path.starts_with('/') => Ok(PathBuf::from(path)),
+        None => Err(format!("{field} 必须是绝对路径或以 ~/ 开头，当前为 \"{path}\"").into()),
+    }
 }
 
 fn home() -> Result<PathBuf, BoxError> {

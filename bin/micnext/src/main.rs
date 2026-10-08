@@ -10,9 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
-use mic_core::{
-    AssembleError, Assembly, KernelEvent, KernelEventKind, Module, OnceOutcome, OneShot,
-};
+use mic_core::{Assembly, KernelEvent, KernelEventKind, Module, OnceOutcome, OneShot};
 use mic_message::{ContentPart, ExecOutcome, Message, MessageBody, ReplyBlock, ToolResultOutcome};
 use mic_store::RunState;
 use tokio::signal::unix::{signal, SignalKind};
@@ -20,8 +18,8 @@ use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 
 const DEFAULT_CONFIG: &str = include_str!("default-config.toml");
-/// 默认模板里模型段的起始注释；缺模型时把这段作为示例给出。
-const MODELS_EXAMPLE_MARK: &str = "# 模型：";
+/// 模型 API key 的主密钥文件名，缺省放在配置文件旁。
+const KEY_FILE_NAME: &str = "master.key";
 const USAGE: &str = "用法：micnext [--config <配置文件路径>] [-p <提示词>]";
 /// `-p` 呈现工具参数与结果时的截断长度（字符）。
 const PREVIEW_CHARS: usize = 200;
@@ -50,14 +48,6 @@ async fn main() -> ExitCode {
                     cause.to_string().trim_end().replace('\n', "\n        ")
                 );
             }
-            if e.chain().any(|c| {
-                matches!(
-                    c.downcast_ref::<AssembleError>(),
-                    Some(AssembleError::MissingDefaultModel)
-                )
-            }) {
-                eprintln!("\n可以照抄默认模板里的这段：\n\n{}", models_example());
-            }
             ExitCode::FAILURE
         }
     }
@@ -81,9 +71,11 @@ async fn run() -> Result<ExitCode> {
         .init();
 
     let (path, text) = load_config(args.config)?;
-    let config: toml::Table = text
+    let mut config: toml::Table = text
         .parse()
         .with_context(|| format!("配置文件 {} 不是合法的 TOML", path.display()))?;
+    default_key_file(&mut config, &path)
+        .with_context(|| format!("配置文件 {} 有误", path.display()))?;
 
     let modules: Vec<Box<dyn Module>> = vec![
         Box::new(mic_gateway::GatewayModule),
@@ -297,7 +289,7 @@ fn load_config(explicit: Option<PathBuf>) -> Result<(PathBuf, String)> {
     }
 }
 
-/// 权限 600：以后会存模型 key。
+/// 权限 600。
 fn write_default_config(path: &Path) -> Result<()> {
     let ctx = || format!("无法生成默认配置 {}", path.display());
     if let Some(dir) = path.parent() {
@@ -312,11 +304,20 @@ fn write_default_config(path: &Path) -> Result<()> {
         .with_context(ctx)
 }
 
-fn models_example() -> &'static str {
-    let at = DEFAULT_CONFIG
-        .find(MODELS_EXAMPLE_MARK)
-        .expect("默认模板含模型段");
-    DEFAULT_CONFIG[at..].trim_end()
+/// `[core]` 没写 `key_file` 时补成配置文件旁的 `master.key`。
+fn default_key_file(config: &mut toml::Table, config_path: &Path) -> Result<()> {
+    let core = config
+        .entry("core")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+        .as_table_mut()
+        .context("[core] 必须是表")?;
+    if !core.contains_key("key_file") {
+        let abs = std::path::absolute(config_path).context("无法解析配置文件的绝对路径")?;
+        let key = abs.with_file_name(KEY_FILE_NAME);
+        let key = key.to_str().context("配置文件路径不是 UTF-8")?;
+        core.insert("key_file".into(), toml::Value::String(key.to_owned()));
+    }
+    Ok(())
 }
 
 /// `$XDG_CONFIG_HOME/micnext/config.toml` 或 `~/.config/micnext/config.toml`。

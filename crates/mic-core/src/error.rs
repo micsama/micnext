@@ -17,14 +17,10 @@ pub enum AssembleError {
         module: &'static str,
         source: BoxError,
     },
-    #[error("[models] 配置有误")]
-    Models { source: BoxError },
-    #[error("模型 `{model}` 的 kind = \"{kind}\" 没有对应的模块（写错，或未编译进来）")]
-    UnknownModelKind { model: String, kind: String },
-    #[error("还没有指定要用的模型：在 [models] 下写 default = \"<条目名>\"，模型本身写在 [models.<条目名>]")]
-    MissingDefaultModel,
-    #[error("[models] default = \"{name}\" 不是任何模型条目")]
-    UnknownDefaultModel { name: String },
+    #[error("配置里的 [models] 已废弃：模型现在在网页 设置 → 模型 里添加，请从配置文件删掉整个 [models] 段")]
+    RemovedModelsConfig,
+    #[error("模型类型 `{kind}` 被重复登记")]
+    DuplicateProviderKind { kind: &'static str },
     #[error("工具 `{name}` 被模块 `{first}` 和 `{second}` 重复登记")]
     DuplicateTool {
         name: String,
@@ -66,4 +62,10 @@ pub enum KernelError {
     Store(#[from] mic_store::StoreError),
     #[error(transparent)]
     Settings(#[from] mic_store::SettingsError),
+    #[error(transparent)]
+    ModelSettings(#[from] mic_store::ModelSettingsError),
+    #[error("模型配置有误：{0}")]
+    Config(#[from] crate::ConfigError),
+    #[error(transparent)]
+    Probe(#[from] crate::ProbeError),
 }

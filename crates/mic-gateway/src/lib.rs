@@ -5,6 +5,7 @@ mod api;
 mod config;
 mod error;
 mod limits;
+mod models;
 mod service;
 mod settings;
 mod stream;

@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use mic_core::KernelError;
-use mic_store::SettingsError;
+use mic_store::{ModelSettingsError, SettingsError};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -22,6 +22,8 @@ pub(crate) enum ApiError {
     Forbidden(String),
     /// 与当前状态冲突，文案说明怎么处理。
     Conflict(String),
+    /// 语法合法但语义不被接受，如模型配置校验失败。
+    Unprocessable(String),
     /// 新会话工作目录无法使用，文案含路径与原因。
     Workdir(String),
     Internal(KernelError),
@@ -29,6 +31,8 @@ pub(crate) enum ApiError {
 
 pub(crate) const SESSION_NOT_FOUND: &str = "会话不存在";
 pub(crate) const PERSONA_NOT_FOUND: &str = "人设不存在";
+pub(crate) const MODEL_NOT_FOUND: &str = "模型不存在";
+pub(crate) const ENDPOINT_NOT_FOUND: &str = "服务商不存在";
 
 impl From<KernelError> for ApiError {
     fn from(e: KernelError) -> Self {
@@ -41,6 +45,19 @@ impl From<KernelError> for ApiError {
                 }
                 SettingsError::Store(e) => Self::Internal(e.into()),
             },
+            KernelError::ModelSettings(e) => match e {
+                ModelSettingsError::NotFound => Self::NotFound(MODEL_NOT_FOUND),
+                ModelSettingsError::EndpointNotFound => Self::NotFound(ENDPOINT_NOT_FOUND),
+                ModelSettingsError::InvalidSecretEdit => Self::Unprocessable(e.to_string()),
+                ModelSettingsError::Deleted
+                | ModelSettingsError::EndpointDeleted
+                | ModelSettingsError::NameTaken(_)
+                | ModelSettingsError::DefaultInUse
+                | ModelSettingsError::SessionExecuting => Self::Conflict(e.to_string()),
+                ModelSettingsError::Store(e) => Self::Internal(e.into()),
+            },
+            KernelError::Config(e) => Self::Unprocessable(e.to_string()),
+            KernelError::Probe(e) => Self::Unprocessable(e.to_string()),
             e => Self::Internal(e),
         }
     }
@@ -57,6 +74,7 @@ impl IntoResponse for ApiError {
                 StatusCode::FORBIDDEN,
                 "该会话来自其它渠道，Web 只能查看".to_owned(),
             ),
+            Self::Unprocessable(m) => (StatusCode::UNPROCESSABLE_ENTITY, m),
             Self::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             Self::Conflict(m) => (StatusCode::CONFLICT, m),
             Self::Workdir(m) => {

@@ -9,45 +9,72 @@ use crate::limits::PREVIEW_CHARS;
 use crate::row::{
     self, MESSAGE_COLS, MESSAGE_FROM, PERSONA_COLS, RUN_COLS, SESSION_COLS, UNCLAIMED,
 };
+use crate::secrets::Cipher;
+use crate::{endpoints, models};
 use crate::{
-    ContextWindow, Identity, Migration, ModelCallId, ModelCallOutcome, NewModelCall, NewSession,
-    PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunSettings, RunState, Session,
-    SessionCursor, SessionPage, SessionSummary, Settings, SettingsError, StoreError,
+    ClaimedModel, ClaimedRun, ContextWindow, Identity, Migration, ModelCallId, ModelCallOutcome,
+    NewModelCall, NewSession, PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunSettings,
+    RunState, SecretKeyFile, Session, SessionCursor, SessionPage, SessionSummary, Settings,
+    SettingsError, StoreError,
 };
 
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
+    cipher: Arc<Cipher>,
 }
 
 impl Store {
-    pub async fn open(path: &Path, modules: &[Migration]) -> Result<Self, StoreError> {
+    pub async fn open(
+        path: &Path,
+        modules: &[Migration],
+        key: SecretKeyFile,
+    ) -> Result<Self, StoreError> {
         let path = path.to_owned();
-        Self::init(move || Connection::open(path), modules).await
+        Self::init(
+            move || Connection::open(path),
+            modules,
+            move |has_ciphertext| Cipher::from_file(&key, has_ciphertext),
+        )
+        .await
     }
 
+    /// 主密钥为随机内存密钥，不写磁盘。
     pub async fn open_in_memory(modules: &[Migration]) -> Result<Self, StoreError> {
-        Self::init(Connection::open_in_memory, modules).await
+        Self::init(
+            Connection::open_in_memory,
+            modules,
+            |_| Ok(Cipher::random()),
+        )
+        .await
     }
 
-    async fn init<F>(connect: F, modules: &[Migration]) -> Result<Self, StoreError>
+    async fn init<F, K>(connect: F, modules: &[Migration], key: K) -> Result<Self, StoreError>
     where
         F: FnOnce() -> rusqlite::Result<Connection> + Send + 'static,
+        K: FnOnce(bool) -> Result<Cipher, StoreError> + Send + 'static,
     {
         let modules = modules.to_vec();
-        let conn = tokio::task::spawn_blocking(move || {
+        let (conn, cipher) = tokio::task::spawn_blocking(move || {
             let mut conn = connect()?;
             crate::schema::init(&mut conn, &modules)?;
-            Ok::<_, StoreError>(conn)
+            let cipher = key(endpoints::has_ciphertext(&conn)?)?;
+            endpoints::verify_keys(&conn, &cipher)?;
+            Ok::<_, StoreError>((conn, cipher))
         })
         .await
         .expect("store 阻塞任务 panic")?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            cipher: Arc::new(cipher),
         })
     }
 
-    async fn call<R, F>(&self, f: F) -> Result<R, StoreError>
+    pub(crate) fn cipher(&self) -> Arc<Cipher> {
+        Arc::clone(&self.cipher)
+    }
+
+    pub(crate) async fn call<R, F>(&self, f: F) -> Result<R, StoreError>
     where
         R: Send + 'static,
         F: FnOnce(&mut Connection) -> Result<R, StoreError> + Send + 'static,
@@ -63,7 +90,7 @@ impl Store {
         self.blocking(f).await
     }
 
-    async fn blocking<R, E, F>(&self, f: F) -> Result<R, E>
+    pub(crate) async fn blocking<R, E, F>(&self, f: F) -> Result<R, E>
     where
         R: Send + 'static,
         E: Send + 'static,
@@ -536,7 +563,8 @@ impl Store {
         &self,
         session_id: SessionId,
         now: i64,
-    ) -> Result<Option<(Run, RunSettings)>, StoreError> {
+    ) -> Result<Option<ClaimedRun>, StoreError> {
+        let cipher = self.cipher();
         self.call(move |conn| {
             let tx = conn.transaction()?;
             let executing: bool = tx.query_row(
@@ -578,11 +606,19 @@ impl Store {
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
+            let model = models::claim_model(&tx, &cipher, session_id)?;
+            let (model_id, model_name) = match &model {
+                ClaimedModel::Missing => (None, None),
+                ClaimedModel::Deleted { id, name } | ClaimedModel::Selected { id, name, .. } => {
+                    (Some(id.0), Some(name.as_str()))
+                }
+            };
             tx.execute(
                 "INSERT INTO core_runs
                    (session_id, state, created_at,
-                    persona_id, persona_name, persona_prompt, general_prompt, max_turns)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    persona_id, persona_name, persona_prompt, general_prompt, max_turns,
+                    model_id, model_name)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     session_id.0,
                     RunState::Executing.as_str(),
@@ -592,6 +628,8 @@ impl Store {
                     persona.prompt,
                     general_prompt,
                     max_turns,
+                    model_id,
+                    model_name,
                 ],
             )?;
             let id = RunId(tx.last_insert_rowid());
@@ -609,7 +647,11 @@ impl Store {
                 general_prompt,
                 max_turns,
             };
-            Ok(Some((run, settings)))
+            Ok(Some(ClaimedRun {
+                run,
+                settings,
+                model,
+            }))
         })
         .await
     }
@@ -896,12 +938,16 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
             |r| r.get(0),
         )?),
     };
+    let model_id = match new.model {
+        Some(id) => Some(id),
+        None => models::read_default(tx)?,
+    };
     tx.execute(
         "INSERT INTO core_sessions
            (kind, channel, chat, parent_tool_call_id, trigger_module, trigger_ref,
             parent_session_id, delivery_channel, delivery_version, delivery_payload,
-            pwd, tool_scope, created_at, persona_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            pwd, tool_scope, created_at, persona_id, model_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             kind.kind,
             kind.channel,
@@ -917,6 +963,7 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
             tool_scope,
             new.created_at,
             persona_id.0,
+            model_id.map(|id| id.0),
         ],
     )?;
     Ok(Session {
@@ -928,6 +975,7 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
         tool_scope: new.tool_scope,
         created_at: new.created_at,
         persona_id,
+        model_id,
     })
 }
 
@@ -1042,8 +1090,8 @@ fn summaries(filter: &str) -> String {
 fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
     Ok(SessionSummary {
         session: row::session(r)?,
-        last_activity_at: r.get(15)?,
-        preview: r.get(16)?,
+        last_activity_at: r.get(16)?,
+        preview: r.get(17)?,
     })
 }
 

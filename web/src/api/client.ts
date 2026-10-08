@@ -1,13 +1,21 @@
 import { auth } from "../state/auth.svelte";
 import {
   parseCreated,
-  parsePersonaId,
+  parseEndpoints,
+  parseModels,
+  parseTestResult,
+  parseId,
   parsePersonas,
   parseSessionItem,
   parseSessionPage,
   parseSettings,
   type Created,
   type Cursor,
+  type Endpoint,
+  type EndpointInput,
+  type EndpointTestInput,
+  type ModelInput,
+  type ModelList,
   type Persona,
   type SessionItem,
   type SessionPage,
@@ -73,12 +81,57 @@ export async function getSession(id: number): Promise<SessionItem> {
   return parseSessionItem(await request("GET", `/sessions/${id}`));
 }
 
-export async function createSession(text: string, personaId: number): Promise<Created> {
-  return parseCreated(await request("POST", "/sessions", { text, persona_id: personaId }));
+export async function createSession(text: string, personaId: number, modelId: number): Promise<Created> {
+  return parseCreated(await request("POST", "/sessions", { text, persona_id: personaId, model_id: modelId }));
 }
 
 export async function setSessionPersona(sessionId: number, personaId: number): Promise<void> {
   await request("PUT", `/sessions/${sessionId}/persona`, { persona_id: personaId });
+}
+
+export async function setSessionModel(sessionId: number, modelId: number): Promise<void> {
+  await request("PUT", `/sessions/${sessionId}/model`, { model_id: modelId });
+}
+
+export async function listEndpoints(): Promise<Endpoint[]> {
+  return parseEndpoints(await request("GET", "/endpoints"));
+}
+
+export async function createEndpoint(input: EndpointInput): Promise<number> {
+  return parseId(await request("POST", "/endpoints", input));
+}
+
+export async function updateEndpoint(id: number, input: EndpointInput): Promise<void> {
+  await request("PUT", `/endpoints/${id}`, input);
+}
+
+export async function deleteEndpoint(id: number): Promise<void> {
+  await request("DELETE", `/endpoints/${id}`);
+}
+
+/** 联网取该服务商的模型名列表；失败时 message 已是用户可读的原因。 */
+export async function testEndpoint(input: EndpointTestInput): Promise<string[]> {
+  return parseTestResult(await request("POST", "/endpoints/test", input));
+}
+
+export async function listModels(): Promise<ModelList> {
+  return parseModels(await request("GET", "/models"));
+}
+
+export async function createModel(input: ModelInput): Promise<number> {
+  return parseId(await request("POST", "/models", input));
+}
+
+export async function updateModel(id: number, input: ModelInput): Promise<void> {
+  await request("PUT", `/models/${id}`, input);
+}
+
+export async function deleteModel(id: number): Promise<void> {
+  await request("DELETE", `/models/${id}`);
+}
+
+export async function setDefaultModel(id: number): Promise<void> {
+  await request("PUT", "/models/default", { model_id: id });
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -94,7 +147,7 @@ export async function listPersonas(): Promise<Persona[]> {
 }
 
 export async function createPersona(name: string, prompt: string): Promise<number> {
-  return parsePersonaId(await request("POST", "/personas", { name, prompt }));
+  return parseId(await request("POST", "/personas", { name, prompt }));
 }
 
 export async function updatePersona(id: number, name: string, prompt: string): Promise<void> {

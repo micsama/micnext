@@ -16,8 +16,10 @@ mod scheduler;
 pub use assembly::{Assembly, OnceOutcome, OneShot};
 pub use error::{AssembleError, KernelError, RunError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
-pub use kernel::Kernel;
+pub use kernel::{EndpointDraft, Kernel, ModelDraft};
+pub use mic_store::SecretValue;
 pub use module::{Activation, BoxError, Module, ModuleConfig, Registry, Service};
 pub use provider::{
-    BoxStream, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, StopReason,
+    BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ModelResponse, ProbeError,
+    Provider, ProviderError, ProviderFactory, ProviderKindView, StopReason,
 };

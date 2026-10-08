@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { sendMessage, setSessionPersona } from "../api/client";
+  import { sendMessage, setSessionModel, setSessionPersona } from "../api/client";
   import { router } from "../state/route.svelte";
   import type { SessionView } from "../state/session.svelte";
   import { webSessions } from "../state/sessions.svelte";
@@ -7,6 +7,7 @@
   import Composer from "./Composer.svelte";
   import Header from "./Header.svelte";
   import MessageList from "./MessageList.svelte";
+  import ModelPicker from "./ModelPicker.svelte";
   import PersonaPicker from "./PersonaPicker.svelte";
 
   let { view, onmenu }: { view: SessionView; onmenu: () => void } = $props();
@@ -46,8 +47,30 @@
     }
   }
 
+  /** null = 下次取默认模型；指向已删除条目时为 null 且提示重选。 */
+  const modelDeleted = $derived(
+    !!item && item.model_id !== null && settingsStore.loaded && !settingsStore.model(item.model_id),
+  );
+  const modelValue = $derived(
+    !item || modelDeleted ? null : (item.model_id ?? settingsStore.defaultModelId),
+  );
+
+  async function pickModel(id: number) {
+    const info = view.info!;
+    const before = info.model_id;
+    info.model_id = id;
+    pickError = null;
+    try {
+      await setSessionModel(view.id, id);
+    } catch (e) {
+      info.model_id = before;
+      pickError = (e as Error).message;
+    }
+  }
+
   const notice = $derived(
     pickError ??
+      (modelDeleted ? "原模型已删除，请重新选择" : null) ??
       (persona?.replaced ? "原人设已删除，下一轮改用默认人设" : pickedDuringRun ? "人设已切换，下一轮生效" : null),
   );
 </script>
@@ -69,6 +92,7 @@
     <Composer onsend={send} autofocus {notice}>
       {#snippet controls()}
         <PersonaPicker value={persona!.id} onpick={pick} />
+        <ModelPicker value={modelValue} onpick={pickModel} disabled={view.executingRun !== null} />
       {/snippet}
     </Composer>
   {:else if item}

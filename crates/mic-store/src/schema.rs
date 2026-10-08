@@ -18,6 +18,11 @@ const CORE_MIGRATIONS: &[Migration] = &[
         version: 2,
         sql: CORE_V2,
     },
+    Migration {
+        module: CORE,
+        version: 3,
+        sql: CORE_V3,
+    },
 ];
 
 const CORE_V1: &str = "
@@ -132,6 +137,37 @@ ALTER TABLE core_runs ADD COLUMN persona_name TEXT;
 ALTER TABLE core_runs ADD COLUMN persona_prompt TEXT;
 ALTER TABLE core_runs ADD COLUMN general_prompt TEXT;
 ALTER TABLE core_runs ADD COLUMN max_turns INTEGER;
+";
+
+/// 模型条目、默认模型、会话所选与 run 快照。
+const CORE_V3: &str = "
+CREATE TABLE core_endpoints (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  key_cipher  BLOB,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  deleted_at  INTEGER
+);
+CREATE UNIQUE INDEX idx_endpoints_name ON core_endpoints(name) WHERE deleted_at IS NULL;
+
+CREATE TABLE core_models (
+  id          INTEGER PRIMARY KEY,
+  endpoint_id INTEGER NOT NULL REFERENCES core_endpoints(id),
+  name        TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  deleted_at  INTEGER
+);
+CREATE UNIQUE INDEX idx_models_name ON core_models(endpoint_id, name) WHERE deleted_at IS NULL;
+
+ALTER TABLE core_settings ADD COLUMN default_model_id INTEGER REFERENCES core_models(id);
+ALTER TABLE core_sessions ADD COLUMN model_id INTEGER REFERENCES core_models(id);
+ALTER TABLE core_runs ADD COLUMN model_id INTEGER;
+ALTER TABLE core_runs ADD COLUMN model_name TEXT;
 ";
 
 /// 设置连接级 pragma，先应用内核迁移，再按传入顺序应用各模块迁移。

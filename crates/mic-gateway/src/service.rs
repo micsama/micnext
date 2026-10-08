@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
-use crate::{api, settings, stream, web};
+use crate::{api, models, settings, stream, web};
 
 pub(crate) struct Gateway {
     pub(crate) config: Config,
@@ -67,6 +67,29 @@ async fn serve(config: Config, kernel: Kernel, stop: CancellationToken) -> Resul
         .route(
             "/settings",
             get(settings::get_settings).put(settings::put_settings),
+        )
+        .route("/sessions/{id}/model", put(models::set_session_model))
+        .route("/model-kinds", get(models::list_kinds))
+        .route(
+            "/models",
+            get(models::list_models).post(models::create_model),
+        )
+        .route(
+            "/models/default",
+            get(models::get_default).put(models::put_default),
+        )
+        .route(
+            "/models/{id}",
+            put(models::update_model).delete(models::delete_model),
+        )
+        .route(
+            "/endpoints",
+            get(models::list_endpoints).post(models::create_endpoint),
+        )
+        .route("/endpoints/test", post(models::test_endpoint))
+        .route(
+            "/endpoints/{id}",
+            put(models::update_endpoint).delete(models::delete_endpoint),
         )
         .route(
             "/personas",

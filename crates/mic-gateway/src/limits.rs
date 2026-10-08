@@ -29,3 +29,9 @@ pub(crate) const CHAT_ID_BYTES: usize = 16;
 pub(crate) const ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 /// `index.html` 等无哈希文件：每次都向服务端确认。
 pub(crate) const INDEX_CACHE_CONTROL: &str = "no-cache";
+
+/// 模型名与 API key 的长度上限（字符数）。
+pub(crate) const MODEL_NAME_MAX_CHARS: usize = 80;
+/// 服务商名称最大字符数。
+pub(crate) const ENDPOINT_NAME_MAX_CHARS: usize = 40;
+pub(crate) const API_KEY_MAX_CHARS: usize = 512;

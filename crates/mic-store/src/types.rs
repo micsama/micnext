@@ -3,6 +3,8 @@ use std::collections::BTreeSet;
 use mic_message::{Message, PersonId, ReplyBlock, SessionId};
 use serde::{Deserialize, Serialize};
 
+use crate::SecretValue;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RunId(pub i64);
 
@@ -12,6 +14,80 @@ pub struct ModelCallId(pub i64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PersonaId(pub i64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ModelId(pub i64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EndpointId(pub i64);
+
+/// 服务商：连接配置 + 可选 API key。key 只暴露是否已设置。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointView {
+    pub id: EndpointId,
+    pub name: String,
+    pub kind: String,
+    /// 该 kind 的 Provider 自己解析的连接配置，无秘密。
+    pub config_json: String,
+    pub key_set: bool,
+}
+
+pub enum CredentialWrite {
+    /// 不动已存的 key；创建时无效。
+    Keep,
+    Clear,
+    Set(SecretValue),
+}
+
+pub struct EndpointWrite {
+    pub name: String,
+    pub kind: String,
+    pub config_json: String,
+    pub credential: CredentialWrite,
+}
+
+/// 服务商下的一个模型：模型名 + 该 kind 自己解析的参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelView {
+    pub id: ModelId,
+    pub endpoint_id: EndpointId,
+    pub name: String,
+    pub config_json: String,
+}
+
+pub struct ModelWrite {
+    pub endpoint_id: EndpointId,
+    pub name: String,
+    pub config_json: String,
+}
+
+/// 认领时对会话所选模型的读定结果；秘密只在此出现。
+pub enum ClaimedModel {
+    /// 会话与默认均无模型。
+    Missing,
+    Deleted {
+        id: ModelId,
+        name: String,
+    },
+    Selected {
+        id: ModelId,
+        /// 「服务商 / 模型」。
+        name: String,
+        kind: String,
+        endpoint_json: String,
+        model_name: String,
+        model_json: String,
+        key: Option<SecretValue>,
+    },
+}
+
+pub struct ClaimedRun {
+    pub run: Run,
+    pub settings: RunSettings,
+    pub model: ClaimedModel,
+}
 
 /// 人设：名字 + 提示词。内置的只读；删除为软删除，按 id 仍可读。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,6 +170,8 @@ pub struct Session {
     pub created_at: i64,
     /// 下一轮用的人设；已删除时下一轮改用默认人设并写回。
     pub persona_id: PersonaId,
+    /// 下一轮用的模型；`None` = 认领时取当时默认并写回。
+    pub model_id: Option<ModelId>,
 }
 
 /// 会话列表分页游标：上一页最后一项的排序键。
@@ -221,4 +299,6 @@ pub struct NewSession {
     pub created_at: i64,
     /// `None` = 建会话时的默认人设。
     pub persona: Option<PersonaId>,
+    /// `None` = 建会话时的默认模型（可能仍为空）。
+    pub model: Option<ModelId>,
 }

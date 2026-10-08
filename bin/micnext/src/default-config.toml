@@ -1,7 +1,9 @@
 # micnext 配置：只放启动必需的项，改完重启生效。人设、通用偏好、工作目录、轮数上限在网页「设置」里改。
-# 按需启用的模块（如模型）段存在即启用；内置工具（shell、fs、web_fetch）始终启用。
+# 模型与 API key 在网页「设置 → 模型」里添加；key 加密存库，主密钥默认在本文件旁的 master.key（权限 600，丢失后已存的 key 无法恢复）。
 
 [core]
+# 主密钥文件默认在配置文件旁的 master.key，需要改位置时取消下一行的注释。
+# key_file = "~/.config/micnext/master.key"
 # 数据库默认在 ~/.local/share/micnext/micnext.db，需要改位置时取消下一行的注释。
 # data_dir = "~/.local/share/micnext"
 # 你的名字：Web 与 -p 的输入都以这个身份写入。
@@ -13,13 +15,3 @@ owner = "dzmfg"
 # listen = "127.0.0.1:7878"
 # 访问 token：不写则每次启动随机生成；写了就固定用它（地址可收藏）。
 # token = "换成一串足够长的随机字符"
-
-# 模型：[models] default 指定当前用哪个，每个 [models.<名字>] 是一个可选模型。
-# DeepSeek 官方的 key 默认从环境变量 DEEPSEEK_API_KEY 读。
-[models]
-default = "ds"
-
-[models.ds]
-kind = "openai"
-preset = "deepseek"
-model = "deepseek-flash"

@@ -1,7 +1,20 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { createPersona, deletePersona, putSettings, updatePersona } from "../api/client";
-  import type { Persona, SettingsInput } from "../api/types";
+  import {
+    createEndpoint,
+    createModel,
+    createPersona,
+    deleteEndpoint,
+    deleteModel,
+    deletePersona,
+    putSettings,
+    setDefaultModel,
+    testEndpoint,
+    updateEndpoint,
+    updateModel,
+    updatePersona,
+  } from "../api/client";
+  import type { Credential, Endpoint, Persona, Preset, SettingsInput } from "../api/types";
   import Icon from "../lib/Icon.svelte";
   import { router } from "../state/route.svelte";
   import { settingsStore } from "../state/settings.svelte";
@@ -127,9 +140,188 @@
     void persona(() => createPersona(name, p.prompt));
   }
 
+  // ---- 服务商与模型 ----
+
+  const PRESETS: { value: Preset; label: string; hint: string }[] = [
+    { value: "deepseek", label: "DeepSeek", hint: "地址固定为官方接口，无需填写" },
+    { value: "ollama", label: "Ollama", hint: "留空用本机 http://localhost:11434/v1" },
+    { value: "generic", label: "OpenAI 兼容（vLLM 等）", hint: "必填，如 http://host:8000/v1" },
+  ];
+
+  const PRESET_ENV: Record<Preset, string | null> = {
+    deepseek: "DEEPSEEK_API_KEY",
+    generic: "OPENAI_API_KEY",
+    ollama: null,
+  };
+
+  const OLLAMA_URL = "http://localhost:11434/v1";
+
+  type ModelRow = {
+    /** 已存在的模型；新行为 null。 */
+    id: number | null;
+    name: string;
+    max_tokens: string;
+    reasoning_effort: string;
+  };
+
+  type EndpointForm = {
+    id: number | null;
+    name: string;
+    preset: Preset;
+    base_url: string;
+    key_set: boolean;
+    /** 新 key；留空即不改。 */
+    key: string;
+    clear_key: boolean;
+    models: ModelRow[];
+  };
+
+  const blankEndpoint = (): EndpointForm => ({
+    id: null,
+    name: "",
+    preset: "deepseek",
+    base_url: "",
+    key_set: false,
+    key: "",
+    clear_key: false,
+    models: [],
+  });
+
+  const toForm = (e: Endpoint): EndpointForm => ({
+    id: e.id,
+    name: e.name,
+    preset: e.config.preset,
+    base_url: e.config.base_url === null || e.config.base_url === OLLAMA_URL ? "" : e.config.base_url,
+    key_set: e.key_set,
+    key: "",
+    clear_key: false,
+    models: settingsStore.models
+      .filter((m) => m.endpoint_id === e.id)
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        max_tokens: m.config.max_tokens === null ? "" : String(m.config.max_tokens),
+        reasoning_effort: m.config.reasoning_effort ?? "",
+      })),
+  });
+
+  let form = $state<EndpointForm | null>(null);
+  let formBase = $state<EndpointForm | null>(null);
+  let modelBusy = $state(false);
+  let modelError = $state<string | null>(null);
+  let testing = $state(false);
+  let testMessage = $state<{ ok: boolean; text: string } | null>(null);
+
+  const modelDirty = $derived(!!form && !!formBase && JSON.stringify(form) !== JSON.stringify(formBase));
+
+  function openEndpoint(f: EndpointForm) {
+    if (modelDirty && !confirm("服务商有未保存的修改，确定放弃？")) return;
+    form = structuredClone($state.snapshot(f));
+    formBase = structuredClone($state.snapshot(f));
+    modelError = null;
+    testMessage = null;
+  }
+
+  function closeEndpoint() {
+    form = null;
+    formBase = null;
+    modelError = null;
+    testMessage = null;
+  }
+
+  async function modelAction(action: () => Promise<void>) {
+    modelBusy = true;
+    modelError = null;
+    try {
+      await action();
+    } catch (e) {
+      modelError = (e as Error).message;
+    } finally {
+      await settingsStore.refresh();
+      modelBusy = false;
+    }
+  }
+
+  function credentialOf(f: EndpointForm): Credential {
+    if (f.key.trim() !== "") return { op: "set", value: f.key };
+    return f.clear_key || f.id === null || !f.key_set ? { op: "clear" } : { op: "keep" };
+  }
+
+  const configOf = (f: EndpointForm) => ({
+    preset: f.preset,
+    ...(f.preset !== "deepseek" && f.base_url.trim() && { base_url: f.base_url.trim() }),
+  });
+
+  async function runTest() {
+    const f = form!;
+    testing = true;
+    testMessage = null;
+    try {
+      const names = await testEndpoint({
+        kind: "openai",
+        config: configOf(f),
+        credential: credentialOf(f),
+        ...(f.id !== null && { endpoint_id: f.id }),
+      });
+      const have = new Set(f.models.map((m) => m.name));
+      const added = names.filter((n) => !have.has(n));
+      f.models.push(...added.map((name) => ({ id: null, name, max_tokens: "", reasoning_effort: "" })));
+      testMessage = { ok: true, text: `连接成功，共 ${names.length} 个模型，新增 ${added.length} 行` };
+    } catch (e) {
+      testMessage = { ok: false, text: (e as Error).message };
+    } finally {
+      testing = false;
+    }
+  }
+
+  function modelInput(endpoint_id: number, r: ModelRow, preset: Preset) {
+    const max = r.max_tokens.trim();
+    return {
+      endpoint_id,
+      name: r.name.trim(),
+      config: {
+        ...(max && { max_tokens: Number(max) }),
+        ...(preset === "deepseek" && r.reasoning_effort && { reasoning_effort: r.reasoning_effort }),
+      },
+    };
+  }
+
+  function saveEndpoint() {
+    const f = $state.snapshot(form!);
+    const base = formBase!;
+    const input = { name: f.name, kind: "openai", config: configOf(f), credential: credentialOf(f) };
+    void modelAction(async () => {
+      let id = f.id;
+      if (id === null) id = await createEndpoint(input);
+      else await updateEndpoint(id, input);
+      const rows = f.models.filter((r) => r.name.trim());
+      const baseRows = new Map(base.models.map((r) => [r.id, r]));
+      for (const r of rows) {
+        if (r.id === null) await createModel(modelInput(id, r, f.preset));
+        else if (JSON.stringify(r) !== JSON.stringify(baseRows.get(r.id)) || f.preset !== base.preset)
+          await updateModel(r.id, modelInput(id, r, f.preset));
+      }
+      const kept = new Set(rows.map((r) => r.id));
+      for (const r of base.models) if (!kept.has(r.id)) await deleteModel(r.id!);
+      closeEndpoint();
+    });
+  }
+
+  function removeEndpoint(e: Endpoint) {
+    if (!confirm(`删除服务商「${e.name}」？其下模型和已保存的 API key 一并删除，选着这些模型的会话需要重新选择。`)) return;
+    void modelAction(() => deleteEndpoint(e.id));
+  }
+
+  const keyPlaceholder = (f: EndpointForm) =>
+    f.key_set
+      ? "已设置（输入新 key 替换）"
+      : PRESET_ENV[f.preset]
+        ? `API key（不填则读环境变量 ${PRESET_ENV[f.preset]}）`
+        : "API key（Ollama 无需填写）";
+
   // ---- 离开提示 ----
 
-  const dirty = $derived(prefsDirty || personaDirty);
+  const dirty = $derived(prefsDirty || personaDirty || modelDirty);
   $effect(() => {
     router.dirty = () => dirty;
     const onbeforeunload = (e: BeforeUnloadEvent) => {
@@ -290,9 +482,167 @@
       {/if}
     </section>
 
-    <section class="space-y-2">
-      <h2 class="text-base font-semibold">模型</h2>
-      <p class="text-sm text-muted">暂在配置文件 [models] 里设置，改完重启生效；之后会移到这里。</p>
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-semibold">服务商与模型</h2>
+        <button
+          type="button"
+          onclick={() => openEndpoint(blankEndpoint())}
+          class="flex items-center gap-1 {button} border border-line hover:bg-raised">
+          <Icon name="plus" />添加服务商
+        </button>
+      </div>
+      <p class="text-xs text-muted">
+        API key 加密保存在本机数据库，主密钥在配置文件旁的 master.key；界面不会再显示已保存的 key。
+      </p>
+
+      {#snippet endpointEditor(f: EndpointForm)}
+        <div class="space-y-2 rounded-lg border border-accent bg-bg p-3">
+          <input bind:value={f.name} class={input} placeholder="服务商名称（在选择框里显示）" maxlength="40" />
+          <select bind:value={f.preset} class={input} aria-label="类型">
+            {#each PRESETS as p (p.value)}
+              <option value={p.value}>{p.label}</option>
+            {/each}
+          </select>
+          <label class="block space-y-1">
+            {#if f.preset !== "deepseek"}
+              <input bind:value={f.base_url} class="{input} font-mono" placeholder="服务地址" />
+            {/if}
+            <span class="block text-xs text-muted">{PRESETS.find((p) => p.value === f.preset)?.hint}</span>
+          </label>
+          <div class="space-y-1">
+            <input
+              type="password"
+              autocomplete="off"
+              bind:value={f.key}
+              disabled={f.clear_key}
+              class="{input} font-mono"
+              placeholder={keyPlaceholder(f)} />
+            {#if f.key_set}
+              <label class="flex items-center gap-2 text-xs text-muted">
+                <input type="checkbox" bind:checked={f.clear_key} onchange={() => (f.key = "")} />清除已保存的 key
+              </label>
+            {/if}
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick={runTest} disabled={testing} class="{button} border border-line hover:bg-raised"
+              >{testing ? "测试中…" : "测试并获取模型"}</button>
+            {#if testMessage}
+              <span class="text-xs {testMessage.ok ? 'text-muted' : 'text-danger'}">{testMessage.text}</span>
+            {/if}
+          </div>
+
+          <div class="space-y-2 border-t border-line pt-2">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium">模型</span>
+              <button
+                type="button"
+                onclick={() => f.models.push({ id: null, name: "", max_tokens: "", reasoning_effort: "" })}
+                class="{button} text-xs text-muted hover:bg-raised hover:text-fg">添加一行</button>
+            </div>
+            {#each f.models as r, i (i)}
+              <div class="flex flex-wrap items-center gap-2">
+                <input bind:value={r.name} class="{input} min-w-40 flex-1 font-mono" placeholder="模型名" />
+                <input
+                  type="number"
+                  min="1"
+                  bind:value={r.max_tokens}
+                  class="{input} w-32"
+                  placeholder="最大输出" />
+                {#if f.preset === "deepseek"}
+                  <select bind:value={r.reasoning_effort} class="{input} w-32" aria-label="推理强度">
+                    <option value="">推理：默认</option>
+                    <option value="none">关闭思考</option>
+                    <option value="low">low</option>
+                    <option value="high">high</option>
+                    <option value="max">max</option>
+                  </select>
+                {/if}
+                <button
+                  type="button"
+                  onclick={() => f.models.splice(i, 1)}
+                  class="{button} text-xs text-danger hover:bg-raised">移除</button>
+              </div>
+            {:else}
+              <p class="text-xs text-muted">还没有模型：点「测试并获取模型」自动填入，或手动添加一行。</p>
+            {/each}
+          </div>
+
+          {#if modelError}
+            <p class="text-sm text-danger">{modelError}</p>
+          {/if}
+          <div class="flex gap-2">
+            <button
+              type="button"
+              onclick={saveEndpoint}
+              disabled={modelBusy || !modelDirty || !f.name.trim()}
+              class="{button} bg-accent text-accent-fg">保存</button>
+            <button type="button" onclick={closeEndpoint} disabled={modelBusy} class="{button} hover:bg-raised"
+              >{modelDirty ? "放弃修改" : "收起"}</button>
+          </div>
+        </div>
+      {/snippet}
+
+      {#if form?.id === null}
+        {@render endpointEditor(form)}
+      {/if}
+
+      <ul class="space-y-2">
+        {#each settingsStore.endpoints as e (e.id)}
+          <li>
+            {#if form?.id === e.id}
+              {@render endpointEditor(form)}
+            {:else}
+              <div class="rounded-lg border border-line bg-panel p-3">
+                <div class="flex items-center gap-2">
+                  <span class="flex-1 truncate text-sm font-medium">{e.name}</span>
+                  <button
+                    type="button"
+                    onclick={() => openEndpoint(toForm(e))}
+                    disabled={modelBusy}
+                    class="{button} text-xs text-muted hover:bg-raised hover:text-fg">编辑</button>
+                  <button
+                    type="button"
+                    onclick={() => removeEndpoint(e)}
+                    disabled={modelBusy}
+                    class="{button} text-xs text-danger hover:bg-raised">删除</button>
+                </div>
+                <p class="mt-1 truncate font-mono text-xs text-muted">
+                  {e.config.base_url ?? "api.deepseek.com"} ·
+                  {e.key_set ? "key 已设置" : e.key_env ? `读环境变量 ${e.key_env}` : "无 key"}
+                </p>
+                <ul class="mt-2 space-y-1">
+                  {#each settingsStore.models.filter((m) => m.endpoint_id === e.id) as m (m.id)}
+                    <li class="flex items-center gap-2 text-sm">
+                      <span class="flex-1 truncate font-mono text-xs">
+                        {m.name}
+                        {#if settingsStore.defaultModelId === m.id}
+                          <span class="ml-1 font-sans text-muted">默认</span>
+                        {/if}
+                      </span>
+                      {#if settingsStore.defaultModelId !== m.id}
+                        <button
+                          type="button"
+                          onclick={() => modelAction(() => setDefaultModel(m.id))}
+                          disabled={modelBusy}
+                          class="{button} text-xs text-muted hover:bg-raised hover:text-fg">设为默认</button>
+                      {/if}
+                    </li>
+                  {:else}
+                    <li class="text-xs text-muted">还没有模型</li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      {#if settingsStore.loaded && settingsStore.endpoints.length === 0 && form === null}
+        <p class="text-sm text-muted">还没有服务商，点右上角「添加服务商」。</p>
+      {/if}
+      {#if modelError && !form}
+        <p class="text-sm text-danger">{modelError}</p>
+      {/if}
     </section>
   </div>
 </div>

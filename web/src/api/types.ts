@@ -56,6 +56,48 @@ export type SessionItem = {
   writable: boolean;
   /** 下一轮用的人设；已删除时下一轮改用默认人设。 */
   persona_id: number;
+  /** 下一轮用的模型；null = 下次取当时的默认模型。 */
+  model_id: number | null;
+};
+
+export type Preset = "generic" | "deepseek" | "ollama";
+
+export type Endpoint = {
+  id: number;
+  name: string;
+  kind: string;
+  /** DeepSeek 地址固定，服务端不返回。 */
+  config: { preset: Preset; base_url: string | null };
+  key_set: boolean;
+  /** 未保存 key 时读取的环境变量名。 */
+  key_env: string | null;
+};
+
+export type Model = {
+  id: number;
+  endpoint_id: number;
+  name: string;
+  config: { max_tokens: number | null; reasoning_effort: "none" | "low" | "high" | "max" | null };
+};
+
+export type ModelList = { items: Model[]; default_model_id: number | null };
+
+/** 提交的 API key 操作：沿用 / 清除 / 设置新值。 */
+export type Credential = { op: "keep" } | { op: "clear" } | { op: "set"; value: string };
+
+export type EndpointInput = {
+  name: string;
+  kind: string;
+  config: { preset: Preset; base_url?: string };
+  credential: Credential;
+};
+
+export type EndpointTestInput = Omit<EndpointInput, "name"> & { endpoint_id?: number };
+
+export type ModelInput = {
+  endpoint_id: number;
+  name: string;
+  config: { max_tokens?: number; reasoning_effort?: string };
 };
 
 export type Settings = {
@@ -143,7 +185,40 @@ const sessionItem: Decoder<SessionItem> = obj({
   workdir: str,
   writable: bool,
   persona_id: num,
+  model_id: nullable(num),
 });
+
+const preset = oneOf("generic", "deepseek", "ollama");
+
+const endpointList: Decoder<{ items: Endpoint[] }> = obj({
+  items: arr(
+    obj({
+      id: num,
+      name: str,
+      kind: str,
+      config: obj({ preset, base_url: nullable(str) }),
+      key_set: bool,
+      key_env: nullable(str),
+    }),
+  ),
+});
+
+const modelList: Decoder<ModelList> = obj({
+  items: arr(
+    obj({
+      id: num,
+      endpoint_id: num,
+      name: str,
+      config: obj({
+        max_tokens: nullable(num),
+        reasoning_effort: nullable(oneOf("none", "low", "high", "max")),
+      }),
+    }),
+  ),
+  default_model_id: nullable(num),
+});
+
+const testResult: Decoder<{ models: string[] }> = obj({ models: arr(str) });
 
 const settings: Decoder<Settings> = obj({
   default_persona_id: num,
@@ -189,7 +264,11 @@ export const parseSettings = (v: unknown): Settings => settings(v, "设置");
 
 export const parsePersonas = (v: unknown): Persona[] => personaList(v, "人设列表").items;
 
-export const parsePersonaId = (v: unknown): number => idOnly(v, "新建人设").id;
+export const parseEndpoints = (v: unknown): Endpoint[] => endpointList(v, "服务商列表").items;
+export const parseTestResult = (v: unknown): string[] => testResult(v, "测试结果").models;
+export const parseModels = (v: unknown): ModelList => modelList(v, "模型列表");
+
+export const parseId = (v: unknown): number => idOnly(v, "新建条目").id;
 
 export function parseStreamEvent(event: string, data: string): StreamEvent {
   if (!Object.hasOwn(streamData, event)) throw new ProtocolError(`事件 ${event}`);

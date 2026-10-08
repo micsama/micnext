@@ -1,10 +1,13 @@
-import { getSettings, listPersonas } from "../api/client";
-import type { Persona, Settings } from "../api/types";
+import { getSettings, listEndpoints, listModels, listPersonas } from "../api/client";
+import type { Endpoint, Model, Persona, Settings } from "../api/types";
 
-/** 对话偏好与未删除的人设；登录后加载，编辑后刷新。 */
+/** 对话偏好、未删除的人设与模型；登录后加载，编辑后刷新。 */
 class SettingsStore {
   settings = $state<Settings | null>(null);
   personas = $state<Persona[]>([]);
+  endpoints = $state<Endpoint[]>([]);
+  models = $state<Model[]>([]);
+  defaultModelId = $state<number | null>(null);
   error = $state<string | null>(null);
 
   get loaded(): boolean {
@@ -13,7 +16,17 @@ class SettingsStore {
 
   async refresh(): Promise<void> {
     try {
-      [this.settings, this.personas] = await Promise.all([getSettings(), listPersonas()]);
+      const [settings, personas, endpoints, models] = await Promise.all([
+        getSettings(),
+        listPersonas(),
+        listEndpoints(),
+        listModels(),
+      ]);
+      this.settings = settings;
+      this.personas = personas;
+      this.endpoints = endpoints;
+      this.models = models.items;
+      this.defaultModelId = models.default_model_id;
       this.error = null;
     } catch (e) {
       this.error = (e as Error).message;
@@ -29,6 +42,14 @@ class SettingsStore {
   /** 已删除或不存在返回 undefined。 */
   persona(id: number): Persona | undefined {
     return this.personas.find((p) => p.id === id);
+  }
+
+  endpoint(id: number): Endpoint | undefined {
+    return this.endpoints.find((e) => e.id === id);
+  }
+
+  model(id: number): Model | undefined {
+    return this.models.find((m) => m.id === id);
   }
 }
 

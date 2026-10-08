@@ -1,12 +1,10 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-
 use mic_store::Migration;
 use mic_tool::{Tool, ToolHandle};
+use std::future::Future;
+use std::pin::Pin;
 use tokio_util::sync::CancellationToken;
 
-use crate::{Kernel, Provider};
+use crate::{Kernel, ProviderFactory};
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -24,7 +22,7 @@ pub trait Module {
 /// 模块何时装配。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Activation {
-    /// 配置里有同名段（或 `[models]` 里有对应 `kind` 的条目）才装配。
+    /// 配置里有同名段才装配。
     WhenConfigured,
     /// 总是装配；没有同名段时收到空表。
     Always,
@@ -55,7 +53,7 @@ pub struct Registry {
     pub(crate) current: &'static str,
     pub(crate) migrations: Vec<Migration>,
     pub(crate) services: Vec<(&'static str, Box<dyn Service>)>,
-    pub(crate) providers: Vec<(String, Arc<dyn Provider>)>,
+    pub(crate) providers: Vec<Box<dyn ProviderFactory>>,
     pub(crate) tools: Vec<(&'static str, ToolHandle)>,
 }
 
@@ -68,9 +66,9 @@ impl Registry {
         self.services.push((self.current, Box::new(s)));
     }
 
-    /// 模型模块对收到的每个 `[models.<name>]` 条目登记一个实例，`name` 即条目名。
-    pub fn provider(&mut self, name: impl Into<String>, p: impl Provider) {
-        self.providers.push((name.into(), Arc::new(p)));
+    /// 模型模块登记自己的工厂；条目由网页设置页创建，运行期按 run 认领的条目构造实例。
+    pub fn provider_factory(&mut self, f: impl ProviderFactory) {
+        self.providers.push(Box::new(f));
     }
 
     /// 工具模块在 `install` 中登记；一个模块可登记多个工具。

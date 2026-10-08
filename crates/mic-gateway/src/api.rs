@@ -10,12 +10,12 @@ use axum::response::Response;
 use axum::Json;
 use mic_message::{ContentPart, MessageId, SessionId};
 use mic_store::{
-    NewSession, PersonaId, Session, SessionCursor, SessionKind, SessionSummary, ToolScope,
+    ModelId, NewSession, PersonaId, Session, SessionCursor, SessionKind, SessionSummary, ToolScope,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ApiError, PERSONA_NOT_FOUND, SESSION_NOT_FOUND};
+use crate::error::{ApiError, MODEL_NOT_FOUND, PERSONA_NOT_FOUND, SESSION_NOT_FOUND};
 use crate::limits::{CHAT_ID_BYTES, MAX_TEXT_CHARS, PAGE_DEFAULT, PAGE_MAX};
 use crate::service::{random_hex, App};
 use crate::settings::new_session_workdir;
@@ -62,6 +62,8 @@ pub(crate) struct SessionItem {
     writable: bool,
     /// 下一轮用的人设；已删除时下一轮改用默认人设。
     persona_id: PersonaId,
+    /// 下一轮用的模型；`null` = 下次认领时取当时默认。
+    model_id: Option<ModelId>,
 }
 
 #[derive(Serialize)]
@@ -135,6 +137,7 @@ fn item(s: SessionSummary) -> Option<SessionItem> {
         workdir: s.session.pwd,
         writable,
         persona_id: s.session.persona_id,
+        model_id: s.session.model_id,
     })
 }
 
@@ -167,6 +170,8 @@ pub(crate) struct SendBody {
 pub(crate) struct CreateBody {
     text: String,
     persona_id: PersonaId,
+    /// 缺省 = 当时的默认模型。
+    model_id: Option<ModelId>,
 }
 
 #[derive(Serialize)]
@@ -191,6 +196,11 @@ pub(crate) async fn create_session(
         Some(p) if p.deleted => return Err(ApiError::Conflict(PERSONA_DELETED.into())),
         Some(_) => {}
     }
+    if let Some(id) = body.model_id {
+        if app.kernel.model(id).await?.is_none() {
+            return Err(ApiError::NotFound(MODEL_NOT_FOUND));
+        }
+    }
     let pwd = new_session_workdir(&app).await?;
     let chat = random_hex(CHAT_ID_BYTES);
     let session = app
@@ -209,6 +219,7 @@ pub(crate) async fn create_session(
                 tool_scope: ToolScope::All,
                 created_at: now_ms(),
                 persona: Some(body.persona_id),
+                model: body.model_id,
             },
         )
         .await?;

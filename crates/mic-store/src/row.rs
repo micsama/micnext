@@ -7,7 +7,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::{
-    DeliveryTarget, Persona, PersonaId, Run, RunId, RunState, Session, SessionKind, StoreError,
+    DeliveryTarget, ModelId, Persona, PersonaId, Run, RunId, RunState, Session, SessionKind,
+    StoreError,
 };
 
 /// 消息读取的 FROM 子句：`Reply.model` 只存在调用行上，读出时 JOIN 还原。
@@ -20,7 +21,7 @@ pub(crate) const MESSAGE_COLS: &str =
 pub(crate) const SESSION_COLS: &str =
     "id, kind, channel, chat, parent_tool_call_id, trigger_module, \
      trigger_ref, parent_session_id, delivery_channel, delivery_version, delivery_payload, pwd, \
-     tool_scope, created_at, persona_id";
+     tool_scope, created_at, persona_id, model_id";
 
 pub(crate) const RUN_COLS: &str = "id, session_id, state, created_at, finished_at";
 
@@ -154,6 +155,7 @@ pub(crate) fn session(row: &Row<'_>) -> rusqlite::Result<Session> {
         tool_scope: json_col(row, 12)?,
         created_at: row.get(13)?,
         persona_id: PersonaId(row.get(14)?),
+        model_id: row.get::<_, Option<i64>>(15)?.map(ModelId),
     })
 }
 

@@ -1,6 +1,6 @@
 # B2: 网关（mic-gateway，M9）
 
-**状态**: CLOSED（2026-09-24 批准并实现于 `crates/mic-gateway`；§八 1～9 用 curl/脚本与 DeepSeek 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) §六 加设置与人设接口、会话人设，`workdir` 移到网页设置
+**状态**: CLOSED（2026-09-24 批准并实现于 `crates/mic-gateway`；§八 1～9 用 curl/脚本与 DeepSeek 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加设置与人设接口（§4.4）、会话人设，`workdir` 移到网页设置
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M9、§二 对接方式与 v0a 简化；
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.2、§2.5、§四-2
 **依赖不变量**: `mic-channel-web` 改名 `mic-gateway`，依赖 `mic-core`（port）+ `mic-store`（会话/run 类型）+
@@ -155,7 +155,25 @@ mic-message 形状变化即 wire 变化，由改 mic-message 的 B2 列 M10 为�
 | 往非 web 会话发消息 | 403 |
 | `KernelError` | 500，日志记详情，响应只写"内部错误" |
 
-设置、人设与会话人设接口及其错误映射见 runtime-settings §六。
+### 4.4 设置、人设与会话人设
+
+`App` 不再持有 `workdir`；建 Web 会话时读 `settings().default_workdir`，展开 `~/`，不存在则创建（失败 → 500，日志写原因）。
+
+| 接口 | 请求 | 响应 |
+|---|---|---|
+| `GET /api/settings` | | `{default_persona_id, general_prompt, default_workdir, max_turns, system_prompt}` |
+| `PUT /api/settings` | `{default_persona_id, general_prompt, default_workdir, max_turns}` | 204 |
+| `GET /api/personas` | | `{items: [{id, name, prompt, builtin}]}` |
+| `POST /api/personas` | `{name, prompt}` | 201 `{id}` |
+| `PUT /api/personas/{id}` | `{name, prompt}` | 204 |
+| `DELETE /api/personas/{id}` | | 204 |
+| `PUT /api/sessions/{id}/persona` | `{persona_id}` | 204；只读会话 403 |
+| `POST /api/sessions` | `{text, persona_id}` | 人设已删除 → 409 |
+| `POST /api/sessions/{id}/messages` | 不变 | 不检查人设；已删除的下一轮改用默认人设 |
+
+边界校验（`limits.rs`）：名字去首尾空白后 1～40 字；人设提示词非空且 ≤ 8000 字；通用偏好 ≤ 8000 字、可空；
+`default_workdir` 绝对路径或 `~/` 开头；`max_turns` 1～500。不合法 → 400，中文说明哪一项、怎么改。
+错误映射：`PersonaNotFound` → 404；`Builtin` → 403；`IsDefault`、`NameTaken`、`Deleted` → 409；文案取 `SettingsError` 的 Display。
 
 ## 五、SSE 流与回放交接
 

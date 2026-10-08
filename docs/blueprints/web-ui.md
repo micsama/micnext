@@ -1,6 +1,6 @@
 # B2: Web 前端（web/，M10）
 
-**状态**: CLOSED（2026-09-24 批准并实现于 `web/` 与 `crates/mic-gateway/src/web.rs`；§八 1～10 已用 DeepSeek `deepseek-flash` + Playwright 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) §七 加设置页（`/settings`）与输入框旁人设选择
+**状态**: CLOSED（2026-09-24 批准并实现于 `web/` 与 `crates/mic-gateway/src/web.rs`；§八 1～10 已用 DeepSeek `deepseek-flash` + Playwright 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加设置页（§4.3）（`/settings`）与输入框旁人设选择
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M10、步 6；[`gateway.md`](gateway.md)（调用的契约）；
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.1、§2.2
 **依赖不变量**: 新目录 `web/`（TS，不是 crate）。Rust 侧只改 `mic-gateway`：嵌入并服务构建产物，
@@ -117,6 +117,15 @@ mic-message 形状变化时，改它的 B2 须把本文列为调用方（gateway
 - 发送失败（413、500 等）在输入框上方显示服务端返回的中文错误，输入内容保留。
 - 打开不存在的会话（`/s/<id>` 返回 404）→ 显示"会话不存在"并提供回到新会话的入口。
 - 流式中草稿的 Markdown 重渲染合并到每帧至多一次，长回复不卡。
+
+### 4.3 设置页与人设选择
+
+- 路由 `/settings`，侧栏底部入口；`state/settings.svelte.ts` 登录后加载设置与未删除人设，编辑后刷新。
+- `SettingsView`：对话偏好表单（未保存离开提示；系统提示词可展开只读查看）、人设列表与编辑器；内置人设只读，
+  「复制并编辑」新建「<名字> 副本」；删除前确认；服务端 409 文案原样显示；「模型」区暂为说明文字。
+- `PersonaPicker` 放在 `Composer` 发送按钮左侧；`executingRun` 非空时切换提示「下一轮生效」；
+  会话选着的人设已不在列表时，选择器按 `settingsStore.resolve` 显示默认人设并提示「原人设已删除，下一轮改用默认人设」，不禁用发送。
+- 相关接口与 `SessionItem.persona_id` 全部经 `decode.ts` 解码。
 
 ## 五、会话状态与流
 

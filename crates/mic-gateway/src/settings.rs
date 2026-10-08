@@ -1,4 +1,4 @@
-//! 设置页与人设接口。契约：docs/blueprints/runtime-settings.md §六。
+//! 设置页与人设接口。契约：docs/blueprints/gateway.md §4.4。
 
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -1,6 +1,6 @@
 # B2: mic-store（连带 mic-message 修订）
 
-**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`，含会话列举增量）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 重写为 session / run / message / model_call；微信投递完成判据随 v0b；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加 schema core v2（人设、对话偏好、会话人设、run 设置快照）
+**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`，含会话列举增量）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 重写为 session / run / message / model_call；微信投递完成判据随 v0b；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加 schema core v2（§6.1）（人设、对话偏好、会话人设、run 设置快照）
 **来源**: [`mic-store-design.md`](../brainstorm/mic-store-design.md)（B1）、
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §二、§四
 **依赖不变量**: `mic-store` 只依赖 `mic-message`，不依赖 `mic-tool`/`mic-core`/任何模块。
@@ -340,7 +340,7 @@ pub enum StoreError {
 }
 ```
 
-## 六、schema（core v1；v2 增量见 runtime-settings §四）
+## 六、schema（core v2）
 
 内核表统一 `core_` 前缀；`schema_migrations` 是所有模块共用的迁移登记表，不属于内核事实，保持原名。
 实际 SQL 见 `crates/mic-store/src/schema.rs`，列如下：
@@ -382,6 +382,32 @@ core_messages           id, session_id, run_id?, model_call_id?, payload, create
 5. run 进入终态时，其每个 `ToolCall` 块恰有一条同 run 的 `ToolResult`（启动收尾负责补齐，run-execution §4.6）。
 6. `run_id` 非空的消息与调用，`session_id` 等于该 run 的 `session_id`。
 
+### 6.1 设置与人设（core v2）
+
+表：`core_personas`（`id, name, prompt, builtin, created_at, updated_at, deleted_at`，未删除名字唯一）、
+`core_settings`（单行：`default_persona_id, general_prompt, default_workdir, max_turns`）；
+`core_sessions.persona_id`（不加外键：SQLite 开着外键时不允许带非 NULL 默认值的 `ADD COLUMN … REFERENCES`，
+引用由写入方法校验）；`core_runs` 加 `persona_id/persona_name/persona_prompt/general_prompt/max_turns`
+快照列（迁移前的历史 run 为 NULL）。`default_workdir` 存用户写法（绝对路径或 `~/` 开头），由使用方展开。
+
+内置人设不在迁移里写（仅占位 id 1 以满足外键）。`personas::sync` 在每次打开库时单事务执行：源码
+（`src/personas/*.md` + 显式 `id + name`）为唯一真相，按 id upsert 覆盖名字与提示词并恢复未删除；同名的未删除
+自建人设加后缀「（自建）」让位；源码里已没有的旧内置人设软删除；默认人设失效则回到 id 1（id 1 永不下线）。
+
+类型：`PersonaId`、`Persona { id, name, prompt, builtin, deleted }`、`Settings`、`RunSettings { persona, general_prompt, max_turns }`；
+`Session.persona_id`；`NewSession.persona: Option<PersonaId>`（`None` = 同一事务读默认）。
+
+| 方法 | 规则 |
+|---|---|
+| `settings()` / `update_settings(Settings)` | 默认人设须存在且未删除 |
+| `personas()` | 未删除，内置在前，其余按 id |
+| `persona(id)` | 含已删除 |
+| `create_persona` / `update_persona` / `delete_persona` | 不存在或已删除 → `PersonaNotFound`；内置 → `Builtin`；同名 → `NameTaken`；删默认 → `IsDefault`（软删除） |
+| `set_session_persona(session, persona)` | 不存在 → `PersonaNotFound`；已删除 → `Deleted` |
+| `claim_next` | 同一事务读会话人设与偏好，写快照列；会话人设已删除则改用默认人设并写回会话 |
+
+`SettingsError` 文案面向用户（中文、说明怎么改），由 Gateway 映射状态码。名字与提示词的长度、空白检查在 Gateway 边界做，store 不重复。
+
 ## 七、副作用
 
 - 文件系统：`open` 创建/打开 SQLite 文件及 WAL 附属文件。
@@ -399,16 +425,13 @@ mic-store ← mic-message
 
 `lib.rs` 只 re-export 上述公开 API 与 `rusqlite`；SQL 与行映射 `pub(crate)`。
 
-设置与人设的类型、方法（`settings`/`update_settings`/`personas`/`persona`/`create_persona`/`update_persona`/
-`delete_persona`/`set_session_persona`）与 `SettingsError` 见 [`runtime-settings.md`](runtime-settings.md) §4.1、§4.2。
-
 ## 九、调用方枚举
 
 | 调用方 | 用到什么 | 兼容性 |
 |---|---|---|
 | `mic-core` 启动 | 汇总各模块 `Migration` 后 `open`；`ensure_person`/`bind_identity`（配置）；`executing_runs`/`run_messages`/`interrupt_run`/`sessions_with_unclaimed_input` | 现行 |
 | `mic-core` 调度与执行 | `claim_next`/`absorb`/`finish_run`/`context_window`/`append`/`record_model_call` | 现行 |
-| `mic-core` `Kernel` 设置方法 | 设置与人设读写（runtime-settings §4.2），供 Gateway 设置接口 | 现行 |
+| `mic-core` `Kernel` 设置方法 | 设置与人设读写（§6.1），供 Gateway 设置接口 | 现行 |
 | `mic-gateway`（v0a Web） | 写经 `Kernel`（`resolve_root_session`/`append_user_input`，见 mic-core-module）；从 Store 只读 `messages_after`（稳定回放）/`list_root_sessions`（会话列表，查看微信会话时 `channel = "wechat"`）/`session_summary`（打开的会话页）；用量读取随 M9 B2 定形状 | 待 M9；Web 会话无投递目标 |
 | 微信适配器 | 经 Gateway 入站和发送；编解码自己的 `DeliveryTarget.payload` | 新契约；是否需要显式 adapter ack 待接入方式核实 |
 | 模块（如 `mic-cron`） | `Migration`、`with_module_tx`、`create_session`（`Triggered`） | 新契约 |

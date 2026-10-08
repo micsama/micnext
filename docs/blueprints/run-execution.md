@@ -275,7 +275,7 @@ loop:
   轮次用尽后的总结调用传空。
 - **system prompt**（顺序固定，保证同一会话前缀稳定）：
   1. 基础提示（core 内常量，英文，见附录 A）；
-  2. 本轮人设提示词（`RunSettings`，runtime-settings §五）；
+  2. 本轮人设提示词（`RunSettings`）；
   3. 通用偏好非空时：`User preferences:\n<文本>`；
   4. 环境：`Working directory: <session.pwd>`；
   5. 本次可用工具的 `prompt_hint()`，按工具顺序各占一段；

@@ -1,6 +1,6 @@
 # B2: 执行主路径（调度、Agent 循环、落盘、崩溃收尾、实时事件）+ `-p`
 
-**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-core`、`crates/mic-store`、`bin/micnext`；§九验收 1～9 通过）；实现中追加的两处修订（bin 依赖、`ExecFailureKind::as_str`）已确认；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 由 Query 改为 run（原 `query-execution.md`），其 §四 验收通过
+**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-core`、`crates/mic-store`、`bin/micnext`；§九验收 1～9 通过）；实现中追加的两处修订（bin 依赖、`ExecFailureKind::as_str`）已确认；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 由 Query 改为 run（原 `query-execution.md`），其 §四 验收通过；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 改：`max_turns` 与提示词人设/偏好来自 run 认领时的 `RunSettings`，`[core] max_turns` 移到网页设置
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M6、M11 的 `-p`；[`next-gen-architecture.md`](../brainstorm/next-gen-architecture.md)
 §4.4～4.7、§五（写者与不变量 I1～I4）；[`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.4、§2.5、§四-7/8/10；
 [`mic-store.md`](mic-store.md)（认领、run 状态）；[`provider-port.md`](provider-port.md)；[`mic-tool.md`](mic-tool.md)
@@ -63,8 +63,8 @@ pub enum KernelEventKind {
     ReasoningDelta(String),
     /// 本次调用尝试没有产生 `Reply`（失败、重试前、或成功但无内容），草稿作废。
     DraftDiscarded,
-    /// 任一消息落盘（用户输入、`Reply`、工具结果、HarnessNote、框架通知），带 id。
-    /// 成功调用的 `Reply` 即当前草稿的终点。
+    /// 任一消息落盘（用户输入、`Reply`、工具结果、HarnessNote、框架通知），带 id；
+    /// 同一订阅内按 id 升序到达。成功调用的 `Reply` 即当前草稿的终点。
     MessageAppended(Message),
     /// 一轮结束，`state` 为落盘的终态。
     RunFinished { run_id: RunId, state: RunState },
@@ -82,6 +82,10 @@ pub struct Lagged(pub u64);
 
 `channel` 由发事件的一侧填（worker 与 `append_user_input` 都已知会话），是"元数据归最早知道它的 emit 侧"。
 v0a 只有 Root 会话；子会话（v1+）取其根会话的 Channel。
+
+**发布顺序**：所有发 `MessageAppended` 的写入（入站输入、run 产出、`Reply`）在内核里互斥，落盘与发布
+在同一临界区内完成，故发布顺序即提交顺序。订阅方可把收到的最大消息 id 当完整前缀游标，重连不漏不重。
+启动收尾（§4.6）在订阅者出现前运行，不发事件。
 
 **草稿**：一次模型调用尝试的增量为一份草稿。同一会话同一时刻至多一份草稿（会话串行），所以增量不带 id。
 每次尝试**恰好**以「`Reply` 的 `MessageAppended`」或「`DraftDiscarded`」之一结束，无论是否有过增量。
@@ -166,7 +170,7 @@ pub enum RunError {
 }
 ```
 
-`[core]` 取值非法（`owner` 含 `:`、`max_turns` 为 0）走既有 `AssembleError::Core`。
+`[core]` 取值非法（`owner` 含 `:`；仍写着已移走的 `max_turns`）走既有 `AssembleError::Core`。
 执行路径的 `StoreError` 经既有 `RunError::Store` 让进程退出。`KernelError` 不变。
 
 ### 3.5 `Engine`（内部）
@@ -185,7 +189,7 @@ pub enum RunError {
 | 输入并入 | 会话 worker 调 `absorb` | 只并入自己持有的 `executing` run |
 | 调用行 + `Reply` | 会话 worker 调 `record_model_call`，每次尝试一行 | 同一事务 |
 | 工具结果、HarnessNote、框架通知 | 会话 worker 调 `append(session, Some(run), …)` | 只有持有 `executing` run 的 worker 写该会话的产出 |
-| run 终态 | 会话 worker 调 `finish_run`；启动收尾调 `interrupt_stale_runs` | |
+| run 终态 | 会话 worker 调 `finish_run`；启动收尾调 `interrupt_run` | |
 | 修补结果与中断通知 | 启动收尾（§4.6） | 此时没有 worker 在跑；挂在被收尾的 run 上 |
 | 调度表（哪些会话有 worker） | 调度循环独占 | 内存状态，不落盘 |
 
@@ -248,7 +252,7 @@ loop:
 ```
 
 - `warn_at = max_turns × MAX_TURNS_WARN_PERCENT / 100`（向下取整，至少 1；等于 `max_turns` 时不单独提醒）。
-- `max_turns` 计的是带工具的模型调用次数；重试不计；用尽后的总结调用额外一次。
+- `max_turns` 取自本轮 `RunSettings`（认领时定下，执行中不变），计的是带工具的模型调用次数；重试不计；用尽后的总结调用额外一次。
 - 有无工具调用只看 `blocks` 里是否有 `ToolCall`，不看 `stop`：被截断的回复如果带了工具调用，
   照常执行（参数不完整的由 mic-tool 边界报 `input`，模型自行纠正）。
 - 并入发生在模型调用之前，所以用户在模型输出或工具执行期间发的消息不会打断它们，只在下一次调用时被看到。
@@ -271,9 +275,11 @@ loop:
   轮次用尽后的总结调用传空。
 - **system prompt**（顺序固定，保证同一会话前缀稳定）：
   1. 基础提示（core 内常量，英文，见附录 A）；
-  2. 环境：`Working directory: <session.pwd>`；
-  3. 本次可用工具的 `prompt_hint()`，按工具顺序各占一段；
-  4. `context_window.summary` 有值时附在最后（v0a 不会有）。
+  2. 本轮人设提示词（`RunSettings`，runtime-settings §五）；
+  3. 通用偏好非空时：`User preferences:\n<文本>`；
+  4. 环境：`Working directory: <session.pwd>`；
+  5. 本次可用工具的 `prompt_hint()`，按工具顺序各占一段；
+  6. `context_window.summary` 有值时附在最后（v0a 不会有）。
 - **messages**：从 `context_window.messages` 按 id 升序生成。未认领输入已由 store 排除（mic-store §4.4
   不变量 3），吸收之后才到达的那部分留给下一个边界。一条规则：
   - **有工具调用在等结果时，user 视图消息往后放**：按 id 扫描，碰到 `Reply` 把其 `ToolCall` 块记为未结，
@@ -303,12 +309,13 @@ loop:
 
 1. 独占数据目录：`<data_dir>/micnext.lock` 用 `File::try_lock` 加排他锁，持有到进程退出；
    拿不到 → `RunError::DataDirLocked`。这保证下一步不会把另一个活进程正在跑的 run 当成遗留。
-2. `interrupt_stale_runs`：遗留的 `executing` → `interrupted`。
-3. 对每个被收尾的 run R：
+2. `executing_runs`：遗留的 `executing` run。
+3. 对每个遗留 run R，core 算出收尾消息，`interrupt_run` 在一个事务里写入并转为 `interrupted`：
    - `run_messages(R)` 里 `Reply` 的 `ToolCall` 块减去已有 `ToolResult`，差集各补一条（挂 R）
      `ToolResult{Terminal(Cancelled{"micnext stopped before this tool call finished; its side effects are unknown."})}`（I1）；
    - 追加一条中断通知（§4.7，挂 R）。
    - 不重跑（I4）：该 run 已认领的输入视为已消费。
+   - 收尾中途失败或停止：未提交的 run 仍是 `executing`，下次启动从头收尾，不会留下悬空调用。
 4. 仅 `run`：对 `sessions_with_unclaimed_input()` 的每个会话发 `Wake`。这些输入从未进入执行，补跑没有
    重复副作用。`run_once` 不补跑别的会话（它跑完自己那一轮就退出，不能留下半途的执行）。
 
@@ -385,10 +392,9 @@ sequenceDiagram
     participant DB as Store
     participant S as 调度循环
     R->>DB: try_lock micnext.lock
-    R->>DB: interrupt_stale_runs → [R1]
+    R->>DB: executing_runs → [R1]
     R->>DB: run_messages(R1)，找到悬空 ToolCall
-    R->>DB: 写 ToolResult(Cancelled, 结果未知)
-    R->>DB: 写 Notification(中断说明)
+    R->>DB: interrupt_run(R1)：同一事务写 ToolResult(Cancelled, 结果未知)、Notification(中断说明)、interrupted
     R->>DB: sessions_with_unclaimed_input → [会话 1]（m3 未认领）
     R--)S: Wake(1)
     Note over S: R2 只认领 m3；R1 的输入不重跑
@@ -399,16 +405,15 @@ sequenceDiagram
 ```toml
 [core]
 owner = "dzmfg"   # 可省略，缺省 "dzmfg"；不得含 ":"（mic-store §4.3）
-max_turns = 50    # 可省略；一轮内带工具的模型调用上限，≥ 1
 
 [models]
 default = "ds"    # 必填
 ```
 
 - `[core] owner`：启动时 `ensure_person(owner)`，结果即 `Kernel::owner()`。
-- `[core] max_turns`：用户可调，进配置；提醒比例是构建期旋钮。
+- `max_turns`：移到网页 设置 → 对话偏好（runtime-settings），run 认领时定下；配置里还写着 → 启动报错指明删除。提醒比例是构建期旋钮。
 - `[models] default` 改为必填：缺失 → `AssembleError::MissingDefaultModel`（mic-core-module §四 已预告由 M6 改）。
-- 默认配置模板写出 `[core]` 两项，并取消 `[models]` 与 `[models.ds]`（DeepSeek 预设）的注释：
+- 默认配置模板写出 `[core] owner`，并取消 `[models]` 与 `[models.ds]`（DeepSeek 预设）的注释：
   首次运行只要设了 `DEEPSEEK_API_KEY` 就能直接用；没设则启动时由 provider-openai 报 key 缺失。
 - 构建期旋钮进 `crates/mic-core/src/limits.rs`：`MAX_TURNS_WARN_PERCENT` 80、`MAX_MODEL_ATTEMPTS` 3、
   `RETRY_BASE` 2 s、`MAX_RETRY_WAIT` 60 s、`EVENT_CAPACITY` 1024、`WAKE_CHANNEL_CAPACITY`（有界 mpsc）256。
@@ -453,7 +458,7 @@ micnext [--config <path>] -p <prompt>     一次性（调试用）
    run `completed`，`core_model_calls` 每次调用一行（`model` 为请求模型名，上游没报的用量为空）。
 2. 让它同时读两个文件：同一 `Reply` 内两个 `ToolCall`，两个 `◀` 几乎同时出现。
 3. 读一个不存在的文件：`◀ read failed kind=input`，模型据此纠正。
-4. 配置 `max_turns = 2` 并给一个需要多步的任务：出现提醒与用尽 HarnessNote，最后一次请求不带工具，
+4. 设置页把单轮调用上限改为 2 并给一个需要多步的任务：出现提醒与用尽 HarnessNote，最后一次请求不带工具，
    模型输出总结，run `max_turns`，退出码 1。
 5. 错误的 key：run `provider_failed`，stderr 出现中文通知，退出码 1，调用行 `error` 有值、用量全空，没有重试。
 6. `-p` 让它跑 `sleep 60` 时 `kill -9`；再跑一次 `-p "hi"`：上一个 run 为 `interrupted`，
@@ -472,20 +477,8 @@ micnext [--config <path>] -p <prompt>     一次性（调试用）
 - **tool 隔离**：若工具 panic 实际频繁导致进程重启，再把 panic 转 `Failed{Dependency}`。
 - **多模型、按次切换**：`[models] default` 之外的选择随路由 B2。
 
-## 附录 A：基础系统提示（草案）
+## 附录 A：基础系统提示
 
-```
-You are micnext, a personal assistant agent running on the user's own server. You act through tools with
-the full OS permissions of the micnext process: there is no sandbox and no approval step, so confirm with
-the user before destructive or irreversible actions.
+全文只在 `crates/mic-core/src/prompts/system.md` 维护，此处不复制。
 
-Messages whose first line is a bracketed header come from the framework, not from the user:
-[user ...] is the user; [notification ...] and [runtime-note] are framework notices; tool results with
-[failed kind=...] or [cancelled] describe why a tool call did not succeed.
-
-The user may send new messages while you are working; they appear after your latest tool results.
-Read them before continuing: they may add information, change the task, or ask you to stop.
-Tool calls in one response run in parallel, so only group calls that do not depend on each other.
-A running shell command is not interrupted by new messages; keep commands bounded and use timeouts.
-Reply in the language the user writes in. Be concise.
-```
+语气与篇幅归人设（runtime-settings 附录 A），基础提示不再带 "Be concise."。

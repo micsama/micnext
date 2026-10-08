@@ -1,6 +1,6 @@
 # B2: mic-store（连带 mic-message 修订）
 
-**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`，含会话列举增量）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 重写为 session / run / message / model_call；微信投递完成判据随 v0b
+**状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`，含会话列举增量）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 重写为 session / run / message / model_call；微信投递完成判据随 v0b；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加 schema core v2（人设、对话偏好、会话人设、run 设置快照）
 **来源**: [`mic-store-design.md`](../brainstorm/mic-store-design.md)（B1）、
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §二、§四
 **依赖不变量**: `mic-store` 只依赖 `mic-message`，不依赖 `mic-tool`/`mic-core`/任何模块。
@@ -194,7 +194,7 @@ run_id IS NULL AND kind IN ('UserInput', 'Completion')
 **段**：本会话未认领输入按 id 排序后，开头连续同 `person_id` 的一段。
 
 - `claim_next` 单事务：会话已有 `executing` run → `None`；没有段 → `None`；否则插入 `executing` run，
-  回填这段的 `run_id`。
+  回填这段的 `run_id`；同一事务读会话人设（已删除则改用默认人设并写回会话）与对话偏好，写进 run 快照列并作为 `RunSettings` 返回。
 - `absorb(run)` 单事务：取同样的段，其 person 等于该 run 首条输入的 person 才回填；有回填返回 true。
 
 分组键是 person 而非种类：同一 person 相邻的用户消息与 completion 进同一个 run；不同 person 发起的
@@ -276,6 +276,8 @@ impl Store {
     /// id 可能来自外部（Gateway 路径参数），不存在返回 `None`。
     pub async fn session(&self, id: SessionId) -> Result<Option<Session>, StoreError>;
     pub async fn set_pwd(&self, id: SessionId, pwd: &str) -> Result<(), StoreError>;
+    /// 单个会话的摘要（与列表同一计算）；没有消息时最近活跃取创建时间。
+    pub async fn session_summary(&self, id: SessionId) -> Result<Option<SessionSummary>, StoreError>;
     /// 列出 `channel` 下已有用户输入的 Root 会话，按 `(last_activity_at, id)` 降序。
     /// `before = None` 取第一页；`limit` 上界由调用方在边界限定。
     pub async fn list_root_sessions(&self, channel: &str, before: Option<SessionCursor>,
@@ -290,14 +292,19 @@ impl Store {
         -> Result<(ModelCallId, Option<Message>), StoreError>;
 
     // ---- 调度 ----
-    pub async fn claim_next(&self, session_id: SessionId, now: i64) -> Result<Option<Run>, StoreError>;
+    pub async fn claim_next(&self, session_id: SessionId, now: i64)
+        -> Result<Option<(Run, RunSettings)>, StoreError>;
     /// 执行中并入新输入（§4.1），有并入返回 true。调用方保证 run 处于 `executing`。
     pub async fn absorb(&self, run: RunId) -> Result<bool, StoreError>;
     /// 有未认领输入的会话（启动补跑用）。
     pub async fn sessions_with_unclaimed_input(&self) -> Result<Vec<SessionId>, StoreError>;
     pub async fn finish_run(&self, id: RunId, state: RunState, now: i64) -> Result<(), StoreError>;
     /// 启动时把遗留 `executing` 收尾为 `interrupted`，返回被收尾的 run。
-    pub async fn interrupt_stale_runs(&self, now: i64) -> Result<Vec<Run>, StoreError>;
+    /// 全部 `executing` run，按 id 升序；启动时即上次遗留的。
+    pub async fn executing_runs(&self) -> Result<Vec<Run>, StoreError>;
+    /// 同一事务写入收尾消息（挂该 run，只许框架产出）并转为 `Interrupted`。
+    pub async fn interrupt_run(&self, run: &Run, closing: Vec<MessageBody>, now: i64)
+        -> Result<(), StoreError>;
 
     // ---- 读 ----
     /// 该 run 的全部消息，按 id（启动收尾用）。
@@ -333,7 +340,7 @@ pub enum StoreError {
 }
 ```
 
-## 六、schema（core v1）
+## 六、schema（core v1；v2 增量见 runtime-settings §四）
 
 内核表统一 `core_` 前缀；`schema_migrations` 是所有模块共用的迁移登记表，不属于内核事实，保持原名。
 实际 SQL 见 `crates/mic-store/src/schema.rs`，列如下：
@@ -379,7 +386,7 @@ core_messages           id, session_id, run_id?, model_call_id?, payload, create
 
 - 文件系统：`open` 创建/打开 SQLite 文件及 WAL 附属文件。
 - 事务：`open` 的每个迁移版本、`resolve_identity`、`bind_identity`、
-  `resolve_root_session`、`record_model_call`、`claim_next`、`absorb`、`interrupt_stale_runs`、
+  `resolve_root_session`、`record_model_call`、`claim_next`、`absorb`、`interrupt_run`、
   `with_module_tx`；其余单语句天然原子。
 - 不做：后台任务、定时清理、发送、解释 `DeliveryTarget.payload`/`trigger_ref`、
   校验 I3、计算权限、生成时间戳、管理 `FileRef` 指向的文件、换算费用。
@@ -392,13 +399,17 @@ mic-store ← mic-message
 
 `lib.rs` 只 re-export 上述公开 API 与 `rusqlite`；SQL 与行映射 `pub(crate)`。
 
+设置与人设的类型、方法（`settings`/`update_settings`/`personas`/`persona`/`create_persona`/`update_persona`/
+`delete_persona`/`set_session_persona`）与 `SettingsError` 见 [`runtime-settings.md`](runtime-settings.md) §4.1、§4.2。
+
 ## 九、调用方枚举
 
 | 调用方 | 用到什么 | 兼容性 |
 |---|---|---|
-| `mic-core` 启动 | 汇总各模块 `Migration` 后 `open`；`ensure_person`/`bind_identity`（配置）；`interrupt_stale_runs`/`run_messages`/`sessions_with_unclaimed_input` | 现行 |
+| `mic-core` 启动 | 汇总各模块 `Migration` 后 `open`；`ensure_person`/`bind_identity`（配置）；`executing_runs`/`run_messages`/`interrupt_run`/`sessions_with_unclaimed_input` | 现行 |
 | `mic-core` 调度与执行 | `claim_next`/`absorb`/`finish_run`/`context_window`/`append`/`record_model_call` | 现行 |
-| `mic-gateway`（v0a Web） | 写经 `Kernel`（`resolve_root_session`/`append_user_input`，见 mic-core-module）；从 Store 只读 `messages_after`（稳定回放）/`list_root_sessions`（会话列表，查看微信会话时 `channel = "wechat"`）；用量读取随 M9 B2 定形状 | 待 M9；Web 会话无投递目标 |
+| `mic-core` `Kernel` 设置方法 | 设置与人设读写（runtime-settings §4.2），供 Gateway 设置接口 | 现行 |
+| `mic-gateway`（v0a Web） | 写经 `Kernel`（`resolve_root_session`/`append_user_input`，见 mic-core-module）；从 Store 只读 `messages_after`（稳定回放）/`list_root_sessions`（会话列表，查看微信会话时 `channel = "wechat"`）/`session_summary`（打开的会话页）；用量读取随 M9 B2 定形状 | 待 M9；Web 会话无投递目标 |
 | 微信适配器 | 经 Gateway 入站和发送；编解码自己的 `DeliveryTarget.payload` | 新契约；是否需要显式 adapter ack 待接入方式核实 |
 | 模块（如 `mic-cron`） | `Migration`、`with_module_tx`、`create_session`（`Triggered`） | 新契约 |
 | `mic-tool` | 不使用（依赖不变量禁止） | 无影响 |

@@ -70,7 +70,7 @@ core_model_calls  id, session_id, run_id?, model, error?,
   生成列，写入方不填。例外只有 `Reply.model`：它是那次调用的事实，只存
   `core_model_calls.model`，读出时按 `model_call_id` 主键 JOIN 还原。
 - `core_runs.state` 一列闭集，不再有 JSON `reason`。
-- `core_model_calls`：`error IS NULL` ⇔ 成功 ⇔ `input_tokens`/`output_tokens` 非空。
+- `core_model_calls`：`error IS NULL` ⇔ 成功；用量各列上游没报即 NULL，成功调用也可能为空。
 - 索引：`core_messages(session_id, id)`；未认领输入 `(session_id) WHERE run_id IS NULL AND
   kind IN ('UserInput','Completion')`；待投递 `(session_id) WHERE delivered_at IS NULL AND kind IN
   ('Reply','Notification')`；`core_runs(session_id) WHERE state = 'executing'`。
@@ -201,7 +201,7 @@ worker: claim_next → 无 → 退出；Dirty → 重起 → 无 → 结束
 |---|---|---|
 | mic-message | §4 整体替换；`ModelView` 按 `MessageBody` 重写 | mic-store row、mic-core run/request/recovery/kernel、provider-openai request、bin `-p` |
 | mic-store 类型 | `Query*` → `Run*`（`RunId`、`RunState`、`Run`）；`Usage` 除输入输出外 `Option`，失败调用无 `Usage`；删 `ModelCallPurpose`、`FailureReason`、`CancelReason`、`UserInput`/`CompletionInput`/`OutputInput`/`BoundaryInput` | mic-core 全部读写路径 |
-| mic-store 方法 | §5 三个写入口；`finish_run`、`interrupt_stale_runs`、`run_messages`、`messages_after`、`context_window`（排除未认领输入与边界） | scheduler、run 引擎、recovery、assembly、bin |
+| mic-store 方法 | §5 三个写入口；`finish_run`、`executing_runs`/`interrupt_run`、`run_messages`、`messages_after`、`context_window`（排除未认领输入与边界） | scheduler、run 引擎、recovery、assembly、bin |
 | mic-core | 事件按 §5；`query.rs` → `run.rs`；`request::order` 去掉可认领判别；`append_user_input` 改收 `parts` | bin（`-p`）、将来 M9 |
 | provider-openai | 请求映射改按 `Reply`；`usage()` 未报给 `None` | — |
 | 文档 | 改写 mic-message、mic-store、query-execution（改名 run-execution）、provider-port、provider-openai、mic-tool（Completion 引用处）、v0a-module-map | — |
@@ -210,8 +210,8 @@ worker: claim_next → 无 → 退出；Dirty → 重起 → 无 → 结束
 
 - 模型条目（Provider 地址、预设、参数、key）存库，只经 Web 增删改；`config.toml` 的
   `[models]` 在新路径落地的同一次改动里删除。
-- run 开始时读取外部选择的模型；会话当前模型 = 该会话最近一次 `purpose = loop` 调用的
-  `model_entry`，不另存；新会话用模型列表里标为默认的条目（store 保证恰好一条）。
+- run 开始时读取外部选择的模型；~~会话当前模型从最近一次调用反推~~（2026-10-08 作废，见
+  runtime-settings：会话保存下一轮选择，run 记当轮事实）；新会话用模型列表里标为默认的条目（store 保证恰好一条）。
 - key 用本机主密钥文件（0600，不在 data_dir）+ AES-GCM 加密入库，只防库单独泄露；
   主密钥丢失明确报错。Web 端 key 只写不读，日志不出现 key。
 - key 来源建议显式字段 `Stored(密文) | Env(变量名)`，常见预设默认 `Env` 并预填变量名，

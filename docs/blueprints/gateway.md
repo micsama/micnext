@@ -1,6 +1,6 @@
 # B2: 网关（mic-gateway，M9）
 
-**状态**: CLOSED（2026-09-24 批准并实现于 `crates/mic-gateway`；§八 1～9 用 curl/脚本与 DeepSeek 实跑通过）
+**状态**: CLOSED（2026-09-24 批准并实现于 `crates/mic-gateway`；§八 1～9 用 curl/脚本与 DeepSeek 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) §六 加设置与人设接口、会话人设，`workdir` 移到网页设置
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M9、§二 对接方式与 v0a 简化；
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.2、§2.5、§四-2
 **依赖不变量**: `mic-channel-web` 改名 `mic-gateway`，依赖 `mic-core`（port）+ `mic-store`（会话/run 类型）+
@@ -13,7 +13,7 @@
 |---|---|---|
 | Q1 | 谁能访问 | 默认只本机（`127.0.0.1`）。部署到服务器时改为登录制（邮箱验证码 / 微信扫码等，登录后本机 cookie 保持一段时间），另起 B2 |
 | Q2 | token | 配置里写了 `token` 就固定用它；没写则每次启动随机生成。启动时在终端打印带 token 的访问地址 |
-| Q3 | Web 新会话的工作目录 | 统一用配置 `workdir`，缺省 `~/workspace/mic/`；新建会话时自选目录以后再做 |
+| Q3 | Web 新会话的工作目录 | 取网页 设置 → 对话偏好 的「新会话默认工作目录」（缺省 `~/workspace/mic`，runtime-settings）；新建会话时自选目录以后再做 |
 | Q4 | 新建会话 | 发第一条消息时才创建，列表里没有空会话 |
 | Q5 | 停止按钮 | v0a 不做 |
 | Q6 | 用量显示 | v0a 不做，随路线图 v1 |
@@ -52,12 +52,11 @@ pub struct GatewayModule;   // Module::name() = "gateway"，activation = Always
 [gateway]
 listen = "127.0.0.1:7878"     # 可省略，缺省即此值
 # token = "…"                 # 访问口令，可省略：省略时每次启动随机生成
-workdir = "~/workspace/mic"   # Web 新会话的工作目录，可省略，缺省即此值；须为绝对路径或 ~/ 开头
 ```
 
-- 未知字段、`listen` 不是 `ip:port`、`workdir` 为相对路径 → `install` 报错（启动失败）。
+- 未知字段、`listen` 不是 `ip:port` → `install` 报错（启动失败）；仍写着已移走的 `workdir` → 报错指明删除。
 - `token` 写了但为空白 → `install` 报错。没写 → Service 启动时生成 32 字节随机值（十六进制）。
-- Service 启动时：`workdir` 不存在则创建；绑定端口，占用 → 返回错误，文案说明改 `listen`；
+- Service 启动时：绑定端口，占用 → 返回错误，文案说明改 `listen`；
   成功后在 stderr 打印 `Web 已启动：http://<listen>/#token=<token>`（面向用户的提示，不进 tracing 日志；
   `#` 片段不会发给服务端，前端读取后自存）。
 - 配置模板（`bin/micnext/src/default-config.toml`）加入注释说明的 `[gateway]` 段，不写 token。
@@ -98,6 +97,7 @@ impl Store {
 | `MAX_BODY_BYTES` | 1 MiB | 请求体上限 |
 | `PAGE_DEFAULT` / `PAGE_MAX` | 30 / 100 | 会话列表每页条数 |
 | `SSE_KEEPALIVE` | 15 s | SSE 心跳注释间隔 |
+| `SHUTDOWN_GRACE` | 3 s | 停止后等连接自行关闭的上限 |
 
 ## 四、HTTP 接口
 
@@ -115,14 +115,17 @@ impl Store {
 | 方法与路径 | 请求 | 成功响应 |
 |---|---|---|
 | `GET /api/sessions?channel=web[&before_at=…&before_id=…][&limit=…]` | `before_at`/`before_id` 同有同无 | 200 `SessionPage` |
+| `GET /api/sessions/{id}` | — | 200 `SessionItem`；不存在或非 Root → 404 |
 | `POST /api/sessions` | `{"text": "…"}` | 201 `{"session_id": 3, "message_id": 12}` |
 | `POST /api/sessions/{id}/messages` | `{"text": "…"}` | 202 `{"message_id": 13}` |
 | `GET /api/sessions/{id}/stream[?after=<message_id>]` | — | 200 `text/event-stream`（§五） |
 
-- `POST /api/sessions`：生成随机 `chat`，以 `workdir`、`ToolScope::All`、无投递目标调
+- `POST /api/sessions`：生成随机 `chat`，以设置里的默认工作目录（展开 `~/`，不存在则创建）、`ToolScope::All`、无投递目标调
   `resolve_root_session("web", chat, …)`，再 `append_user_input(owner, [Text])`。两步不在一个事务：
   第二步失败会留下一个没有输入的会话，它不进列表（mic-store §4.6），无害。
 - `POST …/messages`：会话须是 `Root{channel: "web"}`；其它 Channel 或非 Root → 403（Q7：只读查看）。
+  同一判定以 `SessionItem.writable` 告诉前端，前端不自己推断。
+- `GET /api/sessions/{id}`：打开的会话页按 id 取自身信息，不依赖左栏分页是否加载到它。
 - 发消息接口只写入并唤醒，不等回复；回复从流里来。
 
 JSON 形状（字段名即契约，M10 照此写 TS 类型）：
@@ -130,7 +133,7 @@ JSON 形状（字段名即契约，M10 照此写 TS 类型）：
 ```jsonc
 // SessionItem
 { "id": 3, "channel": "web", "created_at": 1760000000000, "last_activity_at": 1760000005000,
-  "preview": "列出当前目录", "workdir": "/Users/x" }
+  "preview": "列出当前目录", "workdir": "/Users/x", "writable": true, "persona_id": 1 }
 // SessionPage
 { "items": [SessionItem], "next": { "before_at": 1760000005000, "before_id": 3 } | null }
 // Message：mic-message `Message` 的 serde 形状原样输出（`body` 为 `MessageBody`，内部标签 `kind`）
@@ -151,6 +154,8 @@ mic-message 形状变化即 wire 变化，由改 mic-message 的 B2 列 M10 为�
 | 会话不存在 | 404 |
 | 往非 web 会话发消息 | 403 |
 | `KernelError` | 500，日志记详情，响应只写"内部错误" |
+
+设置、人设与会话人设接口及其错误映射见 runtime-settings §六。
 
 ## 五、SSE 流与回放交接
 
@@ -182,7 +187,8 @@ mic-message 形状变化即 wire 变化，由改 mic-message 的 B2 列 M10 为�
    - `run_started`/`run_finished` 照发。缓冲里的起止可能早于 `ready` 的查询，客户端以最后收到的为准，
      最终与库一致（结束必在开始之后到达）。
 5. 订阅落后（`Lagged`）→ 结束本条流；客户端按最后的 `message` id 重连补齐。
-6. 进程 `stop` → 结束所有流，Service 等连接关闭后返回。
+6. 进程 `stop` → 结束所有流（含卡在发送上的），Service 等连接关闭后返回；客户端不读导致连接
+   写不完时，最多等 `SHUTDOWN_GRACE` 后直接断开。
 
 ```mermaid
 sequenceDiagram
@@ -205,7 +211,7 @@ sequenceDiagram
 
 ### 5.3 不变量
 
-- 同一连接上每条稳定消息至多发一次，按 id 升序。
+- 同一连接上每条稳定消息至多发一次，按 id 升序。生产侧保证见 run-execution §3.1「发布顺序」。
 - 客户端看到的每份草稿都以 `message(Reply)` 或 `draft_discarded` 结束，除非连接先断。
 - 流只读，不写任何东西。
 

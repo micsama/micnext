@@ -1,6 +1,6 @@
 # B2: Web 前端（web/，M10）
 
-**状态**: CLOSED（2026-09-24 批准并实现于 `web/` 与 `crates/mic-gateway/src/web.rs`；§八 1～10 已用 DeepSeek `deepseek-flash` + Playwright 实跑通过）
+**状态**: CLOSED（2026-09-24 批准并实现于 `web/` 与 `crates/mic-gateway/src/web.rs`；§八 1～10 已用 DeepSeek `deepseek-flash` + Playwright 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) §七 加设置页（`/settings`）与输入框旁人设选择
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M10、步 6；[`gateway.md`](gateway.md)（调用的契约）；
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.1、§2.2
 **依赖不变量**: 新目录 `web/`（TS，不是 crate）。Rust 侧只改 `mic-gateway`：嵌入并服务构建产物，
@@ -90,7 +90,8 @@ web/
 
 `api/types.ts` 手写，照 gateway §4.2 与 mic-message 的 serde 形状（外部标签枚举，如
 `{"Text": {"text": "…"}}`、`MessageBody` 内部标签 `kind`）。入站数据在 `client.ts`/`stream.ts`
-解析处做一次形状断言，失败即抛错并显示"界面与服务版本不一致，请刷新"，不做逐字段兜底。
+解析处按 `api/decode.ts` 的解码器逐字段校验一次（字段集合须恰好一致、枚举分支须已知、非法 JSON
+同样算），失败即抛错并显示"界面与服务版本不一致，请刷新"，不重连；组件内不再检查。
 mic-message 形状变化时，改它的 B2 须把本文列为调用方（gateway §4.2 已写明）。
 
 ### 4.2 消息呈现
@@ -111,7 +112,8 @@ mic-message 形状变化时，改它的 B2 须把本文列为调用方（gateway
 其它细节：
 - 复制按钮两处：每个代码块右上角（复制代码原文，不含语言标记与围栏）；回复末尾（复制该条 `Reply`
   的正文 Markdown 原文）。复制后按钮短暂显示"已复制"。悬停消息显示时间。
-- 会话顶栏显示工作目录（`workdir`）与渠道。
+- 会话顶栏显示工作目录（`workdir`）与渠道；取自 `GET /api/sessions/{id}`，与左栏无关。
+  `writable = false` 时不显示输入框，改为"该会话来自 X 渠道，只能在这里查看"。
 - 发送失败（413、500 等）在输入框上方显示服务端返回的中文错误，输入内容保留。
 - 打开不存在的会话（`/s/<id>` 返回 404）→ 显示"会话不存在"并提供回到新会话的入口。
 - 流式中草稿的 Markdown 重渲染合并到每帧至多一次，长回复不卡。
@@ -122,6 +124,7 @@ mic-message 形状变化时，改它的 B2 须把本文列为调用方（gateway
 
 ```ts
 type SessionView = {
+  info: SessionItem | null;     // 首次连流前取得；404 → "会话不存在"
   messages: Message[];          // 稳定消息，id 升序
   draft: { reasoning: string; text: string } | null;  // 正在生成的回复
   executingRun: number | null;

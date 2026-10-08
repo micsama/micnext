@@ -1,6 +1,6 @@
 # B2: mic-core 模块装配（Module / Registry / Service / Kernel 句柄）
 
-**状态**: 已实现部分 CLOSED（2026-09-23，`crates/mic-core`、`bin/micnext`）；`[models]` 分组与 `provider` 登记（随 provider-port）、`tool` 登记与 `DuplicateTool`（随 [mic-tool](mic-tool.md) §三.5）、`Module::activation` 与 `Activation`（随 [tools-basic](tools-basic.md) §三.1）修订已批准并实现；占定方法见 §三。执行主路径（M6）对本文 §三、§四、§六、§七 的修订（`run_once`、`Kernel::owner/append_user_input/subscribe`、`[core] owner/max_turns`、`[models] default` 必填、新错误变体、`-p`）见 [run-execution](run-execution.md)，以该文为准。微信设置采用保存后重启生效，凭据写入和重启按钮仍待 Channel/Gateway B2
+**状态**: 已实现部分 CLOSED（2026-09-23，`crates/mic-core`、`bin/micnext`）；`[models]` 分组与 `provider` 登记（随 provider-port）、`tool` 登记与 `DuplicateTool`（随 [mic-tool](mic-tool.md) §三.5）、`Module::activation` 与 `Activation`（随 [tools-basic](tools-basic.md) §三.1）修订已批准并实现；占定方法见 §三。执行主路径（M6）对本文 §三、§四、§六、§七 的修订（`run_once`、`Kernel::owner/append_user_input/subscribe`、`[core] owner`（`max_turns` 已移到网页设置，见 [runtime-settings](runtime-settings.md)）、`[models] default` 必填、新错误变体、`-p`）见 [run-execution](run-execution.md)，以该文为准。微信设置采用保存后重启生效，凭据写入和重启按钮仍待 Channel/Gateway B2
 **来源**: [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.1、§2.2、§2.4、§四-1
 **依赖不变量**: 定义在 `mic-core`；模块 crate 依赖 `mic-core`（+ 需要的下层 crate），
 模块之间不互相依赖，只由二进制装配。
@@ -174,7 +174,7 @@ Web 设置页需要微信注册/连接入口。配置保存后重启生效，不
 1. 二进制按 cargo feature 组装 `Vec<Box<dyn Module>>`，读配置文件（外部输入，TOML 解析失败即报错）。
 2. `Assembly::new`：检查模块重名 → 解析 `[models]`、按 `kind` 分组 → 检查未知段 →
    解析 `[core]` → 按装配根顺序逐个已启用模块 `install` → 核对 `default`，冲突即返回错误。
-3. `run`：创建数据目录 → 汇总 migrations → `Store::open` → `interrupt_stale_runs` →
+3. `run`：创建数据目录 → 汇总 migrations → `Store::open` → 收尾遗留 run →
    为每个 Service `tokio::spawn`（M6 起同时跑内核主循环）。
 4. 退出：外部 `stop`（Ctrl-C/SIGTERM）→ 广播给所有 Service 并等待返回；任一 Service
    失败 → 广播 `stop`，等其余返回后报第一个错误。没有 Service 时 `run` 等待外部 `stop`。

@@ -96,7 +96,7 @@ pub struct Message {
 pub enum MessageBody {
     /// 一次入站：文字与文件同条。
     UserInput { person: PersonId, parts: Vec<ContentPart> },
-    /// 一次模型调用的全部输出，按生成顺序；`model` 为请求模型名。
+    /// 一次模型调用的全部输出，按服务商能给出的生成顺序；`model` 为请求模型名。
     Reply { model: String, blocks: Vec<ReplyBlock> },
     ToolResult { tool_name: String, tool_call_id: String, outcome: ToolResultOutcome },
     /// `wait=false` 任务的终态回报；`person` 来自执行实例句柄。

@@ -52,10 +52,3 @@ export class SessionList {
 export const webSessions = new SessionList("web");
 export const otherSessions = OTHER_CHANNELS.map((c) => new SessionList(c));
 
-export function findSession(id: number): SessionItem | undefined {
-  for (const list of [webSessions, ...otherSessions]) {
-    const s = list.items.find((i) => i.id === id);
-    if (s) return s;
-  }
-  return undefined;
-}

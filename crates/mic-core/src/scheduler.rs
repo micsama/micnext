@@ -85,8 +85,8 @@ async fn worker(engine: Arc<Engine>, session_id: SessionId) -> Result<(), StoreE
         .await?
         .expect("被唤醒的会话必然存在");
     let channel = session_channel(&engine.store, &session).await?;
-    while let Some(run) = engine.store.claim_next(session_id, now_ms()).await? {
-        engine.run(&session, &channel, run).await?;
+    while let Some((run, settings)) = engine.store.claim_next(session_id, now_ms()).await? {
+        engine.run(&session, &channel, run, settings).await?;
     }
     Ok(())
 }

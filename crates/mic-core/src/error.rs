@@ -64,4 +64,6 @@ pub enum RunError {
 pub enum KernelError {
     #[error(transparent)]
     Store(#[from] mic_store::StoreError),
+    #[error(transparent)]
+    Settings(#[from] mic_store::SettingsError),
 }

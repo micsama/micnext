@@ -3,37 +3,43 @@
 use std::collections::HashSet;
 
 use mic_message::{Message, MessageBody, ModelView, ReplyBlock};
-use mic_store::ContextWindow;
+use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
 
 use crate::ModelRequest;
 
-const BASE_PROMPT: &str = "\
-You are micnext, a personal assistant agent running on the user's own server. You act through tools with \
-the full OS permissions of the micnext process: there is no sandbox and no approval step, so confirm with \
-the user before destructive or irreversible actions.
+const BASE_PROMPT: &str = include_str!("prompts/system.md");
 
-Messages whose first line is a bracketed header come from the framework, not from the user: \
-[user ...] is the user; [notification ...] and [runtime-note] are framework notices; tool results with \
-[failed kind=...] or [cancelled] describe why a tool call did not succeed.
+/// 系统块，设置页只读展示。
+pub(crate) fn base_prompt() -> &'static str {
+    BASE_PROMPT.trim_end()
+}
 
-The user may send new messages while you are working; they appear after your latest tool results. \
-Read them before continuing: they may add information, change the task, or ask you to stop. \
-Tool calls in one response run in parallel, so only group calls that do not depend on each other. \
-A running shell command is not interrupted by new messages; keep commands bounded and use timeouts. \
-Reply in the language the user writes in. Be concise.";
-
-pub(crate) fn build(window: ContextWindow, pwd: &str, tools: &[ToolHandle]) -> ModelRequest {
+pub(crate) fn build(
+    window: ContextWindow,
+    pwd: &str,
+    tools: &[ToolHandle],
+    settings: &RunSettings,
+) -> ModelRequest {
     ModelRequest {
-        system: system_prompt(pwd, tools, window.summary.as_deref()),
+        system: system_prompt(settings, pwd, tools, window.summary.as_deref()),
         messages: order(window.messages),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
     }
 }
 
-/// 顺序固定，保证同一会话前缀稳定。
-fn system_prompt(pwd: &str, tools: &[ToolHandle], summary: Option<&str>) -> String {
-    let mut sections = vec![BASE_PROMPT.to_owned(), format!("Working directory: {pwd}")];
+/// 顺序固定：系统 → 人设 → 通用偏好 → 工作目录 → 工具提示 → 摘要，保证同一会话前缀稳定。
+fn system_prompt(
+    settings: &RunSettings,
+    pwd: &str,
+    tools: &[ToolHandle],
+    summary: Option<&str>,
+) -> String {
+    let mut sections = vec![base_prompt().to_owned(), settings.persona.prompt.clone()];
+    if !settings.general_prompt.is_empty() {
+        sections.push(format!("User preferences:\n{}", settings.general_prompt));
+    }
+    sections.push(format!("Working directory: {pwd}"));
     sections.extend(
         tools
             .iter()

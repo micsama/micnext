@@ -4,6 +4,12 @@ use std::time::Duration;
 
 /// 一条消息的最大字符数。
 pub(crate) const MAX_TEXT_CHARS: usize = 100_000;
+/// 人设名字（去首尾空白后）的最大字符数。
+pub(crate) const PERSONA_NAME_MAX_CHARS: usize = 40;
+/// 人设提示词与通用偏好的最大字符数。
+pub(crate) const PROMPT_MAX_CHARS: usize = 8000;
+/// 设置里单轮模型调用上限的可选上界。
+pub(crate) const MAX_TURNS_LIMIT: u32 = 500;
 /// 请求体上限。
 pub(crate) const MAX_BODY_BYTES: usize = 1024 * 1024;
 /// 会话列表每页条数：缺省与上限。
@@ -13,6 +19,8 @@ pub(crate) const PAGE_MAX: u32 = 100;
 pub(crate) const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
 /// 单条流待发事件的缓冲；客户端读得慢时回压到内核订阅，落后即断流重连。
 pub(crate) const STREAM_BUFFER: usize = 256;
+/// 停止后等连接自行关闭的上限，超时直接断开。
+pub(crate) const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 /// token 与 Web 会话 chat id 的随机字节数。
 pub(crate) const TOKEN_BYTES: usize = 32;
 pub(crate) const CHAT_ID_BYTES: usize = 16;

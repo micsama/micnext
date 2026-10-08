@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -6,11 +7,18 @@ use crate::{Migration, StoreError};
 
 const CORE: &str = "core";
 
-const CORE_MIGRATIONS: &[Migration] = &[Migration {
-    module: CORE,
-    version: 1,
-    sql: CORE_V1,
-}];
+const CORE_MIGRATIONS: &[Migration] = &[
+    Migration {
+        module: CORE,
+        version: 1,
+        sql: CORE_V1,
+    },
+    Migration {
+        module: CORE,
+        version: 2,
+        sql: CORE_V2,
+    },
+];
 
 const CORE_V1: &str = "
 CREATE TABLE core_persons (
@@ -93,6 +101,39 @@ CREATE INDEX idx_messages_undelivered ON core_messages(session_id)
   WHERE delivered_at IS NULL AND kind IN ('Reply', 'Notification');
 ";
 
+/// 人设、对话偏好与 run 设置快照。
+const CORE_V2: &str = "
+CREATE TABLE core_personas (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  prompt      TEXT NOT NULL,
+  builtin     INTEGER NOT NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  deleted_at  INTEGER
+);
+CREATE UNIQUE INDEX idx_personas_name ON core_personas(name) WHERE deleted_at IS NULL;
+-- NOTE: 内置人设内容由启动同步写入（personas.rs），此处只占位 id 1 以满足 core_settings 外键。
+INSERT INTO core_personas (id, name, prompt, builtin, created_at, updated_at) VALUES (1, '默认', '', 1, 0, 0);
+
+CREATE TABLE core_settings (
+  id                  INTEGER PRIMARY KEY CHECK (id = 1),
+  default_persona_id  INTEGER NOT NULL REFERENCES core_personas(id),
+  general_prompt      TEXT NOT NULL,
+  default_workdir     TEXT NOT NULL,
+  max_turns           INTEGER NOT NULL CHECK (max_turns >= 1)
+);
+INSERT INTO core_settings VALUES (1, 1, '', '~/workspace/mic', 50);
+
+-- NOTE: 开着外键时 ADD COLUMN 不能带非 NULL 默认值的 REFERENCES，引用由 store 写入处校验。
+ALTER TABLE core_sessions ADD COLUMN persona_id INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE core_runs ADD COLUMN persona_id INTEGER;
+ALTER TABLE core_runs ADD COLUMN persona_name TEXT;
+ALTER TABLE core_runs ADD COLUMN persona_prompt TEXT;
+ALTER TABLE core_runs ADD COLUMN general_prompt TEXT;
+ALTER TABLE core_runs ADD COLUMN max_turns INTEGER;
+";
+
 /// 设置连接级 pragma，先应用内核迁移，再按传入顺序应用各模块迁移。
 /// 版本检查先于任何写入：任一模块库版本超前即整体拒绝打开。
 pub(crate) fn init(conn: &mut Connection, modules: &[Migration]) -> Result<(), StoreError> {
@@ -131,7 +172,14 @@ pub(crate) fn init(conn: &mut Connection, modules: &[Migration]) -> Result<(), S
         )?;
         tx.commit()?;
     }
+    crate::personas::sync(conn, now_ms())?;
     Ok(())
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
 }
 
 /// 按模块首次出现的顺序分组，组内按版本升序。

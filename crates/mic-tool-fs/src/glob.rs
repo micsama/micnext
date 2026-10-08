@@ -37,7 +37,7 @@ impl Tool for Glob {
     }
 
     fn prompt_hint(&self) -> Option<&str> {
-        Some("Use the glob tool — not shell find — to discover files by path pattern. A pattern with no \"/\" matches basenames at any depth, so \"*\" matches every file in the tree rather than its top level. Results are files only, never directories, and include hidden and ignored files, most recently modified first; a larger result keeps the most recently modified head.")
+        Some("Find files with glob, not shell find. A pattern without \"/\" matches basenames at any depth, so \"*\" matches the whole tree. Results are files only (hidden and ignored included), newest first; oversized results keep the newest.")
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {

@@ -9,12 +9,16 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::Json;
 use mic_message::{ContentPart, MessageId, SessionId};
-use mic_store::{NewSession, Session, SessionCursor, SessionKind, SessionSummary, ToolScope};
+use mic_store::{
+    NewSession, PersonaId, Session, SessionCursor, SessionKind, SessionSummary, ToolScope,
+};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::error::ApiError;
+use crate::error::{ApiError, PERSONA_NOT_FOUND, SESSION_NOT_FOUND};
 use crate::limits::{CHAT_ID_BYTES, MAX_TEXT_CHARS, PAGE_DEFAULT, PAGE_MAX};
 use crate::service::{random_hex, App};
+use crate::settings::new_session_workdir;
 use crate::WEB_CHANNEL;
 
 pub(crate) async fn authorize(
@@ -54,6 +58,10 @@ pub(crate) struct SessionItem {
     last_activity_at: i64,
     preview: Option<String>,
     workdir: String,
+    /// 能否从 Web 发消息。
+    writable: bool,
+    /// 下一轮用的人设；已删除时下一轮改用默认人设。
+    persona_id: PersonaId,
 }
 
 #[derive(Serialize)]
@@ -100,7 +108,11 @@ pub(crate) async fn list_sessions(
         .list_root_sessions(&q.channel, before, limit)
         .await?;
     Ok(Json(SessionPage {
-        items: page.items.into_iter().map(item).collect(),
+        items: page
+            .items
+            .into_iter()
+            .map(|s| item(s).expect("list_root_sessions 只返回 Root 会话"))
+            .collect(),
         next: page.next.map(|c| Cursor {
             before_at: c.last_activity_at,
             before_id: c.session_id,
@@ -108,24 +120,53 @@ pub(crate) async fn list_sessions(
     }))
 }
 
-fn item(s: SessionSummary) -> SessionItem {
+/// Web 只浏览 Root 会话，其它种类返回 `None`。
+fn item(s: SessionSummary) -> Option<SessionItem> {
+    let writable = writable(&s.session);
     let SessionKind::Root { channel, .. } = s.session.kind else {
-        unreachable!("list_root_sessions 只返回 Root 会话")
+        return None;
     };
-    SessionItem {
+    Some(SessionItem {
         id: s.session.id,
         channel,
         created_at: s.session.created_at,
         last_activity_at: s.last_activity_at,
         preview: s.preview,
         workdir: s.session.pwd,
-    }
+        writable,
+        persona_id: s.session.persona_id,
+    })
+}
+
+/// 只有 Web 自己的会话能从 Web 发消息，其它渠道的只读。
+pub(crate) fn writable(session: &Session) -> bool {
+    matches!(&session.kind, SessionKind::Root { channel, .. } if channel == WEB_CHANNEL)
+}
+
+pub(crate) async fn get_session(
+    State(app): State<Arc<App>>,
+    id: Result<Path<i64>, PathRejection>,
+) -> Result<Json<SessionItem>, ApiError> {
+    let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
+    app.kernel
+        .session_summary(SessionId(id))
+        .await?
+        .and_then(item)
+        .map(Json)
+        .ok_or(ApiError::NotFound(SESSION_NOT_FOUND))
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SendBody {
     text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CreateBody {
+    text: String,
+    persona_id: PersonaId,
 }
 
 #[derive(Serialize)]
@@ -141,9 +182,16 @@ pub(crate) struct Accepted {
 
 pub(crate) async fn create_session(
     State(app): State<Arc<App>>,
-    body: Result<Json<SendBody>, JsonRejection>,
+    body: Result<Json<CreateBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Created>), ApiError> {
-    let text = text(body)?;
+    let body = json(body)?;
+    let text = text(body.text)?;
+    match app.kernel.persona(body.persona_id).await? {
+        None => return Err(ApiError::NotFound(PERSONA_NOT_FOUND)),
+        Some(p) if p.deleted => return Err(ApiError::Conflict(PERSONA_DELETED.into())),
+        Some(_) => {}
+    }
+    let pwd = new_session_workdir(&app).await?;
     let chat = random_hex(CHAT_ID_BYTES);
     let session = app
         .kernel
@@ -157,9 +205,10 @@ pub(crate) async fn create_session(
                 },
                 parent_session_id: None,
                 delivery_target: None,
-                pwd: app.workdir.clone(),
+                pwd,
                 tool_scope: ToolScope::All,
                 created_at: now_ms(),
+                persona: Some(body.persona_id),
             },
         )
         .await?;
@@ -179,10 +228,10 @@ pub(crate) async fn send_message(
     body: Result<Json<SendBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Accepted>), ApiError> {
     let session = session(&app, id).await?;
-    if !matches!(&session.kind, SessionKind::Root { channel, .. } if channel == WEB_CHANNEL) {
+    if !writable(&session) {
         return Err(ApiError::ReadOnly);
     }
-    let text = text(body)?;
+    let text = text(json(body)?.text)?;
     let message_id = append(&app, session.id, text).await?;
     Ok((StatusCode::ACCEPTED, Json(Accepted { message_id })))
 }
@@ -192,25 +241,33 @@ pub(crate) async fn session(
     app: &App,
     id: Result<Path<i64>, PathRejection>,
 ) -> Result<Session, ApiError> {
-    let Path(id) = id.map_err(|_| ApiError::NotFound)?;
+    let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
     app.kernel
         .session(SessionId(id))
         .await?
-        .ok_or(ApiError::NotFound)
+        .ok_or(ApiError::NotFound(SESSION_NOT_FOUND))
 }
 
-fn text(body: Result<Json<SendBody>, JsonRejection>) -> Result<String, ApiError> {
+const PERSONA_DELETED: &str = "人设已删除，请先在输入框旁重新选择";
+
+pub(crate) fn json<T: DeserializeOwned>(
+    body: Result<Json<T>, JsonRejection>,
+) -> Result<T, ApiError> {
     let Json(body) = body.map_err(|e| match e.status() {
         StatusCode::PAYLOAD_TOO_LARGE => ApiError::TooLarge,
         _ => ApiError::BadRequest(format!("请求体不合法：{}", e.body_text())),
     })?;
-    if body.text.trim().is_empty() {
+    Ok(body)
+}
+
+fn text(text: String) -> Result<String, ApiError> {
+    if text.trim().is_empty() {
         return Err(ApiError::BadRequest("消息不能为空".into()));
     }
-    if body.text.chars().count() > MAX_TEXT_CHARS {
+    if text.chars().count() > MAX_TEXT_CHARS {
         return Err(ApiError::TooLarge);
     }
-    Ok(body.text)
+    Ok(text)
 }
 
 async fn append(app: &App, session: SessionId, text: String) -> Result<MessageId, ApiError> {

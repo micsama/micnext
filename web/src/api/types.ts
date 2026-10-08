@@ -1,3 +1,7 @@
+import { any, arr, bool, kinded, nullable, num, obj, oneOf, ProtocolError, str, tagged, type Decoder } from "./decode";
+
+export { ProtocolError };
+
 // 与 gateway §4.2、§5.1 及 mic-message 的 serde 形状一一对应。
 
 export type FileRef = { path: string; mime: string; size_bytes: number };
@@ -48,7 +52,24 @@ export type SessionItem = {
   last_activity_at: number;
   preview: string | null;
   workdir: string;
+  /** 能否从 Web 发消息。 */
+  writable: boolean;
+  /** 下一轮用的人设；已删除时下一轮改用默认人设。 */
+  persona_id: number;
 };
+
+export type Settings = {
+  default_persona_id: number;
+  general_prompt: string;
+  default_workdir: string;
+  max_turns: number;
+  /** 系统块，只读。 */
+  system_prompt: string;
+};
+
+export type SettingsInput = Omit<Settings, "system_prompt">;
+
+export type Persona = { id: number; name: string; prompt: string; builtin: boolean };
 
 export type Cursor = { before_at: number; before_id: number };
 
@@ -67,54 +88,117 @@ export type StreamEvent =
   | { event: "run_finished"; data: { run_id: number; state: RunState } }
   | { event: "ready"; data: { executing_run: number | null } };
 
-const BODY_KINDS = new Set([
-  "UserInput",
-  "Reply",
-  "ToolResult",
-  "Completion",
-  "HarnessNote",
-  "Notification",
-  "Boundary",
-]);
-const EVENTS = new Set([
-  "message",
-  "text_delta",
-  "reasoning_delta",
-  "draft_discarded",
-  "run_started",
-  "run_finished",
-  "ready",
-]);
+const fileRef: Decoder<FileRef> = obj({ path: str, mime: str, size_bytes: num });
 
-/** 服务端返回的形状与本界面不符：前后端版本不一致。 */
-export class ProtocolError extends Error {
-  constructor(what: string) {
-    super(`界面与服务版本不一致，请刷新页面（${what}）`);
-  }
-}
+const contentPart: Decoder<ContentPart> = tagged({ Text: obj({ text: str }), File: fileRef });
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+const execOutcome: Decoder<ExecOutcome> = tagged({
+  Completed: obj({ output: arr(contentPart) }),
+  Failed: obj({ kind: oneOf("Input", "Business", "Dependency"), message: str }),
+  Cancelled: obj({ message: str }),
+});
 
-function assertMessage(v: unknown): asserts v is Message {
-  if (!isObject(v) || typeof v.id !== "number" || !isObject(v.body) || !BODY_KINDS.has(v.body.kind as string)) {
-    throw new ProtocolError("消息");
-  }
-}
+const reasoning: Decoder<Reasoning> = tagged({
+  Visible: obj({ text: str, signature: nullable(str) }),
+  Redacted: obj({ data: str }),
+});
 
-export function parseSessionPage(v: unknown): SessionPage {
-  if (!isObject(v) || !Array.isArray(v.items)) throw new ProtocolError("会话列表");
-  return v as SessionPage;
-}
+const replyBlock: Decoder<ReplyBlock> = tagged({
+  Reasoning: reasoning,
+  Text: obj({ text: str }),
+  ToolCall: obj({ id: str, name: str, args: any }),
+});
 
-export function parseCreated(v: unknown): Created {
-  if (!isObject(v) || typeof v.session_id !== "number") throw new ProtocolError("新建会话");
-  return v as Created;
-}
+const compaction = tagged({ Compaction: obj({ summary: str }) });
+const boundary: Decoder<ContextBoundary> = (v, at) => (v === "UserClear" ? v : compaction(v, at));
+
+const messageBody: Decoder<MessageBody> = kinded({
+  UserInput: { person: num, parts: arr(contentPart) },
+  Reply: { model: str, blocks: arr(replyBlock) },
+  ToolResult: {
+    tool_name: str,
+    tool_call_id: str,
+    outcome: tagged({ Terminal: execOutcome, Dispatched: obj({ exec_id: str }) }),
+  },
+  Completion: { person: num, tool_name: str, exec_id: str, outcome: execOutcome },
+  HarnessNote: { text: str },
+  Notification: { source: str, text: str },
+  Boundary: { boundary },
+});
+
+const message: Decoder<Message> = obj({
+  id: num,
+  session_id: num,
+  body: messageBody,
+  created_at: num,
+  delivered_at: nullable(num),
+});
+
+const sessionItem: Decoder<SessionItem> = obj({
+  id: num,
+  channel: str,
+  created_at: num,
+  last_activity_at: num,
+  preview: nullable(str),
+  workdir: str,
+  writable: bool,
+  persona_id: num,
+});
+
+const settings: Decoder<Settings> = obj({
+  default_persona_id: num,
+  general_prompt: str,
+  default_workdir: str,
+  max_turns: num,
+  system_prompt: str,
+});
+
+const personaList = obj({ items: arr(obj({ id: num, name: str, prompt: str, builtin: bool })) });
+
+const idOnly = obj({ id: num });
+
+const sessionPage: Decoder<SessionPage> = obj({
+  items: arr(sessionItem),
+  next: nullable(obj({ before_at: num, before_id: num })),
+});
+
+const created: Decoder<Created> = obj({ session_id: num, message_id: num });
+
+const delta = obj({ text: str });
+
+const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { event: E }>["data"]> } = {
+  message,
+  text_delta: delta,
+  reasoning_delta: delta,
+  draft_discarded: obj({}),
+  run_started: obj({ run_id: num }),
+  run_finished: obj({
+    run_id: num,
+    state: oneOf("executing", "completed", "provider_failed", "max_turns", "interrupted"),
+  }),
+  ready: obj({ executing_run: nullable(num) }),
+};
+
+export const parseSessionItem = (v: unknown): SessionItem => sessionItem(v, "会话");
+
+export const parseSessionPage = (v: unknown): SessionPage => sessionPage(v, "会话列表");
+
+export const parseCreated = (v: unknown): Created => created(v, "新建会话");
+
+export const parseSettings = (v: unknown): Settings => settings(v, "设置");
+
+export const parsePersonas = (v: unknown): Persona[] => personaList(v, "人设列表").items;
+
+export const parsePersonaId = (v: unknown): number => idOnly(v, "新建人设").id;
 
 export function parseStreamEvent(event: string, data: string): StreamEvent {
-  if (!EVENTS.has(event)) throw new ProtocolError(`事件 ${event}`);
-  const parsed: unknown = JSON.parse(data);
-  if (!isObject(parsed)) throw new ProtocolError(`事件 ${event}`);
-  if (event === "message") assertMessage(parsed);
-  return { event, data: parsed } as StreamEvent;
+  if (!Object.hasOwn(streamData, event)) throw new ProtocolError(`事件 ${event}`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    throw new ProtocolError(`事件 ${event}`);
+  }
+  const decode = streamData[event as StreamEvent["event"]] as Decoder<unknown>;
+  return { event, data: decode(parsed, `事件 ${event}`) } as StreamEvent;
 }

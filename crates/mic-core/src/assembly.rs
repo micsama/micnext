@@ -21,7 +21,6 @@ use crate::{
 };
 
 const DEFAULT_OWNER: &str = "dzmfg";
-const DEFAULT_MAX_TURNS: u32 = 50;
 const ONCE_CHANNEL: &str = "cli";
 
 /// 装配入口，由二进制调用。
@@ -34,7 +33,6 @@ pub struct Assembly {
     model: String,
     provider: Arc<dyn Provider>,
     tools: Vec<ToolHandle>,
-    max_turns: u32,
 }
 
 /// `-p` 的一次性输入。
@@ -58,7 +56,6 @@ pub enum OnceOutcome {
 struct CoreConfig {
     data_dir: Option<String>,
     owner: Option<String>,
-    max_turns: Option<u32>,
 }
 
 /// `[models]` 解析结果：`default` 与按 `kind`（模块名）分组、已去掉 `kind` 的条目。
@@ -100,6 +97,11 @@ impl Assembly {
         }
 
         let core = match config.remove("core") {
+            Some(v) if v.get("max_turns").is_some() => {
+                return Err(AssembleError::Core {
+                    source: "max_turns 已移到网页 设置 → 对话偏好，请从配置删掉这一行".into(),
+                })
+            }
             Some(v) => v
                 .try_into::<CoreConfig>()
                 .map_err(|e| AssembleError::Core { source: e.into() })?,
@@ -111,12 +113,6 @@ impl Assembly {
         if owner.contains(':') {
             return Err(AssembleError::Core {
                 source: format!("owner 不得含 \":\"，当前为 \"{owner}\"").into(),
-            });
-        }
-        let max_turns = core.max_turns.unwrap_or(DEFAULT_MAX_TURNS);
-        if max_turns == 0 {
-            return Err(AssembleError::Core {
-                source: "max_turns 必须 ≥ 1".into(),
             });
         }
 
@@ -186,7 +182,6 @@ impl Assembly {
             model,
             provider,
             tools: reg.tools.into_iter().map(|(_, t)| t).collect(),
-            max_turns,
         })
     }
 
@@ -273,6 +268,7 @@ impl Assembly {
                         .expect("OneShot.pwd 由调用方保证是 UTF-8"),
                     tool_scope: ToolScope::All,
                     created_at: now,
+                    persona: None,
                 },
             )
             .await?;
@@ -285,14 +281,14 @@ impl Assembly {
             vec![ContentPart::Text { text: once.prompt }],
         )
         .await?;
-        let run = store
+        let (run, settings) = store
             .claim_next(session_id, now_ms())
             .await?
             .expect("刚写入的输入必然可认领");
 
         let engine = Arc::new(self.engine(store, events));
         let mut task = JoinSet::new();
-        task.spawn(async move { engine.run(&session, ONCE_CHANNEL, run).await });
+        task.spawn(async move { engine.run(&session, ONCE_CHANNEL, run, settings).await });
         let mut show = |event: Result<KernelEvent, crate::Lagged>| match event {
             Ok(e) if e.session_id == session_id => on_event(&e),
             Ok(_) => {}
@@ -362,7 +358,6 @@ impl Assembly {
             provider: self.provider.clone(),
             model: self.model.clone(),
             tools: self.tools.clone(),
-            max_turns: self.max_turns,
         }
     }
 }

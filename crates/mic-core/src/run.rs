@@ -4,11 +4,10 @@ use std::future::poll_fn;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mic_message::{
-    ExecFailureKind, ExecOutcome, Message, MessageBody, ReplyBlock, ToolResultOutcome,
-};
+use mic_message::{ExecFailureKind, ExecOutcome, MessageBody, ReplyBlock, ToolResultOutcome};
 use mic_store::{
-    ModelCallOutcome, NewModelCall, Run, RunState, Session, Store, StoreError, ToolScope,
+    ModelCallOutcome, NewModelCall, Run, RunSettings, RunState, Session, Store, StoreError,
+    ToolScope,
 };
 use mic_tool::{ToolContext, ToolHandle};
 use tokio::task::JoinSet;
@@ -30,16 +29,16 @@ pub(crate) struct Engine {
     /// `[models] default` 的条目名。
     pub(crate) model: String,
     pub(crate) tools: Vec<ToolHandle>,
-    pub(crate) max_turns: u32,
 }
 
 impl Engine {
-    /// 执行一个已认领的 run 并落盘终态。
+    /// 以认领时定下的设置执行一个 run 并落盘终态。
     pub(crate) async fn run(
         &self,
         session: &Session,
         channel: &str,
         run: Run,
+        settings: RunSettings,
     ) -> Result<RunState, StoreError> {
         self.events.emit(
             session.id,
@@ -61,6 +60,7 @@ impl Engine {
             session,
             channel,
             run: &run,
+            settings: &settings,
             tools,
         };
         let state = exec.execute().await?;
@@ -88,6 +88,7 @@ struct Exec<'a> {
     session: &'a Session,
     channel: &'a str,
     run: &'a Run,
+    settings: &'a RunSettings,
     tools: Vec<ToolHandle>,
 }
 
@@ -99,7 +100,7 @@ struct Call {
 
 impl Exec<'_> {
     async fn execute(&self) -> Result<RunState, StoreError> {
-        let max_turns = self.engine.max_turns;
+        let max_turns = self.settings.max_turns;
         let warn_at = (max_turns * MAX_TURNS_WARN_PERCENT / 100).max(1);
         let mut calls = 0;
         loop {
@@ -148,7 +149,7 @@ impl Exec<'_> {
         tools: &[ToolHandle],
     ) -> Result<Result<Vec<Call>, RunState>, StoreError> {
         let window = self.engine.store.context_window(self.session.id).await?;
-        let req = request::build(window, &self.session.pwd, tools);
+        let req = request::build(window, &self.session.pwd, tools, self.settings);
         let mut attempt = 1;
         loop {
             let started_at = now_ms();
@@ -163,7 +164,6 @@ impl Exec<'_> {
                 },
             )
             .await?;
-            self.emit(KernelEventKind::DraftDiscarded);
             match &error {
                 ProviderError::Transient { retry_after, .. } if attempt < MAX_MODEL_ATTEMPTS => {
                     let wait = retry_after
@@ -226,10 +226,7 @@ impl Exec<'_> {
             usage: reply.usage,
             blocks: reply.blocks,
         };
-        match self.record(started_at, outcome).await? {
-            Some(message) => self.emit(KernelEventKind::MessageAppended(message)),
-            None => self.emit(KernelEventKind::DraftDiscarded),
-        }
+        self.record(started_at, outcome).await?;
         match reply.stop {
             StopReason::MaxTokens => {
                 self.notify("回复达到输出长度上限，内容不完整。".into())
@@ -244,11 +241,9 @@ impl Exec<'_> {
         Ok(calls)
     }
 
-    async fn record(
-        &self,
-        started_at: i64,
-        outcome: ModelCallOutcome,
-    ) -> Result<Option<Message>, StoreError> {
+    /// 落盘调用行并结束草稿：有 `Reply` 即发布它，否则作废。
+    async fn record(&self, started_at: i64, outcome: ModelCallOutcome) -> Result<(), StoreError> {
+        let publish = self.engine.events.publisher().await;
         let (_, reply) = self
             .engine
             .store
@@ -261,7 +256,11 @@ impl Exec<'_> {
                 outcome,
             })
             .await?;
-        Ok(reply)
+        match reply {
+            Some(message) => publish.appended(self.session.id, self.channel, message),
+            None => self.emit(KernelEventKind::DraftDiscarded),
+        }
+        Ok(())
     }
 
     /// 本批调用并行执行，结果按完成先后落盘。
@@ -319,12 +318,13 @@ impl Exec<'_> {
 
     /// 落盘一条本 run 的产出并发 `MessageAppended`。
     async fn append(&self, body: MessageBody) -> Result<(), StoreError> {
+        let publish = self.engine.events.publisher().await;
         let message = self
             .engine
             .store
             .append(self.session.id, Some(self.run.id), body, now_ms())
             .await?;
-        self.emit(KernelEventKind::MessageAppended(message));
+        publish.appended(self.session.id, self.channel, message);
         Ok(())
     }
 

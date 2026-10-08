@@ -6,6 +6,7 @@ mod config;
 mod error;
 mod limits;
 mod service;
+mod settings;
 mod stream;
 mod web;
 

@@ -53,7 +53,7 @@ async fn feed(
     let mut last = after;
     for message in replayed {
         last = Some(message.id);
-        if tx.send(message_event(&message)).await.is_err() {
+        if !send(&app, &tx, message_event(&message)).await {
             return;
         }
     }
@@ -64,7 +64,7 @@ async fn feed(
     let ready = Ready {
         executing_run: executing_run.map(|r| r.0),
     };
-    if tx.send(json_event("ready", &ready)).await.is_err() {
+    if !send(&app, &tx, json_event("ready", &ready)).await {
         return;
     }
 
@@ -122,9 +122,17 @@ async fn feed(
                 },
             ),
         };
-        if tx.send(out).await.is_err() {
+        if !send(&app, &tx, out).await {
             return;
         }
+    }
+}
+
+/// 客户端不读时发送会一直等，故同样响应停止；返回 `false` 即该结束。
+async fn send(app: &App, tx: &mpsc::Sender<Event>, event: Event) -> bool {
+    tokio::select! {
+        () = app.stop.cancelled() => false,
+        sent = tx.send(event) => sent.is_ok(),
     }
 }
 

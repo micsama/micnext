@@ -9,6 +9,40 @@ pub struct RunId(pub i64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModelCallId(pub i64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PersonaId(pub i64);
+
+/// 人设：名字 + 提示词。内置的只读；删除为软删除，按 id 仍可读。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Persona {
+    pub id: PersonaId,
+    pub name: String,
+    pub prompt: String,
+    pub builtin: bool,
+    pub deleted: bool,
+}
+
+/// 对话偏好，全局一份。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settings {
+    /// 始终是未删除的人设。
+    pub default_persona: PersonaId,
+    /// 对所有人设生效；空串 = 无。
+    pub general_prompt: String,
+    /// 新 Web 会话的工作目录，用户写法：绝对路径或 `~/` 开头。
+    pub default_workdir: String,
+    pub max_turns: u32,
+}
+
+/// 认领时定下的本轮设置，执行期间不变；同时落为 run 快照。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunSettings {
+    pub persona: Persona,
+    pub general_prompt: String,
+    pub max_turns: u32,
+}
+
 /// 外部身份：某 Channel 上的某个发送者。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Identity {
@@ -58,6 +92,8 @@ pub struct Session {
     pub pwd: String,
     pub tool_scope: ToolScope,
     pub created_at: i64,
+    /// 下一轮用的人设；已删除时下一轮改用默认人设并写回。
+    pub persona_id: PersonaId,
 }
 
 /// 会话列表分页游标：上一页最后一项的排序键。
@@ -70,7 +106,7 @@ pub struct SessionCursor {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSummary {
     pub session: Session,
-    /// 最新消息的 `created_at`。
+    /// 最新消息的 `created_at`，没有消息时为会话的 `created_at`。
     pub last_activity_at: i64,
     /// 首条用户输入的首个文本片段开头；没有则 `None`。
     pub preview: Option<String>,
@@ -183,4 +219,6 @@ pub struct NewSession {
     pub pwd: String,
     pub tool_scope: ToolScope,
     pub created_at: i64,
+    /// `None` = 建会话时的默认人设。
+    pub persona: Option<PersonaId>,
 }

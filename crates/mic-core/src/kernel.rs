@@ -3,13 +3,14 @@ use std::num::NonZeroU32;
 use mic_message::{ContentPart, Message, MessageBody, MessageId, PersonId, SessionId};
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
-    NewSession, RunId, Session, SessionCursor, SessionKind, SessionPage, Store, StoreError,
+    NewSession, Persona, PersonaId, RunId, Session, SessionCursor, SessionKind, SessionPage,
+    SessionSummary, Settings, Store, StoreError,
 };
 use tokio::sync::mpsc;
 
-use crate::event::{EventReceiver, Events, KernelEventKind};
+use crate::event::{EventReceiver, Events};
 use crate::run::now_ms;
-use crate::KernelError;
+use crate::{request, KernelError};
 
 /// 模块拿到的内核窄接口。Clone 廉价；核心表只经这些方法写。
 #[derive(Clone)]
@@ -75,6 +76,14 @@ impl Kernel {
         Ok(self.store.session(id).await?)
     }
 
+    /// id 可能来自外部，不存在返回 `None`。
+    pub async fn session_summary(
+        &self,
+        id: SessionId,
+    ) -> Result<Option<SessionSummary>, KernelError> {
+        Ok(self.store.session_summary(id).await?)
+    }
+
     /// 列出 `channel` 下已有用户输入的 Root 会话，最近活跃在前。
     pub async fn list_root_sessions(
         &self,
@@ -102,6 +111,63 @@ impl Kernel {
         Ok(self.store.executing_run(session_id).await?)
     }
 
+    /// 系统提示词（不可改），供设置页只读展示。
+    pub fn system_prompt(&self) -> &'static str {
+        request::base_prompt()
+    }
+
+    pub async fn settings(&self) -> Result<Settings, KernelError> {
+        Ok(self.store.settings().await?)
+    }
+
+    /// 下一轮 run 起生效。
+    pub async fn update_settings(&self, s: Settings) -> Result<(), KernelError> {
+        Ok(self.store.update_settings(s).await?)
+    }
+
+    /// 未删除的人设，内置在前。
+    pub async fn personas(&self) -> Result<Vec<Persona>, KernelError> {
+        Ok(self.store.personas().await?)
+    }
+
+    /// 含已删除。
+    pub async fn persona(&self, id: PersonaId) -> Result<Option<Persona>, KernelError> {
+        Ok(self.store.persona(id).await?)
+    }
+
+    pub async fn create_persona(
+        &self,
+        name: String,
+        prompt: String,
+    ) -> Result<PersonaId, KernelError> {
+        Ok(self.store.create_persona(name, prompt, now_ms()).await?)
+    }
+
+    pub async fn update_persona(
+        &self,
+        id: PersonaId,
+        name: String,
+        prompt: String,
+    ) -> Result<(), KernelError> {
+        Ok(self
+            .store
+            .update_persona(id, name, prompt, now_ms())
+            .await?)
+    }
+
+    pub async fn delete_persona(&self, id: PersonaId) -> Result<(), KernelError> {
+        Ok(self.store.delete_persona(id, now_ms()).await?)
+    }
+
+    /// 会话下一轮用的人设；正在执行的 run 不受影响。
+    pub async fn set_session_persona(
+        &self,
+        session: SessionId,
+        persona: PersonaId,
+    ) -> Result<(), KernelError> {
+        Ok(self.store.set_session_persona(session, persona).await?)
+    }
+
     /// 订阅之后产生的事件（全部会话，按 `channel`/`session_id` 字段过滤）。
     pub fn subscribe(&self) -> EventReceiver {
         self.events.subscribe()
@@ -125,6 +191,7 @@ pub(crate) async fn append_user_input(
     person: PersonId,
     parts: Vec<ContentPart>,
 ) -> Result<Message, StoreError> {
+    let publish = events.publisher().await;
     // 会话不存在时由外键在写入处报错，之后必能读到。
     let message = store
         .append(
@@ -139,11 +206,7 @@ pub(crate) async fn append_user_input(
         .await?
         .expect("刚写入消息的会话必然存在");
     let channel = session_channel(store, &session).await?;
-    events.emit(
-        session_id,
-        &channel,
-        KernelEventKind::MessageAppended(message.clone()),
-    );
+    publish.appended(session_id, &channel, message.clone());
     Ok(message)
 }
 

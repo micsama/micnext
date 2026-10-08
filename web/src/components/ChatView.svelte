@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { ApiError, sendMessage } from "../api/client";
+  import { sendMessage, setSessionPersona } from "../api/client";
   import { router } from "../state/route.svelte";
   import type { SessionView } from "../state/session.svelte";
-  import { findSession, webSessions } from "../state/sessions.svelte";
+  import { webSessions } from "../state/sessions.svelte";
+  import { settingsStore } from "../state/settings.svelte";
   import Composer from "./Composer.svelte";
   import Header from "./Header.svelte";
   import MessageList from "./MessageList.svelte";
+  import PersonaPicker from "./PersonaPicker.svelte";
 
   let { view, onmenu }: { view: SessionView; onmenu: () => void } = $props();
 
-  const item = $derived(findSession(view.id));
-  let forbidden = $state(false);
-  const readonly = $derived(forbidden || (item !== undefined && item.channel !== "web"));
+  const item = $derived(view.info);
 
   const title = $derived(item?.preview ?? `会话 ${view.id}`);
   const detail = $derived(item ? `${item.workdir} · ${item.channel}` : undefined);
@@ -20,14 +20,36 @@
   });
 
   async function send(text: string) {
+    await sendMessage(view.id, text);
+    void webSessions.refresh();
+  }
+
+  const persona = $derived(item ? settingsStore.resolve(item.persona_id) : null);
+  let pickError = $state<string | null>(null);
+  /** 本轮执行中改过选择：新人设从下一轮生效。 */
+  let pickedDuringRun = $state(false);
+  $effect(() => {
+    if (view.executingRun === null) pickedDuringRun = false;
+  });
+
+  async function pick(id: number) {
+    const info = view.info!;
+    const before = info.persona_id;
+    info.persona_id = id;
+    pickError = null;
     try {
-      await sendMessage(view.id, text);
-      void webSessions.refresh();
+      await setSessionPersona(view.id, id);
+      if (view.executingRun !== null) pickedDuringRun = true;
     } catch (e) {
-      if (e instanceof ApiError && e.status === 403) forbidden = true;
-      throw e;
+      info.persona_id = before;
+      pickError = (e as Error).message;
     }
   }
+
+  const notice = $derived(
+    pickError ??
+      (persona?.replaced ? "原人设已删除，下一轮改用默认人设" : pickedDuringRun ? "人设已切换，下一轮生效" : null),
+  );
 </script>
 
 <Header {title} {detail} {onmenu} />
@@ -43,11 +65,15 @@
     <p class="bg-panel py-1 text-center text-xs text-warn">连接已断开，正在重连…</p>
   {/if}
   <MessageList {view} />
-  {#if readonly}
+  {#if item?.writable}
+    <Composer onsend={send} autofocus {notice}>
+      {#snippet controls()}
+        <PersonaPicker value={persona!.id} onpick={pick} />
+      {/snippet}
+    </Composer>
+  {:else if item}
     <p class="mx-auto w-full max-w-3xl px-4 pb-4 text-center text-sm text-muted">
-      该会话来自 {item?.channel ?? "其它"} 渠道，只能在这里查看
+      该会话来自 {item.channel} 渠道，只能在这里查看
     </p>
-  {:else}
-    <Composer onsend={send} autofocus />
   {/if}
 {/if}

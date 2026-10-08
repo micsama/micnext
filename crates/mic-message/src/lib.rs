@@ -92,7 +92,7 @@ pub enum Reasoning {
     },
 }
 
-/// 一次模型调用输出的一块，按生成顺序。`ToolCall.args` 保持 `Value`：schema 属于各 Tool，
+/// 一次模型调用输出的一块，按服务商能给出的生成顺序（协议不区分先后时由 Provider 定序）。`ToolCall.args` 保持 `Value`：schema 属于各 Tool，
 /// 解析发生在 `mic-tool` 边界（原文不是 JSON 对象时为 `Value::String`）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ReplyBlock {

@@ -109,7 +109,14 @@
       {/each}
     {/if}
   </nav>
-  <div class="border-t border-line p-2">
+  <div class="flex items-center justify-between border-t border-line p-2">
+    <button
+      type="button"
+      onclick={() => go("/settings")}
+      class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted hover:bg-raised hover:text-fg"
+      class:text-fg={router.current.kind === "settings"}>
+      <Icon name="settings" />设置
+    </button>
     <button
       type="button"
       onclick={() => theme.cycle()}

@@ -38,7 +38,7 @@ impl Tool for Grep {
     }
 
     fn prompt_hint(&self) -> Option<&str> {
-        Some("Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context.")
+        Some("Search file contents with grep, not shell grep/rg; read a match for surrounding context.")
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {

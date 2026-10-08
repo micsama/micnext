@@ -1,6 +1,6 @@
-import { ApiError } from "../api/client";
+import { ApiError, getSession } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, type Message, type RunState, type StreamEvent } from "../api/types";
+import { ProtocolError, type Message, type RunState, type SessionItem, type StreamEvent } from "../api/types";
 import { webSessions } from "./sessions.svelte";
 
 export type Draft = { reasoning: string; text: string };
@@ -16,6 +16,8 @@ const FINISH_NOTICE: Partial<Record<RunState, string>> = {
 
 /** 一个打开的会话：稳定消息 + 正在生成的草稿，按 web-ui §五 归约流事件并断线重连。 */
 export class SessionView {
+  /** 会话本身的信息，首次连上前取得。 */
+  info = $state<SessionItem | null>(null);
   messages = $state<Message[]>([]);
   draft = $state<Draft | null>(null);
   executingRun = $state<number | null>(null);
@@ -48,6 +50,7 @@ export class SessionView {
       // 接入后只收到剩余增量，保留旧半截会拼出缺段的文字。
       this.draft = null;
       try {
+        this.info ??= await getSession(this.id);
         await readStream(this.id, this.lastId, signal, (e) => {
           this.#apply(e);
           if (e.event === "ready") delay = RETRY_MIN_MS;

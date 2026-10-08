@@ -1,11 +1,13 @@
 <script lang="ts">
   import ChatView from "./components/ChatView.svelte";
   import NewChat from "./components/NewChat.svelte";
+  import SettingsView from "./components/SettingsView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import { auth } from "./state/auth.svelte";
   import { router } from "./state/route.svelte";
   import { SessionView } from "./state/session.svelte";
   import { otherSessions, webSessions } from "./state/sessions.svelte";
+  import { settingsStore } from "./state/settings.svelte";
 
   let drawer = $state(false);
   let view = $state<SessionView | null>(null);
@@ -25,8 +27,10 @@
   $effect(() => {
     if (!auth.token) return;
     void webSessions.refresh();
+    void settingsStore.refresh();
     const onfocus = () => {
       void webSessions.refresh();
+      void settingsStore.refresh();
       for (const list of otherSessions) if (list.loaded) void list.refresh();
     };
     addEventListener("focus", onfocus);
@@ -51,6 +55,8 @@
     <main class="flex min-w-0 flex-1 flex-col">
       {#if router.current.kind === "new"}
         <NewChat onmenu={openDrawer} />
+      {:else if router.current.kind === "settings"}
+        <SettingsView onmenu={openDrawer} />
       {:else if view}
         {#key view}
           <ChatView {view} onmenu={openDrawer} />

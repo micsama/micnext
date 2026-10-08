@@ -6,11 +6,13 @@ use mic_message::{ContextBoundary, Message, MessageBody, MessageId, PersonId, Se
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::limits::PREVIEW_CHARS;
-use crate::row::{self, MESSAGE_COLS, MESSAGE_FROM, RUN_COLS, SESSION_COLS, UNCLAIMED};
+use crate::row::{
+    self, MESSAGE_COLS, MESSAGE_FROM, PERSONA_COLS, RUN_COLS, SESSION_COLS, UNCLAIMED,
+};
 use crate::{
     ContextWindow, Identity, Migration, ModelCallId, ModelCallOutcome, NewModelCall, NewSession,
-    PendingDelivery, Person, Run, RunId, RunState, Session, SessionCursor, SessionPage,
-    SessionSummary, StoreError,
+    PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunSettings, RunState, Session,
+    SessionCursor, SessionPage, SessionSummary, Settings, SettingsError, StoreError,
 };
 
 #[derive(Clone)]
@@ -49,6 +51,23 @@ impl Store {
     where
         R: Send + 'static,
         F: FnOnce(&mut Connection) -> Result<R, StoreError> + Send + 'static,
+    {
+        self.blocking(f).await
+    }
+
+    async fn call_settings<R, F>(&self, f: F) -> Result<R, SettingsError>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut Connection) -> Result<R, SettingsError> + Send + 'static,
+    {
+        self.blocking(f).await
+    }
+
+    async fn blocking<R, E, F>(&self, f: F) -> Result<R, E>
+    where
+        R: Send + 'static,
+        E: Send + 'static,
+        F: FnOnce(&mut Connection) -> Result<R, E> + Send + 'static,
     {
         let conn = Arc::clone(&self.conn);
         tokio::task::spawn_blocking(move || {
@@ -225,6 +244,19 @@ impl Store {
         .await
     }
 
+    /// 单个会话的摘要；没有消息时最近活跃取创建时间。
+    pub async fn session_summary(
+        &self,
+        id: SessionId,
+    ) -> Result<Option<SessionSummary>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn
+                .query_row(&summaries("s.id = ?1"), [id.0], row_summary)
+                .optional()?)
+        })
+        .await
+    }
+
     /// 列出 `channel` 下已有用户输入的 Root 会话，按 `(last_activity_at, id)` 降序。
     pub async fn list_root_sessions(
         &self,
@@ -235,26 +267,16 @@ impl Store {
         let channel = channel.to_owned();
         let limit = limit.get() as usize;
         self.call(move |conn| {
-            // NOTE: 预览依赖 ContentPart 的 serde 外部标签形状 {"Text":{"text":..}}。
             let mut items = conn
                 .prepare(&format!(
-                    "SELECT {SESSION_COLS}, act, preview FROM (
-                       SELECT s.*,
-                         (SELECT m.created_at FROM core_messages m
-                           WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) AS act,
-                         (SELECT substr(json_extract(p.value, '$.Text.text'), 1, ?5)
-                            FROM core_messages m, json_each(m.payload, '$.parts') p
-                           WHERE m.session_id = s.id AND m.kind = 'UserInput'
-                             AND json_type(p.value, '$.Text') IS NOT NULL
-                           ORDER BY m.id, p.key LIMIT 1) AS preview
-                       FROM core_sessions s
-                       WHERE s.kind = 'root' AND s.channel = ?1
-                         AND EXISTS (SELECT 1 FROM core_messages m
-                                      WHERE m.session_id = s.id AND m.kind = 'UserInput')
-                     )
-                     WHERE ?2 IS NULL OR (act, id) < (?2, ?3)
+                    "{} WHERE ?2 IS NULL OR (act, id) < (?2, ?3)
                      ORDER BY act DESC, id DESC
-                     LIMIT ?4"
+                     LIMIT ?4",
+                    summaries(
+                        "s.kind = 'root' AND s.channel = ?1
+                         AND EXISTS (SELECT 1 FROM core_messages m
+                                      WHERE m.session_id = s.id AND m.kind = 'UserInput')"
+                    )
                 ))?
                 .query_map(
                     params![
@@ -262,15 +284,8 @@ impl Store {
                         before.map(|c| c.last_activity_at),
                         before.map(|c| c.session_id.0),
                         limit as i64 + 1,
-                        PREVIEW_CHARS,
                     ],
-                    |r| {
-                        Ok(SessionSummary {
-                            session: row::session(r)?,
-                            last_activity_at: r.get(14)?,
-                            preview: r.get(15)?,
-                        })
-                    },
+                    row_summary,
                 )?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let next = (items.len() > limit).then(|| {
@@ -302,21 +317,12 @@ impl Store {
             "Reply 只能经 record_model_call 写入"
         );
         assert!(
-            run.is_none()
-                || !matches!(
-                    body,
-                    MessageBody::UserInput { .. } | MessageBody::Completion { .. }
-                ),
+            run.is_none() || !is_input(&body),
             "输入入站时未认领，run 必为 None"
         );
         self.call(move |conn| {
-            conn.execute(
-                "INSERT INTO core_messages (session_id, run_id, payload, created_at)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![session_id.0, run.map(|r| r.0), row::payload(&body)?, at],
-            )?;
             Ok(Message {
-                id: MessageId(conn.last_insert_rowid()),
+                id: insert_message(conn, session_id, run, &body, at)?,
                 session_id,
                 body,
                 created_at: at,
@@ -394,14 +400,143 @@ impl Store {
         .await
     }
 
+    // ---- 设置与人设 ----
+
+    pub async fn settings(&self) -> Result<Settings, StoreError> {
+        self.call(|conn| Ok(read_settings(conn)?)).await
+    }
+
+    pub async fn update_settings(&self, s: Settings) -> Result<(), SettingsError> {
+        self.call_settings(move |conn| {
+            let tx = conn.transaction()?;
+            live_persona(&tx, s.default_persona)?;
+            tx.execute(
+                "UPDATE core_settings
+                 SET default_persona_id = ?1, general_prompt = ?2, default_workdir = ?3,
+                     max_turns = ?4",
+                params![
+                    s.default_persona.0,
+                    s.general_prompt,
+                    s.default_workdir,
+                    s.max_turns
+                ],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// 未删除的人设，内置在前，其余按 id。
+    pub async fn personas(&self) -> Result<Vec<Persona>, StoreError> {
+        self.call(|conn| {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {PERSONA_COLS} FROM core_personas
+                 WHERE deleted_at IS NULL ORDER BY builtin DESC, id"
+            ))?;
+            let rows = stmt.query_map([], row::persona)?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        })
+        .await
+    }
+
+    /// 含已删除；id 可能来自外部，不存在返回 `None`。
+    pub async fn persona(&self, id: PersonaId) -> Result<Option<Persona>, StoreError> {
+        self.call(move |conn| Ok(find_persona(conn, id)?)).await
+    }
+
+    pub async fn create_persona(
+        &self,
+        name: String,
+        prompt: String,
+        now: i64,
+    ) -> Result<PersonaId, SettingsError> {
+        self.call_settings(move |conn| {
+            let tx = conn.transaction()?;
+            ensure_name_free(&tx, &name, None)?;
+            tx.execute(
+                "INSERT INTO core_personas (name, prompt, builtin, created_at, updated_at)
+                 VALUES (?1, ?2, 0, ?3, ?3)",
+                params![name, prompt, now],
+            )?;
+            let id = PersonaId(tx.last_insert_rowid());
+            tx.commit()?;
+            Ok(id)
+        })
+        .await
+    }
+
+    pub async fn update_persona(
+        &self,
+        id: PersonaId,
+        name: String,
+        prompt: String,
+        now: i64,
+    ) -> Result<(), SettingsError> {
+        self.call_settings(move |conn| {
+            let tx = conn.transaction()?;
+            editable_persona(&tx, id)?;
+            ensure_name_free(&tx, &name, Some(id))?;
+            tx.execute(
+                "UPDATE core_personas SET name = ?1, prompt = ?2, updated_at = ?3 WHERE id = ?4",
+                params![name, prompt, now, id.0],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// 软删除：已选它的会话与 run 快照仍可读到原行。
+    pub async fn delete_persona(&self, id: PersonaId, now: i64) -> Result<(), SettingsError> {
+        self.call_settings(move |conn| {
+            let tx = conn.transaction()?;
+            editable_persona(&tx, id)?;
+            if read_settings(&tx)?.default_persona == id {
+                return Err(SettingsError::IsDefault);
+            }
+            tx.execute(
+                "UPDATE core_personas SET deleted_at = ?1 WHERE id = ?2",
+                params![now, id.0],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// 会话存在由调用方保证。
+    pub async fn set_session_persona(
+        &self,
+        session: SessionId,
+        persona: PersonaId,
+    ) -> Result<(), SettingsError> {
+        self.call_settings(move |conn| {
+            let tx = conn.transaction()?;
+            match find_persona(&tx, persona)? {
+                None => return Err(SettingsError::PersonaNotFound),
+                Some(p) if p.deleted => return Err(SettingsError::Deleted),
+                Some(_) => {}
+            }
+            tx.execute(
+                "UPDATE core_sessions SET persona_id = ?1 WHERE id = ?2",
+                params![persona.0, session.0],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await
+    }
+
     // ---- 调度 ----
 
-    /// 会话无 `executing` run 时，把未认领输入开头连续同 person 的一段认领为新 run。
+    /// 会话无 `executing` run 时，把未认领输入开头连续同 person 的一段认领为新 run，
+    /// 同时定下本轮设置（会话所选人设，已删除则改用默认人设并写回会话；当前偏好）并写入 run 快照。
     pub async fn claim_next(
         &self,
         session_id: SessionId,
         now: i64,
-    ) -> Result<Option<Run>, StoreError> {
+    ) -> Result<Option<(Run, RunSettings)>, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
             let executing: bool = tx.query_row(
@@ -416,21 +551,65 @@ impl Store {
             let Some((ids, _)) = unclaimed_head(&tx, session_id.0)? else {
                 return Ok(None);
             };
+            let mut persona = tx.query_row(
+                &format!(
+                    "SELECT {PERSONA_COLS} FROM core_personas
+                     WHERE id = (SELECT persona_id FROM core_sessions WHERE id = ?1)"
+                ),
+                [session_id.0],
+                row::persona,
+            )?;
+            if persona.deleted {
+                persona = tx.query_row(
+                    &format!(
+                        "SELECT {PERSONA_COLS} FROM core_personas
+                         WHERE id = (SELECT default_persona_id FROM core_settings)"
+                    ),
+                    [],
+                    row::persona,
+                )?;
+                tx.execute(
+                    "UPDATE core_sessions SET persona_id = ?1 WHERE id = ?2",
+                    params![persona.id.0, session_id.0],
+                )?;
+            }
+            let (general_prompt, max_turns): (String, u32) = tx.query_row(
+                "SELECT general_prompt, max_turns FROM core_settings",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
             tx.execute(
-                "INSERT INTO core_runs (session_id, state, created_at)
-                 VALUES (?1, ?2, ?3)",
-                params![session_id.0, RunState::Executing.as_str(), now],
+                "INSERT INTO core_runs
+                   (session_id, state, created_at,
+                    persona_id, persona_name, persona_prompt, general_prompt, max_turns)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    session_id.0,
+                    RunState::Executing.as_str(),
+                    now,
+                    persona.id.0,
+                    persona.name,
+                    persona.prompt,
+                    general_prompt,
+                    max_turns,
+                ],
             )?;
             let id = RunId(tx.last_insert_rowid());
             assign_run(&tx, id, &ids)?;
             tx.commit()?;
-            Ok(Some(Run {
+            let run = Run {
                 id,
                 session_id,
                 state: RunState::Executing,
                 created_at: now,
                 finished_at: None,
-            }))
+            };
+            let settings = RunSettings {
+                persona,
+                general_prompt,
+                max_turns,
+            };
+            Ok(Some((run, settings)))
         })
         .await
     }
@@ -485,21 +664,44 @@ impl Store {
         .await
     }
 
-    /// 启动时把遗留 `Executing` 收尾为 `Interrupted`，返回被收尾的 run。
-    pub async fn interrupt_stale_runs(&self, now: i64) -> Result<Vec<Run>, StoreError> {
+    /// 全部 `executing` run，按 id 升序；启动时即上次遗留的。
+    pub async fn executing_runs(&self) -> Result<Vec<Run>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn
+                .prepare(&format!(
+                    "SELECT {RUN_COLS} FROM core_runs WHERE state = 'executing' ORDER BY id"
+                ))?
+                .query_map([], row::run)?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+        .await
+    }
+
+    /// 同一事务内写入本 run 的收尾消息并转为 `Interrupted`：要么全部生效，要么仍是 `executing` 可再收尾。
+    pub async fn interrupt_run(
+        &self,
+        run: &Run,
+        closing: Vec<MessageBody>,
+        now: i64,
+    ) -> Result<(), StoreError> {
+        assert!(
+            closing
+                .iter()
+                .all(|b| !is_input(b) && !matches!(b, MessageBody::Reply { .. })),
+            "收尾只写框架产出"
+        );
+        let (id, session_id) = (run.id, run.session_id);
         self.call(move |conn| {
             let tx = conn.transaction()?;
-            let mut stale = tx
-                .prepare(&format!(
-                    "UPDATE core_runs SET state = ?1, finished_at = ?2
-                     WHERE state = 'executing'
-                     RETURNING {RUN_COLS}"
-                ))?
-                .query_map(params![RunState::Interrupted.as_str(), now], row::run)?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for body in &closing {
+                insert_message(&tx, session_id, Some(id), body, now)?;
+            }
+            tx.execute(
+                "UPDATE core_runs SET state = ?2, finished_at = ?3 WHERE id = ?1",
+                params![id.0, RunState::Interrupted.as_str(), now],
+            )?;
             tx.commit()?;
-            stale.sort_by_key(|r| r.id);
-            Ok(stale)
+            Ok(())
         })
         .await
     }
@@ -686,12 +888,20 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
     let kind = row::session_kind_cols(&new.kind);
     let tool_scope = serde_json::to_string(&new.tool_scope)?;
     let target = new.delivery_target.as_ref();
+    let persona_id = match new.persona {
+        Some(id) => id,
+        None => PersonaId(tx.query_row(
+            "SELECT default_persona_id FROM core_settings",
+            [],
+            |r| r.get(0),
+        )?),
+    };
     tx.execute(
         "INSERT INTO core_sessions
            (kind, channel, chat, parent_tool_call_id, trigger_module, trigger_ref,
             parent_session_id, delivery_channel, delivery_version, delivery_payload,
-            pwd, tool_scope, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            pwd, tool_scope, created_at, persona_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             kind.kind,
             kind.channel,
@@ -706,6 +916,7 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
             new.pwd,
             tool_scope,
             new.created_at,
+            persona_id.0,
         ],
     )?;
     Ok(Session {
@@ -716,7 +927,65 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
         pwd: new.pwd,
         tool_scope: new.tool_scope,
         created_at: new.created_at,
+        persona_id,
     })
+}
+
+fn read_settings(conn: &Connection) -> rusqlite::Result<Settings> {
+    conn.query_row(
+        "SELECT default_persona_id, general_prompt, default_workdir, max_turns FROM core_settings",
+        [],
+        |r| {
+            Ok(Settings {
+                default_persona: PersonaId(r.get(0)?),
+                general_prompt: r.get(1)?,
+                default_workdir: r.get(2)?,
+                max_turns: r.get(3)?,
+            })
+        },
+    )
+}
+
+fn find_persona(conn: &Connection, id: PersonaId) -> rusqlite::Result<Option<Persona>> {
+    conn.query_row(
+        &format!("SELECT {PERSONA_COLS} FROM core_personas WHERE id = ?1"),
+        [id.0],
+        row::persona,
+    )
+    .optional()
+}
+
+/// 存在且未删除。
+fn live_persona(conn: &Connection, id: PersonaId) -> Result<Persona, SettingsError> {
+    match find_persona(conn, id)? {
+        Some(p) if !p.deleted => Ok(p),
+        _ => Err(SettingsError::PersonaNotFound),
+    }
+}
+
+/// 存在、未删除且非内置。
+fn editable_persona(conn: &Connection, id: PersonaId) -> Result<(), SettingsError> {
+    if live_persona(conn, id)?.builtin {
+        return Err(SettingsError::Builtin);
+    }
+    Ok(())
+}
+
+fn ensure_name_free(
+    conn: &Connection,
+    name: &str,
+    except: Option<PersonaId>,
+) -> Result<(), SettingsError> {
+    let taken: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM core_personas
+                       WHERE name = ?1 AND deleted_at IS NULL AND id IS NOT ?2)",
+        params![name, except.map(|id| id.0)],
+        |r| r.get(0),
+    )?;
+    if taken {
+        return Err(SettingsError::NameTaken(name.to_owned()));
+    }
+    Ok(())
 }
 
 /// 未认领输入按 id 排序后开头连续同 person 的一段 `(ids, person)`。
@@ -748,4 +1017,54 @@ fn assign_run(tx: &Transaction<'_>, run: RunId, ids: &[i64]) -> rusqlite::Result
         stmt.execute(params![run.0, id])?;
     }
     Ok(())
+}
+
+/// `filter` 筛出的会话连同 `act`（最近活跃）与 `preview`，供外层再筛选排序。
+fn summaries(filter: &str) -> String {
+    // NOTE: 预览依赖 ContentPart 的 serde 外部标签形状 {"Text":{"text":..}}。
+    format!(
+        "SELECT {SESSION_COLS}, act, preview FROM (
+           SELECT s.*,
+             COALESCE((SELECT m.created_at FROM core_messages m
+                        WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1),
+                      s.created_at) AS act,
+             (SELECT substr(json_extract(p.value, '$.Text.text'), 1, {PREVIEW_CHARS})
+                FROM core_messages m, json_each(m.payload, '$.parts') p
+               WHERE m.session_id = s.id AND m.kind = 'UserInput'
+                 AND json_type(p.value, '$.Text') IS NOT NULL
+               ORDER BY m.id, p.key LIMIT 1) AS preview
+           FROM core_sessions s
+           WHERE {filter}
+         )"
+    )
+}
+
+fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
+    Ok(SessionSummary {
+        session: row::session(r)?,
+        last_activity_at: r.get(15)?,
+        preview: r.get(16)?,
+    })
+}
+
+fn is_input(body: &MessageBody) -> bool {
+    matches!(
+        body,
+        MessageBody::UserInput { .. } | MessageBody::Completion { .. }
+    )
+}
+
+fn insert_message(
+    conn: &Connection,
+    session_id: SessionId,
+    run: Option<RunId>,
+    body: &MessageBody,
+    at: i64,
+) -> Result<MessageId, StoreError> {
+    conn.execute(
+        "INSERT INTO core_messages (session_id, run_id, payload, created_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![session_id.0, run.map(|r| r.0), row::payload(body)?, at],
+    )?;
+    Ok(MessageId(conn.last_insert_rowid()))
 }

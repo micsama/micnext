@@ -1,19 +1,16 @@
-# micnext 配置。按需启用的模块（如模型）段存在即启用；内置工具（shell、fs、web_fetch）始终启用。改完重启生效。
+# micnext 配置：只放启动必需的项，改完重启生效。人设、通用偏好、工作目录、轮数上限在网页「设置」里改。
+# 按需启用的模块（如模型）段存在即启用；内置工具（shell、fs、web_fetch）始终启用。
 
 [core]
 # 数据库默认在 ~/.local/share/micnext/micnext.db，需要改位置时取消下一行的注释。
 # data_dir = "~/.local/share/micnext"
 # 你的名字：Web 与 -p 的输入都以这个身份写入。
 owner = "dzmfg"
-# 一轮内带工具的模型调用上限；用尽后模型会做一次不带工具的总结。
-max_turns = 50
 
 # Web 界面。启动时在终端打印带 token 的访问地址。
 [gateway]
 # 只在本机访问；改成 0.0.0.0:7878 会暴露到局域网，先想清楚。
 # listen = "127.0.0.1:7878"
-# Web 新会话的工作目录，不存在会自动创建。
-# workdir = "~/workspace/mic"
 # 访问 token：不写则每次启动随机生成；写了就固定用它（地址可收藏）。
 # token = "换成一串足够长的随机字符"
 

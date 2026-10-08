@@ -38,7 +38,7 @@ impl Tool for Edit {
     }
 
     fn prompt_hint(&self) -> Option<&str> {
-        Some("Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first unless you just created or edited it in this session.")
+        Some("edit replaces literal old_string with new_string in a UTF-8 text file; old_string must be unique unless replace_all is true. Read the file first unless you just wrote or edited it.")
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {

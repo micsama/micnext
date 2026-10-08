@@ -6,7 +6,9 @@ use rusqlite::Row;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::{DeliveryTarget, Run, RunId, RunState, Session, SessionKind, StoreError};
+use crate::{
+    DeliveryTarget, Persona, PersonaId, Run, RunId, RunState, Session, SessionKind, StoreError,
+};
 
 /// 消息读取的 FROM 子句：`Reply.model` 只存在调用行上，读出时 JOIN 还原。
 pub(crate) const MESSAGE_FROM: &str =
@@ -18,9 +20,11 @@ pub(crate) const MESSAGE_COLS: &str =
 pub(crate) const SESSION_COLS: &str =
     "id, kind, channel, chat, parent_tool_call_id, trigger_module, \
      trigger_ref, parent_session_id, delivery_channel, delivery_version, delivery_payload, pwd, \
-     tool_scope, created_at";
+     tool_scope, created_at, persona_id";
 
 pub(crate) const RUN_COLS: &str = "id, session_id, state, created_at, finished_at";
+
+pub(crate) const PERSONA_COLS: &str = "id, name, prompt, builtin, deleted_at IS NOT NULL";
 
 /// 未认领输入谓词，`m` 为 core_messages 别名。
 pub(crate) const UNCLAIMED: &str = "m.run_id IS NULL AND m.kind IN ('UserInput', 'Completion')";
@@ -149,6 +153,18 @@ pub(crate) fn session(row: &Row<'_>) -> rusqlite::Result<Session> {
         pwd: row.get(11)?,
         tool_scope: json_col(row, 12)?,
         created_at: row.get(13)?,
+        persona_id: PersonaId(row.get(14)?),
+    })
+}
+
+/// 列序同 `PERSONA_COLS`。
+pub(crate) fn persona(row: &Row<'_>) -> rusqlite::Result<Persona> {
+    Ok(Persona {
+        id: PersonaId(row.get(0)?),
+        name: row.get(1)?,
+        prompt: row.get(2)?,
+        builtin: row.get(3)?,
+        deleted: row.get(4)?,
     })
 }
 

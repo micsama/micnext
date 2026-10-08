@@ -1,6 +1,9 @@
 use mic_message::{Message, SessionId};
 use mic_store::{RunId, RunState};
+use std::sync::Arc;
+
 use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
+use tokio::sync::{Mutex, MutexGuard};
 
 use crate::limits::EVENT_CAPACITY;
 
@@ -23,7 +26,7 @@ pub enum KernelEventKind {
     ReasoningDelta(String),
     /// 本次调用尝试没有产生 `Reply`（失败、重试前、或成功但无内容），草稿作废。
     DraftDiscarded,
-    /// 任一消息落盘，带 id。成功调用的 `Reply` 即当前草稿的终点。
+    /// 任一消息落盘，带 id；同一订阅内按 id 升序到达。成功调用的 `Reply` 即当前草稿的终点。
     MessageAppended(Message),
     /// 一轮结束，`state` 为落盘的终态。
     RunFinished { run_id: RunId, state: RunState },
@@ -57,23 +60,53 @@ pub struct Lagged(pub u64);
 
 /// 事件总线的发送端。
 #[derive(Clone)]
-pub(crate) struct Events(broadcast::Sender<KernelEvent>);
+pub(crate) struct Events {
+    tx: broadcast::Sender<KernelEvent>,
+    order: Arc<Mutex<()>>,
+}
 
 impl Events {
     pub(crate) fn new() -> Self {
-        Self(broadcast::channel(EVENT_CAPACITY).0)
+        Self {
+            tx: broadcast::channel(EVENT_CAPACITY).0,
+            order: Arc::default(),
+        }
     }
 
-    /// 没有订阅者时即丢弃。
+    /// 没有订阅者时即丢弃。`MessageAppended` 只经 [`Publisher`] 发。
     pub(crate) fn emit(&self, session_id: SessionId, channel: &str, kind: KernelEventKind) {
-        let _ = self.0.send(KernelEvent {
+        let _ = self.tx.send(KernelEvent {
             session_id,
             channel: channel.to_owned(),
             kind,
         });
     }
 
+    /// 取得稳定消息的发布权，持有期间落盘再发布。
+    pub(crate) async fn publisher(&self) -> Publisher<'_> {
+        Publisher {
+            events: self,
+            _order: self.order.lock().await,
+        }
+    }
+
     pub(crate) fn subscribe(&self) -> EventReceiver {
-        EventReceiver(self.0.subscribe())
+        EventReceiver(self.tx.subscribe())
+    }
+}
+
+/// 所有发布消息的写入互斥，故发布顺序即提交顺序（id 升序），订阅方可把消息 id 当完整前缀游标。
+pub(crate) struct Publisher<'a> {
+    events: &'a Events,
+    _order: MutexGuard<'a, ()>,
+}
+
+impl Publisher<'_> {
+    pub(crate) fn appended(&self, session_id: SessionId, channel: &str, message: Message) {
+        self.events.emit(
+            session_id,
+            channel,
+            KernelEventKind::MessageAppended(message),
+        );
     }
 }

@@ -35,7 +35,7 @@ impl Tool for Read {
     }
 
     fn prompt_hint(&self) -> Option<&str> {
-        Some("Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.")
+        Some("View text files with read, not cat; output has line numbers; page large files with offset and limit.")
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {

@@ -1,11 +1,25 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import Icon from "../lib/Icon.svelte";
 
   let {
     onsend,
     placeholder = "输入消息，回车发送，Shift+回车换行",
     autofocus = false,
-  }: { onsend: (text: string) => Promise<void>; placeholder?: string; autofocus?: boolean } = $props();
+    controls,
+    notice = null,
+    blocked = false,
+  }: {
+    onsend: (text: string) => Promise<void>;
+    placeholder?: string;
+    autofocus?: boolean;
+    /** 发送按钮左侧的本会话选择（如人设）。 */
+    controls?: Snippet;
+    /** 输入框上方的提示。 */
+    notice?: string | null;
+    /** 暂不能发送（原因见 notice）。 */
+    blocked?: boolean;
+  } = $props();
 
   let text = $state("");
   let posting = $state(false);
@@ -13,7 +27,7 @@
   let input: HTMLTextAreaElement;
   const MAX_HEIGHT_PX = 240;
 
-  const canSend = $derived(text.trim() !== "" && !posting);
+  const canSend = $derived(text.trim() !== "" && !posting && !blocked);
 
   $effect(() => {
     void text;
@@ -51,6 +65,8 @@
 <div class="mx-auto w-full max-w-3xl px-4 pb-4">
   {#if error}
     <p class="mb-2 text-sm text-danger">{error}</p>
+  {:else if notice}
+    <p class="mb-2 text-sm text-warn">{notice}</p>
   {/if}
   <div class="flex items-end gap-2 rounded-2xl border border-line bg-bg px-3 py-2 focus-within:border-accent">
     <textarea
@@ -62,6 +78,7 @@
       rows="1"
       class="max-h-60 min-h-6 flex-1 resize-none bg-transparent py-1 outline-none placeholder:text-muted disabled:opacity-60"
     ></textarea>
+    {@render controls?.()}
     <button
       type="button"
       onclick={send}

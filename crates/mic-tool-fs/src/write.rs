@@ -28,7 +28,7 @@ impl Tool for Write {
     }
 
     fn prompt_hint(&self) -> Option<&str> {
-        Some("Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first and prefer edit for targeted changes.")
+        Some("write creates a file or fully overwrites it: read an existing file first, and prefer edit for partial changes.")
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {

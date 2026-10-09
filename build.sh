@@ -3,11 +3,10 @@ set -eu
 cd "$(dirname "$0")"
 
 command -v cargo >/dev/null 2>&1 || { echo "请先手动安装 Rust 工具链（cargo）" >&2; exit 1; }
-command -v node >/dev/null 2>&1 || { echo "请先手动安装 Node.js（建议 24）" >&2; exit 1; }
-command -v pnpm >/dev/null 2>&1 || { echo "请先手动安装 pnpm：npm install -g pnpm" >&2; exit 1; }
+command -v bun >/dev/null 2>&1 || { echo "请先手动安装 Bun" >&2; exit 1; }
 
-pnpm -C web install --frozen-lockfile
-pnpm -C web build
+bun install --cwd web --frozen-lockfile
+bun run --cwd web --bun build
 # 确保本轮生成的全部页面资源重新嵌入二进制。
 cargo clean -p mic-gateway --release
 cargo build --release --locked

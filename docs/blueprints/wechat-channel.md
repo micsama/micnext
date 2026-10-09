@@ -588,10 +588,13 @@ human 已改用自己的腾讯云干净服务器验收。首次启动已生成 `
 ./target/release/micnext
 # 或构建成功后直接启动：
 ./build.sh run
+# debug 构建后启动：
+./build.sh debug run
 ```
 
 脚本只检查工具，缺失即提示手动安装；依次执行 frozen-lockfile 安装、Bun 前端构建、
-清理 gateway 的 release 产物、Rust release 构建，确保最新 Web 资源嵌入二进制。运行二进制不需要前端构建工具。
+默认 release 模式清理 gateway 的 release 产物并进行 Rust release 构建，确保最新 Web 资源嵌入二进制。
+debug 模式使用 `cargo build --locked`，不清理 gateway；运行时从磁盘读取 Web 产物。运行二进制不需要前端构建工具。
 `run` 后的参数原样传给 micnext，例如 `./build.sh run --config /path/to/config.toml`；
 用法与失败行为见 [build-script-run](build-script-run.md)。
 

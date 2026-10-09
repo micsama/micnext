@@ -1,7 +1,7 @@
 # B2：微信 Channel（v0b）
 
-**状态：Phase 1 CLOSED（2026-10-09，human 功能验收通过）；其余阶段仍为 DRAFT。** 起草日期：2026-10-08；阶段拆分：2026-10-09。
-按 §十一分阶段实施与人工验收，可按阶段批准对应契约；Phase 1 于 2026-10-09 获准开动，其余待开始。
+**状态：Phase 1 CLOSED；Phase 2–5 已获准并实现，本地检查通过，真实扫码与收发待服务器人工验收；Phase 6 未开始。**
+起草日期：2026-10-08；阶段拆分与本次进度更新：2026-10-09。整份蓝图尚未 CLOSED，当前交接见 §11.5。
 
 **来源**：[B1 决定](../brainstorm/wechat-channel.md)、[iLink 协议素材](../brainstorm/wechat-protocol.md)。
 代码基线：`bca566c`（服务商/模型分层已落地）。协议类型核对官方包
@@ -39,7 +39,7 @@ bin/micnext 装配以上模块；Gateway 与微信模块互不依赖。
 `-p` 不启动任何 Service 或微信登录任务，仍走已有一次性执行路径。
 
 内部依赖：微信仅依赖 `mic-core`、`mic-store`、`mic-message`；不依赖 Gateway、Provider 或工具实现。
-外部依赖：tokio/tokio-util、reqwest（rustls、JSON）、serde/serde_json、thiserror、tracing、getrandom。
+外部依赖：tokio/tokio-util、reqwest（rustls、JSON）、serde/serde_json、thiserror、tracing、getrandom、base64（编码 X-WECHAT-UIN）。
 二维码由 Web 使用本地打包的二维码库生成，不访问第三方二维码服务。
 新增模块：core `channel_setup`、微信 `client/wire/login/account/service/delivery/limits`、Gateway `channels`；
 lib.rs 只声明模块并 re-export 公开 API，其余类型默认 pub(crate)。
@@ -329,13 +329,14 @@ Web 继续只能查看微信历史，不能经原 messages/persona/model 写接�
 
 client 完整接收源码所有已声明字段；暂无消费者的媒体、引用、工具 item 仍建强类型，不用 Value 漂流。
 wire DTO 拒绝未知字段，新增上游字段先补边界模型，不在运行期静默丢掉。
-所有成功必须显式确认 ret=0，不能把 ret 缺失当 0。可选字段在 wire 层保留 Option；
-业务需要的 user_id、context_token、游标等在相应成功分支一次验证后交给内部流程。
+SDK 声明 `ret` 的 getupdates/sendmessage/getconfig/sendtyping 响应，成功必须显式确认 ret=0，不能把 ret 缺失当 0。
+可选字段在 wire 层保留 Option；业务需要的 user_id、context_token、游标等在相应成功分支一次验证后交给内部流程。
 
-**P3 契约补正（2026-10-09，human 已确认按 SDK 接口逐步调试）**：上句 `ret=0` 约束仅用于 SDK 声明 `ret` 的
-getupdates/sendmessage/getconfig/sendtyping 响应。SDK 的 QRCodeResponse、StatusResponse 没有 `ret`：
+**P3 契约补正（2026-10-09，human 已确认按 SDK 接口逐步调试）**：SDK 的 QRCodeResponse、StatusResponse 没有 `ret`：
 取二维码以 HTTP 成功且两个必需字符串非空为成功；轮询以 HTTP 成功、已知 status 及该状态的必需字段为准。
 confirmed 仍须完整凭据，未知字段/状态及缺失必需字段仍为 Protocol，不把缺失 ret 伪造成 0。
+**实测补正（2026-10-09，服务器）**：`get_bot_qrcode` 实际返回 `"ret":0`，SDK 未声明。两个登录响应补收 `ret`：
+缺失按 SDK 视为成功，出现非 0 为 BusinessRejected。
 依据为本地 Bun 缓存的 `@tencent-weixin/openclaw-weixin@2.4.9/src/auth/login-qr.ts` 两个响应接口。
 
 认证头/base_info 见协议素材 §二，协议值集中于 client/limits，不散落给 Gateway 或调用方。
@@ -446,7 +447,8 @@ parallel change：先新增 port/委托/held 接口并保持旧调用可编译�
 
 human 负责每阶段的人工验收与行为矫正。方向/契约确定后先写完代码、完成 fmt/clippy，再交 human 验收；
 验收通过后更新文档，不在实现期间不断扩写验收文档或主动补测试。
-阶段交付后等待 human 验收结论再进入下一阶段；不一次性实现完全部功能后才交付。
+默认阶段交付后等待 human 验收结论再进入下一阶段。本轮 human 明确批准 Phase 2–5 连续推进至能对话，
+再一起扫码与人工验收；该调整不覆盖 Phase 6 的 typing，也不把 SDK 核对等同于真实协议验收。
 批准某阶段仅覆盖下表列出的契约，不把未定协议事实或后续阶段视为一并批准。
 矫正在已批准契约内则直接修；改变公开契约或副作用边界则先修订本文，方向有真实分歧退回 B1。
 
@@ -457,7 +459,8 @@ SQLite 迁移只前进；代码可回滚不等于数据库可降级。故障验�
 只在 human 明确要求时提交；全阶段验收通过并完成检查后才将整份本文标 CLOSED、更新 todo。
 
 协议不确定项先查本地参考 SDK；SDK 不足以定论时把具体问题交 human 搜索或实测，AI 不自行联网搜索。
-当前文档记录了 SDK 包名与版本，但未记录源码路径；Phase 3 开始前需定位本地副本或由 human 提供位置。
+已定位本机完整 SDK：`/Users/xingji/.bun/install/cache/@tencent-weixin/openclaw-weixin@2.4.9@@registry.npmmirror.com@@@1`。
+已核对 `src/api/types.ts`、`src/api/api.ts`、`src/auth/login-qr.ts` 与 monitor 源码的字段、请求头和流程。
 真实账号请求属于接入验收；每次验收先说明请求目的和需要 human 操作的扫码/验证码步骤，不以搜资料替代实测。
 
 ### 11.2 阶段与验收边界
@@ -465,10 +468,10 @@ SQLite 迁移只前进；代码可回滚不等于数据库可降级。故障验�
 | 阶段 | 对应契约与交付范围 | human 验收后可确认的行为 | 状态 |
 |---|---|---|---|
 | Phase 1：统一启动待命 | §3.3；Store held 迁移/事务、调度谓词与上下文分离、Assembly 启动收尾、删除 scheduler 初始补跑路径；同步 core/store/run 蓝图 | 重启不执行旧输入；历史与故障说明保留；新输入仍正常启动一轮；Web 与 `-p` 正常 | CLOSED：已实现，human 功能验收通过 |
-| Phase 2：共享 Kernel 能力 | §3.2；身份/投递/通知委托、原子订阅切点、工作目录共享下沉及 Gateway 错误映射；删除旧 workdir helper | Web 建会话工作目录行为等价；既有聊天/SSE 正常；原子切点与通知不唤醒的代码/日志证据齐全 | 待开始 |
-| Phase 3：Web 扫码登录闭环 | §二、§3.1、§四、§七、§八登录部分；新 crate/feature、完整模块迁移、登录 client、port/协调者/Service、完整凭据交接、Gateway 路由、设置页 | 实际扫码后保存账号；刷新不新建 attempt；验证码/过期/取消明确；同号会话不变、换号会话独立；浏览器无凭据；本阶段尚不收发聊天 | 待开始 |
-| Phase 4：微信入站 | §五、§八入站部分；getupdates、批次与游标事务、准入过滤、文本/语音转写、媒体 Notification、入站网络退避/-14、启动批次收尾 | 微信新文本在 Web 历史中出现并执行；纯媒体只落提示；群/他人/bot 不启动模型；崩溃后旧批次不重导；本阶段回复仍只在 Web 可见 | 待开始 |
-| Phase 5：微信回复投递 | §6.1～6.2、§八出站部分；sender 原子切点、Reply/Notification 提取、分段计划/尝试记录、一次重试/跳过、Lagged 补查、发送 -14、启动投递收尾 | 每次模型调用出话就发微信；失败预算正好两次；跳过不冒充 delivered；后续回复可发送；重登/重启不补发旧积压 | 待开始 |
+| Phase 2：共享 Kernel 能力 | §3.2；身份/投递/通知委托、原子订阅切点、工作目录共享下沉及 Gateway 错误映射；删除旧 workdir helper | Web 建会话工作目录行为等价；既有聊天/SSE 正常；原子切点与通知不唤醒的代码/日志证据齐全 | 已实现，本地能力检查通过；human 已批准继续接入 |
+| Phase 3：Web 扫码登录闭环 | §二、§3.1、§四、§七、§八登录部分；新 crate/feature、完整模块迁移、登录 client、port/协调者/Service、完整凭据交接、Gateway 路由、设置页 | 实际扫码后保存账号；刷新不新建 attempt；验证码/过期/取消明确；同号会话不变、换号会话独立；浏览器无凭据 | 已实现；本地接口/迁移检查通过，真实扫码待服务器验收 |
+| Phase 4：微信入站 | §五、§八入站部分；getupdates、批次与游标事务、准入过滤、文本/语音转写、媒体 Notification、入站网络退避/-14、启动批次收尾 | 微信新文本在 Web 历史中出现并执行；纯媒体只落提示；群/他人/bot 不启动模型；崩溃后旧批次不重导 | 已实现；初始游标与真实入站行为待验收 |
+| Phase 5：微信回复投递 | §6.1～6.2、§八出站部分；sender 原子切点、Reply/Notification 提取、分段计划/尝试记录、一次重试/跳过、Lagged 补查、发送 -14、启动投递收尾 | 每次模型调用出话就发微信；失败预算正好两次；跳过不冒充 delivered；后续回复可发送；重登/重启不补发旧积压 | 已实现；真实投递与失败/重启场景待验收 |
 | Phase 6：typing 与整体验收 | §6.3；getconfig/sendtyping、run 生命周期与 Lagged 校准；复验停止/换号/断网/崩溃，回填协议实测、文档与 todo | 输入指示随 run 开始/结束；慢 typing 不阻塞收发；所有对象隔离、故障与退出场景符合本文 | 待开始 |
 
 Phase 3 内按 3a 协议边界与模块构建 → 3b 登录/账号/HTTP → 3c 设置页依次推进，每步保持编译通过。
@@ -525,3 +528,62 @@ Web 将相邻 Notification 放在一张左对齐的系统提示卡片中，原�
 新凭据的初始游标、binded_redirect 的重取登录行为、typing 持续时间和发送错误分类。
 空游标若会重放旧连接历史，则本版不能直接按该起点启用收发：先修订连接起点契约，不以去重或静默丢弃绕过。
 这些不以 fallback 掩盖；缺配置/协议不匹配先返回显式错误，实测若要求改变公开契约则修订 B2 后再实现。
+
+### 11.5 当前交接（2026-10-09）
+
+#### 已交付的实现
+
+Phase 2–5 的主链路已提交并推送：`d87db45 feat(wechat): 接通扫码登录与消息收发`。
+默认构建包含微信；Gateway 通过 core port 访问登录状态，微信模块独立负责协议与收发。
+
+- Kernel 已提供身份解析、默认工作目录、通知落盘、待投递查询/确认和原子订阅切点；通知不唤醒模型。
+- 设置页已提供二维码、验证码、取消与连接状态；账号与完整凭据存 SQLite，同号复用会话、换号交接由协调者串行处理。
+  六张微信模块表覆盖账号、启用对象、游标/context_token、入站批次、投递计划和尝试记录。
+- 入站先持久化响应快照与游标，再导入获准的文本/语音转写；纯媒体落通知。旧未完成批次启动时收尾，不重新导入。
+- sender 从原子切点后的 Reply/Notification 提取正文，按 4000 个 Unicode 字符分段；每段最多两次尝试，共用 client_id。
+  失败跳过仍保留记录，重启不补发旧积压。收发任务使用固定账号快照，取消与交接等待数据库写入完成。
+- HTTP 失败日志已补齐接口名、连接阶段、I/O 类别、系统错误码与 TLS EOF 标记；HTTP 拒绝记录状态码。
+  不输出凭据、请求查询串、二维码内容或原始响应正文。页面仍使用简短失败提示。
+
+上述是实现事实；同号/换号、入站过滤、失败预算、重启处置等真实运行行为仍须按 §11.4 人工验收。
+Phase 6 的 getconfig/sendtyping、typing 生命周期与整体验收尚未实现，不据此关闭蓝图。
+
+#### 已完成的本地检查
+
+- fmt/clippy、默认构建和无默认 feature 的 clippy 检查通过；cargo tree 核对内部依赖方向符合 §二。
+- 独立目录的 Kernel 能力检查通过：身份隔离、工作目录错误、通知不唤醒、投递确认、订阅切点并发场景。
+- 临时实例的启动、微信状态只读、鉴权/非法请求/无效 attempt、六张模块表迁移与 SQLite 完整性检查通过。
+- 前端类型检查和构建通过；release 二进制包含 Web 页面，复制到独立目录后能提供 HTML 与 JS/CSS。
+- 未新增项目测试；本地检查不替代扫码、微信入站/出站或故障场景验收。
+
+#### 真实接口与服务器现场
+
+本机获取二维码失败发生在 TLS 握手阶段，日志为 `get_bot_qrcode`、`connect=true`、`tls_handshake_eof=true`，
+尚未收到微信 HTTP 响应。清掉进程代理变量后仍失败；当时域名解析到 `198.18.0.0/15` 的 Fake IP，路由走 `utun5`。
+HTTP 代理及公司 CONNECT 代理的探测也出现 TLS EOF。未确定最终拦截来源，不能据此判定公司屏蔽或微信接口不兼容。
+SIT 转发脚本只处理指定 Redis/MySQL 地址，未发现直接处理微信流量的配置。
+
+human 已改用自己的腾讯云干净服务器验收。首次启动已生成 `/root/.config/micnext/config.toml` 并打开 SQLite，
+随后因 Web 产物缺失退出；旧提示要求 pnpm，但服务器未安装。当前尚无服务器成功扫码或对话的验收结果。
+
+#### 构建方式与下一步
+
+`f7612e5` 已加入独立 `build.sh` 与 debug/release 的产物缺失提示。
+随后 human 指定统一 Bun：已改为 Bun 1.3.14、`web/bun.lock` 与 Bun runtime，删除 pnpm 锁文件和专属配置。
+迁移核对的 143 个包版本不变；在 PATH 无 Node.js/pnpm 的环境中完成了前端和 Rust release 构建。
+这次 Bun 切换已提交为 `f995558 build(web): 统一前端使用 Bun 构建`，已推送；部署时拉取最新 master 即可。
+
+服务器手动安装 Rust 工具链和 Bun 后，在源码目录执行：
+
+```sh
+./build.sh
+./target/release/micnext
+```
+
+脚本只检查工具，缺失即提示手动安装；依次执行 frozen-lockfile 安装、Bun 前端构建、
+清理 gateway 的 release 产物、Rust release 构建，确保最新 Web 资源嵌入二进制。运行二进制不需要前端构建工具。
+
+下一次 human 验收先完成服务启动与默认模型配置，再到「设置 → 微信」扫码，确认连接后发“你好”，
+核对微信收到回复及 Web「其他渠道 → 微信」历史；随后验证一次工具调用。
+首次连接还须核对空初始游标是否带回旧历史，该事实仍未实测；若发生重放，先修订连接起点契约。
+基础对话通过后再验证 §11.4 的验证码、取消/过期、同号/换号、媒体、断网、重启等场景，最后进入 Phase 6。

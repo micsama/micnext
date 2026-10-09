@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mic_message::{PersonId, SessionId};
-use mic_store::{Migration, NewSession, RunState, SecretKeyFile, SessionKind, Store, ToolScope};
+use mic_store::{
+    InputDisposition, Migration, NewSession, RunState, SecretKeyFile, SessionKind, Store, ToolScope,
+};
 use mic_tool::ToolHandle;
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -274,12 +276,14 @@ impl Assembly {
             )
             .await?;
         let session_id = session.id;
-        kernel::append_user_input(
+        kernel::append_input(
             &store,
             &events,
             session_id,
             started.owner,
             validate(vec![IncomingPart::Text(once.prompt)])?,
+            InputDisposition::Pending,
+            None,
         )
         .await?;
         let claimed = store

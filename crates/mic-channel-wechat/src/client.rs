@@ -60,7 +60,19 @@ pub(crate) struct IncomingMessage {
 
 pub(crate) enum IncomingContent {
     Text(String),
-    Unsupported,
+    Unsupported(Unsupported),
+}
+
+/// 当前不能交给模型的入站 item，保留类型与文件名。
+pub(crate) enum Unsupported {
+    Image,
+    /// 无转写的语音。
+    Voice,
+    File {
+        name: Option<String>,
+    },
+    Video,
+    Other,
 }
 
 impl Client {
@@ -297,9 +309,18 @@ pub(crate) fn parse_updates(
                     Some(text) if !text.trim().is_empty() => {
                         content.push(IncomingContent::Text(text.clone()))
                     }
-                    _ => content.push(IncomingContent::Unsupported),
+                    _ => content.push(IncomingContent::Unsupported(Unsupported::Voice)),
                 },
-                Some(0 | 2 | 4 | 5 | 11 | 12) => content.push(IncomingContent::Unsupported),
+                Some(2) => content.push(IncomingContent::Unsupported(Unsupported::Image)),
+                Some(4) => content.push(IncomingContent::Unsupported(Unsupported::File {
+                    name: item
+                        .file_item
+                        .as_ref()
+                        .and_then(|file| file.file_name.clone())
+                        .filter(|name| !name.trim().is_empty()),
+                })),
+                Some(5) => content.push(IncomingContent::Unsupported(Unsupported::Video)),
+                Some(0 | 11 | 12) => content.push(IncomingContent::Unsupported(Unsupported::Other)),
                 None => return Err(ClientError::Protocol("item 缺少 type")),
                 Some(_) => unreachable!("validate_message 已拒绝未知 type"),
             }

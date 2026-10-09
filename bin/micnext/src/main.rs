@@ -238,7 +238,7 @@ impl Render {
                 format!("◀ {tool_name} {status}")
             }
             MessageBody::HarnessNote { text } => format!("[runtime-note] {text}"),
-            MessageBody::Notification { source, text } => {
+            MessageBody::Notification { source, text, .. } => {
                 format!("[notification {source}] {text}")
             }
             _ => return,

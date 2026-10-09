@@ -21,8 +21,8 @@ pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
 pub use types::{
     ClaimedModel, ClaimedRun, ContextWindow, CredentialWrite, DeliveryTarget, EndpointId,
-    EndpointView, EndpointWrite, Identity, Migration, ModelCallId, ModelCallOutcome, ModelId,
-    ModelView, ModelWrite, NewInputPart, NewModelCall, NewSession, PendingDelivery, Person,
-    Persona, PersonaId, Run, RunId, RunSettings, RunState, Session, SessionCursor, SessionKind,
-    SessionPage, SessionSummary, Settings, ToolScope, Usage,
+    EndpointView, EndpointWrite, Identity, InputDisposition, Migration, ModelCallId,
+    ModelCallOutcome, ModelId, ModelView, ModelWrite, NewInputPart, NewModelCall, NewNotice,
+    NewSession, PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunSettings, RunState,
+    Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, ToolScope, Usage,
 };

@@ -128,7 +128,7 @@ pub async fn append_user_input(&self, s: SessionId, p: PersonId, parts: Vec<Inco
     -> Result<MessageId, KernelError>; // 所有现有文本生产者改为 Text
 pub async fn image(&self, s: SessionId, id: ImageId) -> Result<Option<ImageData>, KernelError>;
 ```
-core 嗅探出 `ImageData` 后交 store `append_input(session, person, Vec<NewInputPart>, now)`，图片行与消息同事务；
+core 嗅探出 `ImageData` 后交 store `append_input(session, person, Vec<NewInputPart>, disposition, notice, now)`（后两参见 conversation-parity.md），图片行与消息同事务；
 `image(session, id)` 按 `core_images.session_id` 校验归属，不匹配返回 None。不接受 URL、path、现有 image id 作为上传。
 会话创建仍先建会话再追加输入，不新增合并命令。
 

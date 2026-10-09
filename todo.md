@@ -7,6 +7,7 @@
 |---|---|---|
 | B2 CLOSED（2026-10-09） | 构建脚本支持 debug 与 run：默认 release，可构建后 exec 启动，运行参数原样透传 | [build-script-run](docs/blueprints/build-script-run.md) |
 | B2 已批准并实现，fmt/clippy 通过，待服务器验收后 CLOSED（2026-10-09） | 渠道提示：仅 Root，简短描述界面与表达适配；告知复用 Reply 投递 | [B2](docs/blueprints/channel-prompt.md)；[审查依据](docs/brainstorm/channel-prompt-review.md) |
+| B2 已批准并实现，待服务器验收后 CLOSED（2026-10-09） | 对话记录与用户所见大致一致：长期记录与系统解释、临时微信媒体打扁；短占位与合并通知省 token；解释经 `about` 关联输入，窗口内同进同出 | [B2](docs/blueprints/conversation-parity.md)；[B1](docs/brainstorm/conversation-parity.md) |
 | B2 CLOSED（2026-10-09） | 统一消息头解释与 system prompt 布局；沿用现有模型呈现所有权 | [`docs/blueprints/system-prompt-layout.md`](docs/blueprints/system-prompt-layout.md) |
 | B1 余项：B（模型输入呈现）、F（工具参数）、E 余项（会话身份）待定；A 并入阶段二 | 最小正交审查余项 | [`docs/brainstorm/orthogonality-review-2026-09-24.md`](docs/brainstorm/orthogonality-review-2026-09-24.md) |
 | B1 第二轮收敛中 | 产品定位、Web + 微信、定时看板、同步/异步与 v0–v3 路线；全项目待决策项见 §四 | [`docs/brainstorm/product-roadmap.md`](docs/brainstorm/product-roadmap.md) |

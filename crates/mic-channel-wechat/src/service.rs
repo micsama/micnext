@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use mic_core::{
     Activation, BoxError, BoxFuture, ChannelConnection, ChannelSetup, ChannelSetupError,
-    ChannelSetupView, EventReceiver, IncomingPart, Kernel, Module, ModuleConfig, Registry, Service,
-    SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
+    ChannelSetupView, EventReceiver, IncomingPart, InputHandling, Kernel, Module, ModuleConfig,
+    Registry, Service, SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
 };
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -13,7 +13,7 @@ use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use crate::account::{self, Account, AccountError};
-use crate::client::{Client, ClientError, IncomingContent};
+use crate::client::{Client, ClientError, IncomingContent, Unsupported};
 use crate::delivery;
 use crate::limits::{
     ATTEMPT_ID_BYTES, COMMAND_CAPACITY, NETWORK_RETRY, NETWORK_SLOW_RETRY, NETWORK_SLOW_THRESHOLD,
@@ -454,38 +454,96 @@ async fn inbound(
             )
             .await?;
             context.send_replace(Some(incoming.context_token));
-            let mut parts = Vec::new();
-            let mut unsupported = Vec::new();
-            for content in incoming.content {
-                match content {
-                    IncomingContent::Text(text) => parts.push(IncomingPart::Text(text)),
-                    IncomingContent::Unsupported => unsupported.push(content),
-                }
+            let Flattened {
+                parts,
+                has_text,
+                kinds,
+            } = flatten(incoming.content);
+            if parts.is_empty() {
+                continue;
             }
-            if !parts.is_empty() {
-                let message = kernel
-                    .append_user_input(account.view.session_id, account.person, parts)
-                    .await?;
-                tracing::info!(
-                    session_id = account.view.session_id.0,
-                    message_id = message.0,
-                    "wechat input appended"
-                );
-            }
-            if !unsupported.is_empty() {
+            let message = if kinds.is_empty() {
                 kernel
-                    .append_notification(
-                        account.view.session_id,
-                        "wechat",
-                        "暂不支持这类消息。".into(),
+                    .append_user_input(account.view.session_id, account.person, parts)
+                    .await?
+            } else {
+                let (handling, notice) = if has_text {
+                    (
+                        InputHandling::Run,
+                        format!(
+                            "微信渠道暂不支持{}，仅将文字部分交给 AI 处理。",
+                            kinds.join("、")
+                        ),
                     )
-                    .await?;
-            }
+                } else {
+                    (
+                        InputHandling::Record,
+                        format!("微信渠道暂不支持{}，这条消息仅作记录。", kinds.join("、")),
+                    )
+                };
+                kernel
+                    .append_explained_input(
+                        account.view.session_id,
+                        account.person,
+                        parts,
+                        handling,
+                        "wechat",
+                        notice,
+                    )
+                    .await?
+            };
+            tracing::info!(
+                session_id = account.view.session_id.0,
+                message_id = message.0,
+                has_text,
+                unsupported = kinds.len(),
+                "wechat input appended"
+            );
         }
         if let Some(batch) = batch {
             account::finish_batch(&kernel, batch).await?;
         }
     }
+}
+
+struct Flattened {
+    parts: Vec<IncomingPart>,
+    has_text: bool,
+    /// 不支持的类型名，按首次出现去重。
+    kinds: Vec<&'static str>,
+}
+
+/// 不支持的 item 按原位置打扁成短占位，供用户与模型看到同一份记录。
+fn flatten(content: Vec<IncomingContent>) -> Flattened {
+    let mut out = Flattened {
+        parts: Vec::with_capacity(content.len()),
+        has_text: false,
+        kinds: Vec::new(),
+    };
+    for item in content {
+        let (placeholder, kind) = match item {
+            IncomingContent::Text(text) => {
+                out.has_text = true;
+                out.parts.push(IncomingPart::Text(text));
+                continue;
+            }
+            IncomingContent::Unsupported(Unsupported::Image) => ("[图片]".to_owned(), "图片"),
+            IncomingContent::Unsupported(Unsupported::Voice) => ("[语音]".to_owned(), "语音"),
+            IncomingContent::Unsupported(Unsupported::File { name }) => (
+                name.map_or_else(|| "[文件]".to_owned(), |name| format!("[文件：{name}]")),
+                "文件",
+            ),
+            IncomingContent::Unsupported(Unsupported::Video) => ("[视频]".to_owned(), "视频"),
+            IncomingContent::Unsupported(Unsupported::Other) => {
+                ("[不支持的消息]".to_owned(), "此类消息")
+            }
+        };
+        out.parts.push(IncomingPart::Text(placeholder));
+        if !out.kinds.contains(&kind) {
+            out.kinds.push(kind);
+        }
+    }
+    out
 }
 
 fn current<'a>(

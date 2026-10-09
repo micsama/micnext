@@ -29,6 +29,12 @@ export const nullable =
   (v, at) =>
     v === null ? null : d(v, at);
 
+/** serde `skip_serializing_if = "Option::is_none"`：字段缺省即 `undefined`。 */
+export const optional =
+  <T>(d: Decoder<T>): Decoder<T | undefined> =>
+  (v, at) =>
+    v === undefined ? undefined : d(v, at);
+
 export const arr =
   <T>(d: Decoder<T>): Decoder<T[]> =>
   (v, at) =>
@@ -39,14 +45,13 @@ export const oneOf =
   (v, at) =>
     values.includes(v as L) ? (v as L) : fail(at);
 
-/** 字段集合必须恰好一致。 */
+/** 字段集合必须恰好一致；缺省字段按 `undefined` 交给该字段的解码器（仅 `optional` 接受）。 */
 export function obj<T extends Record<string, unknown>>(fields: { [K in keyof T]: Decoder<T[K]> }): Decoder<T> {
   return (v, at) => {
     if (!isRecord(v)) return fail(at);
     const out: Record<string, unknown> = {};
     for (const [k, d] of Object.entries<Decoder<unknown>>(fields)) {
-      if (!Object.hasOwn(v, k)) return fail(`${at}.${k}`);
-      out[k] = d(v[k], `${at}.${k}`);
+      out[k] = d(Object.hasOwn(v, k) ? v[k] : undefined, `${at}.${k}`);
     }
     const extra = Object.keys(v).find((k) => !Object.hasOwn(fields, k));
     return extra === undefined ? (out as T) : fail(`${at}.${extra}`);

@@ -308,3 +308,17 @@ pub enum NewInputPart {
     Text(String),
     Image(mic_message::ImageData),
 }
+
+/// 入站输入落盘后的执行处置。
+pub enum InputDisposition {
+    /// 未认领，等调度或当前 run 并入。
+    Pending,
+    /// 落盘即 held：进入后续上下文，永不被认领。
+    Held,
+}
+
+/// 随输入同事务写入、解释该输入处置的通知。
+pub struct NewNotice {
+    pub source: String,
+    pub text: String,
+}

@@ -8,7 +8,8 @@ use mic_message::{
 };
 use rusqlite::{params, OptionalExtension};
 
-use crate::{row, NewInputPart, Store, StoreError};
+use crate::store::insert_message;
+use crate::{InputDisposition, NewInputPart, NewNotice, Store, StoreError};
 
 fn format_str(f: ImageFormat) -> &'static str {
     match f {
@@ -36,14 +37,17 @@ fn data(format: String, bytes: Vec<u8>) -> Result<ImageData, StoreError> {
 }
 
 impl Store {
-    /// 写未认领的用户输入；图片行与消息同事务，片段顺序保持。
+    /// 写一条用户输入，可附一条解释它的通知（`about` = 该输入）；图片行、消息、hold 行与通知同事务，
+    /// 片段顺序保持。返回按 id 升序的输入与通知。
     pub async fn append_input(
         &self,
         session_id: SessionId,
         person: PersonId,
         parts: Vec<NewInputPart>,
+        disposition: InputDisposition,
+        notice: Option<NewNotice>,
         at: i64,
-    ) -> Result<Message, StoreError> {
+    ) -> Result<Vec<Message>, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
             let mut out = Vec::with_capacity(parts.len());
@@ -68,20 +72,36 @@ impl Store {
                 });
             }
             let body = MessageBody::UserInput { person, parts: out };
-            tx.execute(
-                "INSERT INTO core_messages (session_id, run_id, payload, created_at)
-                 VALUES (?1, NULL, ?2, ?3)",
-                params![session_id.0, row::payload(&body)?, at],
-            )?;
-            let id = mic_message::MessageId(tx.last_insert_rowid());
-            tx.commit()?;
-            Ok(Message {
+            let id = insert_message(&tx, session_id, None, &body, at)?;
+            if let InputDisposition::Held = disposition {
+                tx.execute(
+                    "INSERT INTO core_input_holds (message_id, held_at) VALUES (?1, ?2)",
+                    params![id.0, at],
+                )?;
+            }
+            let mut messages = vec![Message {
                 id,
                 session_id,
                 body,
                 created_at: at,
                 delivered_at: None,
-            })
+            }];
+            if let Some(NewNotice { source, text }) = notice {
+                let body = MessageBody::Notification {
+                    source,
+                    text,
+                    about: Some(id),
+                };
+                messages.push(Message {
+                    id: insert_message(&tx, session_id, None, &body, at)?,
+                    session_id,
+                    body,
+                    created_at: at,
+                    delivered_at: None,
+                });
+            }
+            tx.commit()?;
+            Ok(messages)
         })
         .await
     }

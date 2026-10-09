@@ -6,14 +6,15 @@ use std::sync::Arc;
 use mic_message::{ImageData, ImageId, Message, MessageBody, MessageId, PersonId, SessionId};
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
-    CredentialWrite, EndpointId, EndpointView, EndpointWrite, Identity, ModelId, ModelView,
-    ModelWrite, NewInputPart, NewSession, PendingDelivery, Persona, PersonaId, RunId, Session,
-    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, Store, StoreError,
+    CredentialWrite, EndpointId, EndpointView, EndpointWrite, Identity, InputDisposition, ModelId,
+    ModelView, ModelWrite, NewInputPart, NewNotice, NewSession, PendingDelivery, Persona,
+    PersonaId, RunId, Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings,
+    Store, StoreError,
 };
 use tokio::sync::mpsc;
 
 use crate::event::{EventReceiver, Events};
-use crate::input::{validate, IncomingPart};
+use crate::input::{validate, IncomingPart, InputHandling};
 use crate::provider::{resolve_key, Factories};
 use crate::run::now_ms;
 use crate::{request, ChannelSetup, KernelError, ProviderKindView, WorkdirError};
@@ -107,17 +108,54 @@ impl Kernel {
         person: PersonId,
         parts: Vec<IncomingPart>,
     ) -> Result<MessageId, KernelError> {
-        let message = append_user_input(
+        let messages = append_input(
             &self.store,
             &self.events,
             session_id,
             person,
             validate(parts)?,
+            InputDisposition::Pending,
+            None,
         )
         .await?;
         // 调度循环已退出（停止中）时发送失败，按上面的约定忽略。
         let _ = self.wake.send(session_id).await;
-        Ok(message.id)
+        Ok(messages[0].id)
+    }
+
+    /// 渠道入站存在处理差异时使用：输入与处置说明原子落盘，按 id 顺序发布，`Run` 才唤醒。
+    /// 说明在模型窗口内与该输入同进同出。
+    pub async fn append_explained_input(
+        &self,
+        session_id: SessionId,
+        person: PersonId,
+        parts: Vec<IncomingPart>,
+        handling: InputHandling,
+        source: &str,
+        notice: String,
+    ) -> Result<MessageId, KernelError> {
+        let disposition = match handling {
+            InputHandling::Run => InputDisposition::Pending,
+            InputHandling::Record => InputDisposition::Held,
+        };
+        let messages = append_input(
+            &self.store,
+            &self.events,
+            session_id,
+            person,
+            validate(parts)?,
+            disposition,
+            Some(NewNotice {
+                source: source.to_owned(),
+                text: notice,
+            }),
+        )
+        .await?;
+        if let InputHandling::Run = handling {
+            // 调度循环已退出（停止中）时发送失败，同 `append_user_input`。
+            let _ = self.wake.send(session_id).await;
+        }
+        Ok(messages[0].id)
     }
 
     /// Channel 通知落盘并发布，不唤醒模型。
@@ -142,6 +180,7 @@ impl Kernel {
                 MessageBody::Notification {
                     source: source.to_owned(),
                     text,
+                    about: None,
                 },
                 now_ms(),
             )
@@ -460,25 +499,30 @@ impl Kernel {
 }
 
 /// 写入已校验的用户输入并发 `MessageAppended`；`Kernel` 与 `-p` 共用。
-pub(crate) async fn append_user_input(
+/// 输入（及其说明）落盘后按 id 顺序发布；返回的首条为输入。
+pub(crate) async fn append_input(
     store: &Store,
     events: &Events,
     session_id: SessionId,
     person: PersonId,
     parts: Vec<NewInputPart>,
-) -> Result<Message, StoreError> {
+    disposition: InputDisposition,
+    notice: Option<NewNotice>,
+) -> Result<Vec<Message>, StoreError> {
     let publish = events.publisher().await;
     // 会话不存在时由外键在写入处报错，之后必能读到。
-    let message = store
-        .append_input(session_id, person, parts, now_ms())
+    let messages = store
+        .append_input(session_id, person, parts, disposition, notice, now_ms())
         .await?;
     let session = store
         .session(session_id)
         .await?
         .expect("刚写入消息的会话必然存在");
     let channel = session_channel(store, &session).await?;
-    publish.appended(session_id, &channel, message.clone());
-    Ok(message)
+    for message in &messages {
+        publish.appended(session_id, &channel, message.clone());
+    }
+    Ok(messages)
 }
 
 /// 会话所属 Channel：Root 取自身，Task 取根会话；Triggered 不属于任何 Channel，取触发它的模块名。

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -581,6 +582,7 @@ impl Store {
                 let body = MessageBody::Notification {
                     source: "micnext".to_owned(),
                     text: "上次有消息未执行。".to_owned(),
+                    about: None,
                 };
                 notifications.push(Message {
                     id: insert_message(&tx, session_id, None, &body, at)?,
@@ -852,6 +854,17 @@ impl Store {
                 ))?
                 .query_map(params![session_id.0, after], row::message)?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
+            // NOTE: 解释某条输入的通知与该输入同进同出；输入未认领时两者都不可见。
+            let visible: HashSet<MessageId> = messages.iter().map(|m| m.id).collect();
+            let messages = messages
+                .into_iter()
+                .filter(|m| match &m.body {
+                    MessageBody::Notification {
+                        about: Some(input), ..
+                    } => visible.contains(input),
+                    _ => true,
+                })
+                .collect();
             Ok(ContextWindow { summary, messages })
         })
         .await
@@ -1142,7 +1155,7 @@ fn is_input(body: &MessageBody) -> bool {
     )
 }
 
-fn insert_message(
+pub(crate) fn insert_message(
     conn: &Connection,
     session_id: SessionId,
     run: Option<RunId>,

@@ -103,8 +103,8 @@ pub enum MessageBody {
     Completion { person: PersonId, tool_name: String, exec_id: String, outcome: ExecOutcome },
     /// 给模型看的框架备注，不投递。
     HarnessNote { text: String },
-    /// 投递给用户的框架通知。
-    Notification { source: String, text: String },
+    /// 投递给用户的框架通知；`about` 为其解释的输入，模型窗口内与之同进同出（缺省不序列化）。
+    Notification { source: String, text: String, about: Option<MessageId> },
     /// 上下文截断，不进模型上下文。
     Boundary { boundary: ContextBoundary },
 }

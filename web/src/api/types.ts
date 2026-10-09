@@ -1,4 +1,4 @@
-import { any, arr, bool, kinded, nullable, num, obj, oneOf, ProtocolError, str, tagged, type Decoder } from "./decode";
+import { any, arr, bool, kinded, nullable, num, obj, oneOf, optional, ProtocolError, str, tagged, type Decoder } from "./decode";
 
 export { ProtocolError };
 
@@ -42,7 +42,7 @@ export type MessageBody =
   | { kind: "ToolResult"; tool_name: string; tool_call_id: string; outcome: ToolResultOutcome }
   | { kind: "Completion"; person: number; tool_name: string; exec_id: string; outcome: ExecOutcome }
   | { kind: "HarnessNote"; text: string }
-  | { kind: "Notification"; source: string; text: string }
+  | { kind: "Notification"; source: string; text: string; about?: number }
   | { kind: "Boundary"; boundary: ContextBoundary };
 
 export type Message = {
@@ -227,7 +227,7 @@ const messageBody: Decoder<MessageBody> = kinded({
   },
   Completion: { person: num, tool_name: str, exec_id: str, outcome: execOutcome },
   HarnessNote: { text: str },
-  Notification: { source: str, text: str },
+  Notification: { source: str, text: str, about: optional(num) },
   Boundary: { boundary },
 });
 

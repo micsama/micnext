@@ -58,7 +58,7 @@
       )}</pre>
   </details>
 {:else if body.kind === "Notification"}
-  <p class="text-center text-xs text-muted" title="{body.source} · {time}">{body.text}</p>
+  <p class="text-sm leading-6 whitespace-pre-wrap break-words text-muted" title="{body.source} · {time}">{body.text}</p>
 {:else if body.kind === "Boundary"}
   <div class="flex items-center gap-3 text-xs text-muted" title={time}>
     <div class="h-px flex-1 bg-line"></div>

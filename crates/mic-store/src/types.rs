@@ -236,7 +236,7 @@ pub struct Run {
 pub struct ContextWindow {
     /// 最近一次 `Compaction` 的摘要。
     pub summary: Option<String>,
-    /// 最近一次 `Boundary` 之后、排除未认领输入的消息，按 id。
+    /// 最近一次 `Boundary` 之后的消息，按 id；包含 held 输入，排除仍待调度的输入。
     pub messages: Vec<Message>,
 }
 

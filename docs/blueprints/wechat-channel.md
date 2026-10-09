@@ -1,7 +1,7 @@
 # B2：微信 Channel（v0b）
 
-**状态：DRAFT，待 human 批准；未实现。** 起草日期：2026-10-08。
-本文提交仅保存供审查的契约，不代表批准实现；human 已明确要求提交本次微信蓝图。
+**状态：Phase 1 CLOSED（2026-10-09，human 功能验收通过）；其余阶段仍为 DRAFT。** 起草日期：2026-10-08；阶段拆分：2026-10-09。
+按 §十一分阶段实施与人工验收，可按阶段批准对应契约；Phase 1 于 2026-10-09 获准开动，其余待开始。
 
 **来源**：[B1 决定](../brainstorm/wechat-channel.md)、[iLink 协议素材](../brainstorm/wechat-protocol.md)。
 代码基线：`bca566c`（服务商/模型分层已落地）。协议类型核对官方包
@@ -171,7 +171,7 @@ impl Store {
 在既有 recovery 收尾 Executing 后、任何 Service/worker 启动前调用。
 以事务将所有遗留未认领输入登记为 held，并为受影响会话追加一条既有 Notification，说明旧输入未执行、现场保留。
 返回本次新增的通知，供启动日志计数；此时没有订阅者，不发实时事件。
-通知明确说明“旧输入未执行，现场保留；需要继续请明确发送新指令”，避免把 held 输入当作仍在排队的请求。
+通知只说明“上次有消息未执行”，不添加“现场保留”或“发送新指令”等自然行为说明。
 
 新增 core 迁移表 `core_input_holds(message_id PRIMARY KEY REFERENCES core_messages(id), held_at NOT NULL)`。
 held 是输入的调度处置，不是新 run 终态：claim_next、absorb、sessions_with_unclaimed_input 排除 held；
@@ -422,7 +422,7 @@ sequenceDiagram
 | mic-message / Gateway SSE / CLI 展示 | Message/RunState/事件无形状变化；既有 Notification/ToolResult 可直接呈现 |
 | 现存 Module/Service 实现 | trait 原方法不变；Registry 新方法为纯新增，不要求所有模块实现 setup |
 | 现有错误 match | AssembleError 新变体由二进制 anyhow 收口；KernelError::Workdir 显式映射、SessionNotFound 映射 404，其余内部 catch-all 核对 |
-| 既有源码内测试（若覆盖上述模块） | 实施时按覆盖关系跑，必要更新 held/启动预期；不在本次文档任务读写或新增测试 |
+| 既有源码内测试（若覆盖上述模块） | 实施时按覆盖关系跑，必要更新 held/启动预期；Phase 1 涉及的 core/store 当前无既有测试文件 |
 
 parallel change：先新增 port/委托/held 接口并保持旧调用可编译，迁移 Gateway helper 与 Assembly 调度，再装配微信。
 一次迁移完成即删除旧 workdir helper 和旧启动补跑路径，不提供双行为开关。
@@ -435,11 +435,70 @@ parallel change：先新增 port/委托/held 接口并保持旧调用可编译�
 
 ## 十一、实施顺序与人工验收
 
-1. human 批准本文后，先新增 core/Store 窄接口和 held 迁移，验证 Web/CLI 旧入口正常。
-2. 协议 client + 登录流程实测，回填协议素材 §八；不需额外框架代码或媒体下载。
-3. 微信对象入站与 sender，再接 Gateway 登录 UI；迁移期间每步可编译、可回滚。
-4. 验收完成后 cargo fmt、cargo clippy -- -D warnings；改动覆盖到已有测试才运行相应测试。
-5. 验收通过才标 CLOSED 并更新 todo，草案提交不改变状态。
+### 11.1 推进约定
+
+human 负责每阶段的人工验收与行为矫正。方向/契约确定后先写完代码、完成 fmt/clippy，再交 human 验收；
+验收通过后更新文档，不在实现期间不断扩写验收文档或主动补测试。
+阶段交付后等待 human 验收结论再进入下一阶段；不一次性实现完全部功能后才交付。
+批准某阶段仅覆盖下表列出的契约，不把未定协议事实或后续阶段视为一并批准。
+矫正在已批准契约内则直接修；改变公开契约或副作用边界则先修订本文，方向有真实分歧退回 B1。
+
+每阶段均保持可编译，完成后执行 `cargo fmt`、`cargo clippy -- -D warnings`；
+仅改动覆盖既有测试时运行相关测试，不为阶段拆分新增测试框架、临时公开 API 或行为开关。
+新增 crate/feature 后补查默认构建与 `--no-default-features`，依赖方向以 `cargo tree` 核对。
+SQLite 迁移只前进；代码可回滚不等于数据库可降级。故障验收使用独立数据目录，避免改动日常历史。
+只在 human 明确要求时提交；全阶段验收通过并完成检查后才将整份本文标 CLOSED、更新 todo。
+
+协议不确定项先查本地参考 SDK；SDK 不足以定论时把具体问题交 human 搜索或实测，AI 不自行联网搜索。
+当前文档记录了 SDK 包名与版本，但未记录源码路径；Phase 3 开始前需定位本地副本或由 human 提供位置。
+真实账号请求属于接入验收；每次验收先说明请求目的和需要 human 操作的扫码/验证码步骤，不以搜资料替代实测。
+
+### 11.2 阶段与验收边界
+
+| 阶段 | 对应契约与交付范围 | human 验收后可确认的行为 | 状态 |
+|---|---|---|---|
+| Phase 1：统一启动待命 | §3.3；Store held 迁移/事务、调度谓词与上下文分离、Assembly 启动收尾、删除 scheduler 初始补跑路径；同步 core/store/run 蓝图 | 重启不执行旧输入；历史与故障说明保留；新输入仍正常启动一轮；Web 与 `-p` 正常 | CLOSED：已实现，human 功能验收通过 |
+| Phase 2：共享 Kernel 能力 | §3.2；身份/投递/通知委托、原子订阅切点、工作目录共享下沉及 Gateway 错误映射；删除旧 workdir helper | Web 建会话工作目录行为等价；既有聊天/SSE 正常；原子切点与通知不唤醒的代码/日志证据齐全 | 待开始 |
+| Phase 3：Web 扫码登录闭环 | §二、§3.1、§四、§七、§八登录部分；新 crate/feature、完整模块迁移、登录 client、port/协调者/Service、完整凭据交接、Gateway 路由、设置页 | 实际扫码后保存账号；刷新不新建 attempt；验证码/过期/取消明确；同号会话不变、换号会话独立；浏览器无凭据；本阶段尚不收发聊天 | 待开始 |
+| Phase 4：微信入站 | §五、§八入站部分；getupdates、批次与游标事务、准入过滤、文本/语音转写、媒体 Notification、入站网络退避/-14、启动批次收尾 | 微信新文本在 Web 历史中出现并执行；纯媒体只落提示；群/他人/bot 不启动模型；崩溃后旧批次不重导；本阶段回复仍只在 Web 可见 | 待开始 |
+| Phase 5：微信回复投递 | §6.1～6.2、§八出站部分；sender 原子切点、Reply/Notification 提取、分段计划/尝试记录、一次重试/跳过、Lagged 补查、发送 -14、启动投递收尾 | 每次模型调用出话就发微信；失败预算正好两次；跳过不冒充 delivered；后续回复可发送；重登/重启不补发旧积压 | 待开始 |
+| Phase 6：typing 与整体验收 | §6.3；getconfig/sendtyping、run 生命周期与 Lagged 校准；复验停止/换号/断网/崩溃，回填协议实测、文档与 todo | 输入指示随 run 开始/结束；慢 typing 不阻塞收发；所有对象隔离、故障与退出场景符合本文 | 待开始 |
+
+Phase 3 内按 3a 协议边界与模块构建 → 3b 登录/账号/HTTP → 3c 设置页依次推进，每步保持编译通过。
+3a 先核对 SDK 的真实字段、optional 性、枚举、请求头和登录重定向；
+`iLink-App-Id`/`bot_type` 若仍无法确定，交 human 决定或查询，不能写一个猜测值后调用真实账号。
+3b 不引入 CLI 登录入口；3c 完成后才交付 Web 扫码验收。
+登录阶段的 Connected 表示已接受完整凭据，不宣称已完成后续入站、回复或 typing 阶段。
+
+Phase 4 首次启用轮询前必须核实新凭据空游标是否会重放旧历史；若会，先修订连接起点契约。
+Phase 4/5 的现场持久化、重启处置和取消随对应主路径一起实现，不能延期到 Phase 6 再补。
+阶段间的未实现能力只作为交付缺口说明，不新增永久的收发开关或另一条调试主路径。
+
+### 11.3 Phase 1 的具体交付与人工验收
+
+批准范围仅 §3.3：新增 `Store::hold_unclaimed_inputs(at)`，启动为旧未认领输入登记 held 并落一条会话通知；
+claim/absorb/待调度查询排除 held，上下文仍包含它们；统一覆盖常驻和 `-p` 的启动收尾。
+不新增 Channel port、微信 crate、登录路由、设置页改动或模型压缩。
+移除旧启动补跑机制后，调度责任全部由运行期的新输入 wake 承担，遗留输入的处置由持久化 held 承担；
+不把同一复杂度挪到微信分支，也不改变 run 终态或工具恢复语义。
+
+验收结果（2026-10-09）：human 已确认中断提示与旧输入待命功能正常。
+人工验收关注中断后重启是否待命，以及新指令能否带着旧历史与故障现场正常继续。
+
+实现为 core schema v5；holds 和会话通知同事务，调度/并入排除 held，上下文保留 held。
+`Assembly::start` 在 recovery 后统一处置遗留输入，scheduler 不再接初始补跑队列。
+删除旧补跑的四项核对：新输入 wake/claim 不变（正确性）；日志只记会话数（隐私）；
+recovery/holds 任一失败仍使启动 Err（失败行为）；输入、holds 时间和会话通知保留（可审计性）。
+
+通知文案按 human review 收口为“上次执行已中断”；仅有悬空工具时附加“部分工具结果未知”；
+未认领输入通知为“上次有消息未执行”。每个工具仍保留原有结果未知说明。
+Web 将相邻 Notification 放在一张左对齐的系统提示卡片中，原消息事实与顺序不变。
+
+开发检查：fmt、clippy 和构建通过；独立数据目录的 v4→v5 迁移、Web/CLI/Completion 待命、
+重复启动幂等、新输入/absorb、模型请求中的故障现场、`-p` 不起 Service 均通过。
+涉及的 core/store 无既有测试文件，未新增项目测试。临时验收脚本与本机目录不作为长期验收依赖。
+
+### 11.4 全阶段人工场景
 
 人工场景：
 

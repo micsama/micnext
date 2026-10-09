@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ToolResultOutcome } from "../api/types";
+  import type { Message, ToolResultOutcome } from "../api/types";
   import Icon from "../lib/Icon.svelte";
   import type { SessionView } from "../state/session.svelte";
   import DraftView from "./DraftView.svelte";
@@ -19,6 +19,19 @@
     return s;
   });
   const running = $derived(view.executingRun !== null);
+  const groups = $derived.by(() => {
+    const items: [Message, ...Message[]][] = [];
+    for (const message of view.messages) {
+      if (message.body.kind === "HarnessNote") continue;
+      const previous = items.at(-1);
+      if (message.body.kind === "Notification" && previous?.[0].body.kind === "Notification") {
+        previous.push(message);
+      } else {
+        items.push([message]);
+      }
+    }
+    return items;
+  });
 
   // 在底部时跟随新内容；用户上翻后不打扰。
   let scroller: HTMLDivElement;
@@ -44,9 +57,21 @@
 <div class="relative min-h-0 flex-1">
   <div bind:this={scroller} {onscroll} class="h-full overflow-y-auto">
     <div bind:this={content} class="mx-auto max-w-3xl space-y-4 px-4 py-6">
-      {#each view.messages as message (message.id)}
-        {#if message.body.kind !== "HarnessNote"}
-          <MessageItem {message} {results} {callIds} {running} />
+      {#each groups as messages (messages[0].id)}
+        {#if messages[0].body.kind === "Notification"}
+          <aside aria-label="系统提示" class="rounded-xl border border-line bg-panel px-4 py-3">
+            <div class="mb-2 flex items-center gap-2 text-xs font-medium text-muted">
+              <Icon name="alert" class="size-3.5 shrink-0" />
+              系统提示
+            </div>
+            <div class="space-y-2 pl-5.5">
+              {#each messages as message (message.id)}
+                <MessageItem {message} {results} {callIds} {running} />
+              {/each}
+            </div>
+          </aside>
+        {:else}
+          <MessageItem message={messages[0]} {results} {callIds} {running} />
         {/if}
       {/each}
       {#if view.draft}

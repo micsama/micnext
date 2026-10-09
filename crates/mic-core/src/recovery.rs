@@ -8,8 +8,6 @@ use crate::run::{now_ms, NOTIFICATION_SOURCE};
 
 const UNKNOWN_RESULT: &str =
     "micnext stopped before this tool call finished; its side effects are unknown.";
-const INTERRUPTED: &str =
-    "上次执行因 micnext 停止而中断，未完成的工具调用结果未知（可能已部分执行）。需要时请重新发送。";
 
 /// 遗留 `Executing` → `Interrupted`，补齐悬空工具调用并通知；不重跑。
 /// 每个 run 原子收尾，中途停止则下次启动从未收尾的 run 继续。
@@ -31,6 +29,11 @@ pub(crate) async fn recover(store: &Store) -> Result<usize, StoreError> {
                 _ => {}
             }
         }
+        let text = if open.is_empty() {
+            "上次执行已中断。"
+        } else {
+            "上次执行已中断，部分工具结果未知。"
+        };
         let closing = open
             .into_iter()
             .map(|(tool_call_id, tool_name)| MessageBody::ToolResult {
@@ -42,7 +45,7 @@ pub(crate) async fn recover(store: &Store) -> Result<usize, StoreError> {
             })
             .chain([MessageBody::Notification {
                 source: NOTIFICATION_SOURCE.into(),
-                text: INTERRUPTED.into(),
+                text: text.into(),
             }])
             .collect();
         store.interrupt_run(run, closing, now_ms()).await?;

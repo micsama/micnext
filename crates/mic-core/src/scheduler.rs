@@ -19,21 +19,13 @@ enum Slot {
 }
 
 /// 只在出错时返回；丢弃即停止（worker 随之取消）。
-pub(crate) async fn run(
-    engine: Arc<Engine>,
-    mut wake: mpsc::Receiver<SessionId>,
-    initial: Vec<SessionId>,
-) -> RunError {
+pub(crate) async fn run(engine: Arc<Engine>, mut wake: mpsc::Receiver<SessionId>) -> RunError {
     let mut slots: HashMap<SessionId, Slot> = HashMap::new();
     let mut workers = Workers {
         engine,
         set: JoinSet::new(),
         owners: HashMap::new(),
     };
-    for session_id in initial {
-        slots.insert(session_id, Slot::Running);
-        workers.start(session_id);
-    }
     loop {
         tokio::select! {
             Some(session_id) = wake.recv() => match slots.get_mut(&session_id) {

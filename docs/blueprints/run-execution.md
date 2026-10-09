@@ -21,7 +21,7 @@
 - 异常看得见：模型调用失败（重试后仍失败）、回复被截断、进程重启打断执行 → 会话里出现一条框架通知，
   由会话所属 Channel 投递给用户，下一轮模型也能看到。
 - 进程崩溃或重启：正在执行的那轮收尾为"中断"，其中未完成的工具调用标为"结果未知"，**不自动重做**；
-  重启前已发出、尚未开始执行的消息会自动执行。
+  重启前已发出、尚未认领的输入登记为 held，不自动执行；历史与故障说明保留，新指令启动新 run。
 - `micnext -p "列出当前目录"`：调试入口。不挂 Web/微信，在当前目录新建会话跑完这一轮即退出。
   常驻进程占用同一数据目录时拒绝启动。
 
@@ -105,7 +105,7 @@ impl Kernel {
     pub fn owner(&self) -> PersonId;
     /// 写入未认领的用户输入（时间戳由内核打）并唤醒该会话的调度（fire-and-forget，不等执行）。
     /// 写入即发 `MessageAppended`。会话正在执行时，新输入由当前 run 在下一个模型调用边界并入（§4.3）。
-    /// 内核已停止时只写不唤醒，下次启动由 §4.6 补跑。
+    /// 内核已停止时只写不唤醒，下次启动由 §4.6 登记为 held，不补跑。
     pub async fn append_user_input(
         &self,
         session: SessionId,
@@ -280,7 +280,7 @@ loop:
   4. 环境：`Working directory: <session.pwd>`；
   5. 本次可用工具的 `prompt_hint()`，按工具顺序各占一段；
   6. `context_window.summary` 有值时附在最后（v0a 不会有）。
-- **messages**：从 `context_window.messages` 按 id 升序生成。未认领输入已由 store 排除（mic-store §4.4
+- **messages**：从 `context_window.messages` 按 id 升序生成。仍待调度的输入已由 store 排除，held 输入保留（mic-store §4.1、§4.4
   不变量 3），吸收之后才到达的那部分留给下一个边界。一条规则：
   - **有工具调用在等结果时，user 视图消息往后放**：按 id 扫描，碰到 `Reply` 把其 `ToolCall` 块记为未结，
     碰到对应的 `ToolResult` 销账。有未结调用时遇到 user 视图消息（用户输入、`HarnessNote`、`Notification`、
@@ -303,7 +303,9 @@ loop:
   只写调用行、发 `DraftDiscarded`，截断通知照发。
 - 流中断后已显示的增量不落盘；只落盘成功的那次 `Finished`（provider-port "增量以 Finished 为准"）。
 
-### 4.6 崩溃收尾与启动补跑
+### 4.6 崩溃收尾与启动待命
+
+启动待命修订随 [微信 B2 Phase 1](wechat-channel.md#113-phase-1-的具体交付与人工验收) 于 2026-10-09 批准，统一覆盖全部 Channel。
 
 启动时（`run` 与 `run_once` 都做），在任何 worker 起来之前：
 
@@ -316,8 +318,11 @@ loop:
    - 追加一条中断通知（§4.7，挂 R）。
    - 不重跑（I4）：该 run 已认领的输入视为已消费。
    - 收尾中途失败或停止：未提交的 run 仍是 `executing`，下次启动从头收尾，不会留下悬空调用。
-4. 仅 `run`：对 `sessions_with_unclaimed_input()` 的每个会话发 `Wake`。这些输入从未进入执行，补跑没有
-   重复副作用。`run_once` 不补跑别的会话（它跑完自己那一轮就退出，不能留下半途的执行）。
+4. `hold_unclaimed_inputs(at)`：单事务将所有遗留未认领输入登记为 held，每个受影响会话追加一条待命通知；
+   输入未执行、现场保留，不自动发 Wake。重复启动不重复通知；失败即启动 Err。
+5. `run` 起空调度队列，只有运行期新输入经原 Wake/claim/Engine 路径执行；旧 held 输入不认领、不并入，
+   但与中断通知、工具未知结果一起留在上下文。用户明确发送新指令继续时创建新 run，不恢复旧 run。
+   `run_once` 同样先处置旧输入，再只执行本次新 prompt，不启动 Service。
 
 正常停止（Ctrl-C/SIGTERM）不单独收尾：丢弃所有 worker（工具 future 随之取消，`bash` 杀进程组），
 执行中的 run 留在 `executing`，下次启动按上面收尾。停止、崩溃、panic 走同一条恢复路径。
@@ -332,7 +337,7 @@ loop:
 | 模型调用失败（不重试或重试用尽） | `ProviderFailed`（详情在调用行 `error`） | `ProviderError` 的中文说明；可重试的注明已试 N 次 |
 | 回复被截断（`MaxTokens`） | 不影响（照常继续或 `Completed`） | 回复达到输出长度上限，内容不完整 |
 | 被内容审核截断（`ContentFilter`） | 同上 | 回复被上游内容审核截断 |
-| 重启打断（§4.6） | `Interrupted` | 上次执行因 micnext 停止而中断，未完成的工具结果未知，需要时请重新发送 |
+| 重启打断（§4.6） | `Interrupted` | 上次执行已中断；有悬空工具时附加“部分工具结果未知” |
 
 轮次提醒与用尽写的是 `HarnessNote`（给模型看），不是通知；用尽后由模型自己的总结告诉用户，run 记 `MaxTurns` 供事后统计（如接 langfuse）。
 
@@ -349,8 +354,8 @@ loop:
 - **I1**：请求里一次回复的 `ToolCall` 之后紧跟其全部 `ToolResult`。运行中由"本批结果全部落盘才发下一次请求"
   加 §4.4 规则 2 保证；崩溃留下的悬空调用由 §4.6 补齐后才会有下一轮。
 - **I2**：同一会话至多一个 `executing` run（store）且至多一个 worker（调度表）。
-- **I4**：遗留执行只收尾、不重放；只补跑从未认领的输入。
-- **一个 run 一个 person**：`claim_next` 与 `absorb` 都只取未认领输入开头同一 person 的一段。
+- **I4**：遗留执行只收尾、不重放；遗留未认领输入 held，不自动执行。只有新输入唤醒新 run。
+- **一个 run 一个 person**：`claim_next` 与 `absorb` 都只取非 held 未认领输入开头同一 person 的一段。
 - **单写者**：一个会话的产出只由持有其 `executing` run 的 worker 写，启动收尾时没有 worker。
 - **数据目录独占**：同一时刻只有一个进程执行 §4.6（文件锁）。
 
@@ -391,13 +396,17 @@ sequenceDiagram
     participant R as 启动
     participant DB as Store
     participant S as 调度循环
+    participant U as 用户
     R->>DB: try_lock micnext.lock
     R->>DB: executing_runs → [R1]
     R->>DB: run_messages(R1)，找到悬空 ToolCall
     R->>DB: interrupt_run(R1)：同一事务写 ToolResult(Cancelled, 结果未知)、Notification(中断说明)、interrupted
-    R->>DB: sessions_with_unclaimed_input → [会话 1]（m3 未认领）
-    R--)S: Wake(1)
-    Note over S: R2 只认领 m3；R1 的输入不重跑
+    R->>DB: hold_unclaimed_inputs：m3 held，追加待命通知
+    Note over S: 重启待命；R1 与 m3 均不自动执行
+    U->>DB: 新输入 m4
+    U--)S: Wake(1)
+    S->>DB: claim_next：R2 只认领 m4
+    Note over S: 上下文含 m3、待命通知与 R1 故障现场
 ```
 
 ## 五、配置（修订 mic-core-module §四）

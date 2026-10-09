@@ -7,6 +7,9 @@
 
 本文只写现行契约；修订过程见 git 历史。
 
+启动待命修订已随 [微信 B2 Phase 1](wechat-channel.md#113-phase-1-的具体交付与人工验收) 于 2026-10-09 批准：
+遗留未认领输入登记为 held，不自动调度，上下文保留；具体实现与人工验收状态见该文 §十一。
+
 **校验边界**：内部调用互信，store 不对调用方做防御性检查（run 是否仍在 `executing` 等由写者保证）；
 写入口的两条 `assert`（`append` 不收 `Reply`、输入不带 run）是调用方 bug 的断言，不是校验。只在
 真正的外部输入处失败：磁盘上库文件的版本、payload 反序列化、SQLite 本身。
@@ -104,7 +107,7 @@ pub struct Run {
 pub struct ContextWindow {
     /// 最近一次 `Compaction` 的摘要。
     pub summary: Option<String>,
-    /// 最近一次 `Boundary` 之后、排除未认领输入的消息，按 id。
+    /// 最近一次 `Boundary` 之后的消息，按 id；包含 held 输入，排除仍待调度的输入。
     pub messages: Vec<Message>,
 }
 
@@ -185,13 +188,17 @@ pub struct SessionPage {
 
 ### 4.1 认领与并入
 
-**未认领输入**（一个谓词，四处复用：认领、并入、启动补跑扫描、上下文排除）：
+**未认领输入**是尚未归属 run 的输入；**held** 是独立的调度处置，不能只由 run_id 判断：
 
 ```sql
-run_id IS NULL AND kind IN ('UserInput', 'Completion')
+m.run_id IS NULL AND m.kind IN ('UserInput', 'Completion')
 ```
 
-**段**：本会话未认领输入按 id 排序后，开头连续同 `person_id` 的一段。
+`core_input_holds(message_id PRIMARY KEY REFERENCES core_messages(id), held_at NOT NULL)`（core v5）
+记录启动时的待命处置。待调度输入 = 未认领且不在 holds；上下文 = 已认领消息及 held 输入，排除仍待调度的输入。
+`claim_next`、`absorb` 与 `sessions_with_unclaimed_input` 使用待调度语义，`context_window` 使用上下文语义。
+
+**段**：本会话待调度输入按 id 排序后，开头连续同 `person_id` 的一段。
 
 - `claim_next` 单事务：会话已有 `executing` run → `None`；没有段 → `None`；否则插入 `executing` run，
   回填这段的 `run_id`；同一事务读会话人设（已删除则改用默认人设并写回会话）与对话偏好，写进 run 快照列并作为 `RunSettings` 返回。
@@ -199,6 +206,11 @@ run_id IS NULL AND kind IN ('UserInput', 'Completion')
 
 分组键是 person 而非种类：同一 person 相邻的用户消息与 completion 进同一个 run；不同 person 发起的
 completion 不会合并，保证"一个 run 一个 person"。
+
+`hold_unclaimed_inputs(at)` 只由 core 启动阶段在 recovery 后、任何 worker/Service 出现前调用：
+同一事务为尚未 held 的遗留未认领输入登记 holds，并为每个受影响会话追加一条既有 Notification（run=None）；
+返回新增通知供启动日志计数。重复启动不重复登记或通知；事务失败返回 StoreError，启动退出。
+输入内容、run_id 与历史不改，通知仅说明“上次有消息未执行”。
 
 ### 4.2 写入口
 
@@ -296,7 +308,9 @@ impl Store {
         -> Result<Option<(Run, RunSettings)>, StoreError>;
     /// 执行中并入新输入（§4.1），有并入返回 true。调用方保证 run 处于 `executing`。
     pub async fn absorb(&self, run: RunId) -> Result<bool, StoreError>;
-    /// 有未认领输入的会话（启动补跑用）。
+    /// 启动时登记遗留未认领输入为 held，返回本次新增的会话通知。
+    pub async fn hold_unclaimed_inputs(&self, at: i64) -> Result<Vec<Message>, StoreError>;
+    /// 有非 held 未认领输入的会话；不再用于启动补跑。
     pub async fn sessions_with_unclaimed_input(&self) -> Result<Vec<SessionId>, StoreError>;
     pub async fn finish_run(&self, id: RunId, state: RunState, now: i64) -> Result<(), StoreError>;
     /// 启动时把遗留 `executing` 收尾为 `interrupted`，返回被收尾的 run。
@@ -359,6 +373,7 @@ core_model_calls        id, session_id, run_id?, model, error?,
 core_messages           id, session_id, run_id?, model_call_id?, payload, created_at, delivered_at?,
                         kind       VIRTUAL 生成列 ← json_extract(payload, '$.kind')
                         person_id  VIRTUAL 生成列 ← json_extract(payload, '$.person')
+core_input_holds        message_id PK REFERENCES core_messages(id), held_at（core v5）
 ```
 
 - `payload` 是 `MessageBody` 的 serde（内部标签 `kind`），唯一真相；生成列写入方不填。
@@ -377,7 +392,7 @@ core_messages           id, session_id, run_id?, model_call_id?, payload, create
 
 1. 每个会话至多一个 `executing` run。
 2. 输入的 `run_id` 只由认领/并入从空填成非空，之后不变；同一 run 的输入属于同一 person。
-3. 未认领输入不进模型上下文（`context_window` 排除），回放照常返回。
+3. 仍待调度的输入不进模型上下文；held 输入保留在上下文。稳定回放返回两者。
 4. `model_call_id` 只出现在 `Reply` 上，指向一次成功调用，二者 `run_id`、`session_id` 相同。
 5. run 进入终态时，其每个 `ToolCall` 块恰有一条同 run 的 `ToolResult`（启动收尾负责补齐，run-execution §4.6）。
 6. `run_id` 非空的消息与调用，`session_id` 等于该 run 的 `session_id`。
@@ -429,7 +444,7 @@ mic-store ← mic-message
 
 | 调用方 | 用到什么 | 兼容性 |
 |---|---|---|
-| `mic-core` 启动 | 汇总各模块 `Migration` 后 `open`；`ensure_person`/`bind_identity`（配置）；`executing_runs`/`run_messages`/`interrupt_run`/`sessions_with_unclaimed_input` | 现行 |
+| `mic-core` 启动 | 汇总各模块 `Migration` 后 `open`；`ensure_person`/`bind_identity`（配置）；`executing_runs`/`run_messages`/`interrupt_run` 后 `hold_unclaimed_inputs`；不再扫描启动补跑 | 现行 |
 | `mic-core` 调度与执行 | `claim_next`/`absorb`/`finish_run`/`context_window`/`append`/`record_model_call` | 现行 |
 | `mic-core` `Kernel` 设置方法 | 设置与人设读写（§6.1），供 Gateway 设置接口 | 现行 |
 | `mic-gateway`（v0a Web） | 写经 `Kernel`（`resolve_root_session`/`append_user_input`，见 mic-core-module）；从 Store 只读 `messages_after`（稳定回放）/`list_root_sessions`（会话列表，查看微信会话时 `channel = "wechat"`）/`session_summary`（打开的会话页）；用量读取随 M9 B2 定形状 | 待 M9；Web 会话无投递目标 |

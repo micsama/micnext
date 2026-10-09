@@ -173,12 +173,6 @@ impl Assembly {
     pub async fn run(mut self, stop: CancellationToken) -> Result<(), RunError> {
         let started = self.start().await?;
         let services = std::mem::take(&mut self.services);
-        let pending = started.store.sessions_with_unclaimed_input().await?;
-        tracing::info!(
-            pending = pending.len(),
-            "resuming sessions with unclaimed input"
-        );
-
         let events = Events::new();
         let (wake_tx, wake_rx) = mpsc::channel(WAKE_CHANNEL_CAPACITY);
         let kernel = Kernel::new(
@@ -189,7 +183,7 @@ impl Assembly {
             self.factories.clone(),
         );
         let engine = Arc::new(self.engine(started.store.clone(), events));
-        let mut scheduler = Box::pin(scheduler::run(engine, wake_rx, pending));
+        let mut scheduler = Box::pin(scheduler::run(engine, wake_rx));
 
         let shutdown = stop.child_token();
         let mut tasks = JoinSet::new();
@@ -333,8 +327,9 @@ impl Assembly {
         )
         .await?;
         let interrupted = recovery::recover(&store).await?;
+        let held_sessions = store.hold_unclaimed_inputs(now_ms()).await?.len();
         let owner = store.ensure_person(&self.owner, now_ms()).await?;
-        tracing::info!(db = %db.display(), interrupted, "store ready");
+        tracing::info!(db = %db.display(), interrupted, held_sessions, "store ready");
         Ok(Started {
             store,
             owner,

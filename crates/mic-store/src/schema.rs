@@ -28,6 +28,11 @@ const CORE_MIGRATIONS: &[Migration] = &[
         version: 4,
         sql: CORE_V4,
     },
+    Migration {
+        module: CORE,
+        version: 5,
+        sql: CORE_V5,
+    },
 ];
 
 const CORE_V1: &str = "
@@ -154,6 +159,14 @@ CREATE TABLE core_images (
   bytes      BLOB NOT NULL
 );
 CREATE INDEX core_images_session ON core_images(session_id);
+";
+
+/// 遗留未认领输入的启动待命处置。
+const CORE_V5: &str = "
+CREATE TABLE core_input_holds (
+  message_id INTEGER PRIMARY KEY REFERENCES core_messages(id),
+  held_at    INTEGER NOT NULL
+);
 ";
 
 /// 模型条目、默认模型、会话所选与 run 快照。

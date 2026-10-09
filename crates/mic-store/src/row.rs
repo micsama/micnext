@@ -30,6 +30,10 @@ pub(crate) const PERSONA_COLS: &str = "id, name, prompt, builtin, deleted_at IS 
 /// 未认领输入谓词，`m` 为 core_messages 别名。
 pub(crate) const UNCLAIMED: &str = "m.run_id IS NULL AND m.kind IN ('UserInput', 'Completion')";
 
+/// 已处置为待命的输入谓词，`m` 为 core_messages 别名。
+pub(crate) const HELD_INPUT: &str =
+    "EXISTS (SELECT 1 FROM core_input_holds h WHERE h.message_id = m.id)";
+
 /// `MessageBody` → payload；`Reply.model` 不进 payload。
 pub(crate) fn payload(body: &MessageBody) -> Result<String, StoreError> {
     let mut value = serde_json::to_value(body)?;

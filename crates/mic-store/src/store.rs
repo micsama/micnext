@@ -7,7 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::limits::PREVIEW_CHARS;
 use crate::row::{
-    self, MESSAGE_COLS, MESSAGE_FROM, PERSONA_COLS, RUN_COLS, SESSION_COLS, UNCLAIMED,
+    self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, PERSONA_COLS, RUN_COLS, SESSION_COLS, UNCLAIMED,
 };
 use crate::secrets::Cipher;
 use crate::{endpoints, models};
@@ -557,7 +557,46 @@ impl Store {
 
     // ---- 调度 ----
 
-    /// 会话无 `executing` run 时，把未认领输入开头连续同 person 的一段认领为新 run，
+    /// 启动时原子登记遗留未认领输入为 held，并为每个受影响会话落一条待命通知；不重复处置。
+    pub async fn hold_unclaimed_inputs(&self, at: i64) -> Result<Vec<Message>, StoreError> {
+        self.call(move |conn| {
+            let tx = conn.transaction()?;
+            let sessions = tx
+                .prepare(&format!(
+                    "SELECT DISTINCT m.session_id FROM core_messages m
+                     WHERE {UNCLAIMED} AND NOT ({HELD_INPUT}) ORDER BY m.session_id"
+                ))?
+                .query_map([], |r| Ok(SessionId(r.get(0)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            tx.execute(
+                &format!(
+                    "INSERT INTO core_input_holds (message_id, held_at)
+                     SELECT m.id, ?1 FROM core_messages m
+                     WHERE {UNCLAIMED} AND NOT ({HELD_INPUT})"
+                ),
+                [at],
+            )?;
+            let mut notifications = Vec::with_capacity(sessions.len());
+            for session_id in sessions {
+                let body = MessageBody::Notification {
+                    source: "micnext".to_owned(),
+                    text: "上次有消息未执行。".to_owned(),
+                };
+                notifications.push(Message {
+                    id: insert_message(&tx, session_id, None, &body, at)?,
+                    session_id,
+                    body,
+                    created_at: at,
+                    delivered_at: None,
+                });
+            }
+            tx.commit()?;
+            Ok(notifications)
+        })
+        .await
+    }
+
+    /// 会话无 `executing` run 时，把非 held 未认领输入开头连续同 person 的一段认领为新 run，
     /// 同时定下本轮设置（会话所选人设，已删除则改用默认人设并写回会话；当前偏好）并写入 run 快照。
     pub async fn claim_next(
         &self,
@@ -656,7 +695,7 @@ impl Store {
         .await
     }
 
-    /// 把未认领输入开头同一 person 的一段并入 `run`，要求该 person 与 run 首条输入相同；
+    /// 把非 held 未认领输入开头同一 person 的一段并入 `run`，要求该 person 与 run 首条输入相同；
     /// 有并入返回 true。调用方保证 run 处于 `Executing`。
     pub async fn absorb(&self, run: RunId) -> Result<bool, StoreError> {
         self.call(move |conn| {
@@ -681,13 +720,13 @@ impl Store {
         .await
     }
 
-    /// 有未认领输入的会话，按 id 升序。
+    /// 有非 held 未认领输入的会话，按 id 升序。
     pub async fn sessions_with_unclaimed_input(&self) -> Result<Vec<SessionId>, StoreError> {
         self.call(move |conn| {
             Ok(conn
                 .prepare(&format!(
                     "SELECT DISTINCT m.session_id FROM core_messages m
-                     WHERE {UNCLAIMED} ORDER BY m.session_id"
+                     WHERE {UNCLAIMED} AND NOT ({HELD_INPUT}) ORDER BY m.session_id"
                 ))?
                 .query_map([], |r| Ok(SessionId(r.get(0)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
@@ -807,7 +846,8 @@ impl Store {
             let messages = conn
                 .prepare(&format!(
                     "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM}
-                     WHERE m.session_id = ?1 AND m.id > ?2 AND NOT ({UNCLAIMED})
+                     WHERE m.session_id = ?1 AND m.id > ?2
+                       AND (NOT ({UNCLAIMED}) OR {HELD_INPUT})
                      ORDER BY m.id"
                 ))?
                 .query_map(params![session_id.0, after], row::message)?
@@ -1043,7 +1083,7 @@ fn unclaimed_head(
 ) -> rusqlite::Result<Option<(Vec<i64>, i64)>> {
     let mut stmt = tx.prepare(&format!(
         "SELECT m.id, m.person_id FROM core_messages m
-         WHERE m.session_id = ?1 AND {UNCLAIMED}
+         WHERE m.session_id = ?1 AND {UNCLAIMED} AND NOT ({HELD_INPUT})
          ORDER BY m.id"
     ))?;
     let mut rows = stmt.query([session_id])?;

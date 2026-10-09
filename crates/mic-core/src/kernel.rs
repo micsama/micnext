@@ -79,7 +79,7 @@ impl Kernel {
     }
 
     /// 写入未认领的用户输入并唤醒该会话的调度（不等执行）。会话正在执行时，
-    /// 新输入由当前 run 在下一个模型调用边界并入。内核已停止时只写不唤醒，下次启动补跑。
+    /// 新输入由当前 run 在下一个模型调用边界并入。内核已停止时只写不唤醒，下次启动处置为 held。
     pub async fn append_user_input(
         &self,
         session_id: SessionId,

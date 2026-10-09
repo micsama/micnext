@@ -81,12 +81,12 @@
   <div class="grid flex-1 place-items-center p-6 text-center">
     <div class="space-y-3">
       <p>{view.fatal}</p>
-      <button type="button" class="text-sm text-accent underline" onclick={() => router.go("/")}>去新会话</button>
+      <button type="button" class="text-sm text-primary underline" onclick={() => router.go("/")}>去新会话</button>
     </div>
   </div>
 {:else}
   {#if view.reconnecting}
-    <p class="bg-panel py-1 text-center text-xs text-warn">连接已断开，正在重连…</p>
+    <p class="bg-muted py-1 text-center text-xs text-warning">连接已断开，正在重连…</p>
   {/if}
   <MessageList {view} />
   {#if item?.writable}
@@ -97,7 +97,7 @@
       {/snippet}
     </Composer>
   {:else if item}
-    <p class="mx-auto w-full max-w-3xl px-4 pb-4 text-center text-sm text-muted">
+    <p class="mx-auto w-full max-w-3xl px-4 pb-4 text-center text-sm text-muted-foreground">
       该会话来自 {item.channel} 渠道，只能在这里查看
     </p>
   {/if}

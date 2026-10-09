@@ -1,7 +1,8 @@
 <script lang="ts">
   import ChatView from "./components/ChatView.svelte";
   import NewChat from "./components/NewChat.svelte";
-  import SettingsView from "./components/SettingsView.svelte";
+  import ConfirmDialog from "./components/ConfirmDialog.svelte";
+  import SettingsView from "./components/settings/SettingsView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import { auth } from "./state/auth.svelte";
   import { router } from "./state/route.svelte";
@@ -44,7 +45,7 @@
   <div class="grid h-full place-items-center p-6">
     <div class="max-w-sm space-y-2 text-center">
       <p class="text-lg font-medium">需要重新打开</p>
-      <p class="text-sm text-muted">
+      <p class="text-sm text-muted-foreground">
         访问凭据缺失或已失效（服务重启后会变）。请用终端里打印的地址（带 <code>#token=</code>）重新打开本页。
       </p>
     </div>
@@ -64,4 +65,5 @@
       {/if}
     </main>
   </div>
+  <ConfirmDialog />
 {/if}

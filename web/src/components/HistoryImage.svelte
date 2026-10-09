@@ -33,7 +33,7 @@
 {#if url}
   <img src={url} alt="图片" class="my-1 block max-h-64 max-w-full rounded-lg" />
 {:else if failed}
-  <span class="my-0.5 inline-block rounded bg-bg px-1.5 py-0.5 text-xs text-muted">图片加载失败</span>
+  <span class="my-0.5 inline-block rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground">图片加载失败</span>
 {:else}
-  <span class="my-1 block h-24 w-32 animate-pulse rounded-lg bg-bg"></span>
+  <span class="my-1 block h-24 w-32 animate-pulse rounded-lg bg-background"></span>
 {/if}

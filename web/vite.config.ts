@@ -16,6 +16,9 @@ function katexWoff2Only(): Plugin {
 
 export default defineConfig({
   plugins: [katexWoff2Only(), svelte(), tailwindcss()],
+  resolve: {
+    alias: { $lib: decodeURIComponent(new URL("./src/lib", import.meta.url).pathname) },
+  },
   server: {
     proxy: { "/api": "http://127.0.0.1:7878" },
   },

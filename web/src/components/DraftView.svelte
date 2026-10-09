@@ -30,8 +30,8 @@
     <ReasoningFold text={draft.reasoning.trim()} />
   {:else}
     <div class="my-1 text-sm">
-      <div class="animate-pulse text-muted">思考中…</div>
-      <div bind:this={box} class="mt-1 max-h-32 overflow-y-auto border-l-2 border-line pl-3 whitespace-pre-wrap text-muted">
+      <div class="animate-pulse text-muted-foreground">思考中…</div>
+      <div bind:this={box} class="mt-1 max-h-32 overflow-y-auto border-l-2 border-border pl-3 whitespace-pre-wrap text-muted-foreground">
         {draft.reasoning.trim()}
       </div>
     </div>

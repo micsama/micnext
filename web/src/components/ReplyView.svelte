@@ -27,7 +27,7 @@
           <ReasoningFold text={block.Reasoning.Visible.text.trim()} />
         {/if}
       {:else}
-        <p class="my-1 text-sm text-muted">（推理内容已加密）</p>
+        <p class="my-1 text-sm text-muted-foreground">（推理内容已加密）</p>
       {/if}
     {:else if "Text" in block}
       <Markdown source={block.Text.text} />

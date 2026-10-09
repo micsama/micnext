@@ -59,8 +59,8 @@
     <div bind:this={content} class="mx-auto max-w-3xl space-y-4 px-4 py-6">
       {#each groups as messages (messages[0].id)}
         {#if messages[0].body.kind === "Notification"}
-          <aside aria-label="系统提示" class="rounded-xl border border-line bg-panel px-4 py-3">
-            <div class="mb-2 flex items-center gap-2 text-xs font-medium text-muted">
+          <aside aria-label="系统提示" class="rounded-xl border border-border bg-muted px-4 py-3">
+            <div class="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <Icon name="alert" class="size-3.5 shrink-0" />
               系统提示
             </div>
@@ -78,22 +78,22 @@
         <div><DraftView draft={view.draft} /></div>
       {/if}
       {#if running && !view.draft}
-        <div class="flex items-center gap-2 text-sm text-muted">
+        <div class="flex items-center gap-2 text-sm text-muted-foreground">
           <Icon name="loader" class="size-3.5 animate-spin" />处理中…
         </div>
       {/if}
       {#if view.notice}
-        <p class="flex items-center gap-2 text-sm text-warn"><Icon name="alert" class="size-4" />{view.notice}</p>
+        <p class="flex items-center gap-2 text-sm text-warning"><Icon name="alert" class="size-4" />{view.notice}</p>
       {/if}
       {#if !view.ready && view.messages.length === 0 && !view.reconnecting}
-        <p class="text-center text-sm text-muted">加载中…</p>
+        <p class="text-center text-sm text-muted-foreground">加载中…</p>
       {/if}
     </div>
   </div>
   {#if !stuck}
     <button
       type="button"
-      class="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-bg px-3 py-1 text-xs shadow-sm hover:bg-panel"
+      class="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs shadow-sm hover:bg-muted"
       onclick={toBottom}>
       <Icon name="arrowDown" class="size-3.5" />回到底部
     </button>

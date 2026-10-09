@@ -1,17 +1,42 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn-svelte/tailwind.css";
 
+/* data-theme 总是解析后的明暗，由 state/theme 与 index.html 首帧脚本写入。 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* 风格：Apple。新增风格只需另写一组同名变量。 */
 :root {
-  --c-bg: #ffffff;
-  --c-panel: #f7f7f8;
-  --c-raised: #efeff1;
-  --c-line: #e3e3e6;
-  --c-fg: #1d1d1f;
-  --c-muted: #6b6b73;
-  --c-accent: #2563eb;
-  --c-accent-fg: #ffffff;
-  --c-danger: #c62828;
-  --c-warn: #9a6700;
-  --c-code: #f6f8fa;
+  --background: #ffffff;
+  --foreground: #1d1d1f;
+  --card: #ffffff;
+  --card-foreground: #1d1d1f;
+  --popover: #ffffff;
+  --popover-foreground: #1d1d1f;
+  --primary: #007aff;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f2f7;
+  --secondary-foreground: #1d1d1f;
+  --muted: #f5f5f7;
+  --muted-foreground: #6e6e73;
+  --accent: #e8e8ed;
+  --accent-foreground: #1d1d1f;
+  --destructive: #d70015;
+  --success: #248a3d;
+  --warning: #b25000;
+  --border: #e3e3e8;
+  --input: #d2d2d7;
+  --ring: color-mix(in srgb, #007aff 45%, transparent);
+  --radius: 0.75rem;
+  --sidebar: #f5f5f7;
+  --sidebar-foreground: #1d1d1f;
+  --sidebar-primary: #007aff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e8e8ed;
+  --sidebar-accent-foreground: #1d1d1f;
+  --sidebar-border: #e3e3e8;
+  --sidebar-ring: color-mix(in srgb, #007aff 45%, transparent);
+  --code: #f6f8fa;
   --hl-keyword: #cf222e;
   --hl-string: #0a3069;
   --hl-number: #0550ae;
@@ -22,42 +47,36 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --c-bg: #1a1a1c;
-    --c-panel: #202023;
-    --c-raised: #2b2b2f;
-    --c-line: #34343a;
-    --c-fg: #e8e8ea;
-    --c-muted: #9a9aa3;
-    --c-accent: #5b8def;
-    --c-accent-fg: #ffffff;
-    --c-danger: #f07070;
-    --c-warn: #d7a94b;
-    --c-code: #232326;
-    --hl-keyword: #ff7b72;
-    --hl-string: #a5d6ff;
-    --hl-number: #79c0ff;
-    --hl-comment: #8b949e;
-    --hl-title: #d2a8ff;
-    --hl-attr: #ffa657;
-    --hl-built: #79c0ff;
-    color-scheme: dark;
-  }
-}
-
-:root[data-theme="dark"] {
-  --c-bg: #1a1a1c;
-  --c-panel: #202023;
-  --c-raised: #2b2b2f;
-  --c-line: #34343a;
-  --c-fg: #e8e8ea;
-  --c-muted: #9a9aa3;
-  --c-accent: #5b8def;
-  --c-accent-fg: #ffffff;
-  --c-danger: #f07070;
-  --c-warn: #d7a94b;
-  --c-code: #232326;
+[data-theme="dark"] {
+  --background: #1c1c1e;
+  --foreground: #f5f5f7;
+  --card: #2c2c2e;
+  --card-foreground: #f5f5f7;
+  --popover: #2c2c2e;
+  --popover-foreground: #f5f5f7;
+  --primary: #0a84ff;
+  --primary-foreground: #ffffff;
+  --secondary: #3a3a3c;
+  --secondary-foreground: #f5f5f7;
+  --muted: #232325;
+  --muted-foreground: #98989d;
+  --accent: #3a3a3c;
+  --accent-foreground: #f5f5f7;
+  --destructive: #ff6961;
+  --success: #30d158;
+  --warning: #ffb340;
+  --border: #38383a;
+  --input: #48484a;
+  --ring: color-mix(in srgb, #0a84ff 50%, transparent);
+  --sidebar: #232325;
+  --sidebar-foreground: #f5f5f7;
+  --sidebar-primary: #0a84ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #3a3a3c;
+  --sidebar-accent-foreground: #f5f5f7;
+  --sidebar-border: #38383a;
+  --sidebar-ring: color-mix(in srgb, #0a84ff 50%, transparent);
+  --code: #232326;
   --hl-keyword: #ff7b72;
   --hl-string: #a5d6ff;
   --hl-number: #79c0ff;
@@ -69,32 +88,58 @@
 }
 
 @theme inline {
-  --color-bg: var(--c-bg);
-  --color-panel: var(--c-panel);
-  --color-raised: var(--c-raised);
-  --color-line: var(--c-line);
-  --color-fg: var(--c-fg);
-  --color-muted: var(--c-muted);
-  --color-accent: var(--c-accent);
-  --color-accent-fg: var(--c-accent-fg);
-  --color-danger: var(--c-danger);
-  --color-warn: var(--c-warn);
-  --color-code: var(--c-code);
-  --font-sans: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-code: var(--code);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-html,
-body,
-#app {
-  height: 100%;
-}
-
-body {
-  background: var(--c-bg);
-  color: var(--c-fg);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
 }
 
 /* Markdown 正文 */
@@ -134,17 +179,17 @@ body {
   margin-top: 0.25em;
 }
 .prose a {
-  color: var(--c-accent);
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 .prose blockquote {
-  border-left: 3px solid var(--c-line);
+  border-left: 3px solid var(--border);
   padding-left: 0.9em;
-  color: var(--c-muted);
+  color: var(--muted-foreground);
 }
 .prose hr {
-  border-color: var(--c-line);
+  border-color: var(--border);
 }
 .prose table {
   display: block;
@@ -153,17 +198,17 @@ body {
 }
 .prose th,
 .prose td {
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--border);
   padding: 0.3em 0.7em;
 }
 .prose th {
-  background: var(--c-panel);
+  background: var(--muted);
   font-weight: 600;
 }
 .prose :not(pre) > code {
   font-family: var(--font-mono);
   font-size: 0.88em;
-  background: var(--c-raised);
+  background: var(--accent);
   border-radius: 4px;
   padding: 0.1em 0.35em;
 }
@@ -174,10 +219,10 @@ body {
 }
 
 .code-block {
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  background: var(--c-code);
+  background: var(--code);
 }
 .code-head {
   display: flex;
@@ -185,8 +230,8 @@ body {
   justify-content: space-between;
   padding: 0.25em 0.6em 0.25em 0.9em;
   font-size: 0.75rem;
-  color: var(--c-muted);
-  border-bottom: 1px solid var(--c-line);
+  color: var(--muted-foreground);
+  border-bottom: 1px solid var(--border);
 }
 .copy-code {
   padding: 0.1em 0.5em;
@@ -194,8 +239,8 @@ body {
   cursor: pointer;
 }
 .copy-code:hover {
-  background: var(--c-raised);
-  color: var(--c-fg);
+  background: var(--accent);
+  color: var(--foreground);
 }
 .code-block pre {
   overflow-x: auto;
@@ -255,7 +300,7 @@ body {
   color: #1a7f37;
 }
 .hljs-deletion {
-  color: var(--c-danger);
+  color: var(--destructive);
 }
 .hljs-emphasis {
   font-style: italic;

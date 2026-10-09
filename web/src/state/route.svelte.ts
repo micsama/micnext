@@ -9,15 +9,12 @@ function parse(path: string): Route {
 
 class Router {
   current = $state<Route>(parse(location.pathname));
-  /** 当前页有未保存的修改时返回 true，离开前请用户确认。 */
-  dirty: (() => boolean) | null = null;
 
   constructor() {
     addEventListener("popstate", () => (this.current = parse(location.pathname)));
   }
 
   go(path: string): void {
-    if (this.dirty?.() && !confirm("有未保存的修改，确定离开？")) return;
     if (location.pathname !== path) history.pushState(null, "", path);
     this.current = parse(path);
   }

@@ -125,9 +125,9 @@
 
 <div class="mx-auto w-full max-w-3xl px-4 pb-4">
   {#if error}
-    <p class="mb-2 text-sm text-danger">{error}</p>
+    <p class="mb-2 text-sm text-destructive">{error}</p>
   {:else if notice}
-    <p class="mb-2 text-sm text-warn">{notice}</p>
+    <p class="mb-2 text-sm text-warning">{notice}</p>
   {/if}
   <div
     role="group"
@@ -137,7 +137,7 @@
     }}
     ondragleave={() => (dragging = false)}
     {ondrop}
-    class="rounded-2xl border bg-bg px-3 py-2 focus-within:border-accent {dragging ? 'border-accent' : 'border-line'}">
+    class="rounded-2xl border bg-background px-3 py-2 focus-within:border-primary {dragging ? 'border-primary' : 'border-border'}">
     {#if attachments.length > 0}
       <div class="mb-2 flex flex-wrap gap-2">
         {#each attachments as a, i (a.url)}
@@ -148,7 +148,7 @@
               onclick={() => detach(i)}
               disabled={posting}
               aria-label="移除图片"
-              class="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-fg text-bg">
+              class="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-foreground text-background">
               <Icon name="x" class="size-3" />
             </button>
           </div>
@@ -172,7 +172,7 @@
         onclick={() => picker.click()}
         disabled={posting}
         aria-label="添加图片"
-        class="grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-raised hover:text-fg disabled:opacity-30">
+        class="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30">
         <Icon name="image" />
       </button>
     {/if}
@@ -184,7 +184,7 @@
       {placeholder}
       disabled={posting}
       rows="1"
-      class="max-h-60 min-h-6 flex-1 resize-none bg-transparent py-1 outline-none placeholder:text-muted disabled:opacity-60"
+      class="max-h-60 min-h-6 flex-1 resize-none bg-transparent py-1 outline-none placeholder:text-muted-foreground disabled:opacity-60"
     ></textarea>
     {@render controls?.()}
     <button
@@ -192,7 +192,7 @@
       onclick={send}
       disabled={!canSend}
       aria-label="发送"
-      class="grid size-8 shrink-0 place-items-center rounded-full bg-accent text-accent-fg disabled:opacity-30">
+      class="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-30">
       <Icon name={posting ? "loader" : "arrowUp"} class={posting ? "size-4 animate-spin" : "size-4"} />
     </button>
     </div>

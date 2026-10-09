@@ -8,10 +8,12 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%234f46e5'/><text x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='system-ui'>m</text></svg>" />
     <script>
       // 首帧前应用主题，避免闪烁。
+      let t = null;
       try {
-        const t = localStorage.getItem("micnext.theme");
-        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        t = localStorage.getItem("micnext.theme");
       } catch {}
+      if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = t;
     </script>
   </head>
   <body>

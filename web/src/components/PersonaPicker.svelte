@@ -11,7 +11,7 @@
   {value}
   {disabled}
   onchange={(e) => onpick(Number(e.currentTarget.value))}
-  class="h-8 max-w-32 shrink-0 truncate rounded-full border border-line bg-panel px-2 text-xs text-muted outline-none hover:text-fg focus:border-accent disabled:opacity-60">
+  class="h-8 max-w-32 shrink-0 truncate rounded-full border border-border bg-muted px-2 text-xs text-muted-foreground outline-none hover:text-foreground focus:border-primary disabled:opacity-60">
   {#each settingsStore.personas as p (p.id)}
     <option value={p.id}>{p.name}</option>
   {/each}

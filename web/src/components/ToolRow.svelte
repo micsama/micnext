@@ -20,34 +20,34 @@
   const summary = $derived(args === undefined ? "" : argsSummary(args));
 </script>
 
-<details class="group/tool my-1 rounded-lg border border-line text-sm">
+<details class="group/tool my-1 rounded-lg border border-border text-sm">
   <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-1.5 select-none">
-    <Icon name="wrench" class="size-3.5 shrink-0 text-muted" />
+    <Icon name="wrench" class="size-3.5 shrink-0 text-muted-foreground" />
     <span class="shrink-0 font-medium">{name}</span>
-    <span class="min-w-0 flex-1 truncate font-mono text-xs text-muted">{summary}</span>
+    <span class="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{summary}</span>
     {#if status === "running"}
-      <Icon name="loader" class="size-3.5 shrink-0 animate-spin text-muted" />
+      <Icon name="loader" class="size-3.5 shrink-0 animate-spin text-muted-foreground" />
     {:else if status === "ok"}
       <Icon name="check" class="size-3.5 shrink-0 text-green-600" />
     {:else if status === "fail"}
-      <Icon name="x" class="size-3.5 shrink-0 text-danger" />
+      <Icon name="x" class="size-3.5 shrink-0 text-destructive" />
     {:else if status === "dispatched"}
-      <span class="shrink-0 text-xs text-muted">后台执行中</span>
+      <span class="shrink-0 text-xs text-muted-foreground">后台执行中</span>
     {/if}
-    <Icon name="chevron" class="size-3.5 shrink-0 text-muted transition-transform group-open/tool:rotate-90" />
+    <Icon name="chevron" class="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/tool:rotate-90" />
   </summary>
-  <div class="space-y-2 border-t border-line px-3 py-2">
+  <div class="space-y-2 border-t border-border px-3 py-2">
     {#if args !== undefined}
       <pre class="max-h-60 overflow-auto rounded bg-code p-2 font-mono text-xs whitespace-pre-wrap">{prettyArgs(args)}</pre>
     {/if}
     {#if terminal}
       <pre
         class="max-h-80 overflow-auto rounded bg-code p-2 font-mono text-xs whitespace-pre-wrap"
-        class:text-danger={status === "fail"}>{outcomeText(terminal)}</pre>
+        class:text-destructive={status === "fail"}>{outcomeText(terminal)}</pre>
     {:else if result && "Dispatched" in result}
-      <p class="text-xs text-muted">已转入后台（{result.Dispatched.exec_id}），完成后另行通知</p>
+      <p class="text-xs text-muted-foreground">已转入后台（{result.Dispatched.exec_id}），完成后另行通知</p>
     {:else}
-      <p class="text-xs text-muted">{running ? "执行中…" : "没有结果"}</p>
+      <p class="text-xs text-muted-foreground">{running ? "执行中…" : "没有结果"}</p>
     {/if}
   </div>
 </details>

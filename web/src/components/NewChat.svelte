@@ -37,7 +37,7 @@
 
 <Header title="新会话" {onmenu} />
 <div class="grid flex-1 place-items-center px-4">
-  <p class="text-2xl font-medium text-muted">有什么要做的？</p>
+  <p class="text-2xl font-medium text-muted-foreground">有什么要做的？</p>
 </div>
 <Composer
   onsend={send}

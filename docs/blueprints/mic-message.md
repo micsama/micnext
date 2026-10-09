@@ -124,6 +124,7 @@ pub enum MessageBody {
 
 消息如何呈现给模型（`Message::model_view() -> Option<ModelView>`、方括号头）见
 [`provider-port.md`](provider-port.md) §三.5。一条 `Reply` 即一个 assistant turn。
+`header_legend() -> String` 给出全部方括号头的说明，供 system prompt 使用（[`system-prompt-layout.md`](system-prompt-layout.md) §四）。
 
 ## 四、演进
 

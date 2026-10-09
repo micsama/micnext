@@ -9,7 +9,7 @@
 | # | 问题 | 决定 |
 |---|---|---|
 | Q1 | 配置放哪 | `config.toml` 只放启动必需或不能让网页改的：`data_dir`、`owner`、`listen`、`token`。其余进 SQLite，经 Web 改，下一轮生效；旧写法（`max_turns`、`workdir`）启动报错并指明删除 |
-| Q2 | system prompt 分块 | 系统 → 人设 → 通用偏好（之后是工作目录、工具提示、摘要）。系统块是二进制常量（`mic-core/src/prompts/system.md`），只读 |
+| Q2 | system prompt 分块 | `<instructions>` / `<persona>`（人设 + 通用偏好）/ `<context>` 三块，见 [`system-prompt-layout.md`](system-prompt-layout.md) §三。系统块是二进制常量（`mic-core/src/prompts/system.md`）加消息头说明，只读 |
 | Q3 | 人设 | 「名字 + 提示词」，不绑模型、目录、工具。3 个内置人设（`mic-store/src/personas/*.md`），只读不可删，只能复制后编辑；源码为唯一真相，每次启动按固定 id 同步覆盖，不做恢复默认 |
 | Q4 | 选择放哪 | 会话保存下一轮选择；run 保存当轮事实（认领时一次读定，同事务写快照）。新会话取默认；改默认不影响已有会话 |
 | Q5 | 删除 | 内置不可删；默认人设先换默认才能删；会话选着的人设已删除（含内置下线）时提示「原人设已删除」，下一轮自动改用默认人设并写回会话 |

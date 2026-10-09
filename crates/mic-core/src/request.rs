@@ -1,8 +1,11 @@
 //! 由上下文窗口组装模型请求。契约：docs/blueprints/run-execution.md §4.4。
 
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
-use mic_message::{ContentPart, ImageData, ImageId, Message, MessageBody, ModelView, ReplyBlock};
+use mic_message::{
+    header_legend, ContentPart, ImageData, ImageId, Message, MessageBody, ModelView, ReplyBlock,
+};
 use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
 
@@ -10,9 +13,20 @@ use crate::ModelRequest;
 
 const BASE_PROMPT: &str = include_str!("prompts/system.md");
 
-/// 系统块，设置页只读展示。
+static INSTRUCTIONS: LazyLock<String> = LazyLock::new(|| {
+    block(
+        "instructions",
+        &format!("{}\n\n{}", BASE_PROMPT.trim_end(), header_legend()),
+    )
+});
+
+/// `instructions` 块，设置页只读展示。
 pub(crate) fn base_prompt() -> &'static str {
-    BASE_PROMPT.trim_end()
+    &INSTRUCTIONS
+}
+
+fn block(tag: &str, body: &str) -> String {
+    format!("<{tag}>\n{body}\n</{tag}>")
 }
 
 /// 窗口内消息引用的图片 id。
@@ -47,28 +61,34 @@ pub(crate) fn build(
     }
 }
 
-/// 顺序固定：系统 → 人设 → 通用偏好 → 工作目录 → 工具提示 → 摘要，保证同一会话前缀稳定。
+/// 三块顺序固定：instructions → persona → context，保证同一会话前缀稳定。
+/// 契约：docs/blueprints/system-prompt-layout.md §三。
 fn system_prompt(
     settings: &RunSettings,
     pwd: &str,
     tools: &[ToolHandle],
     summary: Option<&str>,
 ) -> String {
-    let mut sections = vec![base_prompt().to_owned(), settings.persona.prompt.clone()];
+    let mut persona = vec![settings.persona.prompt.clone()];
     if !settings.general_prompt.is_empty() {
-        sections.push(format!("User preferences:\n{}", settings.general_prompt));
+        persona.push(format!("User preferences:\n{}", settings.general_prompt));
     }
-    sections.push(format!("Working directory: {pwd}"));
-    sections.extend(
+    let mut context = vec![format!("Working directory: {pwd}")];
+    context.extend(
         tools
             .iter()
             .filter_map(|t| t.prompt_hint())
             .map(str::to_owned),
     );
     if let Some(summary) = summary {
-        sections.push(format!("Summary of the earlier conversation:\n{summary}"));
+        context.push(format!("Summary of the earlier conversation:\n{summary}"));
     }
-    sections.join("\n\n")
+    [
+        INSTRUCTIONS.clone(),
+        block("persona", &persona.join("\n\n")),
+        block("context", &context.join("\n\n")),
+    ]
+    .join("\n\n")
 }
 
 /// 有工具调用未结时，user 视图消息待其结果全部到齐后按原顺序放回，保证调用与结果相邻。

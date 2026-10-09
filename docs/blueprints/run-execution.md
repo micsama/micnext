@@ -273,13 +273,8 @@ loop:
 - **模型**：`[models] default` 对应的 Provider，启动时确定；改模型 = 改配置重启（v0a-module-map §二）。
 - **工具**：全部已登记工具按登记顺序（mic-tool §3.5），按会话 `tool_scope` 过滤，取 `spec()`；
   轮次用尽后的总结调用传空。
-- **system prompt**（顺序固定，保证同一会话前缀稳定）：
-  1. 基础提示（core 内常量，英文，见附录 A）；
-  2. 本轮人设提示词（`RunSettings`）；
-  3. 通用偏好非空时：`User preferences:\n<文本>`；
-  4. 环境：`Working directory: <session.pwd>`；
-  5. 本次可用工具的 `prompt_hint()`，按工具顺序各占一段；
-  6. `context_window.summary` 有值时附在最后（v0a 不会有）。
+- **system prompt**：`<instructions>` / `<persona>` / `<context>` 三块，布局见
+  [`system-prompt-layout.md`](system-prompt-layout.md) §三；人设与偏好取本轮 `RunSettings`。
 - **messages**：从 `context_window.messages` 按 id 升序生成。仍待调度的输入已由 store 排除，held 输入保留（mic-store §4.1、§4.4
   不变量 3），吸收之后才到达的那部分留给下一个边界。一条规则：
   - **有工具调用在等结果时，user 视图消息往后放**：按 id 扫描，碰到 `Reply` 把其 `ToolCall` 块记为未结，
@@ -488,6 +483,7 @@ micnext [--config <path>] -p <prompt>     一次性（调试用）
 
 ## 附录 A：基础系统提示
 
-全文只在 `crates/mic-core/src/prompts/system.md` 维护，此处不复制。
+全文只在 `crates/mic-core/src/prompts/system.md` 维护，此处不复制；消息头说明由 `mic_message::header_legend()`
+生成并接在其后，合为 `<instructions>` 块（[`system-prompt-layout.md`](system-prompt-layout.md) §三）。
 
 语气与篇幅归人设（runtime-settings 附录 A），基础提示不再带 "Be concise."。

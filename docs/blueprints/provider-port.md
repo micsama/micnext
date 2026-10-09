@@ -171,6 +171,8 @@ impl Message {
 
 - outcome：`Completed` 原样给出 `output`；`Failed{kind}` → `[failed kind=input|business|dependency]` + message；
   `Cancelled` → `[cancelled]` + message（分类定义见 [mic-tool](mic-tool.md) §三.1、§四.3）。
+- 头的格式与说明由 `model_view.rs` 内私有 `Header` 唯一定义，`header_legend()` 对外提供说明
+  （[`system-prompt-layout.md`](system-prompt-layout.md) §四）。
 - `at=` 只给用户与通知：它们的发生时刻可能明显早于在历史中的位置（排队、后台任务）；其余消息
   位置即时序。格式为带本地时区偏移的 RFC 3339（秒精度）。
 - 头部取值里的 `]` 与控制字符替换为 `_`；正文逐字追加，不转义。头部只是提示格式，可审计的来源

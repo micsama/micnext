@@ -27,6 +27,9 @@
 也不能为假想协议设计巨大联合类型。待定：工具调用与结果相邻是统一上下文约束还是协议适配约束；模型输入需保留哪些来源元数据以支持推理兼容判断。
 迁移应逐字段比较当前请求 JSON，不能仅靠编译证明行为等价。
 
+2026-10-09 范围核对：[system-prompt-layout](../blueprints/system-prompt-layout.md) 仅统一消息头解释与 system 布局，
+沿用当前 `mic-message::model_view` 所有权。本文 B 的重构方向仍未决；如以后迁移呈现，消息头定义与解释一起迁移。
+
 ## 二、E 余项：会话身份与来源关系（needs-investigation）
 
 - `Store::resolve_root_session(channel, chat, NewSession)` 的查找键和 `NewSession.kind.Root` 内的键重复，调用方须自行维持相等；可用一次明确构造消掉。

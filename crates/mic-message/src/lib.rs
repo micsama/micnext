@@ -9,7 +9,7 @@ pub mod limits;
 mod model_view;
 
 pub use image::{ImageData, ImageFormat, ImageId, ImageRef};
-pub use model_view::ModelView;
+pub use model_view::{header_legend, ModelView};
 
 /// ID 均由 `mic-store` 插入时用 SQLite rowid 回填。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

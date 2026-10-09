@@ -422,5 +422,23 @@ async fn decode<T: DeserializeOwned>(
         .bytes()
         .await
         .map_err(|error| network_error(endpoint, error))?;
-    serde_json::from_slice(&body).map_err(|_| ClientError::Protocol("响应字段或枚举不匹配"))
+    let mut deserializer = serde_json::Deserializer::from_slice(&body);
+    serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
+        // NOTE: serde 的 invalid type/value 错误会带出原值，可能含消息正文。
+        tracing::warn!(
+            endpoint,
+            path = %error.path(),
+            category = ?error.inner().classify(),
+            error = %error.inner(),
+            body_len = body.len(),
+            "wechat response decode failed"
+        );
+        // WARN: 原始响应可能含 bot_token 与消息正文，仅在 debug 级别输出。
+        tracing::debug!(
+            endpoint,
+            body = %String::from_utf8_lossy(&body),
+            "wechat response raw body"
+        );
+        ClientError::Protocol("响应字段或枚举不匹配")
+    })
 }

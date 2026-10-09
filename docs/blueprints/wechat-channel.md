@@ -264,7 +264,7 @@ Lagged 时重新查询 pending_deliveries 并按模块 outcome 排除已成功/�
 一条 Reply 只提取 Text 块，保持块顺序合并；不发送推理或工具参数。Notification 发送 text。
 空文本直接标 delivered，不生成外部发送请求。超长按 Unicode 字符边界分段，分段计划先持久化。
 每段首次发送之前登记 attempt 1；失败等待固定 2 秒后登记 attempt 2。每段最多两次请求，client_id 两次相同。
-仅 ret=0 且返回有效 message_id 才成功；只表示服务端接受，不承诺手机已送达。
+仅 ret 缺失或为 0 且返回有效 message_id 才成功；只表示服务端接受，不承诺手机已送达。
 
 所有段成功后 mark_delivered，再将模块 outcome 标 sent；两步间崩溃不能重发，启动按 interrupted 留现场。
 某段两次均失败 → outcome=skipped，后续段不发，继续下条 core 消息；先前已发送的段保留尝试事实。
@@ -329,14 +329,16 @@ Web 继续只能查看微信历史，不能经原 messages/persona/model 写接�
 
 client 完整接收源码所有已声明字段；暂无消费者的媒体、引用、工具 item 仍建强类型，不用 Value 漂流。
 wire DTO 拒绝未知字段，新增上游字段先补边界模型，不在运行期静默丢掉。
-SDK 声明 `ret` 的 getupdates/sendmessage/getconfig/sendtyping 响应，成功必须显式确认 ret=0，不能把 ret 缺失当 0。
+所有响应的 ret/errcode 与 SDK 判定一致：缺失视为成功，出现非 0 为 BusinessRejected，-14 为登录失效。
 可选字段在 wire 层保留 Option；业务需要的 user_id、context_token、游标等在相应成功分支一次验证后交给内部流程。
 
 **P3 契约补正（2026-10-09，human 已确认按 SDK 接口逐步调试）**：SDK 的 QRCodeResponse、StatusResponse 没有 `ret`：
 取二维码以 HTTP 成功且两个必需字符串非空为成功；轮询以 HTTP 成功、已知 status 及该状态的必需字段为准。
-confirmed 仍须完整凭据，未知字段/状态及缺失必需字段仍为 Protocol，不把缺失 ret 伪造成 0。
-**实测补正（2026-10-09，服务器）**：`get_bot_qrcode` 实际返回 `"ret":0`，SDK 未声明。两个登录响应补收 `ret`：
-缺失按 SDK 视为成功，出现非 0 为 BusinessRejected。
+confirmed 仍须完整凭据，未知字段/状态及缺失必需字段仍为 Protocol。
+**实测补正（2026-10-09，服务器）**：`get_bot_qrcode` 返回 `"ret":0`（SDK 未声明），两个登录响应补收 `ret`；
+`getupdates` 成功响应不带 `ret`，原「缺失 ret 即 Protocol」与 SDK（`monitor.ts` 仅在出现非 0 时判失败）及实测均不符，
+改为上文统一判定。入站实测另见：item `msg_id`/ref `svr_id` 为不透明字符串（如 `v1:…`），
+消息带 `root_id`/`parent_id`（数字），item 带 `button_item_list`（仅见空数组）与 `at_bot_username_list`。
 依据为本地 Bun 缓存的 `@tencent-weixin/openclaw-weixin@2.4.9/src/auth/login-qr.ts` 两个响应接口。
 
 认证头/base_info 见协议素材 §二，协议值集中于 client/limits，不散落给 Gateway 或调用方。
@@ -347,18 +349,20 @@ wire 接收字段清单（字段 optional 性保留源码声明，嵌套类型�
 | 类型 | 完整字段 |
 |---|---|
 | GetUpdatesResponse | ret, errcode, errmsg, msgs, sync_buf, get_updates_buf, longpolling_timeout_ms |
-| WeixinMessage | seq, message_id, from_user_id, to_user_id, client_id, create_time_ms, update_time_ms, delete_time_ms, session_id, group_id, message_type, message_state, item_list, context_token, run_id |
-| MessageItem | type, create_time_ms, update_time_ms, is_completed, msg_id, ref_msg, text_item, image_item, voice_item, file_item, video_item, tool_call_start_item, tool_call_result_item |
+| WeixinMessage | seq, message_id, from_user_id, to_user_id, client_id, create_time_ms, update_time_ms, delete_time_ms, session_id, group_id, message_type, message_state, item_list, context_token, run_id, root_id†, parent_id† |
+| MessageItem | type, create_time_ms, update_time_ms, is_completed, msg_id, ref_msg, text_item, image_item, voice_item, file_item, video_item, tool_call_start_item, tool_call_result_item, button_item_list†, at_bot_username_list† |
 | RefMessage / PartialText | message_item, title, svr_id, partial_text / start, end, startindex, endindex, quotemd5 |
 | CDNMedia / TextItem | encrypt_query_param, aes_key, encrypt_type, full_url / text |
 | ImageItem | media, thumb_media, aeskey, url, mid_size, thumb_size, thumb_height, thumb_width, hd_size |
 | VoiceItem | media, encode_type, bits_per_sample, sample_rate, playtime, text |
 | FileItem / VideoItem | media, file_name, md5, len / media, video_size, play_length, video_md5, thumb_media, thumb_size, thumb_height, thumb_width |
 | ToolCallStartItem / ToolCallResultItem | tool_name, tool_call_id / tool_name, tool_call_id, status |
-| QRCodeResponse / QRStatusResponse | qrcode, qrcode_img_content / status, bot_token, ilink_bot_id, baseurl, ilink_user_id, redirect_host |
+| QRCodeResponse / QRStatusResponse | ret†, qrcode, qrcode_img_content / ret†, status, bot_token, ilink_bot_id, baseurl, ilink_user_id, redirect_host |
 | SendMessageResponse / GetConfigResponse / SendTypingResponse | message_id, ret, errmsg / ret, errmsg, typing_ticket / ret, errmsg |
 
-message_id/msg_id/svr_id 边界接受十进制字符串或整数，parse 为 u64，序列化为字符串；不经 f64。
+† 为 SDK 未声明、实测补收字段；button_item_list 元素字段未知，非空时按报错路径补模型。
+message_id/root_id/parent_id 边界接受十进制字符串或整数，parse 为 u64，序列化为字符串；不经 f64。
+msg_id/svr_id 按 SDK 为不透明字符串。
 seq/尺寸/时长/索引使用无符号整数，时间毫秒使用 i64，ret/errcode 使用 i32；file.len 按源码接字符串。
 message_type/item_type/state 等数字在 wire 层完整接收，进入领域时 parse 成已知枚举；未知值为 Protocol，
 不猜未知媒体为文本。RefMessage 递归使用 Box，按 serde 已有深度约束，不新增手写递归机制。

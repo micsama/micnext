@@ -4,6 +4,7 @@
 
 mod endpoints;
 mod error;
+mod images;
 mod limits;
 mod models;
 mod personas;
@@ -21,7 +22,7 @@ pub use store::Store;
 pub use types::{
     ClaimedModel, ClaimedRun, ContextWindow, CredentialWrite, DeliveryTarget, EndpointId,
     EndpointView, EndpointWrite, Identity, Migration, ModelCallId, ModelCallOutcome, ModelId,
-    ModelView, ModelWrite, NewModelCall, NewSession, PendingDelivery, Person, Persona, PersonaId,
-    Run, RunId, RunSettings, RunState, Session, SessionCursor, SessionKind, SessionPage,
-    SessionSummary, Settings, ToolScope, Usage,
+    ModelView, ModelWrite, NewInputPart, NewModelCall, NewSession, PendingDelivery, Person,
+    Persona, PersonaId, Run, RunId, RunSettings, RunState, Session, SessionCursor, SessionKind,
+    SessionPage, SessionSummary, Settings, ToolScope, Usage,
 };

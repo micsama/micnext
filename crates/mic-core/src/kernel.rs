@@ -1,16 +1,17 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use mic_message::{ContentPart, Message, MessageBody, MessageId, PersonId, SessionId};
+use mic_message::{ImageData, ImageId, Message, MessageId, PersonId, SessionId};
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
     CredentialWrite, EndpointId, EndpointView, EndpointWrite, ModelId, ModelView, ModelWrite,
-    NewSession, Persona, PersonaId, RunId, Session, SessionCursor, SessionKind, SessionPage,
-    SessionSummary, Settings, Store, StoreError,
+    NewInputPart, NewSession, Persona, PersonaId, RunId, Session, SessionCursor, SessionKind,
+    SessionPage, SessionSummary, Settings, Store, StoreError,
 };
 use tokio::sync::mpsc;
 
 use crate::event::{EventReceiver, Events};
+use crate::input::{validate, IncomingPart};
 use crate::provider::{resolve_key, Factories};
 use crate::run::now_ms;
 use crate::{request, KernelError, ProviderKindView};
@@ -83,13 +84,28 @@ impl Kernel {
         &self,
         session_id: SessionId,
         person: PersonId,
-        parts: Vec<ContentPart>,
+        parts: Vec<IncomingPart>,
     ) -> Result<MessageId, KernelError> {
-        let message =
-            append_user_input(&self.store, &self.events, session_id, person, parts).await?;
+        let message = append_user_input(
+            &self.store,
+            &self.events,
+            session_id,
+            person,
+            validate(parts)?,
+        )
+        .await?;
         // 调度循环已退出（停止中）时发送失败，按上面的约定忽略。
         let _ = self.wake.send(session_id).await;
         Ok(message.id)
+    }
+
+    /// 会话内的图片原件；id 可能来自外部，不属于该会话或不存在返回 `None`。
+    pub async fn image(
+        &self,
+        session_id: SessionId,
+        id: ImageId,
+    ) -> Result<Option<ImageData>, KernelError> {
+        Ok(self.store.image(session_id, id).await?)
     }
 
     /// id 可能来自外部，不存在返回 `None`。
@@ -338,23 +354,18 @@ impl Kernel {
     }
 }
 
-/// 写入用户输入并发 `MessageAppended`；`Kernel` 与 `-p` 共用。
+/// 写入已校验的用户输入并发 `MessageAppended`；`Kernel` 与 `-p` 共用。
 pub(crate) async fn append_user_input(
     store: &Store,
     events: &Events,
     session_id: SessionId,
     person: PersonId,
-    parts: Vec<ContentPart>,
+    parts: Vec<NewInputPart>,
 ) -> Result<Message, StoreError> {
     let publish = events.publisher().await;
     // 会话不存在时由外键在写入处报错，之后必能读到。
     let message = store
-        .append(
-            session_id,
-            None,
-            MessageBody::UserInput { person, parts },
-            now_ms(),
-        )
+        .append_input(session_id, person, parts, now_ms())
         .await?;
     let session = store
         .session(session_id)

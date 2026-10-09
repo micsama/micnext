@@ -14,6 +14,8 @@ pub enum StoreError {
         "服务商 {endpoint} 的 API key 无法解密：主密钥与库不匹配或数据被改动，请在设置页重填该 key"
     )]
     SecretIntegrity { endpoint: i64 },
+    #[error("消息引用的图片 {0} 不在库中")]
+    ImageMissing(i64),
 }
 
 /// 设置与人设写入的业务错误；文案面向用户。

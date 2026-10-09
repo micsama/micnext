@@ -5,6 +5,7 @@ import {
   parseModels,
   parseTestResult,
   parseId,
+  parseInputLimits,
   parsePersonas,
   parseSessionItem,
   parseSessionPage,
@@ -14,6 +15,8 @@ import {
   type Endpoint,
   type EndpointInput,
   type EndpointTestInput,
+  type InputLimits,
+  type InputPart,
   type ModelInput,
   type ModelList,
   type Persona,
@@ -81,8 +84,8 @@ export async function getSession(id: number): Promise<SessionItem> {
   return parseSessionItem(await request("GET", `/sessions/${id}`));
 }
 
-export async function createSession(text: string, personaId: number, modelId: number): Promise<Created> {
-  return parseCreated(await request("POST", "/sessions", { text, persona_id: personaId, model_id: modelId }));
+export async function createSession(parts: InputPart[], personaId: number, modelId: number): Promise<Created> {
+  return parseCreated(await request("POST", "/sessions", { parts, persona_id: personaId, model_id: modelId }));
 }
 
 export async function setSessionPersona(sessionId: number, personaId: number): Promise<void> {
@@ -158,6 +161,21 @@ export async function deletePersona(id: number): Promise<void> {
   await request("DELETE", `/personas/${id}`);
 }
 
-export async function sendMessage(sessionId: number, text: string): Promise<void> {
-  await request("POST", `/sessions/${sessionId}/messages`, { text });
+export async function sendMessage(sessionId: number, parts: InputPart[]): Promise<void> {
+  await request("POST", `/sessions/${sessionId}/messages`, { parts });
+}
+
+export async function getInputLimits(): Promise<InputLimits> {
+  return parseInputLimits(await request("GET", "/model-kinds"));
+}
+
+/** 带 token 取会话内图片原件；token 不进 URL。 */
+export async function fetchImage(sessionId: number, imageId: number): Promise<Blob> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/sessions/${sessionId}/images/${imageId}`, { headers: authHeaders() });
+  } catch {
+    throw new ApiError(0, "连不上服务，请确认 micnext 正在运行");
+  }
+  return (await ensureOk(res)).blob();
 }

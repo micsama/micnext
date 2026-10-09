@@ -1,5 +1,5 @@
-import { getSettings, listEndpoints, listModels, listPersonas } from "../api/client";
-import type { Endpoint, Model, Persona, Settings } from "../api/types";
+import { getInputLimits, getSettings, listEndpoints, listModels, listPersonas } from "../api/client";
+import type { Endpoint, InputLimits, Model, Persona, Settings } from "../api/types";
 
 /** 对话偏好、未删除的人设与模型；登录后加载，编辑后刷新。 */
 class SettingsStore {
@@ -8,6 +8,7 @@ class SettingsStore {
   endpoints = $state<Endpoint[]>([]);
   models = $state<Model[]>([]);
   defaultModelId = $state<number | null>(null);
+  inputLimits = $state<InputLimits | null>(null);
   error = $state<string | null>(null);
 
   get loaded(): boolean {
@@ -16,12 +17,14 @@ class SettingsStore {
 
   async refresh(): Promise<void> {
     try {
-      const [settings, personas, endpoints, models] = await Promise.all([
+      const [settings, personas, endpoints, models, inputLimits] = await Promise.all([
         getSettings(),
         listPersonas(),
         listEndpoints(),
         listModels(),
+        getInputLimits(),
       ]);
+      this.inputLimits = inputLimits;
       this.settings = settings;
       this.personas = personas;
       this.endpoints = endpoints;

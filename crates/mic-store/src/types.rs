@@ -302,3 +302,9 @@ pub struct NewSession {
     /// `None` = 建会话时的默认模型（可能仍为空）。
     pub model: Option<ModelId>,
 }
+
+/// 入站输入的片段；图片是已验证的原件，由 `append_input` 同事务落库。
+pub enum NewInputPart {
+    Text(String),
+    Image(mic_message::ImageData),
+}

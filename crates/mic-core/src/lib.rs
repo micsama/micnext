@@ -4,6 +4,7 @@
 mod assembly;
 mod error;
 mod event;
+mod input;
 mod kernel;
 mod limits;
 mod module;
@@ -16,6 +17,7 @@ mod scheduler;
 pub use assembly::{Assembly, OnceOutcome, OneShot};
 pub use error::{AssembleError, KernelError, RunError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
+pub use input::{IncomingPart, InputError};
 pub use kernel::{EndpointDraft, Kernel, ModelDraft};
 pub use mic_store::SecretValue;
 pub use module::{Activation, BoxError, Module, ModuleConfig, Registry, Service};

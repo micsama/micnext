@@ -4,8 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 
+mod image;
+pub mod limits;
 mod model_view;
 
+pub use image::{ImageData, ImageFormat, ImageId, ImageRef};
 pub use model_view::ModelView;
 
 /// ID 均由 `mic-store` 插入时用 SQLite rowid 回填。
@@ -27,11 +30,12 @@ pub struct FileRef {
     pub size_bytes: u64,
 }
 
-/// 工具输出的片段：文本或文件（截图、图片等可回给多模态模型）。
+/// 消息里的片段：文本、文件引用或用户入站图片。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContentPart {
     Text { text: String },
     File(FileRef),
+    Image(ImageRef),
 }
 
 /// 工具失败按"谁改了才能成功"分类。

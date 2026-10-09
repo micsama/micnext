@@ -192,7 +192,12 @@ impl Exec<'_> {
         tools: &[ToolHandle],
     ) -> Result<Result<Vec<Call>, RunState>, StoreError> {
         let window = self.engine.store.context_window(self.session.id).await?;
-        let req = request::build(window, &self.session.pwd, tools, self.settings);
+        let images = self
+            .engine
+            .store
+            .images(self.session.id, request::image_ids(&window))
+            .await?;
+        let req = request::build(window, images, &self.session.pwd, tools, self.settings);
         let mut attempt = 1;
         loop {
             let started_at = now_ms();

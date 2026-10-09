@@ -6,7 +6,15 @@ export { ProtocolError };
 
 export type FileRef = { path: string; mime: string; size_bytes: number };
 
-export type ContentPart = { Text: { text: string } } | { File: FileRef };
+export type ImageRef = { id: number };
+
+export type ContentPart = { Text: { text: string } } | { File: FileRef } | { Image: ImageRef };
+
+/** 提交给服务端的消息片段；图片为 base64 原始字节。 */
+export type InputPart = { kind: "text"; text: string } | { kind: "image"; base64: string };
+
+/** 一条消息的图片限额；服务端仍是最终裁决。 */
+export type InputLimits = { max_images: number; max_image_bytes: number };
 
 export type ExecFailureKind = "Input" | "Business" | "Dependency";
 
@@ -132,7 +140,11 @@ export type StreamEvent =
 
 const fileRef: Decoder<FileRef> = obj({ path: str, mime: str, size_bytes: num });
 
-const contentPart: Decoder<ContentPart> = tagged({ Text: obj({ text: str }), File: fileRef });
+const contentPart: Decoder<ContentPart> = tagged({
+  Text: obj({ text: str }),
+  File: fileRef,
+  Image: obj({ id: num }),
+});
 
 const execOutcome: Decoder<ExecOutcome> = tagged({
   Completed: obj({ output: arr(contentPart) }),
@@ -218,6 +230,11 @@ const modelList: Decoder<ModelList> = obj({
   default_model_id: nullable(num),
 });
 
+const kindList: Decoder<{ items: { kind: string; display_name: string }[]; input_limits: InputLimits }> = obj({
+  items: arr(obj({ kind: str, display_name: str })),
+  input_limits: obj({ max_images: num, max_image_bytes: num }),
+});
+
 const testResult: Decoder<{ models: string[] }> = obj({ models: arr(str) });
 
 const settings: Decoder<Settings> = obj({
@@ -253,6 +270,8 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   }),
   ready: obj({ executing_run: nullable(num) }),
 };
+
+export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入限额").input_limits;
 
 export const parseSessionItem = (v: unknown): SessionItem => sessionItem(v, "会话");
 

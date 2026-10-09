@@ -2,6 +2,7 @@
   import type { Message, ToolResultOutcome } from "../api/types";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
+  import HistoryImage from "./HistoryImage.svelte";
   import { outcomeText } from "./outcome";
   import ReplyView from "./ReplyView.svelte";
   import ToolRow from "./ToolRow.svelte";
@@ -29,6 +30,8 @@
       {#each body.parts as part, i (i)}
         {#if "Text" in part}
           {part.Text.text}
+        {:else if "Image" in part}
+          <HistoryImage sessionId={message.session_id} imageId={part.Image.id} />
         {:else}
           <span class="my-0.5 inline-flex items-center gap-1 rounded bg-bg px-1.5 py-0.5 text-xs text-muted">
             <Icon name="file" class="size-3" />{basename(part.File.path)}

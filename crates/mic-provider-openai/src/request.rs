@@ -1,9 +1,14 @@
 use mic_core::{ModelRequest, ProviderError};
-use mic_message::{ContentPart, ModelView, Reasoning, ReplyBlock};
+use std::collections::HashMap;
+
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
+use mic_message::{ContentPart, FileRef, ImageData, ImageId, ModelView, Reasoning, ReplyBlock};
 
 use crate::config::{Dialect, Resolved};
 use crate::wire::{
-    ChatRequest, StreamOptions, WireFunction, WireFunctionCall, WireMessage, WireTool, WireToolCall,
+    ChatRequest, ImageUrl, StreamOptions, UserContent, UserPart, WireFunction, WireFunctionCall,
+    WireMessage, WireTool, WireToolCall,
 };
 
 /// 把一次调用映射为请求体（provider-openai §四.1）。
@@ -24,7 +29,7 @@ pub(crate) fn build<'a>(
         };
         messages.push(match view {
             ModelView::User(parts) => WireMessage::User {
-                content: text_of(parts)?,
+                content: user_content(parts, &req.images)?,
             },
             ModelView::Assistant { model, blocks } => {
                 assistant(blocks, cfg.dialect, model == cfg.model)
@@ -99,15 +104,65 @@ fn assistant(blocks: &[ReplyBlock], dialect: Dialect, same_model: bool) -> WireM
     }
 }
 
-/// 文本片段按行拼接；v0a 不支持多模态，含文件即拒绝。
+/// 无图时文本片段按行拼接；含图时按序发 text/image_url 分片，相邻文本合并。
+fn user_content(
+    parts: Vec<ContentPart>,
+    images: &HashMap<ImageId, ImageData>,
+) -> Result<UserContent, ProviderError> {
+    if !parts.iter().any(|p| matches!(p, ContentPart::Image(_))) {
+        return Ok(UserContent::Text(text_of(parts)?));
+    }
+    let mut out = Vec::with_capacity(parts.len());
+    let mut texts: Vec<String> = Vec::new();
+    for part in parts {
+        match part {
+            ContentPart::Text { text } => texts.push(text),
+            ContentPart::File(file) => return Err(unsupported_file(&file)),
+            ContentPart::Image(r) => {
+                if !texts.is_empty() {
+                    out.push(UserPart::Text {
+                        text: std::mem::take(&mut texts).join("\n"),
+                    });
+                }
+                let img = images
+                    .get(&r.id)
+                    .expect("core 已按窗口引用加载全部图片原件");
+                out.push(UserPart::ImageUrl {
+                    image_url: ImageUrl {
+                        url: format!(
+                            "data:{};base64,{}",
+                            img.format.mime(),
+                            BASE64.encode(&img.bytes)
+                        ),
+                    },
+                });
+            }
+        }
+    }
+    if !texts.is_empty() {
+        out.push(UserPart::Text {
+            text: texts.join("\n"),
+        });
+    }
+    Ok(UserContent::Parts(out))
+}
+
+fn unsupported_file(file: &FileRef) -> ProviderError {
+    ProviderError::Rejected {
+        message: format!("该模型配置不支持文件内容（{}，{}）", file.path, file.mime),
+    }
+}
+
+/// 工具结果与无图 user 消息：文本片段按行拼接，含文件或图片即拒绝。
 fn text_of(parts: Vec<ContentPart>) -> Result<String, ProviderError> {
     let mut texts = Vec::with_capacity(parts.len());
     for part in parts {
         match part {
             ContentPart::Text { text } => texts.push(text),
-            ContentPart::File(file) => {
+            ContentPart::File(file) => return Err(unsupported_file(&file)),
+            ContentPart::Image(_) => {
                 return Err(ProviderError::Rejected {
-                    message: format!("该模型配置不支持文件内容（{}，{}）", file.path, file.mime),
+                    message: "工具结果里的图片暂不支持".into(),
                 })
             }
         }

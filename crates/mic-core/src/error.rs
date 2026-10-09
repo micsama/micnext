@@ -40,6 +40,8 @@ pub enum RunError {
     DataDirLocked { path: PathBuf },
     #[error(transparent)]
     Store(#[from] mic_store::StoreError),
+    #[error("输入有误：{0}")]
+    Input(#[from] crate::InputError),
     /// 执行路径里的 panic（core、工具或 Provider 的缺陷）：进程报错退出，重启后该轮收尾为 Interrupted。
     #[error("会话 {session_id:?} 的执行崩溃：{message}")]
     RunPanicked {
@@ -64,6 +66,8 @@ pub enum KernelError {
     Settings(#[from] mic_store::SettingsError),
     #[error(transparent)]
     ModelSettings(#[from] mic_store::ModelSettingsError),
+    #[error(transparent)]
+    Input(#[from] crate::InputError),
     #[error("模型配置有误：{0}")]
     Config(#[from] crate::ConfigError),
     #[error(transparent)]

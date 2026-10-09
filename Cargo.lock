@@ -1105,6 +1105,7 @@ name = "mic-gateway"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64",
  "futures-util",
  "getrandom 0.3.4",
  "mic-core",
@@ -1131,6 +1132,7 @@ dependencies = [
 name = "mic-provider-openai"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "eventsource-stream",
  "futures-util",
  "mic-core",

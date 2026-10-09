@@ -1,8 +1,8 @@
 //! 由上下文窗口组装模型请求。契约：docs/blueprints/run-execution.md §4.4。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use mic_message::{Message, MessageBody, ModelView, ReplyBlock};
+use mic_message::{ContentPart, ImageData, ImageId, Message, MessageBody, ModelView, ReplyBlock};
 use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
 
@@ -15,8 +15,26 @@ pub(crate) fn base_prompt() -> &'static str {
     BASE_PROMPT.trim_end()
 }
 
+/// 窗口内消息引用的图片 id。
+pub(crate) fn image_ids(window: &ContextWindow) -> Vec<ImageId> {
+    window
+        .messages
+        .iter()
+        .filter_map(|m| match &m.body {
+            MessageBody::UserInput { parts, .. } => Some(parts),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|p| match p {
+            ContentPart::Image(r) => Some(r.id),
+            _ => None,
+        })
+        .collect()
+}
+
 pub(crate) fn build(
     window: ContextWindow,
+    images: HashMap<ImageId, ImageData>,
     pwd: &str,
     tools: &[ToolHandle],
     settings: &RunSettings,
@@ -25,6 +43,7 @@ pub(crate) fn build(
         system: system_prompt(settings, pwd, tools, window.summary.as_deref()),
         messages: order(window.messages),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
+        images,
     }
 }
 

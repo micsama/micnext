@@ -3,7 +3,7 @@ use std::fs::{File, TryLockError};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mic_message::{ContentPart, PersonId, SessionId};
+use mic_message::{PersonId, SessionId};
 use mic_store::{Migration, NewSession, RunState, SecretKeyFile, SessionKind, Store, ToolScope};
 use mic_tool::ToolHandle;
 use serde::Deserialize;
@@ -12,13 +12,14 @@ use tokio::task::{Id, JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use crate::event::{Events, KernelEvent};
+use crate::input::validate;
 use crate::limits::WAKE_CHANNEL_CAPACITY;
 use crate::provider::Factories;
 use crate::run::{now_ms, Engine};
 use crate::scheduler::panic_message;
 use crate::{
-    kernel, recovery, scheduler, Activation, AssembleError, BoxError, Kernel, Module, ModuleConfig,
-    Registry, RunError, Service,
+    kernel, recovery, scheduler, Activation, AssembleError, BoxError, IncomingPart, Kernel, Module,
+    ModuleConfig, Registry, RunError, Service,
 };
 
 const DEFAULT_OWNER: &str = "dzmfg";
@@ -263,7 +264,7 @@ impl Assembly {
             &events,
             session_id,
             started.owner,
-            vec![ContentPart::Text { text: once.prompt }],
+            validate(vec![IncomingPart::Text(once.prompt)])?,
         )
         .await?;
         let claimed = store

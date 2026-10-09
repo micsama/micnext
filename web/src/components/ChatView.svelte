@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { InputPart } from "../api/types";
   import { sendMessage, setSessionModel, setSessionPersona } from "../api/client";
   import { router } from "../state/route.svelte";
   import type { SessionView } from "../state/session.svelte";
@@ -20,8 +21,8 @@
     document.title = `${title} · micnext`;
   });
 
-  async function send(text: string) {
-    await sendMessage(view.id, text);
+  async function send(parts: InputPart[]) {
+    await sendMessage(view.id, parts);
     void webSessions.refresh();
   }
 

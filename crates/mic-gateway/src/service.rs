@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
+use axum::handler::Handler;
 use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{middleware, Router};
@@ -10,7 +11,7 @@ use mic_core::{BoxError, Kernel, Service};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
-use crate::limits::{MAX_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
+use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
 use crate::{api, models, settings, stream, web};
 
 pub(crate) struct Gateway {
@@ -58,10 +59,15 @@ async fn serve(config: Config, kernel: Kernel, stop: CancellationToken) -> Resul
     let api = Router::new()
         .route(
             "/sessions",
-            get(api::list_sessions).post(api::create_session),
+            get(api::list_sessions)
+                .post(api::create_session.layer(DefaultBodyLimit::max(MAX_INPUT_BODY_BYTES))),
         )
         .route("/sessions/{id}", get(api::get_session))
-        .route("/sessions/{id}/messages", post(api::send_message))
+        .route(
+            "/sessions/{id}/messages",
+            post(api::send_message.layer(DefaultBodyLimit::max(MAX_INPUT_BODY_BYTES))),
+        )
+        .route("/sessions/{id}/images/{image_id}", get(api::get_image))
         .route("/sessions/{id}/stream", get(stream::stream))
         .route("/sessions/{id}/persona", put(settings::set_session_persona))
         .route(

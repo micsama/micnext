@@ -23,6 +23,11 @@ const CORE_MIGRATIONS: &[Migration] = &[
         version: 3,
         sql: CORE_V3,
     },
+    Migration {
+        module: CORE,
+        version: 4,
+        sql: CORE_V4,
+    },
 ];
 
 const CORE_V1: &str = "
@@ -137,6 +142,18 @@ ALTER TABLE core_runs ADD COLUMN persona_name TEXT;
 ALTER TABLE core_runs ADD COLUMN persona_prompt TEXT;
 ALTER TABLE core_runs ADD COLUMN general_prompt TEXT;
 ALTER TABLE core_runs ADD COLUMN max_turns INTEGER;
+";
+
+/// 用户入站图片，不可变。
+const CORE_V4: &str = "
+CREATE TABLE core_images (
+  id         INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES core_sessions(id),
+  format     TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  bytes      BLOB NOT NULL
+);
+CREATE INDEX core_images_session ON core_images(session_id);
 ";
 
 /// 模型条目、默认模型、会话所选与 run 快照。

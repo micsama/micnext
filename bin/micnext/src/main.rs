@@ -216,6 +216,7 @@ impl Render {
                         let first = match output.first() {
                             Some(ContentPart::Text { text }) => text.lines().next().unwrap_or(""),
                             Some(ContentPart::File(f)) => f.path.as_str(),
+                            Some(ContentPart::Image(_)) => "[image]",
                             None => "",
                         };
                         format!("ok {}", preview(first))

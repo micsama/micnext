@@ -11,8 +11,7 @@
 | v0b：B2 DRAFT，待批准，未实现（同号续会话、故障待命、新输入带现场、发送只重试一次、媒体 V2） | 微信 Channel：登录 port、对象与会话归属、统一恢复、有限投递与 Web 设置 | [`docs/blueprints/wechat-channel.md`](docs/blueprints/wechat-channel.md)；决定来源 [`B1`](docs/brainstorm/wechat-channel.md)、协议事实 [`wechat-protocol.md`](docs/brainstorm/wechat-protocol.md) |
 | B1 方向已定，契约待起草 | 统一自动上下文压缩：全部 Channel 共用 core 能力，触发与执行协调待定 | [`docs/brainstorm/wechat-channel.md`](docs/brainstorm/wechat-channel.md) §四-D；后续单独起 B1/B2 |
 | B1 待核对，再起 B2 | 定时任务看板事实来源与异步 shell/子 agent 生命周期 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-4～5 |
-| B2：A 批与 §十（服务商/模型分层、env 取 key、连通测试）已实现；B 批（图片）未开工 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/model-settings.md`](docs/blueprints/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
+| B2 CLOSED：服务商/模型分层与图片输入均已实现并验收；遗留：模型不支持图片时的上游报错呈现、只发图时会话预览为空 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/model-settings.md`](docs/blueprints/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
 | 想法，未定 | 人设绑定 UI 主题；「理性大脑」人设定稿 | [`docs/brainstorm/runtime-settings.md`](docs/brainstorm/runtime-settings.md) §三 |
-| 已知缺口，待定 | 模型条目误写成顶层段（如 `[openai] model = ...`）只报 serde 原文，未提示应写在 `[models.<名字>]`；改进需让装配识别模型模块（动 `Module` trait，走 B2） | [`mic-core-module.md`](docs/blueprints/mic-core-module.md) |
 | 已知缺口，待定义验收边界 | 入站去重、投递重复；模型/工具/历史尺寸、工具授权与进程退出 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-3、8～9 |
 | 待运行时骨架 | 日志路径与级别约定，定稿后补进 `CLAUDE.md` | — |

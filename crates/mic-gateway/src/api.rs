@@ -2,20 +2,26 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::body::Body;
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{header, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::Json;
-use mic_message::{ContentPart, MessageId, SessionId};
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
+use mic_core::IncomingPart;
+use mic_message::{ImageId, MessageId, SessionId};
 use mic_store::{
     ModelId, NewSession, PersonaId, Session, SessionCursor, SessionKind, SessionSummary, ToolScope,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ApiError, MODEL_NOT_FOUND, PERSONA_NOT_FOUND, SESSION_NOT_FOUND};
+use crate::error::{
+    ApiError, IMAGE_NOT_FOUND, MODEL_NOT_FOUND, PERSONA_NOT_FOUND, SESSION_NOT_FOUND,
+};
 use crate::limits::{CHAT_ID_BYTES, MAX_TEXT_CHARS, PAGE_DEFAULT, PAGE_MAX};
 use crate::service::{random_hex, App};
 use crate::settings::new_session_workdir;
@@ -162,13 +168,21 @@ pub(crate) async fn get_session(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SendBody {
-    text: String,
+    parts: Vec<PartBody>,
+}
+
+/// 入站消息片段；图片只收 base64 字节，格式由内核按魔数识别。
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum PartBody {
+    Text { text: String },
+    Image { base64: String },
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CreateBody {
-    text: String,
+    parts: Vec<PartBody>,
     persona_id: PersonaId,
     /// 缺省 = 当时的默认模型。
     model_id: Option<ModelId>,
@@ -190,7 +204,7 @@ pub(crate) async fn create_session(
     body: Result<Json<CreateBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Created>), ApiError> {
     let body = json(body)?;
-    let text = text(body.text)?;
+    let parts = parts(body.parts)?;
     match app.kernel.persona(body.persona_id).await? {
         None => return Err(ApiError::NotFound(PERSONA_NOT_FOUND)),
         Some(p) if p.deleted => return Err(ApiError::Conflict(PERSONA_DELETED.into())),
@@ -223,7 +237,7 @@ pub(crate) async fn create_session(
             },
         )
         .await?;
-    let message_id = append(&app, session.id, text).await?;
+    let message_id = append(&app, session.id, parts).await?;
     Ok((
         StatusCode::CREATED,
         Json(Created {
@@ -242,8 +256,8 @@ pub(crate) async fn send_message(
     if !writable(&session) {
         return Err(ApiError::ReadOnly);
     }
-    let text = text(json(body)?.text)?;
-    let message_id = append(&app, session.id, text).await?;
+    let parts = parts(json(body)?.parts)?;
+    let message_id = append(&app, session.id, parts).await?;
     Ok((StatusCode::ACCEPTED, Json(Accepted { message_id })))
 }
 
@@ -265,31 +279,64 @@ pub(crate) fn json<T: DeserializeOwned>(
     body: Result<Json<T>, JsonRejection>,
 ) -> Result<T, ApiError> {
     let Json(body) = body.map_err(|e| match e.status() {
-        StatusCode::PAYLOAD_TOO_LARGE => ApiError::TooLarge,
+        StatusCode::PAYLOAD_TOO_LARGE => ApiError::TooLarge("请求体太大".into()),
         _ => ApiError::BadRequest(format!("请求体不合法：{}", e.body_text())),
     })?;
     Ok(body)
 }
 
-fn text(text: String) -> Result<String, ApiError> {
-    if text.trim().is_empty() {
-        return Err(ApiError::BadRequest("消息不能为空".into()));
+/// 文本总长受限；图片 base64 在此解码，其余校验归内核。
+fn parts(parts: Vec<PartBody>) -> Result<Vec<IncomingPart>, ApiError> {
+    let chars: usize = parts
+        .iter()
+        .map(|p| match p {
+            PartBody::Text { text } => text.chars().count(),
+            PartBody::Image { .. } => 0,
+        })
+        .sum();
+    if chars > MAX_TEXT_CHARS {
+        return Err(ApiError::TooLarge("消息太长".into()));
     }
-    if text.chars().count() > MAX_TEXT_CHARS {
-        return Err(ApiError::TooLarge);
-    }
-    Ok(text)
+    parts
+        .into_iter()
+        .map(|p| match p {
+            PartBody::Text { text } => Ok(IncomingPart::Text(text)),
+            PartBody::Image { base64 } => BASE64
+                .decode(base64)
+                .map(IncomingPart::Image)
+                .map_err(|_| ApiError::BadRequest("图片不是合法的 base64".into())),
+        })
+        .collect()
 }
 
-async fn append(app: &App, session: SessionId, text: String) -> Result<MessageId, ApiError> {
+async fn append(
+    app: &App,
+    session: SessionId,
+    parts: Vec<IncomingPart>,
+) -> Result<MessageId, ApiError> {
     Ok(app
         .kernel
-        .append_user_input(
-            session,
-            app.kernel.owner(),
-            vec![ContentPart::Text { text }],
-        )
+        .append_user_input(session, app.kernel.owner(), parts)
         .await?)
+}
+
+/// 会话内图片原件；id 不属于该会话与不存在同样返回 404。
+pub(crate) async fn get_image(
+    State(app): State<Arc<App>>,
+    path: Result<Path<(i64, i64)>, PathRejection>,
+) -> Result<Response, ApiError> {
+    let Path((session, image)) = path.map_err(|_| ApiError::NotFound(IMAGE_NOT_FOUND))?;
+    let data = app
+        .kernel
+        .image(SessionId(session), ImageId(image))
+        .await?
+        .ok_or(ApiError::NotFound(IMAGE_NOT_FOUND))?;
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, data.format.mime())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(data.bytes.to_vec()))
+        .expect("响应头静态合法"))
 }
 
 fn now_ms() -> i64 {

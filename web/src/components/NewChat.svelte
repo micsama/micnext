@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createSession } from "../api/client";
+  import type { InputPart } from "../api/types";
   import { router } from "../state/route.svelte";
   import { webSessions } from "../state/sessions.svelte";
   import { settingsStore } from "../state/settings.svelte";
@@ -27,8 +28,8 @@
     return settingsStore.defaultModelId;
   });
 
-  async function send(text: string) {
-    const created = await createSession(text, persona!.id, modelId!);
+  async function send(parts: InputPart[]) {
+    const created = await createSession(parts, persona!.id, modelId!);
     void webSessions.refresh();
     router.go(`/s/${created.session_id}`);
   }

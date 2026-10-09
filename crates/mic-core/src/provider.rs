@@ -1,11 +1,11 @@
 //! 模型 port。契约：docs/blueprints/provider-port.md。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use mic_message::{Message, ReplyBlock};
+use mic_message::{ImageData, ImageId, Message, ReplyBlock};
 use mic_store::{SecretValue, Usage};
 use mic_tool::ToolSpec;
 
@@ -135,6 +135,8 @@ pub struct ModelRequest {
     pub messages: Vec<Message>,
     /// 空 = 不开启工具调用。
     pub tools: Vec<ToolSpec>,
+    /// `messages` 里 `ContentPart::Image` 引用的原件。
+    pub images: HashMap<ImageId, ImageData>,
 }
 
 #[derive(Debug, Clone)]

@@ -7,6 +7,7 @@ edition.workspace = true
 mic-core = { path = "../mic-core" }
 mic-message = { path = "../mic-message" }
 mic-store = { path = "../mic-store" }
+base64 = "0.22"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 getrandom = "0.3"

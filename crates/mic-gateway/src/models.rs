@@ -7,6 +7,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use mic_core::{EndpointDraft, ModelDraft};
+use mic_message::limits::{MAX_IMAGES_PER_INPUT, MAX_IMAGE_BYTES};
 use mic_store::{CredentialWrite, EndpointId, EndpointView, ModelId, ModelView, SecretValue};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -25,6 +26,14 @@ pub(crate) struct KindItem {
 #[derive(Serialize)]
 pub(crate) struct KindList {
     items: Vec<KindItem>,
+    input_limits: InputLimits,
+}
+
+/// 一条消息的图片限额，供 Web 提前提示；服务端仍是最终裁决。
+#[derive(Serialize)]
+struct InputLimits {
+    max_images: usize,
+    max_image_bytes: usize,
 }
 
 #[derive(Serialize)]
@@ -131,7 +140,13 @@ pub(crate) async fn list_kinds(State(app): State<Arc<App>>) -> Json<KindList> {
             display_name: k.display_name,
         })
         .collect();
-    Json(KindList { items })
+    Json(KindList {
+        items,
+        input_limits: InputLimits {
+            max_images: MAX_IMAGES_PER_INPUT,
+            max_image_bytes: MAX_IMAGE_BYTES,
+        },
+    })
 }
 
 pub(crate) async fn list_endpoints(

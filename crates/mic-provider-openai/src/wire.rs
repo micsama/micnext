@@ -29,7 +29,7 @@ pub(crate) enum WireMessage<'a> {
         content: &'a str,
     },
     User {
-        content: String,
+        content: UserContent,
     },
     Assistant {
         /// 只有工具调用时为 `null`。
@@ -43,6 +43,27 @@ pub(crate) enum WireMessage<'a> {
         tool_call_id: &'a str,
         content: String,
     },
+}
+
+/// 纯文本 user 消息保持字符串；含图时用分片数组。
+#[derive(Serialize)]
+#[serde(untagged)]
+pub(crate) enum UserContent {
+    Text(String),
+    Parts(Vec<UserPart>),
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub(crate) enum UserPart {
+    Text { text: String },
+    ImageUrl { image_url: ImageUrl },
+}
+
+#[derive(Serialize)]
+pub(crate) struct ImageUrl {
+    /// `data:<MIME>;base64,<数据>`。
+    pub(crate) url: String,
 }
 
 #[derive(Serialize)]

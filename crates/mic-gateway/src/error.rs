@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use mic_core::KernelError;
+use mic_core::{InputError, KernelError};
 use mic_store::{ModelSettingsError, SettingsError};
 use serde::Serialize;
 
@@ -14,7 +14,8 @@ struct ErrorBody {
 pub(crate) enum ApiError {
     Unauthorized,
     BadRequest(String),
-    TooLarge,
+    /// 413，文案说明哪一项超限。
+    TooLarge(String),
     /// 不存在的资源说明，如「会话不存在」。
     NotFound(&'static str),
     /// 只读会话（非 web）不能发消息。
@@ -31,6 +32,7 @@ pub(crate) enum ApiError {
 
 pub(crate) const SESSION_NOT_FOUND: &str = "会话不存在";
 pub(crate) const PERSONA_NOT_FOUND: &str = "人设不存在";
+pub(crate) const IMAGE_NOT_FOUND: &str = "图片不存在";
 pub(crate) const MODEL_NOT_FOUND: &str = "模型不存在";
 pub(crate) const ENDPOINT_NOT_FOUND: &str = "服务商不存在";
 
@@ -56,6 +58,13 @@ impl From<KernelError> for ApiError {
                 | ModelSettingsError::SessionExecuting => Self::Conflict(e.to_string()),
                 ModelSettingsError::Store(e) => Self::Internal(e.into()),
             },
+            KernelError::Input(e) => match e {
+                InputError::Empty => Self::BadRequest(e.to_string()),
+                InputError::ImageTooLarge => Self::TooLarge(e.to_string()),
+                InputError::ImageLimit | InputError::InvalidImage => {
+                    Self::Unprocessable(e.to_string())
+                }
+            },
             KernelError::Config(e) => Self::Unprocessable(e.to_string()),
             KernelError::Probe(e) => Self::Unprocessable(e.to_string()),
             e => Self::Internal(e),
@@ -68,7 +77,7 @@ impl IntoResponse for ApiError {
         let (status, message) = match self {
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "token 缺失或不正确".to_owned()),
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
-            Self::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "消息太长".to_owned()),
+            Self::TooLarge(m) => (StatusCode::PAYLOAD_TOO_LARGE, m),
             Self::NotFound(what) => (StatusCode::NOT_FOUND, what.to_owned()),
             Self::ReadOnly => (
                 StatusCode::FORBIDDEN,

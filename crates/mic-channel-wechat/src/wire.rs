@@ -91,6 +91,10 @@ pub(crate) struct WechatMessage {
     pub context_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_id: Option<MessageId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<MessageId>,
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -105,7 +109,7 @@ pub(crate) struct MessageItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_completed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub msg_id: Option<MessageId>,
+    pub msg_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_msg: Option<RefMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,7 +126,16 @@ pub(crate) struct MessageItem {
     pub tool_call_start_item: Option<ToolCallStartItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_result_item: Option<ToolCallResultItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub button_item_list: Option<Vec<ButtonItem>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at_bot_username_list: Option<Vec<String>>,
 }
+
+/// NOTE: 实测只见过空数组，字段未知；出现非空内容时按报错路径补模型。
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ButtonItem {}
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -135,7 +148,7 @@ pub(crate) struct TextItem {
 pub(crate) struct RefMessage {
     pub message_item: Option<Box<MessageItem>>,
     pub title: Option<String>,
-    pub svr_id: Option<MessageId>,
+    pub svr_id: Option<String>,
     pub partial_text: Option<PartialText>,
 }
 

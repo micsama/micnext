@@ -24,7 +24,6 @@ use crate::error::{
 };
 use crate::limits::{CHAT_ID_BYTES, MAX_TEXT_CHARS, PAGE_DEFAULT, PAGE_MAX};
 use crate::service::{random_hex, App};
-use crate::settings::new_session_workdir;
 use crate::WEB_CHANNEL;
 
 pub(crate) async fn authorize(
@@ -215,7 +214,7 @@ pub(crate) async fn create_session(
             return Err(ApiError::NotFound(MODEL_NOT_FOUND));
         }
     }
-    let pwd = new_session_workdir(&app).await?;
+    let pwd = app.kernel.default_workdir().await?;
     let chat = random_hex(CHAT_ID_BYTES);
     let session = app
         .kernel

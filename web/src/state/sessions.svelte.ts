@@ -2,7 +2,7 @@ import { listSessions } from "../api/client";
 import type { Cursor, SessionItem } from "../api/types";
 
 /** Gateway 之外、Web 只读查看的渠道。新渠道由接入它的 B2 追加（web-ui §五）。 */
-export const OTHER_CHANNELS = ["cli"] as const;
+export const OTHER_CHANNELS = ["cli", "wechat"] as const;
 
 const older = (s: SessionItem, c: Cursor) =>
   s.last_activity_at < c.before_at || (s.last_activity_at === c.before_at && s.id < c.before_id);

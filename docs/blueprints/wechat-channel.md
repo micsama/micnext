@@ -331,6 +331,13 @@ client 完整接收源码所有已声明字段；暂无消费者的媒体、引�
 wire DTO 拒绝未知字段，新增上游字段先补边界模型，不在运行期静默丢掉。
 所有成功必须显式确认 ret=0，不能把 ret 缺失当 0。可选字段在 wire 层保留 Option；
 业务需要的 user_id、context_token、游标等在相应成功分支一次验证后交给内部流程。
+
+**P3 契约补正（2026-10-09，human 已确认按 SDK 接口逐步调试）**：上句 `ret=0` 约束仅用于 SDK 声明 `ret` 的
+getupdates/sendmessage/getconfig/sendtyping 响应。SDK 的 QRCodeResponse、StatusResponse 没有 `ret`：
+取二维码以 HTTP 成功且两个必需字符串非空为成功；轮询以 HTTP 成功、已知 status 及该状态的必需字段为准。
+confirmed 仍须完整凭据，未知字段/状态及缺失必需字段仍为 Protocol，不把缺失 ret 伪造成 0。
+依据为本地 Bun 缓存的 `@tencent-weixin/openclaw-weixin@2.4.9/src/auth/login-qr.ts` 两个响应接口。
+
 认证头/base_info 见协议素材 §二，协议值集中于 client/limits，不散落给 Gateway 或调用方。
 bot_agent 为 micnext/<version>；iLink-App-Id、bot_type 等实测项见 §十一，未验证前不声称协议兼容。
 

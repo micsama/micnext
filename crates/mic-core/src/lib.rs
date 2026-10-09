@@ -2,6 +2,7 @@
 //! 不依赖具体 Channel。契约：docs/blueprints/mic-core-module.md。
 
 mod assembly;
+mod channel_setup;
 mod error;
 mod event;
 mod input;
@@ -15,7 +16,11 @@ mod run;
 mod scheduler;
 
 pub use assembly::{Assembly, OnceOutcome, OneShot};
-pub use error::{AssembleError, KernelError, RunError};
+pub use channel_setup::{
+    ChannelConnection, ChannelSetup, ChannelSetupError, ChannelSetupView, LinkedChannel,
+    SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
+};
+pub use error::{AssembleError, KernelError, RunError, WorkdirError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
 pub use input::{IncomingPart, InputError};
 pub use kernel::{EndpointDraft, Kernel, ModelDraft};

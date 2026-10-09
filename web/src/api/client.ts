@@ -10,6 +10,8 @@ import {
   parseSessionItem,
   parseSessionPage,
   parseSettings,
+  parseSetupAttempt,
+  parseWechatView,
   type Created,
   type Cursor,
   type Endpoint,
@@ -24,6 +26,8 @@ import {
   type SessionPage,
   type Settings,
   type SettingsInput,
+  type SetupAttempt,
+  type WechatView,
 } from "./types";
 
 /** 服务端以 `{"error": "…"}` 返回的失败。 */
@@ -139,6 +143,22 @@ export async function setDefaultModel(id: number): Promise<void> {
 
 export async function getSettings(): Promise<Settings> {
   return parseSettings(await request("GET", "/settings"));
+}
+
+export async function getWechat(): Promise<WechatView> {
+  return parseWechatView(await request("GET", "/channels/wechat"));
+}
+
+export async function beginWechatLogin(): Promise<SetupAttempt> {
+  return parseSetupAttempt(await request("POST", "/channels/wechat/login", {}));
+}
+
+export async function submitWechatCode(id: string, code: string): Promise<void> {
+  await request("POST", `/channels/wechat/login/${encodeURIComponent(id)}/code`, { code });
+}
+
+export async function cancelWechatLogin(id: string): Promise<void> {
+  await request("DELETE", `/channels/wechat/login/${encodeURIComponent(id)}`);
 }
 
 export async function putSettings(s: SettingsInput): Promise<void> {

@@ -5,14 +5,14 @@ use std::sync::Arc;
 use axum::extract::DefaultBodyLimit;
 use axum::handler::Handler;
 use axum::http::StatusCode;
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{middleware, Router};
 use mic_core::{BoxError, Kernel, Service};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
-use crate::{api, models, settings, stream, web};
+use crate::{api, channels, models, settings, stream, web};
 
 pub(crate) struct Gateway {
     pub(crate) config: Config,
@@ -57,6 +57,13 @@ async fn serve(config: Config, kernel: Kernel, stop: CancellationToken) -> Resul
         stop: stop.clone(),
     });
     let api = Router::new()
+        .route("/channels/wechat", get(channels::status))
+        .route("/channels/wechat/login", post(channels::begin))
+        .route("/channels/wechat/login/{id}", delete(channels::cancel))
+        .route(
+            "/channels/wechat/login/{id}/code",
+            post(channels::submit_code),
+        )
         .route(
             "/sessions",
             get(api::list_sessions)

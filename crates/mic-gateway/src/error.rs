@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use mic_core::{InputError, KernelError};
+use mic_core::{ChannelSetupError, InputError, KernelError, WorkdirError};
 use mic_store::{ModelSettingsError, SettingsError};
 use serde::Serialize;
 
@@ -28,6 +28,7 @@ pub(crate) enum ApiError {
     /// 新会话工作目录无法使用，文案含路径与原因。
     Workdir(String),
     Internal(KernelError),
+    Setup(ChannelSetupError),
 }
 
 pub(crate) const SESSION_NOT_FOUND: &str = "会话不存在";
@@ -36,9 +37,24 @@ pub(crate) const IMAGE_NOT_FOUND: &str = "图片不存在";
 pub(crate) const MODEL_NOT_FOUND: &str = "模型不存在";
 pub(crate) const ENDPOINT_NOT_FOUND: &str = "服务商不存在";
 
+impl From<ChannelSetupError> for ApiError {
+    fn from(error: ChannelSetupError) -> Self {
+        Self::Setup(error)
+    }
+}
+
 impl From<KernelError> for ApiError {
     fn from(e: KernelError) -> Self {
         match e {
+            KernelError::SessionNotFound => Self::NotFound(SESSION_NOT_FOUND),
+            KernelError::Workdir(e) => {
+                let hint = match &e {
+                    WorkdirError::HomeMissing => "请在 设置 → 对话偏好 改用绝对路径",
+                    WorkdirError::NonUtf8 { .. } => "请在 设置 → 对话偏好 修改",
+                    WorkdirError::Create { .. } => "请在 设置 → 对话偏好 改为可写的目录",
+                };
+                Self::Workdir(format!("{e}。{hint}"))
+            }
             KernelError::Settings(e) => match e {
                 SettingsError::PersonaNotFound => Self::NotFound(PERSONA_NOT_FOUND),
                 SettingsError::Builtin => Self::Forbidden(e.to_string()),
@@ -93,6 +109,19 @@ impl IntoResponse for ApiError {
             Self::Internal(e) => {
                 tracing::error!(error = %e, "gateway request failed");
                 (StatusCode::INTERNAL_SERVER_ERROR, "内部错误".to_owned())
+            }
+            Self::Setup(e) => {
+                let status = match &e {
+                    ChannelSetupError::AttemptNotFound => StatusCode::NOT_FOUND,
+                    ChannelSetupError::WrongPhase => StatusCode::CONFLICT,
+                    ChannelSetupError::InvalidCode => StatusCode::BAD_REQUEST,
+                    ChannelSetupError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+                    ChannelSetupError::Internal { source } => {
+                        tracing::error!(error = %source, "channel setup failed");
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    }
+                };
+                (status, e.to_string())
             }
         };
         (status, Json(ErrorBody { error: message })).into_response()

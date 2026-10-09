@@ -3,8 +3,13 @@ name = "micnext"
 version = "0.0.0"
 edition.workspace = true
 
+[features]
+default = ["wechat"]
+wechat = ["dep:mic-channel-wechat"]
+
 [dependencies]
 mic-core = { path = "../../crates/mic-core" }
+mic-channel-wechat = { path = "../../crates/mic-channel-wechat", optional = true }
 mic-gateway = { path = "../../crates/mic-gateway" }
 mic-message = { path = "../../crates/mic-message" }
 mic-store = { path = "../../crates/mic-store" }

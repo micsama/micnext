@@ -18,8 +18,8 @@ use crate::provider::Factories;
 use crate::run::{now_ms, Engine};
 use crate::scheduler::panic_message;
 use crate::{
-    kernel, recovery, scheduler, Activation, AssembleError, BoxError, IncomingPart, Kernel, Module,
-    ModuleConfig, Registry, RunError, Service,
+    kernel, recovery, scheduler, Activation, AssembleError, BoxError, ChannelSetup, IncomingPart,
+    Kernel, Module, ModuleConfig, Registry, RunError, Service,
 };
 
 const DEFAULT_OWNER: &str = "dzmfg";
@@ -34,6 +34,7 @@ pub struct Assembly {
     key_file: SecretKeyFile,
     factories: Arc<Factories>,
     tools: Vec<ToolHandle>,
+    channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
 }
 
 /// `-p` 的一次性输入。
@@ -124,6 +125,7 @@ impl Assembly {
             services: Vec::new(),
             providers: Vec::new(),
             tools: Vec::new(),
+            channel_setups: Vec::new(),
         };
         for m in &modules {
             let module = m.name();
@@ -158,6 +160,13 @@ impl Assembly {
                 .map_err(|kind| AssembleError::DuplicateProviderKind { kind })?;
         }
 
+        let mut channel_setups = HashMap::new();
+        for (channel, setup) in reg.channel_setups {
+            if channel_setups.insert(channel, setup).is_some() {
+                return Err(AssembleError::DuplicateChannelSetup { channel });
+            }
+        }
+
         Ok(Self {
             data_dir,
             migrations: reg.migrations,
@@ -166,6 +175,7 @@ impl Assembly {
             key_file: SecretKeyFile(key_file),
             factories: Arc::new(factories),
             tools: reg.tools.into_iter().map(|(_, t)| t).collect(),
+            channel_setups: Arc::new(channel_setups),
         })
     }
 
@@ -181,6 +191,7 @@ impl Assembly {
             events.clone(),
             wake_tx,
             self.factories.clone(),
+            self.channel_setups.clone(),
         );
         let engine = Arc::new(self.engine(started.store.clone(), events));
         let mut scheduler = Box::pin(scheduler::run(engine, wake_rx));

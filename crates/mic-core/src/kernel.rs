@@ -1,12 +1,14 @@
+use std::collections::HashMap;
 use std::num::NonZeroU32;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use mic_message::{ImageData, ImageId, Message, MessageId, PersonId, SessionId};
+use mic_message::{ImageData, ImageId, Message, MessageBody, MessageId, PersonId, SessionId};
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
-    CredentialWrite, EndpointId, EndpointView, EndpointWrite, ModelId, ModelView, ModelWrite,
-    NewInputPart, NewSession, Persona, PersonaId, RunId, Session, SessionCursor, SessionKind,
-    SessionPage, SessionSummary, Settings, Store, StoreError,
+    CredentialWrite, EndpointId, EndpointView, EndpointWrite, Identity, ModelId, ModelView,
+    ModelWrite, NewInputPart, NewSession, PendingDelivery, Persona, PersonaId, RunId, Session,
+    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, Store, StoreError,
 };
 use tokio::sync::mpsc;
 
@@ -14,7 +16,7 @@ use crate::event::{EventReceiver, Events};
 use crate::input::{validate, IncomingPart};
 use crate::provider::{resolve_key, Factories};
 use crate::run::now_ms;
-use crate::{request, KernelError, ProviderKindView};
+use crate::{request, ChannelSetup, KernelError, ProviderKindView, WorkdirError};
 
 /// 模块拿到的内核窄接口。Clone 廉价；核心表只经这些方法写。
 #[derive(Clone)]
@@ -24,6 +26,7 @@ pub struct Kernel {
     events: Events,
     wake: mpsc::Sender<SessionId>,
     factories: Arc<Factories>,
+    channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
 }
 
 /// 创建/修改服务商的输入；`config_json` 由对应 kind 的工厂解析。
@@ -48,6 +51,7 @@ impl Kernel {
         events: Events,
         wake: mpsc::Sender<SessionId>,
         factories: Arc<Factories>,
+        channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
     ) -> Self {
         Self {
             store,
@@ -55,12 +59,29 @@ impl Kernel {
             events,
             wake,
             factories,
+            channel_setups,
         }
     }
 
     /// 配置声明的 owner person。单用户：Web 与 `-p` 都以它身份写入。
     pub fn owner(&self) -> PersonId {
         self.owner
+    }
+
+    pub fn channel_setup(&self, channel: &str) -> Option<Arc<dyn ChannelSetup>> {
+        self.channel_setups.get(channel).cloned()
+    }
+
+    /// 按 Channel 外部身份取得或创建 person，并刷新显示名。
+    pub async fn resolve_identity(
+        &self,
+        identity: Identity,
+        display_name: &str,
+    ) -> Result<PersonId, KernelError> {
+        Ok(self
+            .store
+            .resolve_identity(identity, display_name, now_ms())
+            .await?)
     }
 
     /// Channel 用：按 (channel, chat) 原子取得或新建 Root 会话。
@@ -97,6 +118,48 @@ impl Kernel {
         // 调度循环已退出（停止中）时发送失败，按上面的约定忽略。
         let _ = self.wake.send(session_id).await;
         Ok(message.id)
+    }
+
+    /// Channel 通知落盘并发布，不唤醒模型。
+    pub async fn append_notification(
+        &self,
+        session: SessionId,
+        source: &str,
+        text: String,
+    ) -> Result<MessageId, KernelError> {
+        let publish = self.events.publisher().await;
+        let session = self
+            .store
+            .session(session)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        let channel = session_channel(&self.store, &session).await?;
+        let message = self
+            .store
+            .append(
+                session.id,
+                None,
+                MessageBody::Notification {
+                    source: source.to_owned(),
+                    text,
+                },
+                now_ms(),
+            )
+            .await?;
+        let id = message.id;
+        publish.appended(session.id, &channel, message);
+        Ok(id)
+    }
+
+    pub async fn pending_deliveries(
+        &self,
+        channel: &str,
+    ) -> Result<Vec<PendingDelivery>, KernelError> {
+        Ok(self.store.pending_deliveries(channel).await?)
+    }
+
+    pub async fn mark_delivered(&self, id: MessageId) -> Result<(), KernelError> {
+        Ok(self.store.mark_delivered(id, now_ms()).await?)
     }
 
     /// 会话内的图片原件；id 可能来自外部，不属于该会话或不存在返回 `None`。
@@ -155,6 +218,29 @@ impl Kernel {
 
     pub async fn settings(&self) -> Result<Settings, KernelError> {
         Ok(self.store.settings().await?)
+    }
+
+    /// 默认工作目录展开为 UTF-8 绝对路径，并确保存在。
+    pub async fn default_workdir(&self) -> Result<String, KernelError> {
+        let raw = self.store.settings().await?.default_workdir;
+        let path = match raw.strip_prefix("~/") {
+            Some(rest) => std::env::var_os("HOME")
+                .filter(|home| !home.is_empty())
+                .map(|home| PathBuf::from(home).join(rest))
+                .ok_or(WorkdirError::HomeMissing)?,
+            None => PathBuf::from(raw),
+        };
+        let path = path
+            .into_os_string()
+            .into_string()
+            .map_err(|path| WorkdirError::NonUtf8 { path: path.into() })?;
+        tokio::fs::create_dir_all(&path)
+            .await
+            .map_err(|source| WorkdirError::Create {
+                path: PathBuf::from(&path),
+                source,
+            })?;
+        Ok(path)
     }
 
     /// 下一轮 run 起生效。
@@ -342,6 +428,25 @@ impl Kernel {
     /// 订阅之后产生的事件（全部会话，按 `channel`/`session_id` 字段过滤）。
     pub fn subscribe(&self) -> EventReceiver {
         self.events.subscribe()
+    }
+
+    /// 订阅与历史切点同受发布锁保护；切点之后的稳定消息全部留在接收器中。
+    pub async fn subscribe_from_now(
+        &self,
+        session: SessionId,
+    ) -> Result<(EventReceiver, Option<MessageId>), KernelError> {
+        let _publish = self.events.publisher().await;
+        if self.store.session(session).await?.is_none() {
+            return Err(KernelError::SessionNotFound);
+        }
+        let receiver = self.events.subscribe();
+        let latest = self
+            .store
+            .messages_after(session, None)
+            .await?
+            .last()
+            .map(|message| message.id);
+        Ok((receiver, latest))
     }
 
     /// 只许访问本模块 `{name}_` 前缀的表；由模块单元测试把关。

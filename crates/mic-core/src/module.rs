@@ -2,9 +2,10 @@ use mic_store::Migration;
 use mic_tool::{Tool, ToolHandle};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{Kernel, ProviderFactory};
+use crate::{ChannelSetup, Kernel, ProviderFactory};
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -55,9 +56,14 @@ pub struct Registry {
     pub(crate) services: Vec<(&'static str, Box<dyn Service>)>,
     pub(crate) providers: Vec<Box<dyn ProviderFactory>>,
     pub(crate) tools: Vec<(&'static str, ToolHandle)>,
+    pub(crate) channel_setups: Vec<(&'static str, Arc<dyn ChannelSetup>)>,
 }
 
 impl Registry {
+    pub fn channel_setup(&mut self, setup: impl ChannelSetup) {
+        self.channel_setups.push((self.current, Arc::new(setup)));
+    }
+
     pub fn migrations(&mut self, m: &'static [Migration]) {
         self.migrations.extend_from_slice(m);
     }

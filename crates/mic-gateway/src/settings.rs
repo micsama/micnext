@@ -1,6 +1,5 @@
 //! 设置页与人设接口。契约：docs/blueprints/gateway.md §4.4。
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::rejection::{JsonRejection, PathRejection};
@@ -170,34 +169,6 @@ pub(crate) async fn set_session_persona(
         .set_session_persona(session.id, b.persona_id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// 设置里的默认工作目录展开为 UTF-8 绝对路径，并确保存在。
-pub(crate) async fn new_session_workdir(app: &App) -> Result<String, ApiError> {
-    let raw = app.kernel.settings().await?.default_workdir;
-    let path = match raw.strip_prefix("~/") {
-        Some(rest) => std::env::var_os("HOME")
-            .filter(|h| !h.is_empty())
-            .map(|h| PathBuf::from(h).join(rest))
-            .ok_or_else(|| {
-                ApiError::Workdir(format!(
-                    "环境变量 HOME 未设置，无法展开「{raw}」：请在 设置 → 对话偏好 改用绝对路径"
-                ))
-            })?,
-        None => PathBuf::from(&raw),
-    };
-    let path = path.into_os_string().into_string().map_err(|p| {
-        ApiError::Workdir(format!(
-            "工作目录 {} 不是 UTF-8 路径，请在 设置 → 对话偏好 修改",
-            p.to_string_lossy()
-        ))
-    })?;
-    tokio::fs::create_dir_all(&path).await.map_err(|e| {
-        ApiError::Workdir(format!(
-            "无法创建工作目录 {path}：{e}。请在 设置 → 对话偏好 改为可写的目录"
-        ))
-    })?;
-    Ok(path)
 }
 
 fn persona_id(id: Result<Path<i64>, PathRejection>) -> Result<PersonaId, ApiError> {

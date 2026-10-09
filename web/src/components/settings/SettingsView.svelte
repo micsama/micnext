@@ -2,6 +2,7 @@
   import BoxesIcon from "@lucide/svelte/icons/boxes";
   import SlidersIcon from "@lucide/svelte/icons/sliders-horizontal";
   import SparklesIcon from "@lucide/svelte/icons/sparkles";
+  import QrCodeIcon from "@lucide/svelte/icons/qr-code";
   import type { Component } from "svelte";
   import { cn } from "$lib/utils";
   import { settingsStore } from "../../state/settings.svelte";
@@ -9,6 +10,7 @@
   import EndpointsSection from "./EndpointsSection.svelte";
   import PersonasSection from "./PersonasSection.svelte";
   import PrefsSection from "./PrefsSection.svelte";
+  import WechatSection from "./WechatSection.svelte";
 
   let { onmenu }: { onmenu: () => void } = $props();
 
@@ -16,11 +18,12 @@
     document.title = "设置 · micnext";
   });
 
-  type Tab = "prefs" | "personas" | "models";
+  type Tab = "prefs" | "personas" | "models" | "wechat";
   const tabs: { id: Tab; label: string; icon: Component }[] = [
     { id: "prefs", label: "对话偏好", icon: SlidersIcon },
     { id: "personas", label: "人设", icon: SparklesIcon },
     { id: "models", label: "服务商与模型", icon: BoxesIcon },
+    { id: "wechat", label: "微信", icon: QrCodeIcon },
   ];
   let tab = $state<Tab>("prefs");
   const current = $derived(tabs.find((t) => t.id === tab)!);
@@ -63,7 +66,9 @@
       {#if settingsStore.error}
         <p class="mb-4 text-sm text-destructive">{settingsStore.error}</p>
       {/if}
-      {#if !settingsStore.settings}
+      {#if tab === "wechat"}
+        <WechatSection />
+      {:else if !settingsStore.settings}
         <p class="text-sm text-muted-foreground">加载中…</p>
       {:else if tab === "prefs"}
         <PrefsSection settings={settingsStore.settings} />

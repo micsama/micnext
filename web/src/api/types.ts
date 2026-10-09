@@ -129,6 +129,57 @@ export type Created = { session_id: number; message_id: number };
 
 export type RunState = "executing" | "completed" | "provider_failed" | "max_turns" | "interrupted";
 
+export type LinkedChannel = {
+  account_id: string;
+  user_id: string;
+  session_id: number;
+  connection: "connected" | "needs_login" | "faulted";
+};
+
+export type SetupProgress =
+  | { state: "preparing" | "expired" | "cancelled" }
+  | { state: "waiting" | "scanned" | "needs_code"; qr_content: string }
+  | { state: "connected"; account: LinkedChannel }
+  | { state: "failed"; reason: "network" | "verification_blocked" | "existing_binding" | "protocol" };
+
+export type SetupAttempt = { id: string; progress: SetupProgress };
+export type WechatView =
+  | { available: false }
+  | { available: true; account: LinkedChannel | null; login: SetupAttempt | null };
+
+const linkedChannel: Decoder<LinkedChannel> = obj({
+  account_id: str, user_id: str, session_id: num,
+  connection: oneOf("connected", "needs_login", "faulted"),
+});
+
+const setupProgress: Decoder<SetupProgress> = (v, at) => {
+  if (typeof v !== "object" || v === null || !("state" in v)) throw new ProtocolError(at);
+  switch (v.state) {
+    case "preparing": case "expired": case "cancelled":
+      return obj({ state: oneOf("preparing", "expired", "cancelled") })(v, at);
+    case "waiting": case "scanned": case "needs_code":
+      return obj({ state: oneOf("waiting", "scanned", "needs_code"), qr_content: str })(v, at);
+    case "connected":
+      return obj({ state: oneOf("connected"), account: linkedChannel })(v, at);
+    case "failed":
+      return obj({ state: oneOf("failed"), reason: oneOf("network", "verification_blocked", "existing_binding", "protocol") })(v, at);
+    default: throw new ProtocolError(at);
+  }
+};
+
+const setupAttempt: Decoder<SetupAttempt> = obj({ id: str, progress: setupProgress });
+export const parseSetupAttempt = (v: unknown): SetupAttempt => setupAttempt(v, "微信登录");
+export const parseWechatView = (v: unknown): WechatView => {
+  if (typeof v !== "object" || v === null || !("available" in v)) throw new ProtocolError("微信状态");
+  if (v.available === false) {
+    obj({ available: bool })(v, "微信状态");
+    return { available: false };
+  }
+  const result = obj({ available: bool, account: nullable(linkedChannel), login: nullable(setupAttempt) })(v, "微信状态");
+  if (result.available !== true) throw new ProtocolError("微信状态.available");
+  return { ...result, available: true };
+};
+
 export type StreamEvent =
   | { event: "message"; data: Message }
   | { event: "text_delta"; data: { text: string } }

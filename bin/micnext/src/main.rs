@@ -84,6 +84,12 @@ async fn run() -> Result<ExitCode> {
         Box::new(mic_tool_fs::FsModule),
         Box::new(mic_tool_web_fetch::WebFetchModule),
     ];
+    #[cfg(feature = "wechat")]
+    let modules = {
+        let mut modules = modules;
+        modules.push(Box::new(mic_channel_wechat::WechatModule));
+        modules
+    };
     let assembly = Assembly::new(modules, config)
         .with_context(|| format!("配置文件 {} 有误", path.display()))?;
 

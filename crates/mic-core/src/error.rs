@@ -21,6 +21,8 @@ pub enum AssembleError {
     RemovedModelsConfig,
     #[error("模型类型 `{kind}` 被重复登记")]
     DuplicateProviderKind { kind: &'static str },
+    #[error("Channel `{channel}` 的登录能力被重复登记")]
+    DuplicateChannelSetup { channel: &'static str },
     #[error("工具 `{name}` 被模块 `{first}` 和 `{second}` 重复登记")]
     DuplicateTool {
         name: String,
@@ -60,6 +62,10 @@ pub enum RunError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum KernelError {
+    #[error("会话不存在")]
+    SessionNotFound,
+    #[error(transparent)]
+    Workdir(#[from] WorkdirError),
     #[error(transparent)]
     Store(#[from] mic_store::StoreError),
     #[error(transparent)]
@@ -72,4 +78,17 @@ pub enum KernelError {
     Config(#[from] crate::ConfigError),
     #[error(transparent)]
     Probe(#[from] crate::ProbeError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WorkdirError {
+    #[error("环境变量 HOME 未设置，无法展开工作目录")]
+    HomeMissing,
+    #[error("工作目录 {} 不是 UTF-8 路径", path.display())]
+    NonUtf8 { path: PathBuf },
+    #[error("无法创建工作目录 {}：{source}", path.display())]
+    Create {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }

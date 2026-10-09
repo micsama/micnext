@@ -98,7 +98,7 @@
     </button>
     {#if othersOpen}
       {#each otherSessions as other (other.channel)}
-        <p class="px-3 pt-2 pb-1 text-xs text-muted-foreground">{other.channel}</p>
+        <p class="px-3 pt-2 pb-1 text-xs text-muted-foreground">{other.channel === "wechat" ? "微信" : other.channel}</p>
         {#each other.items as s (s.id)}
           {@render entry(s.id, s.preview)}
         {/each}

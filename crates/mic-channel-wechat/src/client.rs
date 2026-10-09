@@ -1,0 +1,426 @@
+use base64::{engine::general_purpose::STANDARD, Engine};
+use reqwest::{Client as HttpClient, Response, Url};
+use serde::de::DeserializeOwned;
+use std::error::Error;
+use std::time::Duration;
+
+use crate::account::{Credentials, Token, WechatUserId};
+use crate::limits::{
+    API_BASE, API_TIMEOUT, APP_ID, BOT_TYPE, CLIENT_VERSION, PROTOCOL_VERSION, QR_TIMEOUT,
+};
+use crate::wire::{self, QrRequest, QrResponse, QrStatus, QrStatusResponse};
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ClientError {
+    #[error("微信网络连接失败")]
+    Network,
+    #[error("微信请求超时")]
+    Timeout,
+    #[error("微信服务拒绝请求（HTTP {0}）")]
+    Rejected(u16),
+    #[error("微信服务拒绝请求")]
+    BusinessRejected,
+    #[error("微信登录已失效")]
+    SessionExpired,
+    #[error("微信协议不匹配：{0}")]
+    Protocol(&'static str),
+}
+
+pub(crate) struct Client {
+    http: HttpClient,
+}
+
+pub(crate) struct Qr {
+    pub token: String,
+    pub content: String,
+}
+
+pub(crate) enum LoginStatus {
+    Waiting,
+    Scanned,
+    Redirect(Url),
+    NeedsCode,
+    VerificationBlocked,
+    ExistingBinding,
+    Expired,
+    Confirmed(Credentials),
+}
+
+pub(crate) struct Updates {
+    pub snapshot: wire::GetUpdatesResponse,
+    pub cursor: String,
+    pub timeout_ms: Option<u32>,
+    pub incoming: Vec<IncomingMessage>,
+}
+
+pub(crate) struct IncomingMessage {
+    pub context_token: String,
+    pub content: Vec<IncomingContent>,
+}
+
+pub(crate) enum IncomingContent {
+    Text(String),
+    Unsupported,
+}
+
+impl Client {
+    pub fn new() -> Result<Self, ClientError> {
+        let http = HttpClient::builder()
+            .user_agent(format!(
+                "micnext/{} iLink/{PROTOCOL_VERSION}",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .timeout(QR_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| ClientError::Protocol("HTTP client 初始化失败"))?;
+        Ok(Self { http })
+    }
+
+    pub async fn qr(&self, tokens: &[Token]) -> Result<Qr, ClientError> {
+        let mut random = [0u8; 4];
+        getrandom::fill(&mut random).map_err(|_| ClientError::Protocol("随机源不可用"))?;
+        let uin = STANDARD.encode(u32::from_be_bytes(random).to_string());
+        let body = QrRequest {
+            local_token_list: tokens.iter().map(Token::expose).collect(),
+        };
+        let response = self
+            .http
+            .post(format!("{API_BASE}ilink/bot/get_bot_qrcode"))
+            .query(&[("bot_type", BOT_TYPE)])
+            .header("iLink-App-Id", APP_ID)
+            .header("iLink-App-ClientVersion", CLIENT_VERSION)
+            .header("AuthorizationType", "ilink_bot_token")
+            .header("X-WECHAT-UIN", uin)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| network_error("get_bot_qrcode", error))?;
+        let response: QrResponse = decode(response, "get_bot_qrcode").await?;
+        if response.qrcode.trim().is_empty() || response.qrcode_img_content.trim().is_empty() {
+            return Err(ClientError::Protocol("二维码字段为空"));
+        }
+        Ok(Qr {
+            token: response.qrcode,
+            content: response.qrcode_img_content,
+        })
+    }
+
+    fn authenticated(
+        &self,
+        credentials: &Credentials,
+        endpoint: &str,
+    ) -> Result<reqwest::RequestBuilder, ClientError> {
+        let url = credentials
+            .base_url
+            .join(endpoint)
+            .map_err(|_| ClientError::Protocol("API 地址无效"))?;
+        let mut random = [0u8; 4];
+        getrandom::fill(&mut random).map_err(|_| ClientError::Protocol("随机源不可用"))?;
+        Ok(self
+            .http
+            .post(url)
+            .header("iLink-App-Id", APP_ID)
+            .header("iLink-App-ClientVersion", CLIENT_VERSION)
+            .header("AuthorizationType", "ilink_bot_token")
+            .header(
+                "X-WECHAT-UIN",
+                STANDARD.encode(u32::from_be_bytes(random).to_string()),
+            )
+            .bearer_auth(credentials.token.expose()))
+    }
+
+    pub async fn updates(
+        &self,
+        credentials: &Credentials,
+        cursor: &str,
+        timeout_ms: u32,
+    ) -> Result<Updates, ClientError> {
+        let response = self
+            .authenticated(credentials, "ilink/bot/getupdates")?
+            .timeout(Duration::from_millis(timeout_ms.into()))
+            .json(&wire::GetUpdatesRequest {
+                get_updates_buf: cursor,
+                base_info: base_info(),
+            })
+            .send()
+            .await
+            .map_err(|error| network_error("getupdates", error))?;
+        parse_updates(decode(response, "getupdates").await?, &credentials.user_id)
+    }
+
+    pub async fn send(
+        &self,
+        credentials: &Credentials,
+        context_token: &str,
+        client_id: &str,
+        text: &str,
+    ) -> Result<wire::MessageId, ClientError> {
+        let msg = wire::WechatMessage {
+            from_user_id: Some(String::new()),
+            to_user_id: Some(credentials.user_id.0.clone()),
+            client_id: Some(client_id.to_owned()),
+            message_type: Some(2),
+            message_state: Some(2),
+            context_token: Some(context_token.to_owned()),
+            item_list: Some(vec![wire::MessageItem {
+                kind: Some(1),
+                text_item: Some(wire::TextItem {
+                    text: Some(text.to_owned()),
+                }),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        let response = self
+            .authenticated(credentials, "ilink/bot/sendmessage")?
+            .timeout(API_TIMEOUT)
+            .json(&wire::SendMessageRequest {
+                msg,
+                base_info: base_info(),
+            })
+            .send()
+            .await
+            .map_err(|error| network_error("sendmessage", error))?;
+        let response: wire::SendMessageResponse = decode(response, "sendmessage").await?;
+        let wire::SendMessageResponse {
+            message_id,
+            ret,
+            _errmsg: _,
+        } = response;
+        successful(ret, None)?;
+        message_id.ok_or(ClientError::Protocol("发送成功但缺少 message_id"))
+    }
+
+    pub async fn poll(
+        &self,
+        base: &Url,
+        qr: &Qr,
+        code: Option<&str>,
+    ) -> Result<LoginStatus, ClientError> {
+        let url = base
+            .join("ilink/bot/get_qrcode_status")
+            .map_err(|_| ClientError::Protocol("轮询地址无效"))?;
+        let mut request = self
+            .http
+            .get(url)
+            .query(&[("qrcode", qr.token.as_str())])
+            .header("iLink-App-Id", APP_ID)
+            .header("iLink-App-ClientVersion", CLIENT_VERSION);
+        if let Some(code) = code {
+            request = request.query(&[("verify_code", code)]);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| network_error("get_qrcode_status", error))?;
+        let response: QrStatusResponse = decode(response, "get_qrcode_status").await?;
+        Ok(match response.status {
+            QrStatus::Wait => LoginStatus::Waiting,
+            QrStatus::Scaned => LoginStatus::Scanned,
+            QrStatus::NeedVerifycode => LoginStatus::NeedsCode,
+            QrStatus::VerifyCodeBlocked => LoginStatus::VerificationBlocked,
+            QrStatus::BindedRedirect => LoginStatus::ExistingBinding,
+            QrStatus::Expired => LoginStatus::Expired,
+            QrStatus::ScanedButRedirect => {
+                let host = required(response.redirect_host, "缺少 redirect_host")?;
+                let url = https_base(&format!("https://{host}/"))?;
+                if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
+                    return Err(ClientError::Protocol("redirect_host 不是主机地址"));
+                }
+                LoginStatus::Redirect(url)
+            }
+            QrStatus::Confirmed => LoginStatus::Confirmed(Credentials {
+                user_id: WechatUserId(required(response.ilink_user_id, "缺少 ilink_user_id")?),
+                bot_id: required(response.ilink_bot_id, "缺少 ilink_bot_id")?,
+                token: Token::new(required(response.bot_token, "缺少 bot_token")?),
+                base_url: https_base(&required(response.baseurl, "缺少 baseurl")?)?,
+            }),
+        })
+    }
+}
+
+fn base_info() -> wire::BaseInfo {
+    wire::BaseInfo {
+        channel_version: PROTOCOL_VERSION,
+        bot_agent: format!("micnext/{}", env!("CARGO_PKG_VERSION")),
+    }
+}
+
+pub(crate) fn parse_updates(
+    snapshot: wire::GetUpdatesResponse,
+    user: &WechatUserId,
+) -> Result<Updates, ClientError> {
+    successful(snapshot.ret, snapshot.errcode)?;
+    let cursor = snapshot
+        .get_updates_buf
+        .as_ref()
+        .ok_or(ClientError::Protocol("缺少 get_updates_buf"))?
+        .clone();
+    let timeout_ms = snapshot.longpolling_timeout_ms;
+    if timeout_ms == Some(0) {
+        return Err(ClientError::Protocol("长轮询 timeout 为零"));
+    }
+    let mut incoming = Vec::new();
+    for message in snapshot.msgs.iter().flatten() {
+        validate_message(message)?;
+        if message.from_user_id.as_deref() != Some(user.0.as_str())
+            || message
+                .group_id
+                .as_ref()
+                .is_some_and(|group| !group.is_empty())
+            || message.message_type != Some(1)
+        {
+            continue;
+        }
+        let context_token = required(message.context_token.clone(), "入站缺少 context_token")?;
+        let mut content = Vec::new();
+        for item in message.item_list.iter().flatten() {
+            match item.kind {
+                Some(1) => {
+                    let text = item
+                        .text_item
+                        .as_ref()
+                        .and_then(|item| item.text.as_ref())
+                        .ok_or(ClientError::Protocol("文本 item 缺少 text"))?;
+                    if !text.trim().is_empty() {
+                        content.push(IncomingContent::Text(text.clone()));
+                    }
+                }
+                Some(3) => match item
+                    .voice_item
+                    .as_ref()
+                    .and_then(|voice| voice.text.as_ref())
+                {
+                    Some(text) if !text.trim().is_empty() => {
+                        content.push(IncomingContent::Text(text.clone()))
+                    }
+                    _ => content.push(IncomingContent::Unsupported),
+                },
+                Some(0 | 2 | 4 | 5 | 11 | 12) => content.push(IncomingContent::Unsupported),
+                None => return Err(ClientError::Protocol("item 缺少 type")),
+                Some(_) => unreachable!("validate_message 已拒绝未知 type"),
+            }
+        }
+        incoming.push(IncomingMessage {
+            context_token,
+            content,
+        });
+    }
+    Ok(Updates {
+        snapshot,
+        cursor,
+        timeout_ms,
+        incoming,
+    })
+}
+
+fn validate_message(message: &wire::WechatMessage) -> Result<(), ClientError> {
+    if message
+        .message_type
+        .is_some_and(|kind| !matches!(kind, 0..=2))
+        || message
+            .message_state
+            .is_some_and(|state| !matches!(state, 0..=2))
+    {
+        return Err(ClientError::Protocol("未知 message_type 或 message_state"));
+    }
+    for item in message.item_list.iter().flatten() {
+        validate_item(item)?;
+    }
+    Ok(())
+}
+
+fn validate_item(item: &wire::MessageItem) -> Result<(), ClientError> {
+    if item
+        .kind
+        .is_some_and(|kind| !matches!(kind, 0..=5 | 11 | 12))
+    {
+        return Err(ClientError::Protocol("未知 item type"));
+    }
+    if let Some(reference) = &item.ref_msg {
+        if let Some(item) = &reference.message_item {
+            validate_item(item)?;
+        }
+    }
+    Ok(())
+}
+
+fn successful(ret: Option<i32>, errcode: Option<i32>) -> Result<(), ClientError> {
+    if ret == Some(-14) || errcode == Some(-14) {
+        return Err(ClientError::SessionExpired);
+    }
+    match ret {
+        Some(0) if errcode.is_none_or(|code| code == 0) => Ok(()),
+        Some(_) => Err(ClientError::BusinessRejected),
+        None => Err(ClientError::Protocol("缺少 ret")),
+    }
+}
+
+pub(crate) fn https_base(raw: &str) -> Result<Url, ClientError> {
+    let mut url = Url::parse(raw).map_err(|_| ClientError::Protocol("API 地址格式无效"))?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(ClientError::Protocol("API 地址须为无用户信息的 HTTPS URL"));
+    }
+    if !url.path().ends_with('/') {
+        url.set_path(&format!("{}/", url.path()));
+    }
+    Ok(url)
+}
+
+pub(crate) fn required(value: Option<String>, field: &'static str) -> Result<String, ClientError> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .ok_or(ClientError::Protocol(field))
+}
+
+fn network_error(endpoint: &'static str, error: reqwest::Error) -> ClientError {
+    if error.is_timeout() {
+        ClientError::Timeout
+    } else {
+        let mut source = error.source();
+        let mut io_kind = None;
+        let mut os_error = None;
+        let mut tls_handshake_eof = false;
+        while let Some(cause) = source {
+            if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+                io_kind = Some(io.kind());
+                os_error = io.raw_os_error();
+            }
+            tls_handshake_eof |= cause.to_string() == "tls handshake eof";
+            source = cause.source();
+        }
+        tracing::warn!(
+            endpoint,
+            connect = error.is_connect(),
+            ?io_kind,
+            ?os_error,
+            tls_handshake_eof,
+            "wechat HTTP transport failed"
+        );
+        ClientError::Network
+    }
+}
+
+async fn decode<T: DeserializeOwned>(
+    response: Response,
+    endpoint: &'static str,
+) -> Result<T, ClientError> {
+    if !response.status().is_success() {
+        tracing::warn!(
+            endpoint,
+            status = response.status().as_u16(),
+            "wechat HTTP rejected"
+        );
+        return Err(ClientError::Rejected(response.status().as_u16()));
+    }
+    let body = response
+        .bytes()
+        .await
+        .map_err(|error| network_error(endpoint, error))?;
+    serde_json::from_slice(&body).map_err(|_| ClientError::Protocol("响应字段或枚举不匹配"))
+}

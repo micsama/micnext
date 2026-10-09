@@ -1084,6 +1084,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "mic-channel-wechat"
+version = "0.0.0"
+dependencies = [
+ "base64",
+ "getrandom 0.3.4",
+ "mic-core",
+ "mic-message",
+ "mic-store",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "mic-core"
 version = "0.0.0"
 dependencies = [
@@ -1218,6 +1236,7 @@ name = "micnext"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "mic-channel-wechat",
  "mic-core",
  "mic-gateway",
  "mic-message",

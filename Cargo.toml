@@ -10,6 +10,7 @@ members = [
     "crates/mic-tool-fs",
     "crates/mic-tool-web-fetch",
     "crates/mic-gateway",
+    "crates/mic-channel-wechat",
     "bin/micnext",
 ]
 

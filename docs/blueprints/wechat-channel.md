@@ -586,10 +586,14 @@ human 已改用自己的腾讯云干净服务器验收。首次启动已生成 `
 ```sh
 ./build.sh
 ./target/release/micnext
+# 或构建成功后直接启动：
+./build.sh run
 ```
 
 脚本只检查工具，缺失即提示手动安装；依次执行 frozen-lockfile 安装、Bun 前端构建、
 清理 gateway 的 release 产物、Rust release 构建，确保最新 Web 资源嵌入二进制。运行二进制不需要前端构建工具。
+`run` 后的参数原样传给 micnext，例如 `./build.sh run --config /path/to/config.toml`；
+用法与失败行为见 [build-script-run](build-script-run.md)。
 
 下一次 human 验收先完成服务启动与默认模型配置，再到「设置 → 微信」扫码，确认连接后发“你好”，
 核对微信收到回复及 Web「其他渠道 → 微信」历史；随后验证一次工具调用。

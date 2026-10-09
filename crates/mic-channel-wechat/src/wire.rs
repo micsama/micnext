@@ -243,6 +243,7 @@ pub(crate) struct QrRequest<'a> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct QrResponse {
+    pub ret: Option<i32>,
     pub qrcode: String,
     pub qrcode_img_content: String,
 }
@@ -263,6 +264,7 @@ pub(crate) enum QrStatus {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct QrStatusResponse {
+    pub ret: Option<i32>,
     pub status: QrStatus,
     pub bot_token: Option<String>,
     pub ilink_bot_id: Option<String>,

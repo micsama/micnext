@@ -97,6 +97,7 @@ impl Client {
             .await
             .map_err(|error| network_error("get_bot_qrcode", error))?;
         let response: QrResponse = decode(response, "get_bot_qrcode").await?;
+        login_successful(response.ret)?;
         if response.qrcode.trim().is_empty() || response.qrcode_img_content.trim().is_empty() {
             return Err(ClientError::Protocol("二维码字段为空"));
         }
@@ -215,6 +216,7 @@ impl Client {
             .await
             .map_err(|error| network_error("get_qrcode_status", error))?;
         let response: QrStatusResponse = decode(response, "get_qrcode_status").await?;
+        login_successful(response.ret)?;
         Ok(match response.status {
             QrStatus::Wait => LoginStatus::Waiting,
             QrStatus::Scaned => LoginStatus::Scanned,
@@ -354,6 +356,14 @@ fn successful(ret: Option<i32>, errcode: Option<i32>) -> Result<(), ClientError>
         Some(0) if errcode.is_none_or(|code| code == 0) => Ok(()),
         Some(_) => Err(ClientError::BusinessRejected),
         None => Err(ClientError::Protocol("缺少 ret")),
+    }
+}
+
+/// SDK 未声明登录响应的 ret，实测会返回；缺失按 SDK 视为成功，出现则须为 0。
+fn login_successful(ret: Option<i32>) -> Result<(), ClientError> {
+    match ret {
+        None | Some(0) => Ok(()),
+        Some(_) => Err(ClientError::BusinessRejected),
     }
 }
 

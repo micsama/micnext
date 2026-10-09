@@ -35,6 +35,7 @@ pub struct Assembly {
     factories: Arc<Factories>,
     tools: Vec<ToolHandle>,
     channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
+    channel_prompts: Arc<HashMap<&'static str, &'static str>>,
 }
 
 /// `-p` 的一次性输入。
@@ -126,6 +127,7 @@ impl Assembly {
             providers: Vec::new(),
             tools: Vec::new(),
             channel_setups: Vec::new(),
+            channel_prompts: Vec::new(),
         };
         for m in &modules {
             let module = m.name();
@@ -167,6 +169,13 @@ impl Assembly {
             }
         }
 
+        let mut channel_prompts = HashMap::new();
+        for (channel, prompt) in reg.channel_prompts {
+            if channel_prompts.insert(channel, prompt).is_some() {
+                return Err(AssembleError::DuplicateChannelPrompt { channel });
+            }
+        }
+
         Ok(Self {
             data_dir,
             migrations: reg.migrations,
@@ -176,6 +185,7 @@ impl Assembly {
             factories: Arc::new(factories),
             tools: reg.tools.into_iter().map(|(_, t)| t).collect(),
             channel_setups: Arc::new(channel_setups),
+            channel_prompts: Arc::new(channel_prompts),
         })
     }
 
@@ -354,6 +364,7 @@ impl Assembly {
             events,
             factories: self.factories.clone(),
             tools: self.tools.clone(),
+            channel_prompts: self.channel_prompts.clone(),
         }
     }
 }

@@ -50,11 +50,18 @@ pub(crate) fn build(
     window: ContextWindow,
     images: HashMap<ImageId, ImageData>,
     pwd: &str,
+    channel_prompt: Option<&str>,
     tools: &[ToolHandle],
     settings: &RunSettings,
 ) -> ModelRequest {
     ModelRequest {
-        system: system_prompt(settings, pwd, tools, window.summary.as_deref()),
+        system: system_prompt(
+            settings,
+            pwd,
+            channel_prompt,
+            tools,
+            window.summary.as_deref(),
+        ),
         messages: order(window.messages),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
@@ -66,6 +73,7 @@ pub(crate) fn build(
 fn system_prompt(
     settings: &RunSettings,
     pwd: &str,
+    channel_prompt: Option<&str>,
     tools: &[ToolHandle],
     summary: Option<&str>,
 ) -> String {
@@ -74,6 +82,7 @@ fn system_prompt(
         persona.push(format!("User preferences:\n{}", settings.general_prompt));
     }
     let mut context = vec![format!("Working directory: {pwd}")];
+    context.extend(channel_prompt.map(str::to_owned));
     context.extend(
         tools
             .iter()

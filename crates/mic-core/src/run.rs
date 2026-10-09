@@ -1,5 +1,6 @@
 //! 一个 run 的执行。契约：docs/blueprints/run-execution.md §4.3～4.5、§4.7、§4.8。
 
+use std::collections::HashMap;
 use std::future::poll_fn;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,7 +8,7 @@ use std::sync::Arc;
 use mic_message::{ExecFailureKind, ExecOutcome, MessageBody, ReplyBlock, ToolResultOutcome};
 use mic_store::{
     ClaimedModel, ClaimedRun, ModelCallOutcome, NewModelCall, Run, RunSettings, RunState, Session,
-    Store, StoreError, ToolScope,
+    SessionKind, Store, StoreError, ToolScope,
 };
 use mic_tool::{ToolContext, ToolHandle};
 use tokio::task::JoinSet;
@@ -28,6 +29,8 @@ pub(crate) struct Engine {
     pub(crate) events: Events,
     pub(crate) factories: Arc<Factories>,
     pub(crate) tools: Vec<ToolHandle>,
+    /// 渠道名 → 渠道提示；只用于 Root 会话。
+    pub(crate) channel_prompts: Arc<HashMap<&'static str, &'static str>>,
 }
 
 impl Engine {
@@ -197,7 +200,20 @@ impl Exec<'_> {
             .store
             .images(self.session.id, request::image_ids(&window))
             .await?;
-        let req = request::build(window, images, &self.session.pwd, tools, self.settings);
+        let channel_prompt = match &self.session.kind {
+            SessionKind::Root { channel, .. } => {
+                self.engine.channel_prompts.get(channel.as_str()).copied()
+            }
+            SessionKind::Task { .. } | SessionKind::Triggered { .. } => None,
+        };
+        let req = request::build(
+            window,
+            images,
+            &self.session.pwd,
+            channel_prompt,
+            tools,
+            self.settings,
+        );
         let mut attempt = 1;
         loop {
             let started_at = now_ms();

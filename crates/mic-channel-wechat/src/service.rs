@@ -40,6 +40,10 @@ impl Module for WechatModule {
         let (view, snapshot) = watch::channel(None);
         reg.migrations(account::MIGRATIONS);
         reg.channel_setup(Setup { commands, snapshot });
+        reg.channel_prompt(
+            "wechat",
+            "WeChat: Markdown mostly works (no math, footnotes, collapsibles; code blocks unhighlighted). Tool activity is invisible, but text sent with tool calls reaches the user as messages: keep such updates short and occasional.",
+        );
         reg.service(Coordinator { commands: rx, view });
         Ok(())
     }

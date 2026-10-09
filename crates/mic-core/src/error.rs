@@ -23,6 +23,8 @@ pub enum AssembleError {
     DuplicateProviderKind { kind: &'static str },
     #[error("Channel `{channel}` 的登录能力被重复登记")]
     DuplicateChannelSetup { channel: &'static str },
+    #[error("Channel `{channel}` 的渠道提示被重复登记")]
+    DuplicateChannelPrompt { channel: &'static str },
     #[error("工具 `{name}` 被模块 `{first}` 和 `{second}` 重复登记")]
     DuplicateTool {
         name: String,

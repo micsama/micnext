@@ -48,6 +48,8 @@ impl Registry {
     pub fn service(&mut self, s: impl Service);
     /// 模型模块按 `[models.<name>]` 条目名登记（provider-port B2）。
     pub fn provider(&mut self, name: impl Into<String>, p: impl Provider);
+    /// 渠道 Root 会话的呈现说明，键显式传入（[channel-prompt](channel-prompt.md)）。
+    pub fn channel_prompt(&mut self, channel: &'static str, prompt: &'static str);
     // 以下随各 port 的 B2 加入，名字先占定：
     // tool / channel / provider / hook / context(slot, …)
 }
@@ -202,7 +204,8 @@ pub enum AssembleError {
     UnknownModelKind { model: String, kind: String },
     #[error("[models] default = \"{name}\" 不是任何模型条目")]
     UnknownDefaultModel { name: String },
-    // 随各 port 加入：DuplicateTool / DuplicateChannel …
+    // 随各 port 加入：DuplicateTool / DuplicateChannelSetup / DuplicateChannelPrompt …
+    // 新增变体不破坏调用方：二进制只经 anyhow 收口，无穷尽匹配。
 }
 
 #[derive(Debug, thiserror::Error)]

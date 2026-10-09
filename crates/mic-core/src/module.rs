@@ -57,11 +57,17 @@ pub struct Registry {
     pub(crate) providers: Vec<Box<dyn ProviderFactory>>,
     pub(crate) tools: Vec<(&'static str, ToolHandle)>,
     pub(crate) channel_setups: Vec<(&'static str, Arc<dyn ChannelSetup>)>,
+    pub(crate) channel_prompts: Vec<(&'static str, &'static str)>,
 }
 
 impl Registry {
     pub fn channel_setup(&mut self, setup: impl ChannelSetup) {
         self.channel_setups.push((self.current, Arc::new(setup)));
+    }
+
+    /// 本渠道 Root 会话的呈现说明，进入 system prompt `context` 块；同一渠道只能声明一次。
+    pub fn channel_prompt(&mut self, channel: &'static str, prompt: &'static str) {
+        self.channel_prompts.push((channel, prompt));
     }
 
     pub fn migrations(&mut self, m: &'static [Migration]) {

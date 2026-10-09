@@ -39,6 +39,8 @@ User preferences:          ← 通用偏好非空时
 <context>
 Working directory: {pwd}
 
+{渠道提示}                 ← Root 会话且渠道已声明时
+
 {各工具 prompt_hint，按工具顺序各占一段}
 
 Summary of the earlier conversation:   ← 有摘要时
@@ -50,7 +52,7 @@ Summary of the earlier conversation:   ← 有摘要时
 |---|---|---|
 | `instructions` | 框架规则 + 消息头说明 | 只读，随二进制 |
 | `persona` | 助手怎么做事 | 用户（人设、通用偏好） |
-| `context` | 工作目录、可用工具提示、会话摘要 | core 组装；工具提示由工具定义，摘要来自会话 |
+| `context` | 工作目录、渠道提示、可用工具提示、会话摘要 | core 组装；渠道提示由渠道声明（[channel-prompt](channel-prompt.md)），工具提示由工具定义，摘要来自会话 |
 
 块的含义靠标签名自明，`system.md` 不另作说明。三块是文本组织方式，不映射为三个 Rust 模块；段落划分随实际需求迭代。
 

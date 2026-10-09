@@ -33,6 +33,10 @@ impl Module for GatewayModule {
 
     fn install(&self, reg: &mut Registry, cfg: ModuleConfig) -> Result<(), BoxError> {
         let config = cfg.parse::<RawConfig>()?.resolve()?;
+        reg.channel_prompt(
+            WEB_CHANNEL,
+            "Web: Markdown is supported; tool activity is visible live.",
+        );
         reg.service(Gateway { config });
         Ok(())
     }

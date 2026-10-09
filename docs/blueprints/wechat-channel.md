@@ -116,6 +116,9 @@ impl Kernel {
 重复登记返回新增 `AssembleError::DuplicateChannelSetup { channel: &'static str }`，启动失败。
 Kernel 返回 trait 对象；未编入返回 None，未登录则 port 存在且 account=None。
 
+微信另以 `wechat` 登记渠道提示（[channel-prompt](channel-prompt.md)）。模型随工具调用写的进度文字
+复用 Reply 投递路径发出；core 不等送达再执行工具，不保证用户先于工具执行收到。
+
 `ChannelSetupError` 是 thiserror 枚举：`AttemptNotFound`、`WrongPhase`、`InvalidCode`、`Unavailable`、
 `Internal { source: BoxError }`。前四项为业务错误；Internal 的 source 只写经脱敏的本机日志。
 验证码去首尾空白后非空、长度 ≤ 128 个字符；不猜数字位数。未知/旧 attempt id 拒绝，不送到新登录。
@@ -200,7 +203,8 @@ DeliveryTarget：channel="wechat"、version=1、payload 为强类型 `WechatTarg
 token 用私有包装，Debug 脱敏，不实现向 HTTP 视图序列化；登录结果不经过浏览器回传。
 
 本 B2 提案将 bot token 放模块 SQLite 列，不增加第二套密钥管理；磁盘访问沿用既有本机 Store 边界。
-API 不读出 token，日志不记录 token、context_token、验证码、二维码内容或原始响应正文。
+API 不读出 token，日志不记录 token、context_token、验证码、二维码内容或原始响应正文；
+例外：响应解码失败时，debug 级别输出原始响应体供协议对齐（可能含 token 与正文，仅调试时开启）。
 已有模型 API key 的加密契约不变；若 human 要求微信 token 同样磁盘加密，应先修订本文凭据契约再实现。
 
 ### 4.2 模块迁移（module="wechat"，version=1）
@@ -547,7 +551,7 @@ Phase 2–5 的主链路已提交并推送：`d87db45 feat(wechat): 接通扫码
 - sender 从原子切点后的 Reply/Notification 提取正文，按 4000 个 Unicode 字符分段；每段最多两次尝试，共用 client_id。
   失败跳过仍保留记录，重启不补发旧积压。收发任务使用固定账号快照，取消与交接等待数据库写入完成。
 - HTTP 失败日志已补齐接口名、连接阶段、I/O 类别、系统错误码与 TLS EOF 标记；HTTP 拒绝记录状态码。
-  不输出凭据、请求查询串、二维码内容或原始响应正文。页面仍使用简短失败提示。
+  不输出凭据、请求查询串、二维码内容或原始响应正文（解码失败的 debug 例外见凭据节）。页面仍使用简短失败提示。
 
 上述是实现事实；同号/换号、入站过滤、失败预算、重启处置等真实运行行为仍须按 §11.4 人工验收。
 Phase 6 的 getconfig/sendtyping、typing 生命周期与整体验收尚未实现，不据此关闭蓝图。

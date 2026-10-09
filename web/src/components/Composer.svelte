@@ -8,15 +8,18 @@
     onsend,
     placeholder = "输入消息，回车发送，Shift+回车换行",
     autofocus = false,
-    controls,
+    leading,
+    trailing,
     notice = null,
     blocked = false,
   }: {
     onsend: (parts: InputPart[]) => Promise<void>;
     placeholder?: string;
     autofocus?: boolean;
-    /** 发送按钮左侧的本会话选择（如人设）。 */
-    controls?: Snippet;
+    /** 工具栏左侧、附件按钮之后的本会话选择（如人设）。 */
+    leading?: Snippet;
+    /** 工具栏右侧、发送按钮之前的本会话选择（如模型）。 */
+    trailing?: Snippet;
     /** 输入框上方的提示。 */
     notice?: string | null;
     /** 暂不能发送（原因见 notice）。 */
@@ -137,9 +140,11 @@
     }}
     ondragleave={() => (dragging = false)}
     {ondrop}
-    class="rounded-2xl border bg-background px-3 py-2 focus-within:border-primary {dragging ? 'border-primary' : 'border-border'}">
+    class="rounded-3xl border bg-card p-2 shadow-sm transition-colors focus-within:border-ring {dragging
+      ? 'border-primary'
+      : 'border-border'}">
     {#if attachments.length > 0}
-      <div class="mb-2 flex flex-wrap gap-2">
+      <div class="flex flex-wrap gap-2 px-2 pt-2">
         {#each attachments as a, i (a.url)}
           <div class="relative">
             <img src={a.url} alt={a.file.name} class="size-16 rounded-lg object-cover" />
@@ -155,27 +160,6 @@
         {/each}
       </div>
     {/if}
-    <div class="flex items-end gap-2">
-    <input
-      bind:this={picker}
-      type="file"
-      accept={IMAGE_TYPES.join(",")}
-      multiple
-      hidden
-      onchange={() => {
-        attach([...(picker.files ?? [])]);
-        picker.value = "";
-      }} />
-    {#if limits}
-      <button
-        type="button"
-        onclick={() => picker.click()}
-        disabled={posting}
-        aria-label="添加图片"
-        class="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30">
-        <Icon name="image" />
-      </button>
-    {/if}
     <textarea
       bind:this={input}
       bind:value={text}
@@ -184,17 +168,41 @@
       {placeholder}
       disabled={posting}
       rows="1"
-      class="max-h-60 min-h-6 flex-1 resize-none bg-transparent py-1 outline-none placeholder:text-muted-foreground disabled:opacity-60"
+      class="block max-h-60 min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base outline-none placeholder:text-muted-foreground disabled:opacity-60"
     ></textarea>
-    {@render controls?.()}
-    <button
-      type="button"
-      onclick={send}
-      disabled={!canSend}
-      aria-label="发送"
-      class="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-30">
-      <Icon name={posting ? "loader" : "arrowUp"} class={posting ? "size-4 animate-spin" : "size-4"} />
-    </button>
+    <div class="flex items-center gap-1">
+      <input
+        bind:this={picker}
+        type="file"
+        accept={IMAGE_TYPES.join(",")}
+        multiple
+        hidden
+        onchange={() => {
+          attach([...(picker.files ?? [])]);
+          picker.value = "";
+        }} />
+      {#if limits}
+        <button
+          type="button"
+          onclick={() => picker.click()}
+          disabled={posting}
+          aria-label="添加图片"
+          title="添加图片"
+          class="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-foreground hover:bg-accent disabled:opacity-30">
+          <Icon name="plus" class="size-5" />
+        </button>
+      {/if}
+      {@render leading?.()}
+      <div class="flex-1"></div>
+      {@render trailing?.()}
+      <button
+        type="button"
+        onclick={send}
+        disabled={!canSend}
+        aria-label="发送"
+        class="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30">
+        <Icon name={posting ? "loader" : "arrowUp"} class={posting ? "size-5 animate-spin" : "size-5"} />
+      </button>
     </div>
   </div>
 </div>

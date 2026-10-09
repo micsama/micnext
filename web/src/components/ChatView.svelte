@@ -91,8 +91,10 @@
   <MessageList {view} />
   {#if item?.writable}
     <Composer onsend={send} autofocus {notice}>
-      {#snippet controls()}
+      {#snippet leading()}
         <PersonaPicker value={persona!.id} onpick={pick} />
+      {/snippet}
+      {#snippet trailing()}
         <ModelPicker value={modelValue} onpick={pickModel} disabled={view.executingRun !== null} />
       {/snippet}
     </Composer>

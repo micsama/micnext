@@ -50,10 +50,12 @@
       : persona?.replaced
         ? "原选的人设已删除，已改用默认人设"
         : null)}>
-  {#snippet controls()}
+  {#snippet leading()}
     {#if persona !== null}
       <PersonaPicker value={persona.id} onpick={(id) => (picked = id)} />
     {/if}
+  {/snippet}
+  {#snippet trailing()}
     {#if modelId !== null}
       <ModelPicker value={modelId} onpick={(id) => (pickedModel = id)} />
     {/if}

@@ -13,11 +13,16 @@ struct Assets;
 const INDEX: &str = "index.html";
 const ASSET_DIR: &str = "assets/";
 
+#[cfg(debug_assertions)]
+const MISSING_ASSETS: &str = "Web 前端未构建：请先安装 Node.js 和 pnpm，在源码目录运行 pnpm -C web install && pnpm -C web build，然后重新启动；完整 release 构建可运行 ./build.sh";
+#[cfg(not(debug_assertions))]
+const MISSING_ASSETS: &str = "此二进制未包含 Web 页面：请在源码目录运行 ./build.sh，完成前端构建并重新编译 Rust；构建环境需先安装 Rust、Node.js 和 pnpm";
+
 /// 启动检查：产物缺失即报错，不起空站点。
 pub(crate) fn ensure_built() -> Result<(), String> {
     match Assets::get(INDEX) {
         Some(_) => Ok(()),
-        None => Err("Web 前端未构建：先运行 pnpm -C web install && pnpm -C web build".into()),
+        None => Err(MISSING_ASSETS.into()),
     }
 }
 

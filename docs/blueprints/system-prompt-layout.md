@@ -108,7 +108,7 @@ const ALL: [Header<'static>; 7]; // 每种头一个样例，所有取值均为 "
 Bracketed headers are added by the framework:
 - [user id=… at=…]: a user message.
 - [runtime-note]: a framework notice, not the user.
-- [notification src=… at=…]: an event from src, not the user.
+- [notification src=… at=…]: an event from src at that time, not the user; it may no longer hold now.
 - [dispatched exec_id=…]: a background tool started; its result arrives as a completion.
 - [completion exec_id=…]: the result of that background tool.
 - [failed kind=…]: the tool call failed (input: fix the arguments; business: rejected by tool rules; dependency: environment error).

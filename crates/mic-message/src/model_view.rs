@@ -145,7 +145,7 @@ impl<'a> Header<'a> {
         match self {
             Self::User { .. } => "a user message.",
             Self::RuntimeNote => "a framework notice, not the user.",
-            Self::Notification { .. } => "an event from src, not the user.",
+            Self::Notification { .. } => "an event from src at that time, not the user; it may no longer hold now.",
             Self::Dispatched { .. } => {
                 "a background tool started; its result arrives as a completion."
             }

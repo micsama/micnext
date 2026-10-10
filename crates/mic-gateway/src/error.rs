@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use mic_core::{ChannelSetupError, InputError, KernelError, WorkdirError};
-use mic_store::{ModelSettingsError, SettingsError};
+use mic_store::{DiagnosticError, ModelSettingsError, SettingsError};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -25,6 +25,8 @@ pub(crate) enum ApiError {
     Conflict(String),
     /// 语法合法但语义不被接受，如模型配置校验失败。
     Unprocessable(String),
+    /// 当前部署不提供该能力。
+    Unavailable(String),
     /// 新会话工作目录无法使用，文案含路径与原因。
     Workdir(String),
     Internal(KernelError),
@@ -83,6 +85,14 @@ impl From<KernelError> for ApiError {
             },
             KernelError::Config(e) => Self::Unprocessable(e.to_string()),
             KernelError::Probe(e) => Self::Unprocessable(e.to_string()),
+            KernelError::Diagnostic(e) => match e {
+                DiagnosticError::Busy => Self::Conflict(e.to_string()),
+                DiagnosticError::Timeout | DiagnosticError::Rejected(_) => {
+                    Self::BadRequest(e.to_string())
+                }
+                DiagnosticError::Unavailable => Self::Unavailable(e.to_string()),
+                DiagnosticError::Store(e) => Self::Internal(e.into()),
+            },
             e => Self::Internal(e),
         }
     }
@@ -102,6 +112,7 @@ impl IntoResponse for ApiError {
             Self::Unprocessable(m) => (StatusCode::UNPROCESSABLE_ENTITY, m),
             Self::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             Self::Conflict(m) => (StatusCode::CONFLICT, m),
+            Self::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
             Self::Workdir(m) => {
                 tracing::error!(error = %m, "web session workdir unusable");
                 (StatusCode::INTERNAL_SERVER_ERROR, m)

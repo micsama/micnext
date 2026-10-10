@@ -41,7 +41,8 @@
 ### 3.1 crate
 
 ```rust
-pub struct GatewayModule;   // Module::name() = "gateway"，activation = Always
+pub struct GatewayModule { /* logs */ }   // Module::name() = "gateway"，activation = Always
+// 构造：GatewayModule::new(DeveloperLogs)，见 developer-diagnostics.md §2.2
 ```
 
 `install` 解析 `[gateway]`（没有该段收到空表），登记一个 `Service`。Service 类型不公开。

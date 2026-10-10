@@ -37,3 +37,13 @@ pub(crate) const MODEL_NAME_MAX_CHARS: usize = 80;
 /// 服务商名称最大字符数。
 pub(crate) const ENDPOINT_NAME_MAX_CHARS: usize = 40;
 pub(crate) const API_KEY_MAX_CHARS: usize = 512;
+
+/// 开发者日志：保留条数、文本总字节、单条文本字节、单条字段数。
+pub(crate) const LOG_RECORDS: usize = 10_000;
+pub(crate) const LOG_TOTAL_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const LOG_RECORD_BYTES: usize = 16 * 1024;
+pub(crate) const LOG_FIELDS: usize = 128;
+/// 日志流每批读取条数，也是单连接待发事件上限。
+pub(crate) const LOG_BATCH: usize = 128;
+/// 诊断 SQL 文本上限。
+pub(crate) const SQL_MAX_BYTES: usize = 16 * 1024;

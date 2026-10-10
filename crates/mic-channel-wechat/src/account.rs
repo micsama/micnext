@@ -4,7 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mic_core::{ChannelConnection, Kernel, LinkedChannel};
 use mic_message::{PersonId, SessionId};
 use mic_store::rusqlite::{params, OptionalExtension};
-use mic_store::{DeliveryTarget, Identity, Migration, NewSession, SessionKind, ToolScope};
+use mic_store::{
+    DeliveryTarget, Identity, Migration, NewSession, SecretColumn, SessionKind, ToolScope,
+};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +67,16 @@ CREATE TABLE wechat_delivery_attempt (
   PRIMARY KEY (message_id, chunk_index, attempt_no)
 );
 ",
+    secret_columns: &[
+        SecretColumn {
+            table: "wechat_account",
+            column: "bot_token",
+        },
+        SecretColumn {
+            table: "wechat_state",
+            column: "context_token",
+        },
+    ],
 }];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

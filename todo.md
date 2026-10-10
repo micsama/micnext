@@ -21,4 +21,4 @@
 | B1 方向已定（2026-10-10） | 微信 V2：对齐官方 SDK 能力——引用回复、入站图片/文件/视频、出站媒体；斜杠指令跨 Channel 统一另起 B1 | [`docs/brainstorm/wechat-v2.md`](docs/brainstorm/wechat-v2.md) |
 | 想法，未定 | 人设绑定 UI 主题；「理性大脑」人设定稿 | [`docs/brainstorm/runtime-settings.md`](docs/brainstorm/runtime-settings.md) §三 |
 | 已知缺口，待定义验收边界 | 入站去重、投递重复；模型/工具/历史尺寸、工具授权与进程退出 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-3、8～9 |
-| 待运行时骨架 | 日志路径与级别约定，定稿后补进 `CLAUDE.md` | — |
+| B2 已批准并实现，fmt/clippy/web 通过，接口级验收通过；待网页与项目 DEBUG 人工验收后 CLOSED（2026-10-10） | Web 开发者诊断：内存日志（项目 DEBUG/依赖 INFO，1 万条/16 MiB，筛选/正则/暂停/复制）+ 只读 SQL（mic-store 只读连接 + authorizer，凭据列由建表方声明读作 NULL，2s/200 行/1 MiB） | [B2](docs/blueprints/developer-diagnostics.md)；B1：[日志](docs/brainstorm/developer-logs.md)、[SQL](docs/brainstorm/developer-sql.md)；原日志路径/级别约定定稿后补进 `CLAUDE.md` |

@@ -1,6 +1,7 @@
 import { ApiError, getSession } from "../api/client";
 import { readStream } from "../api/stream";
 import { ProtocolError, type Message, type RunState, type SessionItem, type StreamEvent } from "../api/types";
+import { sleep } from "../lib/sleep";
 import { webSessions } from "./sessions.svelte";
 
 export type Draft = { reasoning: string; text: string };
@@ -106,11 +107,4 @@ export class SessionView {
         break;
     }
   }
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
-  });
 }

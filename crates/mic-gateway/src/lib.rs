@@ -6,13 +6,18 @@ mod channels;
 mod config;
 mod error;
 mod limits;
+mod log_stream;
+mod logs;
 mod models;
 mod service;
 mod settings;
+mod sql;
 mod stream;
 mod web;
 
 use mic_core::{Activation, BoxError, Module, ModuleConfig, Registry};
+
+pub use crate::logs::DeveloperLogs;
 
 use crate::config::RawConfig;
 use crate::service::Gateway;
@@ -20,7 +25,16 @@ use crate::service::Gateway;
 /// Web 会话所属的 Channel。
 pub(crate) const WEB_CHANNEL: &str = "web";
 
-pub struct GatewayModule;
+pub struct GatewayModule {
+    logs: DeveloperLogs,
+}
+
+impl GatewayModule {
+    /// `logs` 由装配根创建并接入 tracing；本模块只读取。
+    pub fn new(logs: DeveloperLogs) -> Self {
+        Self { logs }
+    }
+}
 
 impl Module for GatewayModule {
     fn name(&self) -> &'static str {
@@ -37,7 +51,10 @@ impl Module for GatewayModule {
             WEB_CHANNEL,
             "Web: Markdown is supported; tool activity is visible live.",
         );
-        reg.service(Gateway { config });
+        reg.service(Gateway {
+            config,
+            logs: self.logs.clone(),
+        });
         Ok(())
     }
 }

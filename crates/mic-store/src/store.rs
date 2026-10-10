@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use mic_message::{ContextBoundary, Message, MessageBody, MessageId, PersonId, SessionId};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
+use crate::diagnostic::Diagnostic;
 use crate::limits::PREVIEW_CHARS;
 use crate::row::{
     self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, PERSONA_COLS, RUN_COLS, SESSION_COLS, UNCLAIMED,
@@ -14,14 +15,16 @@ use crate::{endpoints, models};
 use crate::{
     ClaimedModel, ClaimedRun, ContextWindow, Identity, Migration, ModelCallId, ModelCallOutcome,
     NewModelCall, NewSession, PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunSettings,
-    RunState, SecretKeyFile, Session, SessionCursor, SessionPage, SessionSummary, Settings,
-    SettingsError, StoreError,
+    RunState, SecretColumn, SecretKeyFile, Session, SessionCursor, SessionPage, SessionSummary,
+    Settings, SettingsError, StoreError,
 };
 
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
     cipher: Arc<Cipher>,
+    /// 内存库无只读诊断连接。
+    pub(crate) diagnostic: Option<Arc<Diagnostic>>,
 }
 
 impl Store {
@@ -31,8 +34,10 @@ impl Store {
         key: SecretKeyFile,
     ) -> Result<Self, StoreError> {
         let path = path.to_owned();
+        let diagnostic = path.clone();
         Self::init(
             move || Connection::open(path),
+            move |secrets| Diagnostic::open(&diagnostic, secrets).map(Some),
             modules,
             move |has_ciphertext| Cipher::from_file(&key, has_ciphertext),
         )
@@ -43,30 +48,39 @@ impl Store {
     pub async fn open_in_memory(modules: &[Migration]) -> Result<Self, StoreError> {
         Self::init(
             Connection::open_in_memory,
+            |_| Ok(None),
             modules,
             |_| Ok(Cipher::random()),
         )
         .await
     }
 
-    async fn init<F, K>(connect: F, modules: &[Migration], key: K) -> Result<Self, StoreError>
+    async fn init<F, D, K>(
+        connect: F,
+        diagnostic: D,
+        modules: &[Migration],
+        key: K,
+    ) -> Result<Self, StoreError>
     where
         F: FnOnce() -> rusqlite::Result<Connection> + Send + 'static,
+        D: FnOnce(Vec<SecretColumn>) -> rusqlite::Result<Option<Diagnostic>> + Send + 'static,
         K: FnOnce(bool) -> Result<Cipher, StoreError> + Send + 'static,
     {
         let modules = modules.to_vec();
-        let (conn, cipher) = tokio::task::spawn_blocking(move || {
+        let (conn, diagnostic, cipher) = tokio::task::spawn_blocking(move || {
             let mut conn = connect()?;
             crate::schema::init(&mut conn, &modules)?;
+            let diagnostic = diagnostic(crate::schema::secret_columns(&modules))?;
             let cipher = key(endpoints::has_ciphertext(&conn)?)?;
             endpoints::verify_keys(&conn, &cipher)?;
-            Ok::<_, StoreError>((conn, cipher))
+            Ok::<_, StoreError>((conn, diagnostic, cipher))
         })
         .await
         .expect("store 阻塞任务 panic")?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             cipher: Arc::new(cipher),
+            diagnostic: diagnostic.map(Arc::new),
         })
     }
 

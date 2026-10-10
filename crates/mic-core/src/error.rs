@@ -80,6 +80,8 @@ pub enum KernelError {
     Config(#[from] crate::ConfigError),
     #[error(transparent)]
     Probe(#[from] crate::ProbeError),
+    #[error(transparent)]
+    Diagnostic(#[from] mic_store::DiagnosticError),
 }
 
 #[derive(Debug, thiserror::Error)]

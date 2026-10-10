@@ -109,13 +109,20 @@
       {/each}
     {/if}
   </nav>
-  <div class="flex items-center justify-between border-t border-border p-2">
+  <div class="flex flex-wrap items-center justify-between border-t border-border p-2">
     <button
       type="button"
       onclick={() => go("/settings")}
       class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
       class:text-foreground={router.current.kind === "settings"}>
       <Icon name="settings" />设置
+    </button>
+    <button
+      type="button"
+      onclick={() => go("/developer")}
+      class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+      class:text-foreground={router.current.kind === "developer"}>
+      <Icon name="terminal" />开发者诊断
     </button>
     <button
       type="button"

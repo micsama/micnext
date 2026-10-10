@@ -1,4 +1,5 @@
 import { auth } from "../state/auth.svelte";
+import { parseQueryResult, parseTables, type QueryResult, type TableSchema } from "./developer";
 import {
   parseCreated,
   parseEndpoints,
@@ -198,4 +199,13 @@ export async function fetchImage(sessionId: number, imageId: number): Promise<Bl
     throw new ApiError(0, "连不上服务，请确认 micnext 正在运行");
   }
   return (await ensureOk(res)).blob();
+}
+
+/** 只读诊断 SQL；失败时 message 已是用户可读的原因。 */
+export async function runSql(sql: string): Promise<QueryResult> {
+  return parseQueryResult(await request("POST", "/developer/sql", { sql }));
+}
+
+export async function getSqlSchema(): Promise<TableSchema[]> {
+  return parseTables(await request("GET", "/developer/sql/schema"));
 }

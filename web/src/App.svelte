@@ -2,6 +2,7 @@
   import ChatView from "./components/ChatView.svelte";
   import NewChat from "./components/NewChat.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
+  import DeveloperView from "./components/developer/DeveloperView.svelte";
   import SettingsView from "./components/settings/SettingsView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import { auth } from "./state/auth.svelte";
@@ -58,6 +59,8 @@
         <NewChat onmenu={openDrawer} />
       {:else if router.current.kind === "settings"}
         <SettingsView onmenu={openDrawer} />
+      {:else if router.current.kind === "developer"}
+        <DeveloperView onmenu={openDrawer} />
       {:else if view}
         {#key view}
           <ChatView {view} onmenu={openDrawer} />

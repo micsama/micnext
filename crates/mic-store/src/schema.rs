@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::{Migration, StoreError};
+use crate::{Migration, SecretColumn, StoreError};
 
 const CORE: &str = "core";
 
@@ -12,26 +12,31 @@ const CORE_MIGRATIONS: &[Migration] = &[
         module: CORE,
         version: 1,
         sql: CORE_V1,
+        secret_columns: &[],
     },
     Migration {
         module: CORE,
         version: 2,
         sql: CORE_V2,
+        secret_columns: &[],
     },
     Migration {
         module: CORE,
         version: 3,
         sql: CORE_V3,
+        secret_columns: &[],
     },
     Migration {
         module: CORE,
         version: 4,
         sql: CORE_V4,
+        secret_columns: &[],
     },
     Migration {
         module: CORE,
         version: 5,
         sql: CORE_V5,
+        secret_columns: &[],
     },
 ];
 
@@ -249,6 +254,15 @@ fn now_ms() -> i64 {
 }
 
 /// 按模块首次出现的顺序分组，组内按版本升序。
+/// 内核与各模块迁移声明的全部凭据列。
+pub(crate) fn secret_columns(modules: &[Migration]) -> Vec<SecretColumn> {
+    CORE_MIGRATIONS
+        .iter()
+        .chain(modules)
+        .flat_map(|m| m.secret_columns.iter().copied())
+        .collect()
+}
+
 fn group<'a>(
     migrations: impl Iterator<Item = &'a Migration>,
 ) -> Vec<(&'a str, Vec<&'a Migration>)> {

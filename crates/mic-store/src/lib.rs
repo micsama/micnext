@@ -2,6 +2,7 @@
 //! core_persons / core_person_identities / core_personas / core_settings，外加模块私有表的迁移与事务入口。
 //! 契约：docs/blueprints/mic-store.md。
 
+mod diagnostic;
 mod endpoints;
 mod error;
 mod images;
@@ -16,6 +17,7 @@ mod types;
 
 pub use rusqlite;
 
+pub use diagnostic::{Cell, ColumnSchema, DiagnosticError, QueryResult, TableSchema};
 pub use error::{ModelSettingsError, SettingsError, StoreError};
 pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
@@ -24,5 +26,6 @@ pub use types::{
     EndpointView, EndpointWrite, Identity, InputDisposition, Migration, ModelCallId,
     ModelCallOutcome, ModelId, ModelView, ModelWrite, NewInputPart, NewModelCall, NewNotice,
     NewSession, PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunSettings, RunState,
-    Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, ToolScope, Usage,
+    SecretColumn, Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings,
+    ToolScope, Usage,
 };

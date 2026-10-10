@@ -12,16 +12,18 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
-use crate::{api, channels, models, settings, stream, web};
+use crate::{api, channels, log_stream, models, settings, sql, stream, web, DeveloperLogs};
 
 pub(crate) struct Gateway {
     pub(crate) config: Config,
+    pub(crate) logs: DeveloperLogs,
 }
 
 /// 各请求共享的只读状态。
 pub(crate) struct App {
     pub(crate) kernel: Kernel,
     pub(crate) token: String,
+    pub(crate) logs: DeveloperLogs,
     /// 进程停止时结束所有 SSE 流。
     pub(crate) stop: CancellationToken,
 }
@@ -32,11 +34,16 @@ impl Service for Gateway {
         kernel: Kernel,
         stop: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send>> {
-        Box::pin(serve(self.config, kernel, stop))
+        Box::pin(serve(self.config, self.logs, kernel, stop))
     }
 }
 
-async fn serve(config: Config, kernel: Kernel, stop: CancellationToken) -> Result<(), BoxError> {
+async fn serve(
+    config: Config,
+    logs: DeveloperLogs,
+    kernel: Kernel,
+    stop: CancellationToken,
+) -> Result<(), BoxError> {
     web::ensure_built()?;
     let token = match config.token {
         Some(t) => t,
@@ -54,6 +61,7 @@ async fn serve(config: Config, kernel: Kernel, stop: CancellationToken) -> Resul
     let app = Arc::new(App {
         kernel,
         token,
+        logs,
         stop: stop.clone(),
     });
     let api = Router::new()
@@ -112,6 +120,9 @@ async fn serve(config: Config, kernel: Kernel, stop: CancellationToken) -> Resul
             "/personas/{id}",
             put(settings::update_persona).delete(settings::delete_persona),
         )
+        .route("/developer/logs/stream", get(log_stream::stream))
+        .route("/developer/sql", post(sql::query))
+        .route("/developer/sql/schema", get(sql::schema))
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(middleware::from_fn_with_state(app.clone(), api::authorize))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));

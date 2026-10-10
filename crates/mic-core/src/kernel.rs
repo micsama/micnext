@@ -8,8 +8,8 @@ use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
     CredentialWrite, EndpointId, EndpointView, EndpointWrite, Identity, InputDisposition, ModelId,
     ModelView, ModelWrite, NewInputPart, NewNotice, NewSession, PendingDelivery, Persona,
-    PersonaId, RunId, Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings,
-    Store, StoreError,
+    PersonaId, QueryResult, RunId, Session, SessionCursor, SessionKind, SessionPage,
+    SessionSummary, Settings, Store, StoreError, TableSchema,
 };
 use tokio::sync::mpsc;
 
@@ -484,6 +484,15 @@ impl Kernel {
         R: Send + 'static,
     {
         Ok(self.store.with_module_tx(f).await?)
+    }
+
+    /// 开发者诊断：只读连接上的单条 SQL，凭据列读作 NULL。
+    pub async fn diagnostic_query(&self, sql: String) -> Result<QueryResult, KernelError> {
+        Ok(self.store.diagnostic_query(sql).await?)
+    }
+
+    pub async fn diagnostic_schema(&self) -> Result<Vec<TableSchema>, KernelError> {
+        Ok(self.store.diagnostic_schema().await?)
     }
 }
 

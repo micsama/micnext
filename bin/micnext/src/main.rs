@@ -11,11 +11,15 @@ use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
 use mic_core::{Assembly, KernelEvent, KernelEventKind, Module, OnceOutcome, OneShot};
+use mic_gateway::DeveloperLogs;
 use mic_message::{ContentPart, ExecOutcome, Message, MessageBody, ReplyBlock, ToolResultOutcome};
 use mic_store::RunState;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 const DEFAULT_CONFIG: &str = include_str!("default-config.toml");
 /// 模型 API key 的主密钥文件名，缺省放在配置文件旁。
@@ -60,15 +64,20 @@ async fn run() -> Result<ExitCode> {
         Mode::Serve => LevelFilter::INFO,
         Mode::Once(_) => LevelFilter::WARN,
     };
-    tracing_subscriber::fmt()
+    let terminal = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
-        .with_env_filter(
+        .with_filter(
             EnvFilter::builder()
                 .with_default_directive(level.into())
                 .from_env()
                 .context("环境变量 RUST_LOG 格式不对")?,
-        )
-        .init();
+        );
+    let logs = DeveloperLogs::new();
+    let registry = tracing_subscriber::registry().with(terminal);
+    match args.mode {
+        Mode::Serve => registry.with(logs.layer()).init(),
+        Mode::Once(_) => registry.init(),
+    }
 
     let (path, text) = load_config(args.config)?;
     let mut config: toml::Table = text
@@ -78,7 +87,7 @@ async fn run() -> Result<ExitCode> {
         .with_context(|| format!("配置文件 {} 有误", path.display()))?;
 
     let modules: Vec<Box<dyn Module>> = vec![
-        Box::new(mic_gateway::GatewayModule),
+        Box::new(mic_gateway::GatewayModule::new(logs)),
         Box::new(mic_provider_openai::OpenAiModule),
         Box::new(mic_tool_shell::ShellModule),
         Box::new(mic_tool_fs::FsModule),

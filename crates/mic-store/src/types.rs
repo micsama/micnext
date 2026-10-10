@@ -287,6 +287,14 @@ pub struct Migration {
     pub module: &'static str,
     pub version: u32,
     pub sql: &'static str,
+    /// 本次迁移引入的明文凭据列；诊断查询读作 NULL。
+    pub secret_columns: &'static [SecretColumn],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SecretColumn {
+    pub table: &'static str,
+    pub column: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

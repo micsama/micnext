@@ -11,6 +11,8 @@
   import { settingsStore } from "../../state/settings.svelte";
   import {
     blankRow,
+    effortLabel,
+    fixedUrl,
     OLLAMA_URL,
     PRESET_ENV,
     PRESETS,
@@ -100,6 +102,7 @@
     {#if editing}
       {@const f = editing.form}
       {@const base = editing.base}
+      {@const efforts = REASONING[f.preset]}
       <form
         class="flex min-h-0 flex-1 flex-col"
         onsubmit={(ev) => {
@@ -124,7 +127,7 @@
                 </Select.Content>
               </Select.Root>
             </div>
-            {#if f.preset !== "deepseek"}
+            {#if !fixedUrl(f.preset)}
               <Input
                 bind:value={f.base_url}
                 class="font-mono text-xs"
@@ -166,18 +169,18 @@
 
           <section class="space-y-2">
             <div
-              class="grid items-center gap-2 px-1 text-xs text-muted-foreground {f.preset === 'deepseek'
+              class="grid items-center gap-2 px-1 text-xs text-muted-foreground {efforts
                 ? 'grid-cols-[1fr_6rem_7rem_2rem]'
                 : 'grid-cols-[1fr_6rem_2rem]'}"
             >
               <span>模型 ID</span>
               <span>最大输出</span>
-              {#if f.preset === "deepseek"}<span>推理</span>{/if}
+              {#if efforts}<span>推理</span>{/if}
               <span></span>
             </div>
             {#each f.models as r, i (i)}
               <div
-                class="grid items-center gap-2 {f.preset === 'deepseek'
+                class="grid items-center gap-2 {efforts
                   ? 'grid-cols-[1fr_6rem_7rem_2rem]'
                   : 'grid-cols-[1fr_6rem_2rem]'}"
               >
@@ -190,13 +193,13 @@
                   placeholder="默认"
                   aria-label="最大输出"
                 />
-                {#if f.preset === "deepseek"}
+                {#if efforts}
                   <Select.Root type="single" bind:value={r.reasoning_effort}>
                     <Select.Trigger class="w-full" aria-label="推理">
-                      {REASONING.find((o) => o.value === r.reasoning_effort)?.label}
+                      {effortLabel(f.preset, r.reasoning_effort)}
                     </Select.Trigger>
                     <Select.Content>
-                      {#each REASONING as o (o.value)}
+                      {#each efforts as o (o.value)}
                         <Select.Item value={o.value} label={o.label} />
                       {/each}
                     </Select.Content>

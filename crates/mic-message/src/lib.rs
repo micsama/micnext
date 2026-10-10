@@ -96,6 +96,14 @@ pub enum Reasoning {
     },
 }
 
+/// assistant 正文的阶段：中间说明或最终回答。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssistantPhase {
+    Commentary,
+    FinalAnswer,
+}
+
 /// 一次模型调用输出的一块，按服务商能给出的生成顺序（协议不区分先后时由 Provider 定序）。`ToolCall.args` 保持 `Value`：schema 属于各 Tool，
 /// 解析发生在 `mic-tool` 边界（原文不是 JSON 对象时为 `Value::String`）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -103,6 +111,8 @@ pub enum ReplyBlock {
     Reasoning(Reasoning),
     Text {
         text: String,
+        /// 上游给出的阶段标注，续轮原样回传；无此概念的协议为 `None`。
+        phase: Option<AssistantPhase>,
     },
     ToolCall {
         id: String,

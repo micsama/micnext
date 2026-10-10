@@ -5,6 +5,7 @@
 
 | 状态 | 主题 | 文档 |
 |---|---|---|
+| B2 已实现，待实跑验收 | 模型调用迁移 async-openai，新增 OpenAI（Responses）预设；ChatGPT 订阅 Token 待 human 实测后另补 | [B2](docs/blueprints/provider-sdk-responses.md)；现行契约 [provider-openai](docs/blueprints/provider-openai.md) |
 | B2 CLOSED（2026-10-09） | 构建脚本支持 debug 与 run：默认 release，可构建后 exec 启动，运行参数原样透传 | [build-script-run](docs/blueprints/build-script-run.md) |
 | B2 CLOSED（2026-10-10） | 对话记录与用户所见大致一致：长期记录与系统解释、临时微信媒体打扁；短占位与合并通知省 token；含占位入站只记录 | [B2](docs/blueprints/conversation-parity.md)；[B1](docs/brainstorm/conversation-parity.md) |
 | B2 CLOSED（2026-10-09） | 统一消息头解释与 system prompt 布局；沿用现有模型呈现所有权 | [`docs/blueprints/system-prompt-layout.md`](docs/blueprints/system-prompt-layout.md) |

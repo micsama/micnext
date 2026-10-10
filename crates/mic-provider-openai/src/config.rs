@@ -4,9 +4,10 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
 const DEEPSEEK_URL: &str = "https://api.deepseek.com";
+const OPENAI_URL: &str = "https://api.openai.com/v1";
 const OLLAMA_URL: &str = "http://localhost:11434/v1";
 
-/// 服务商的配置 JSON；DeepSeek 地址固定，不接受 `base_url`。
+/// 服务商的配置 JSON；DeepSeek / OpenAI 地址固定，不接受 `base_url`。
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EndpointConfig {
@@ -22,24 +23,31 @@ pub(crate) struct ModelConfig {
     reasoning_effort: Option<ReasoningEffort>,
 }
 
-/// 推理强度，取值与 DeepSeek 的 `reasoning_effort` 同名；目前只有 DeepSeek 方言支持。
+/// 推理强度全集；各预设可用的子集见 [`ModelConfig::canonical`]。
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum ReasoningEffort {
-    /// 关闭思考模式。
+    /// 关闭思考。
     None,
+    Minimal,
     Low,
+    Medium,
     High,
+    Xhigh,
     Max,
 }
 
 impl ReasoningEffort {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub(crate) fn sdk(self) -> async_openai::types::chat::ReasoningEffort {
+        use async_openai::types::chat::ReasoningEffort as E;
         match self {
-            Self::None => "none",
-            Self::Low => "low",
-            Self::High => "high",
-            Self::Max => "max",
+            Self::None => E::None,
+            Self::Minimal => E::Minimal,
+            Self::Low => E::Low,
+            Self::Medium => E::Medium,
+            Self::High => E::High,
+            Self::Xhigh => E::Xhigh,
+            Self::Max => E::Max,
         }
     }
 }
@@ -53,9 +61,16 @@ enum Preset {
     Generic,
     Deepseek,
     Ollama,
+    Openai,
 }
 
-/// 协议差异只在方言处分支。
+/// 预设决定协议；Chat 内部再按方言区分扩展字段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Protocol {
+    Chat(Dialect),
+    Responses,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Dialect {
     DeepSeek,
@@ -66,13 +81,8 @@ pub(crate) enum Dialect {
 /// 解析完成、可直接用于请求的条目。
 pub(crate) struct Resolved {
     pub(crate) model: String,
-    pub(crate) dialect: Dialect,
-    /// `{base_url}/chat/completions`。
-    pub(crate) url: String,
-    /// 有 key 时含鉴权头。
-    pub(crate) headers: HeaderMap,
+    pub(crate) protocol: Protocol,
     pub(crate) max_tokens: Option<u32>,
-    /// 仅 DeepSeek 方言为 `Some`。
     pub(crate) reasoning_effort: Option<ReasoningEffort>,
 }
 
@@ -88,12 +98,12 @@ impl EndpointConfig {
         serde_json::from_str(json).map_err(|e| err("config", e.to_string()))
     }
 
-    /// 校验并补全地址，返回规范形态（DeepSeek 不存地址）。
+    /// 校验并补全地址，返回规范形态（固定地址的预设不存地址）。
     pub(crate) fn canonical(mut self) -> Result<Self, ConfigError> {
         let base_url = match (self.preset, self.base_url.take()) {
-            (Preset::Deepseek, None) => return Ok(self),
-            (Preset::Deepseek, Some(_)) => {
-                return Err(err("base_url", "DeepSeek 地址固定，不需要填写"))
+            (Preset::Deepseek | Preset::Openai, None) => return Ok(self),
+            (Preset::Deepseek | Preset::Openai, Some(_)) => {
+                return Err(err("base_url", "该服务商地址固定，不需要填写"))
             }
             (Preset::Ollama, None) => OLLAMA_URL.to_owned(),
             (Preset::Generic, None) => {
@@ -126,15 +136,25 @@ impl EndpointConfig {
     pub(crate) fn key_env(&self) -> Option<&'static str> {
         match self.preset {
             Preset::Deepseek => Some("DEEPSEEK_API_KEY"),
-            Preset::Generic => Some("OPENAI_API_KEY"),
+            Preset::Generic | Preset::Openai => Some("OPENAI_API_KEY"),
             Preset::Ollama => None,
         }
     }
 
-    /// `{base_url}`，要求 `self` 已是规范形态。
+    pub(crate) fn protocol(&self) -> Protocol {
+        match self.preset {
+            Preset::Generic => Protocol::Chat(Dialect::Generic),
+            Preset::Deepseek => Protocol::Chat(Dialect::DeepSeek),
+            Preset::Ollama => Protocol::Chat(Dialect::Ollama),
+            Preset::Openai => Protocol::Responses,
+        }
+    }
+
+    /// 要求 `self` 已是规范形态。
     pub(crate) fn base_url(&self) -> &str {
         match self.preset {
             Preset::Deepseek => DEEPSEEK_URL,
+            Preset::Openai => OPENAI_URL,
             _ => self.base_url.as_deref().expect("规范形态必有 base_url"),
         }
     }
@@ -163,36 +183,32 @@ impl ModelConfig {
         endpoint: &EndpointConfig,
         name: &str,
     ) -> Result<Self, ConfigError> {
+        use ReasoningEffort as E;
         if name.trim().is_empty() {
             return Err(err("name", "模型名不能为空"));
         }
         self.reasoning_effort = match (endpoint.preset, self.reasoning_effort) {
-            (Preset::Deepseek, effort) => Some(effort.unwrap_or(DEEPSEEK_DEFAULT_EFFORT)),
-            (_, None) => None,
-            (_, Some(_)) => return Err(err("reasoning_effort", "目前只有 DeepSeek 支持推理强度")),
+            (Preset::Deepseek, None) => Some(DEEPSEEK_DEFAULT_EFFORT),
+            (Preset::Deepseek, Some(e @ (E::None | E::Low | E::High | E::Max))) => Some(e),
+            (Preset::Deepseek, Some(_)) => {
+                return Err(err(
+                    "reasoning_effort",
+                    "DeepSeek 只支持 none / low / high / max",
+                ))
+            }
+            (Preset::Openai, effort) | (_, effort @ None) => effort,
+            (_, Some(_)) => return Err(err("reasoning_effort", "该服务商不支持推理强度，请留空")),
         };
         Ok(self)
     }
 }
 
 /// 要求两份配置都已是规范形态（来自库内已校验的 JSON）。
-pub(crate) fn resolve(
-    endpoint: &EndpointConfig,
-    model: ModelConfig,
-    name: &str,
-    key: Option<SecretValue>,
-) -> Result<Resolved, ConfigError> {
-    let dialect = match endpoint.preset {
-        Preset::Generic => Dialect::Generic,
-        Preset::Deepseek => Dialect::DeepSeek,
-        Preset::Ollama => Dialect::Ollama,
-    };
-    Ok(Resolved {
+pub(crate) fn resolve(endpoint: &EndpointConfig, model: ModelConfig, name: &str) -> Resolved {
+    Resolved {
         model: name.to_owned(),
-        dialect,
-        url: format!("{}/chat/completions", endpoint.base_url()),
-        headers: endpoint.headers(key)?,
+        protocol: endpoint.protocol(),
         max_tokens: model.max_tokens,
         reasoning_effort: model.reasoning_effort,
-    })
+    }
 }

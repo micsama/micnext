@@ -75,7 +75,12 @@ async fn run() -> Result<ExitCode> {
                 .context("环境变量 RUST_LOG 格式不对")?,
         );
     let logs = DeveloperLogs::new();
-    let registry = tracing_subscriber::registry().with(terminal);
+    // async-openai 解析失败时会把上游原文打进日志，全局丢弃。
+    let sdk_quiet =
+        tracing_subscriber::filter::filter_fn(|m| !m.target().starts_with("async_openai"));
+    let registry = tracing_subscriber::registry()
+        .with(sdk_quiet)
+        .with(terminal);
     match args.mode {
         Mode::Serve => registry.with(logs.layer()).init(),
         Mode::Once(_) => registry.init(),

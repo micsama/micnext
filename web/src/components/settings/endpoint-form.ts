@@ -9,6 +9,7 @@ import {
 import type { Credential, Endpoint, EndpointInput, Model, ModelInput, Preset } from "../../api/types";
 
 export const PRESETS: { value: Preset; label: string }[] = [
+  { value: "openai", label: "OpenAI" },
   { value: "deepseek", label: "DeepSeek" },
   { value: "ollama", label: "Ollama" },
   { value: "generic", label: "OpenAI 兼容" },
@@ -18,6 +19,7 @@ export const presetLabel = (p: Preset): string => PRESETS.find((x) => x.value ==
 
 /** 未填 key 时服务端读取的环境变量。 */
 export const PRESET_ENV: Record<Preset, string | null> = {
+  openai: "OPENAI_API_KEY",
   deepseek: "DEEPSEEK_API_KEY",
   generic: "OPENAI_API_KEY",
   ollama: null,
@@ -25,14 +27,26 @@ export const PRESET_ENV: Record<Preset, string | null> = {
 
 export const OLLAMA_URL = "http://localhost:11434/v1";
 
-/** `default` 即不下发，交给服务端默认。 */
-export const REASONING: { value: string; label: string }[] = [
+/** 地址固定、不填 base_url 的预设。 */
+export const fixedUrl = (p: Preset): boolean => p === "deepseek" || p === "openai";
+
+type Option = { value: string; label: string };
+const effort = (...values: string[]): Option[] => [
   { value: "default", label: "默认" },
-  { value: "none", label: "关闭思考" },
-  { value: "low", label: "low" },
-  { value: "high", label: "high" },
-  { value: "max", label: "max" },
+  ...values.map((v) => ({ value: v, label: v === "none" ? "关闭思考" : v })),
 ];
+
+/** 各预设可选的推理强度；`default` 即不下发，交给服务端默认；`null` 为不支持。 */
+export const REASONING: Record<Preset, Option[] | null> = {
+  openai: effort("none", "minimal", "low", "medium", "high", "xhigh", "max"),
+  deepseek: effort("none", "low", "high", "max"),
+  ollama: null,
+  generic: null,
+};
+
+/** 切换预设后旧取值可能不在新列表里，视同默认。 */
+export const effortLabel = (p: Preset, v: string): string =>
+  REASONING[p]?.find((o) => o.value === v)?.label ?? "默认";
 
 export type ModelRow = {
   /** 新行为 null。 */
@@ -92,17 +106,18 @@ function credentialOf(f: EndpointForm): Credential {
 
 const configOf = (f: EndpointForm): EndpointInput["config"] => ({
   preset: f.preset,
-  ...(f.preset !== "deepseek" && f.base_url.trim() && { base_url: f.base_url.trim() }),
+  ...(!fixedUrl(f.preset) && f.base_url.trim() && { base_url: f.base_url.trim() }),
 });
 
 function modelInput(endpoint_id: number, r: ModelRow, preset: Preset): ModelInput {
   const max = r.max_tokens.trim();
+  const effort = r.reasoning_effort !== "default" && REASONING[preset]?.some((o) => o.value === r.reasoning_effort);
   return {
     endpoint_id,
     name: r.name.trim(),
     config: {
       ...(max && { max_tokens: Number(max) }),
-      ...(preset === "deepseek" && r.reasoning_effort !== "default" && { reasoning_effort: r.reasoning_effort }),
+      ...(effort && { reasoning_effort: r.reasoning_effort }),
     },
   };
 }

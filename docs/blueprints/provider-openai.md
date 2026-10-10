@@ -1,198 +1,151 @@
-# B2: OpenAI 兼容模型实现（mic-provider-openai）
+# B2: OpenAI 协议族模型实现（mic-provider-openai）
 
-**状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-provider-openai`；§八 1～4 已用 DeepSeek `deepseek-flash` 与本地 ollama 实跑通过，含推理回传的工具往返）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 修订（一条 `Reply` 一条 assistant 消息、用量不编造、`model()`），其 §四 实跑通过
-**来源**: [`v0a-module-map.md`](v0a-module-map.md) M7；[`provider-port.md`](provider-port.md)（实现的契约）；
-DeepSeek 协议细节参考 `../deepseek-harness/packages/llm/llm-deepseek`
-**依赖不变量**: 新 crate `mic-provider-openai`，依赖 `mic-core`（port）+ `mic-message` + `mic-store`
-（`Usage`）+ `mic-tool`（`ToolSpec`）；不被任何 crate 依赖，只由二进制装配。
+**状态**: CLOSED（2026-09-23 首版）；2026-10-10 按 [`provider-sdk-responses.md`](provider-sdk-responses.md) 整体改为 async-openai 实现并接入 Responses
+**来源**: [`v0a-module-map.md`](v0a-module-map.md) M7；[`provider-port.md`](provider-port.md)（实现的契约）；配置分层与工厂契约见 [`model-settings.md`](model-settings.md) §四
+**依赖不变量**: 依赖 `mic-core`（port）+ `mic-message` + `mic-store`（`Usage`）+ `mic-tool`（`ToolSpec`）；不被任何 crate 依赖，只由二进制装配。
 
 本文只写现行契约；修订过程见 git 历史。
 
 ## 一、用户视角的效果
 
-最常见的配置（DeepSeek 官方，只填模型名，key 从环境变量 `DEEPSEEK_API_KEY` 读）：
+- Web 设置页新建服务商，选预设：OpenAI、DeepSeek、Ollama、通用兼容服务。OpenAI / DeepSeek 地址固定不用填；Ollama 留空取本机；通用必须填地址。
+- key 可在 Web 填（加密入库），不填则读环境变量（OpenAI/通用 `OPENAI_API_KEY`，DeepSeek `DEEPSEEK_API_KEY`，Ollama 不需要）。
+- 回复流式显示；DeepSeek / Ollama 的思考过程、OpenAI 的推理摘要作为推理单独显示。
+- key 无效、余额不足直接说明原因；限流、服务端错误、断流、长时间无数据、空回复归为"暂时不可用"，由 core 决定是否重试。
+- 每次调用的用量（输入、输出、缓存读写、推理）入库，供统计。
 
-```toml
-[models]
-default = "ds"
+## 二、公开接口
 
-[models.ds]
-kind = "openai"
-preset = "deepseek"
-model = "deepseek-flash"
-```
+crate 只导出 `OpenAiModule`（`name() = "openai"`，`Activation::Always`），`install` 登记 `openai` 工厂。
+Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_model` / `key_env` / `build` / `list_models`）语义见 model-settings §四。
 
-本地 ollama（不需要 key）：
+### 2.1 配置（JSON，`deny_unknown_fields`）
 
-```toml
-[models.local]
-kind = "openai"
-preset = "ollama"
-model = "qwen3:8b"
-```
+服务商 `{preset, base_url?}`：
 
-其它 OpenAI 兼容服务：
+| 预设 | 协议 | 地址 | key 环境变量 |
+|---|---|---|---|
+| `openai` | Responses | 固定 `https://api.openai.com/v1`，不接受 `base_url` | `OPENAI_API_KEY` |
+| `deepseek` | Chat（DeepSeek 方言） | 固定 `https://api.deepseek.com`，不接受 `base_url` | `DEEPSEEK_API_KEY` |
+| `ollama` | Chat（Ollama 方言） | 缺省 `http://localhost:11434/v1` | 无 |
+| `generic` | Chat（通用） | 必填 | `OPENAI_API_KEY` |
 
-```toml
-[models.other]
-kind = "openai"
-base_url = "https://example.com/v1"
-model = "some-model"
-api_key_env = "EXAMPLE_API_KEY"          # 或 api_key = "sk-..."（二选一）
-headers = { "X-Title" = "micnext" }      # 可选
-```
+`base_url` 只接受 http(s)，不得含账号密码、查询参数或锚点，末尾 `/` 去掉。有 key 时发 `Authorization: Bearer`（敏感头），无 key 不发。
 
-- key 缺失（没写 `api_key`，环境变量也没设）→ 启动报错并说明两种填法，而不是等第一次对话才失败。
-  `ollama` 预设不需要 key，自动填一个占位值。
-- 余额不足、key 无效会直接说明原因（如"DeepSeek 余额不足，请充值"）。
-- 回复流式显示；DeepSeek 的思考过程作为推理单独显示。
-- 连接超时、长时间没有数据、限流、服务端错误都归为"暂时不可用"，由执行主路径决定是否重试。
+模型 `{max_tokens?, reasoning_effort?}`，模型名单列：
 
-## 二、范围
+| 预设 | `reasoning_effort` |
+|---|---|
+| `openai` | `none|minimal|low|medium|high|xhigh|max` 或不写（不写不发） |
+| `deepseek` | `none|low|high|max`，不写取 `low` |
+| 其它 | 只能不写 |
 
-本文定：条目字段与预设、请求/响应到 Chat Completions 协议的映射、HTTP 与流错误到四类失败的映射、
-超时、方言扩展点。不定：重试（M6）、条目呈现规则（provider-port §三.5）；多模态只留扩展点（§四.5），实现在后续 B2；推理强度按条目配置（§3.1）。
-
-## 三、公开接口
-
-crate 对外只导出一个模块：
-
-```rust
-pub struct OpenAiModule;          // Module::name() = "openai"
-```
-
-`install` 收到 `{条目名 → 条目}`（mic-core-module §四），对每个条目解析、解出 key、建一个
-Provider 实例，`Registry::provider(条目名, 实例)`。Provider 类型不公开。
-
-### 3.1 条目字段
-
-| 字段 | 必填 | 说明 |
-|---|---|---|
-| `model` | 是 | 发给上游的模型名，原样传递 |
-| `preset` | 否 | `"deepseek"` 或 `"ollama"`：给出默认值并选定方言（§四.2），见下表 |
-| `base_url` | 无 `preset` 时必填 | 请求发往 `{base_url}/chat/completions`；有 `preset` 时可覆盖 |
-| `api_key` | 否 | 字面 key |
-| `api_key_env` | 否 | 从该环境变量读 key；与 `api_key` 互斥 |
-| `headers` | 否 | 额外请求头（字符串表） |
-| `max_tokens` | 否 | 单次输出上限；不写则不发，由上游决定 |
-| `reasoning_effort` | 否 | 推理强度 `"none"`（关闭思考）/`"low"`/`"high"`/`"max"`，仅 `preset = "deepseek"` 支持；DeepSeek 不写时取 `"low"` |
-
-| 预设 | `base_url` 缺省 | key 缺省 |
-|---|---|---|
-| `deepseek` | `https://api.deepseek.com` | 环境变量 `DEEPSEEK_API_KEY` |
-| `ollama` | `http://localhost:11434/v1` | 占位值 `ollama`（服务不校验） |
-| 无 | 必填 | 必须写 `api_key` 或 `api_key_env` |
-
-未知字段、非 DeepSeek 条目写了 `reasoning_effort`、`api_key` 与 `api_key_env` 同时出现、未知 `preset`、非法请求头、应有 key 却读不到 → `install`
-报错（启动失败，文案说明两种填法）。key 在启动时读取一次。
-
-### 3.2 build 后不改的旋钮（`src/limits.rs`）
+### 2.2 构建期旋钮（`src/limits.rs`）
 
 | 常量 | 值 | 含义 |
 |---|---|---|
 | `CONNECT_TIMEOUT` | 30 s | 建连超时 |
 | `STREAM_IDLE_TIMEOUT` | 300 s | 两次收到数据之间的最长间隔（含等待首字节） |
-| `ERROR_BODY_CHARS` | 500 | 错误信息里保留的上游错误体长度 |
+| `PROBE_TIMEOUT` | 15 s | 测试连接整体超时 |
+
+## 三、传输
+
+- async-openai 自定义 `Config`：地址与请求头全部来自已解析配置，不读任何环境变量。
+- 自写无重试 HTTP service：重试只在 core。非 2xx 时自己读体，解析 `error.{code,message}` 与秒数形式的 `Retry-After`。
+- 请求与分片用 BYOT 自定义类型，标准子结构 `flatten` 复用 SDK 类型；服务商扩展字段完整接收。
+- 两协议共用一个流驱动：每次等待都受空闲超时约束；丢弃流即取消（SDK 读流任务随接收端关闭退出）。
+- SDK 解析失败时会把上游原文打进 `async_openai` 日志，二进制全局丢弃该 target。
 
 ## 四、映射规则
 
-### 4.1 请求
+### 4.1 请求公共部分
 
-- `stream: true`、`stream_options.include_usage: true`；有 `max_tokens` 才发。
-- `system` 非空 → 第一条 `role: system`。
-- `tools` 非空 → `tools: [{type: "function", function: {name, description, parameters}}]`。
-- 历史逐条取 `Message::model_view()` 映射（呈现规则不在本 crate），`None` 跳过：
-  - `User(parts)` → `role: user`，文本片段按行拼接。
-  - `Assistant { model, blocks }` → 一条 `role: assistant`：`Text` 拼成 `content`，`ToolCall` →
-    `tool_calls[{id, type: "function", function: {name, arguments}}]`；`arguments`：`args` 为
-    `Value::String` 时原样发回该字符串（即模型当初的原文，见 §四.3），否则发 `args` 的 JSON 文本。
-    推理按 §四.2 处理。
-  - `Tool { tool_call_id, output }` → `role: tool` + `tool_call_id`，文本片段按行拼接。
-- 视图里有 `File` 片段 → `Rejected`（v0a 不支持多模态，§四.5）。
+历史逐条取 `Message::model_view()`（呈现规则不在本 crate），`None` 跳过。
 
-### 4.2 方言
+- user：文本片段按行拼接；图片转 data URL。
+- 工具调用参数：`args` 为 `Value::String` 时原样发回（模型当初的原文，见 4.4），否则发 JSON 文本。
+- 视图里有本协议不支持的 `File` 片段 → `Rejected`。
+- `stream: true`；有 `max_tokens` 才发。
 
-预设决定方言（内部 `enum Dialect { DeepSeek, Ollama, Generic }`），协议差异只在方言处分支。
+### 4.2 Chat（DeepSeek / Ollama / 通用）
 
-**DeepSeek**：
+- `system` 非空 → 第一条 `role: system`；工具 → `tools[{type: function, ...}]`。
+- assistant 一条：正文拼成 `content`，工具调用 → `tool_calls`；tool 结果 → `role: tool`。
+- `stream_options.include_usage: true`；`reasoning_effort` 有值时发顶层字段（`none` 即关闭思考）。
+- 方言：
 
-- 响应 delta 的 `reasoning_content` → `ReasoningDelta`，最终为 `Reasoning::Visible { signature: None }`。
-  首个空串分片不产出事件。
-- 推理回传：只对**含工具调用**、且 `Reply.model` 等于本条目 `model`（`self.model()`）的 assistant 轮次，把其推理作为
-  `reasoning_content` 发回（思考模式下工具往返必需）；其余推理不发，省 token。
-- 用量：`cache_read_tokens` ← `prompt_cache_hit_tokens`。
-- 推理强度：条目取值原样发为顶层 `reasoning_effort`（`none` 即关闭思考），不用 `thinking` 字段。
+| | DeepSeek | Ollama | 通用 |
+|---|---|---|---|
+| 推理来源 | delta `reasoning_content` | delta `reasoning` | 不解析 |
+| 推理回传 | 仅同模型、含工具调用、推理非空的轮次发 `reasoning_content` | 不回传 | 不回传 |
+| `cache_read_tokens` | `prompt_cache_hit_tokens` | None | `prompt_tokens_details.cached_tokens` |
 
-**Ollama**：delta 的 `reasoning` 字段 → `ReasoningDelta`（思考模型）；不回传推理；
-`cache_read_tokens` 为 `None`（上游不报）。
+- 结束：SDK 吞掉 `[DONE]`，完成判据为「正常 EOF + 已收到 `finish_reason`」。
+  `stop` → `EndTurn`，`tool_calls` → `ToolUse`，`length` → `MaxTokens`，`content_filter` → `ContentFilter`；
+  `insufficient_system_resource` → `Transient`；legacy `function_call` → `Protocol`；EOF 时缺 `finish_reason` → `Transient`。
+- 只接受单候选；`finish_reason` 之后再有内容增量 → `Protocol`。块顺序：推理、正文、工具调用。
 
-**Generic**：不解析、不回传推理（通用服务的推理字段不统一，出现真实需求再加预设）；
-`cache_read_tokens` ← `prompt_tokens_details.cached_tokens`。
+### 4.3 Responses（OpenAI）
 
-### 4.3 响应
+- 无状态：`store=false`、`include=[reasoning.encrypted_content]`；有 effort 时 `reasoning={effort, summary: auto}`；`instructions` = system；工具 `strict=false`；`max_tokens` → `max_output_tokens`。
+- assistant 块按原顺序回传：正文 → assistant 消息（带 `phase`），工具调用 → `function_call`，工具结果 → `function_call_output`。
+- 推理回传：仅同模型、且有密文的推理，作为不带 id 的 reasoning item 发回（SDK 类型会把 id 序列化为 null，所以请求体自定义）。
+- 流中：正文与 refusal 增量 → `TextDelta`，推理摘要增量 → `ReasoningDelta`。
+- 终态 `response.output` 是唯一内容来源：
+  - message → `Text { phase }`；refusal 转为可见正文，并记为 `ContentFilter`。
+  - function_call → `ToolCall`，id 取 `call_id`。
+  - reasoning → 有摘要：`Visible { 摘要段落以空行拼接, signature: 密文 }`；只有密文：`Redacted { data }`。
+  - 其它输出项（内置工具等）→ `Protocol`。
+- 终态事件：completed → 按内容定 `EndTurn` / `ToolUse`；incomplete 为 `max_output_tokens` → `MaxTokens`、`content_filter` → `ContentFilter`，其它原因 → `Protocol`；failed / error → 按 code 分类（4.5）。EOF 前没有终态 → `Transient`。
 
-- SSE 逐行解析为强类型分片（上游字段完整接收）；`data: [DONE]` 结束。
-- `content` 增量 → `TextDelta`；`tool_calls` 增量按 `index` 累积 `id`、`name`、`arguments`。
-- 结束时组装 `ModelResponse`：`blocks` 依次为推理、正文、工具调用（空的不放）；分片的 `model`
-  完整接收但不使用（调用记录用请求模型名）；
-  `arguments` 解析为 JSON **对象**才存为 `Value::Object`；解析失败或不是对象（协议要求对象）则原文存为
-  `Value::String`，由 `mic-tool` 边界报参数错误给模型（模型输出错误应回给模型自纠，而不是终止整轮）。
-  于是存下的 `Value::String` 一定是原文，回传时（§四.1）逐字还原，不产生二次转义。
-- `finish_reason`：`stop` → `EndTurn`，`tool_calls` → `ToolUse`，`length` → `MaxTokens`，
-  `content_filter` → `ContentFilter`；`insufficient_system_resource` → `Transient`；其它或缺失 → `Protocol`。
-- 用量：`input_tokens` ← `prompt_tokens`，`output_tokens` ← `completion_tokens`，
-  `reasoning_tokens` ← `completion_tokens_details.reasoning_tokens`，`cache_write_tokens` 为 `None`；
-  上游没给的项为 `None`，整个 `usage` 没收到则 `ModelResponse.usage = None`，不编造 0。
-  `usage` 可能附在最后一个分片或单独尾随，统一等到 `[DONE]` 再产出 `Finished`。
+### 4.4 公共响应规则
 
-### 4.4 失败
+- 工具参数解析为 JSON **对象**才存 `Value::Object`；否则原文存 `Value::String`，由 `mic-tool` 边界报参数错误给模型自纠，回传时逐字还原。
+- `EndTurn` 但没有任何内容块 → `Transient`（"上游返回了空回复"）。
+- 用量在终态一次转换；上游没给的项为 `None`，整个 usage 缺失则 `ModelResponse.usage = None`，不编造 0：
+
+| 领域字段 | Chat | Responses |
+|---|---|---|
+| input_tokens | prompt_tokens | input_tokens |
+| output_tokens | completion_tokens | output_tokens |
+| cache_read_tokens | 见方言表 | input_tokens_details.cached_tokens |
+| cache_write_tokens | None | input_tokens_details.cache_write_tokens（负数 → Protocol） |
+| reasoning_tokens | completion_tokens_details.reasoning_tokens | output_tokens_details.reasoning_tokens |
+
+### 4.5 失败
 
 | 情况 | 分类 |
 |---|---|
-| 401、403 | `Account`，文案"key 无效或无权限" |
-| 402（DeepSeek 余额不足） | `Account`，文案"余额不足，请充值" |
-| 429 | `Transient`，带 `Retry-After` |
-| 其它 4xx | `Rejected` |
-| 5xx | `Transient`，带 `Retry-After` |
-| 建连失败、超时、流空闲超时、未收到 `[DONE]` 就断开 | `Transient` |
-| `stop` 结束但没有任何内容 | `Transient` |
-| 分片 JSON 不合法、事件顺序错、未知 `finish_reason` | `Protocol` |
+| code `insufficient_quota` / `invalid_api_key`；无已知 code 时 HTTP 401～403 | `Account`（402 文案"余额或额度不足，请充值"） |
+| code `rate_limit_exceeded` / `server_error`；无已知 code 时 429、5xx | `Transient`，带 `Retry-After` |
+| 其它 4xx、其它上游业务错误 | `Rejected` |
+| 网络错误、建连超时、流空闲超时、流中途断开、缺终态 | `Transient` |
+| 分片无法解析、未知语义 | `Protocol`（不带上游原文） |
 
-`message` 先写上表的中文说明（有的话），再附状态码与上游错误体中的 `error.message`（无则截取原文，
-至多 `ERROR_BODY_CHARS` 字），不含 key。
+文案为"中文说明（HTTP 状态，code）：上游 `error.message`"，只用状态、结构化 code 与 message，不拼原始响应体，不含 key。
 
-### 4.5 扩展点（推理强度、多模态）
-
-- **推理强度**：已按条目配置实现（§3.1、§4.2，目前仅 DeepSeek）。其它方言要支持时在方言分支加映射；
-  若要 Web 按次切换，届时走 M5 `ModelRequest` 加字段。
-- **多模态**：`File` 片段已随视图传到本 crate；加能力后在请求映射处把图片转成 `image_url` 片段，
-  能力来源（配置声明或探针）随能力 B2 定。
+测试连接（`GET {base}/models`，解析 `data[].id`）：401/403 → `Auth`；超时、建连失败 → `Network`；其它状态或无法解析 → `Unexpected`。
 
 ## 五、副作用与依赖
 
-- 每次 `stream` 发一个 HTTPS 请求；丢弃流即中止请求。无落盘。
-- 外部依赖：`reqwest`（rustls、stream）、`eventsource-stream`（SSE 分帧）、`futures-util`、`serde`、
-  `serde_json`、`tokio`（超时）。
-- `bin/micnext` 模块列表加入 `OpenAiModule`，并依赖本 crate。
+- 每次 `stream` 发一个 HTTPS 请求，丢弃流即中止；无落盘。
+- 外部依赖：`async-openai`（`default-features=false`；`rustls`/`chat-completion`/`responses`/`byot`/`middleware`/`model`，不锁小版本）、`reqwest`、`tower`、`secrecy`、`base64`、`futures-util`、`serde`、`serde_json`、`tokio`。
 
-## 六、调用方
+## 六、模块
 
-| 调用方 | 用途 | 兼容性 |
-|---|---|---|
-| `bin/micnext` | 模块列表加 `OpenAiModule` | 新增依赖 |
-| `mic-core` 执行主路径（M6） | 经 `Provider` trait 调用，不认识本 crate | — |
+| 模块 | 职责 |
+|---|---|
+| `factory` | `ProviderFactory` 实现；按协议驱动对应请求与累积 |
+| `config` | 配置解析、规范化、`Resolved` |
+| `client` | SDK `Config`、无重试 service、`HttpFailure` |
+| `error` | SDK / HTTP / 流内错误 → `ProviderError` / `ProbeError` |
+| `stream` | 共用流驱动：打开、逐事件、空闲超时、EOF、空回复判定 |
+| `content` | 两协议共用的内容转换：文本拼接、图片 data URL、工具参数 |
+| `chat` / `responses` | 各自的请求映射、BYOT 类型、增量累积与终态转换 |
+| `probe` | `/models` 探测 |
+| `limits` | 构建期旋钮 |
 
 ## 七、已知演进
 
-- 多模态按 §四.5 的扩展点实现；推理强度扩到其它方言。
-- 其它服务的推理字段方言出现真实需求再加预设。
-
-## 八、验收（步 3'）
-
-临时工程装配 `OpenAiModule`，用 `DEEPSEEK_API_KEY` 发一轮流式请求：
-
-1. 纯文本：打印 `TextDelta`/`ReasoningDelta` 增量与最终 `usage`。
-2. 带一个工具说明：确认得到 `StopReason::ToolUse` 与解析后的 `args`；把工具结果拼回再发一轮，
-   确认推理回传后上游不报错。
-3. 错误 key → `Account`；不存在的模型名 → `Rejected`；缺 key 的配置 → 启动报错文案可读。
-4. 框架消息：历史里放一条 `HarnessNote`，确认请求体里是带 `[runtime-note]` 头的 user 消息。
+- ChatGPT 订阅 Token：待 human 实测后另行增加预设，复用 Responses 路径（provider-sdk-responses §七）。
+- Responses 出现新流事件导致解析失败时升级 SDK，不加兜底。

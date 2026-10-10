@@ -31,7 +31,7 @@ export type Reasoning =
 
 export type ReplyBlock =
   | { Reasoning: Reasoning }
-  | { Text: { text: string } }
+  | { Text: { text: string; phase: "commentary" | "final_answer" | null } }
   | { ToolCall: { id: string; name: string; args: unknown } };
 
 export type ContextBoundary = { Compaction: { summary: string } } | "UserClear";
@@ -68,7 +68,8 @@ export type SessionItem = {
   model_id: number | null;
 };
 
-export type Preset = "generic" | "deepseek" | "ollama";
+export type Preset = "generic" | "deepseek" | "ollama" | "openai";
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type Endpoint = {
   id: number;
@@ -85,7 +86,7 @@ export type Model = {
   id: number;
   endpoint_id: number;
   name: string;
-  config: { max_tokens: number | null; reasoning_effort: "none" | "low" | "high" | "max" | null };
+  config: { max_tokens: number | null; reasoning_effort: ReasoningEffort | null };
 };
 
 export type ModelList = { items: Model[]; default_model_id: number | null };
@@ -210,7 +211,7 @@ const reasoning: Decoder<Reasoning> = tagged({
 
 const replyBlock: Decoder<ReplyBlock> = tagged({
   Reasoning: reasoning,
-  Text: obj({ text: str }),
+  Text: obj({ text: str, phase: nullable(oneOf("commentary", "final_answer")) }),
   ToolCall: obj({ id: str, name: str, args: any }),
 });
 
@@ -251,7 +252,7 @@ const sessionItem: Decoder<SessionItem> = obj({
   model_id: nullable(num),
 });
 
-const preset = oneOf("generic", "deepseek", "ollama");
+const preset = oneOf("generic", "deepseek", "ollama", "openai");
 
 const endpointList: Decoder<{ items: Endpoint[] }> = obj({
   items: arr(
@@ -274,7 +275,7 @@ const modelList: Decoder<ModelList> = obj({
       name: str,
       config: obj({
         max_tokens: nullable(num),
-        reasoning_effort: nullable(oneOf("none", "low", "high", "max")),
+        reasoning_effort: nullable(oneOf("none", "minimal", "low", "medium", "high", "xhigh", "max")),
       }),
     }),
   ),

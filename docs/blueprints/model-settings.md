@@ -9,12 +9,12 @@
 |---|---|
 | 两层实体 | **服务商**（代码叫 `Endpoint`，避免与运行期 `Provider` trait 混淆：类型、预设、地址、key）与**模型**（挂在服务商下：模型名、max_tokens、推理强度）。会话/默认/run 快照引用模型；run 快照名为“服务商名 / 模型名” |
 | API key | Web 可填；AES-256-GCM 加密入 SQLite，AAD 绑定 `endpoint-key:{endpoint_id}`；主密钥为 0600 本地文件，不在 data_dir 内 |
-| key 来源 | 服务商保存了 key 用保存值，否则读环境变量（DeepSeek `DEEPSEEK_API_KEY`、通用 `OPENAI_API_KEY`、Ollama 无）；两处都没有属正常，不发鉴权头，上游拒绝时才表现为鉴权失败 |
-| DeepSeek | 地址固定，接口与 UI 都不提供 `base_url`；Ollama 留空取 `http://localhost:11434/v1`，通用必填 |
+| key 来源 | 服务商保存了 key 用保存值，否则读环境变量（DeepSeek `DEEPSEEK_API_KEY`、OpenAI 与通用 `OPENAI_API_KEY`、Ollama 无）；两处都没有属正常，不发鉴权头，上游拒绝时才表现为鉴权失败 |
+| 固定地址 | OpenAI、DeepSeek 地址固定，接口与 UI 都不提供 `base_url`；Ollama 留空取 `http://localhost:11434/v1`，通用必填 |
 | 测试连接 | 用表单当前值（未保存也可）请求 `{base_url}/models`，返回模型名列表，UI 逐个生成模型行；不自动保存 |
 | 多模态 | 不建能力概念：无能力字段、无探测、无切模型限制；模型不支持就是普通 ProviderFailed |
 | 模型呈现 | `ModelView` 留在 mic-message 原位，图片只是新的 `ContentPart`；不搬家、不重构 request |
-| Provider | 仅 openai 协议（Generic/vLLM、DeepSeek、Ollama 预设）；无自定义 headers |
+| Provider | 仅 openai kind；预设 OpenAI（Responses）与 Generic/vLLM、DeepSeek、Ollama（Chat），见 [provider-openai](provider-openai.md)；无自定义 headers |
 | 推理来源 | 保持现状（按请求模型名比较）；跨服务商同名误回传不处理 |
 | 迁移 | 不取消现有 schema_migrations；只扩展当前 schema；配置 JSON 不版本化 |
 
@@ -71,7 +71,7 @@ pub enum ProbeError { Network(String), Auth, Unexpected(String) }            // 
 Registry `provider_factory(impl ProviderFactory)`；重复 kind → `DuplicateProviderKind`。工厂启动登记一次。
 env 读取在 core 侧统一做（`resolve_key(stored, factory.key_env())`）。
 
-openai 配置（`deny_unknown_fields`）：服务商 `{preset, base_url?}`（DeepSeek 禁填地址，规范形态不存地址）；模型 `{max_tokens?, reasoning_effort?}`，模型名单列，推理强度只许 DeepSeek。
+openai 配置（`deny_unknown_fields`）：服务商 `{preset, base_url?}`（OpenAI/DeepSeek 禁填地址，规范形态不存地址）；模型 `{max_tokens?, reasoning_effort?}`，模型名单列，推理强度取值按预设限定（provider-openai §2.1）。
 `GET {base}/models` 解析 `data[].id`，其余字段不消费；401/403 → `Auth`，连接失败/超时 → `Network`。
 HTTP 边界以 RawValue 交工厂解析一次，`serde_json::Value` 不进入调度/Engine/表单。
 

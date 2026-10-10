@@ -124,7 +124,7 @@ async fn deliver(
         MessageBody::Reply { blocks, .. } => blocks
             .into_iter()
             .filter_map(|block| match block {
-                ReplyBlock::Text { text } => Some(text),
+                ReplyBlock::Text { text, .. } => Some(text),
                 _ => None,
             })
             .collect::<String>(),

@@ -1,6 +1,6 @@
 # B2：微信 Channel（v0b）
 
-**状态：Phase 1 CLOSED；Phase 2–5 已获准并实现，本地检查通过，真实扫码与收发待服务器人工验收；Phase 6 未开始。**
+**状态：Phase 1 CLOSED；Phase 2–5 已获准并实现，本地检查通过，真实扫码与收发待服务器人工验收；Phase 6 typing 已实现，待服务器验收。**
 起草日期：2026-10-08；阶段拆分与本次进度更新：2026-10-09。整份蓝图尚未 CLOSED，当前交接见 §11.5。
 
 **来源**：[B1 决定](../brainstorm/wechat-channel.md)、[iLink 协议素材](../brainstorm/wechat-protocol.md)。
@@ -20,7 +20,7 @@
 - 重启不自动重跑旧任务、不自动补发旧回复。新消息可启动新一轮，带已有上下文及故障描述。
   手动继续指用户明确发送新指令，例如“根据上次故障现场继续”；不恢复旧 run，也不自动重试未知副作用的工具。
 - 自动压缩是正交的 core 功能，另起契约；本蓝图不增加微信专属压缩、上下文截断或 /clear。
-- typing 尽力而为，不影响入站、执行和投递；不缓存 ticket，不承诺长 run 的周期续发。
+- typing 尽力而为，不影响入站、执行和投递；不缓存 ticket；run 期间按 SDK 每 5 秒续发一次。
 
 ## 二、模块、依赖与装配
 
@@ -294,7 +294,8 @@ sender 唯一且每对象串行，保证该对象尝试顺序；与入站长轮�
 
 ### 6.3 typing
 
-本对象 RunStarted → 用其 user_id/context_token 取一次 ticket → sendtyping(1)。
+本对象 RunStarted → 用其 user_id/context_token 取一次 ticket → sendtyping(1)；run 期间每 `TYPING_KEEPALIVE`（5 秒，SDK `keepaliveIntervalMs`）续发 sendtyping(1)。
+尚无 context_token 或 getconfig 成功但未下发 ticket → 本 run 不发 typing。typing 为 Connection 的第三个子任务，独立订阅事件。
 RunFinished 任意终态 → 使用该 run 的 ticket sendtyping(2)。正常网络/业务失败只记脱敏日志，不落 Notification，不重试。
 明确 -14 优先执行连接失效转换，Protocol 优先返回 Service Err；不能被 typing 的尽力而为吞掉。
 只处理本对象 session；Lagged 后用 executing_run 校准，取消已知 ticket 后按当前执行状态重新开始指示。
@@ -481,7 +482,7 @@ SQLite 迁移只前进；代码可回滚不等于数据库可降级。故障验�
 | Phase 3：Web 扫码登录闭环 | §二、§3.1、§四、§七、§八登录部分；新 crate/feature、完整模块迁移、登录 client、port/协调者/Service、完整凭据交接、Gateway 路由、设置页 | 实际扫码后保存账号；刷新不新建 attempt；验证码/过期/取消明确；同号会话不变、换号会话独立；浏览器无凭据 | 已实现；本地接口/迁移检查通过，真实扫码待服务器验收 |
 | Phase 4：微信入站 | §五、§八入站部分；getupdates、批次与游标事务、准入过滤、文本/语音转写、媒体 Notification、入站网络退避/-14、启动批次收尾 | 微信新文本在 Web 历史中出现并执行；纯媒体只落提示；群/他人/bot 不启动模型；崩溃后旧批次不重导 | 已实现；初始游标与真实入站行为待验收 |
 | Phase 5：微信回复投递 | §6.1～6.2、§八出站部分；sender 原子切点、Reply/Notification 提取、分段计划/尝试记录、一次重试/跳过、Lagged 补查、发送 -14、启动投递收尾 | 每次模型调用出话就发微信；失败预算正好两次；跳过不冒充 delivered；后续回复可发送；重登/重启不补发旧积压 | 已实现；真实投递与失败/重启场景待验收 |
-| Phase 6：typing 与整体验收 | §6.3；getconfig/sendtyping、run 生命周期与 Lagged 校准；复验停止/换号/断网/崩溃，回填协议实测、文档与 todo | 输入指示随 run 开始/结束；慢 typing 不阻塞收发；所有对象隔离、故障与退出场景符合本文 | 待开始 |
+| Phase 6：typing 与整体验收 | §6.3；getconfig/sendtyping、run 生命周期与 Lagged 校准；复验停止/换号/断网/崩溃，回填协议实测、文档与 todo | 输入指示随 run 开始/结束；慢 typing 不阻塞收发；所有对象隔离、故障与退出场景符合本文 | typing 已实现（2026-10-10），fmt/clippy 通过；待服务器验收 |
 
 Phase 3 内按 3a 协议边界与模块构建 → 3b 登录/账号/HTTP → 3c 设置页依次推进，每步保持编译通过。
 3a 先核对 SDK 的真实字段、optional 性、枚举、请求头和登录重定向；
@@ -555,7 +556,7 @@ Phase 2–5 的主链路已提交并推送：`d87db45 feat(wechat): 接通扫码
   不输出凭据、请求查询串、二维码内容或原始响应正文（解码失败的 debug 例外见凭据节）。页面仍使用简短失败提示。
 
 上述是实现事实；同号/换号、入站过滤、失败预算、重启处置等真实运行行为仍须按 §11.4 人工验收。
-Phase 6 的 getconfig/sendtyping、typing 生命周期与整体验收尚未实现，不据此关闭蓝图。
+Phase 6 的 typing 已实现；整体验收完成前不关闭蓝图。
 
 #### 已完成的本地检查
 

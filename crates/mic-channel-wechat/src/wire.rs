@@ -249,6 +249,38 @@ pub(crate) struct SendMessageResponse {
 }
 
 #[derive(Serialize)]
+pub(crate) struct GetConfigRequest<'a> {
+    pub ilink_user_id: &'a str,
+    pub context_token: &'a str,
+    pub base_info: BaseInfo,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GetConfigResponse {
+    pub ret: Option<i32>,
+    #[serde(rename = "errmsg")]
+    pub _errmsg: Option<String>,
+    pub typing_ticket: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct SendTypingRequest<'a> {
+    pub ilink_user_id: &'a str,
+    pub typing_ticket: &'a str,
+    pub status: u8,
+    pub base_info: BaseInfo,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SendTypingResponse {
+    pub ret: Option<i32>,
+    #[serde(rename = "errmsg")]
+    pub _errmsg: Option<String>,
+}
+
+#[derive(Serialize)]
 pub(crate) struct QrRequest<'a> {
     pub local_token_list: Vec<&'a str>,
 }

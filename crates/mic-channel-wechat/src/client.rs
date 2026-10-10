@@ -65,6 +65,12 @@ pub(crate) enum IncomingContent {
     Unsupported(Unsupported),
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum TypingStatus {
+    Typing,
+    Cancel,
+}
+
 /// 当前不能交给模型的入站 item，保留类型与文件名。
 pub(crate) enum Unsupported {
     Image,
@@ -205,6 +211,53 @@ impl Client {
         } = response;
         successful(ret, None)?;
         message_id.ok_or(ClientError::Protocol("发送成功但缺少 message_id"))
+    }
+
+    /// 取 typing ticket；成功但未下发 ticket 时为 `None`。
+    pub async fn typing_ticket(
+        &self,
+        credentials: &Credentials,
+        context_token: &str,
+    ) -> Result<Option<String>, ClientError> {
+        let response = self
+            .authenticated(credentials, "ilink/bot/getconfig")?
+            .timeout(API_TIMEOUT)
+            .json(&wire::GetConfigRequest {
+                ilink_user_id: &credentials.user_id.0,
+                context_token,
+                base_info: base_info(),
+            })
+            .send()
+            .await
+            .map_err(|error| network_error("getconfig", error))?;
+        let response: wire::GetConfigResponse = decode(response, "getconfig").await?;
+        successful(response.ret, None)?;
+        Ok(response.typing_ticket.filter(|ticket| !ticket.is_empty()))
+    }
+
+    pub async fn typing(
+        &self,
+        credentials: &Credentials,
+        ticket: &str,
+        status: TypingStatus,
+    ) -> Result<(), ClientError> {
+        let response = self
+            .authenticated(credentials, "ilink/bot/sendtyping")?
+            .timeout(API_TIMEOUT)
+            .json(&wire::SendTypingRequest {
+                ilink_user_id: &credentials.user_id.0,
+                typing_ticket: ticket,
+                status: match status {
+                    TypingStatus::Typing => 1,
+                    TypingStatus::Cancel => 2,
+                },
+                base_info: base_info(),
+            })
+            .send()
+            .await
+            .map_err(|error| network_error("sendtyping", error))?;
+        let response: wire::SendTypingResponse = decode(response, "sendtyping").await?;
+        successful(response.ret, None)
     }
 
     pub async fn poll(

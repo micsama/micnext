@@ -17,6 +17,8 @@ pub(crate) const VERIFY_CODE_MAX_CHARS: usize = 128;
 pub(crate) const TEXT_CHUNK_CHARS: usize = 4000;
 pub(crate) const SEND_ATTEMPTS: u32 = 2;
 pub(crate) const SEND_RETRY: Duration = Duration::from_secs(2);
+/// 与 SDK 一致：输入中指示每 5 秒续发一次。
+pub(crate) const TYPING_KEEPALIVE: Duration = Duration::from_secs(5);
 pub(crate) const API_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) const NETWORK_SLOW_RETRY: Duration = Duration::from_secs(30);
 pub(crate) const NETWORK_SLOW_THRESHOLD: u32 = 3;

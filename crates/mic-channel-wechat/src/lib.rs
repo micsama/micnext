@@ -6,6 +6,7 @@ mod delivery;
 mod limits;
 mod login;
 mod service;
+mod typing;
 mod wire;
 
 pub use service::WechatModule;

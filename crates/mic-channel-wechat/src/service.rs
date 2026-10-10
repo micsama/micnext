@@ -20,6 +20,7 @@ use crate::limits::{
     VERIFY_CODE_MAX_CHARS,
 };
 use crate::login::{self, Outcome, Progress};
+use crate::typing;
 
 pub struct WechatModule;
 
@@ -317,6 +318,13 @@ impl Connection {
     async fn run(self, stop: CancellationToken) -> Result<ConnectionExit, BoxError> {
         let (context, token) = watch::channel(self.state.context_token.clone());
         let mut tasks = JoinSet::new();
+        tasks.spawn(typing::run(
+            self.kernel.clone(),
+            self.account.clone(),
+            self.kernel.subscribe(),
+            context.subscribe(),
+            stop.clone(),
+        ));
         tasks.spawn(delivery::run(
             self.kernel.clone(),
             self.account.clone(),

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { ApiError, getUpdateStatus, startUpdate } from "../../api/client";
+  import { ProtocolError } from "../../api/decode";
   import type { UpdateStage, UpdateStatus } from "../../api/developer";
   import Icon from "../../lib/Icon.svelte";
   import { confirm } from "../../state/confirm.svelte";
@@ -46,6 +47,9 @@
   const output = $derived(status !== null && "output" in status ? status.output : "");
   const short = (sha: string) => sha.slice(0, 7);
 
+  /** 本页是否已从服务取到过状态；首次之后再见到重启结果，说明页面代码是旧版。 */
+  let loaded = false;
+
   async function refresh() {
     try {
       const next = await getUpdateStatus();
@@ -53,6 +57,8 @@
       if (next.state === "building" || next.state === "restarting") {
         if (target !== next.to) saveTarget((target = next.to));
       } else if (next.state === "idle" && target !== null) {
+        // 服务已换新版，重载取新界面，核对由重载后的页面按已存目标完成。
+        if (loaded) return location.reload();
         verdict = { target, running: next.running };
         saveTarget((target = null));
       } else if (next.state !== "unavailable" && target !== null) {
@@ -60,8 +66,11 @@
       }
       status = next;
       error = null;
+      loaded = true;
     } catch (e) {
-      if (status?.state === "restarting" && e instanceof ApiError && e.status === 0) {
+      if (loaded && target !== null && e instanceof ProtocolError) {
+        location.reload();
+      } else if (status?.state === "restarting" && e instanceof ApiError && e.status === 0) {
         reconnecting = true;
       } else {
         error = (e as Error).message;

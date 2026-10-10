@@ -89,7 +89,7 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 
 ### 4.3 前端
 
-`web/src/api/developer.ts` 新增 decoder 与两个调用；开发者诊断页新增「更新」页签。running 时每秒 GET；见到 building/restarting 即记下目标 `to`（浏览器存储，随机 token 重新登录后仍在），之后见到 idle 时核对 `running == to`：一致显示「已更新并重启，当前运行 <sha>」，否则标红。重启很快，轮询不保证撞上连接失败，不能以此判断。401 由全局 token 失效处理。
+`web/src/api/developer.ts` 新增 decoder 与两个调用；开发者诊断页新增「更新」页签。running 时每秒 GET；见到 building/restarting 即记下目标 `to`（浏览器存储，随机 token 重新登录后仍在），之后见到 idle 时核对 `running == to`（本页轮询中途见到重启结果或协议不符，说明界面是旧版，先重载再由新页面核对）：一致显示「已更新并重启，当前运行 <sha>」，否则标红。重启很快，轮询不保证撞上连接失败，不能以此判断。401 由全局 token 失效处理。
 
 ## 五、实体、状态与不变量
 

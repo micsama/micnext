@@ -318,18 +318,20 @@ impl Connection {
     async fn run(self, stop: CancellationToken) -> Result<ConnectionExit, BoxError> {
         let (context, token) = watch::channel(self.state.context_token.clone());
         let mut tasks = JoinSet::new();
+        let (delivered, progress) = watch::channel(self.cut);
         tasks.spawn(typing::run(
             self.kernel.clone(),
             self.account.clone(),
             self.kernel.subscribe(),
             context.subscribe(),
+            progress,
             stop.clone(),
         ));
         tasks.spawn(delivery::run(
             self.kernel.clone(),
             self.account.clone(),
             self.events,
-            self.cut,
+            delivered,
             token,
             stop.clone(),
         ));

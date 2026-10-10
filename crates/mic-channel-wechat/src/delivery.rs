@@ -34,15 +34,17 @@ enum DeliveryResult {
     Stopped,
 }
 
+/// `delivered` 发布已处理（送达、跳过或此前已有结果）的出站前缀游标，供 typing 在回复送达后取消。
 pub(crate) async fn run(
     kernel: Kernel,
     account: Arc<Account>,
     mut events: EventReceiver,
-    mut cursor: Option<MessageId>,
+    delivered: watch::Sender<Option<MessageId>>,
     mut context: watch::Receiver<Option<String>>,
     stop: CancellationToken,
 ) -> Result<ConnectionExit, BoxError> {
     let client = Client::new()?;
+    let mut cursor = *delivered.borrow();
     loop {
         let event = tokio::select! {
             biased;
@@ -75,6 +77,7 @@ pub(crate) async fn run(
                     Outcome::Sending | Outcome::Sent | Outcome::Skipped | Outcome::Interrupted => {}
                 }
                 cursor = Some(id);
+                delivered.send_replace(cursor);
                 continue;
             }
             let token = loop {
@@ -93,6 +96,7 @@ pub(crate) async fn run(
                     DeliveryResult::Stopped => return Ok(ConnectionExit::Stopped),
                 };
             cursor = Some(id);
+            delivered.send_replace(cursor);
             if matches!(authentication, Authentication::Expired) {
                 return Ok(ConnectionExit::NeedsLogin);
             }

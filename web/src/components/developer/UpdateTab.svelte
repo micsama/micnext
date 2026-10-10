@@ -17,7 +17,27 @@
   let error = $state<string | null>(null);
   /** 已请求重启，等待服务重新可连。 */
   let reconnecting = $state(false);
-  let recovered = $state(false);
+  /** 重启后核对：新进程报告的版本是否为目标提交。 */
+  let verdict = $state<{ target: string; running: string | null } | null>(null);
+
+  // 目标提交按浏览器记住：随机 token 重启后需重新登录，页面会重新挂载。
+  const TARGET_KEY = "micnext.developer.updateTarget";
+  function loadTarget(): string | null {
+    try {
+      return localStorage.getItem(TARGET_KEY);
+    } catch {
+      return null;
+    }
+  }
+  function saveTarget(v: string | null) {
+    try {
+      if (v === null) localStorage.removeItem(TARGET_KEY);
+      else localStorage.setItem(TARGET_KEY, v);
+    } catch {
+      // NOTE: 存储不可用时仅本页有效。
+    }
+  }
+  let target = loadTarget();
   let outputEl = $state<HTMLElement | null>(null);
 
   const running = $derived(
@@ -29,9 +49,14 @@
   async function refresh() {
     try {
       const next = await getUpdateStatus();
-      if (reconnecting) {
-        reconnecting = false;
-        recovered = true;
+      reconnecting = false;
+      if (next.state === "building" || next.state === "restarting") {
+        if (target !== next.to) saveTarget((target = next.to));
+      } else if (next.state === "idle" && target !== null) {
+        verdict = { target, running: next.running };
+        saveTarget((target = null));
+      } else if (next.state !== "unavailable" && target !== null) {
+        saveTarget((target = null));
       }
       status = next;
       error = null;
@@ -64,7 +89,7 @@
       action: "更新",
     });
     if (!ok) return;
-    recovered = false;
+    verdict = null;
     try {
       await startUpdate();
     } catch (e) {
@@ -92,8 +117,6 @@
       <span class="text-muted-foreground">
         {#if reconnecting}
           正在重启，等待服务恢复…
-        {:else if recovered}
-          服务已恢复。
         {:else if status.state === "checking"}
           {STAGES.checking}…
         {:else if status.state === "pulling"}
@@ -104,9 +127,20 @@
           {STAGES.restarting}：{short(status.from)} → {short(status.to)}
         {:else if status.state === "up_to_date"}
           已是最新（{short(status.commit)}），未重启。
+        {:else if status.state === "idle" && !verdict}
+          当前运行 {status.running ? short(status.running) : "未知版本（非 build.sh 构建）"}
         {/if}
       </span>
     </div>
+    {#if verdict && status.state === "idle" && !reconnecting}
+      {#if verdict.running === verdict.target}
+        <p class="text-emerald-600 dark:text-emerald-400">已更新并重启，当前运行 {short(verdict.target)}。</p>
+      {:else}
+        <p class="text-destructive">
+          已重启，但当前运行 {verdict.running ? short(verdict.running) : "未知版本"}，不是目标 {short(verdict.target)}。
+        </p>
+      {/if}
+    {/if}
     {#if status.state === "failed" && !reconnecting}
       <div class="text-destructive">
         <p>{STAGES[status.stage]}失败：{status.error}</p>

@@ -12,6 +12,10 @@ build() {
     command -v cargo >/dev/null 2>&1 || { echo "请先手动安装 Rust 工具链（cargo）" >&2; exit 1; }
     command -v bun >/dev/null 2>&1 || { echo "请先手动安装 Bun" >&2; exit 1; }
 
+    # 运行中的程序据此报告自身版本，供网页更新核对。
+    MICNEXT_COMMIT="$(git rev-parse HEAD)"
+    export MICNEXT_COMMIT
+
     bun install --cwd web --frozen-lockfile
     bun run --cwd web --bun build
     case "$profile" in

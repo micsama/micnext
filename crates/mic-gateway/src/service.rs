@@ -156,7 +156,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
 
     // NOTE: 面向用户的提示，含 token，故不走 tracing。
     eprintln!("Web 已启动：http://{}/#token={}", config.listen, app.token);
-    tracing::info!(listen = %config.listen, "gateway listening");
+    tracing::info!(listen = %config.listen, commit = update::COMMIT, "gateway listening");
     let server = axum::serve(listener, router)
         .with_graceful_shutdown(stop.clone().cancelled_owned())
         .into_future();

@@ -12,7 +12,7 @@
 - 点击 → 确认框「会中断正在进行的对话，服务将重启」→ 显示阶段：检查 → 拉取（第 n/5 次）→ 构建 → 重启；运行中显示命令输出末尾。
 - 拉取后提交未变：显示「已是最新（<commit>）」，不构建不重启。
 - 失败：显示失败阶段、原因、输出末尾和更新前提交号；旧服务继续运行。可再次点击。
-- 重启：页面等待连接恢复后提示「服务已恢复」，不宣称版本已验证；随机 token 时提示到终端取新地址。
+- 重启：页面核对新进程报告的版本，与目标提交一致才显示「已更新」；随机 token 时需到终端取新地址重新登录。
 - 页面关闭不取消更新。
 
 部署约定：启动前先在 shell 里开代理，例如 `proxy && ./build.sh run --config /path/config.toml`。程序不读、不改、不检查代理；git/bun/cargo 子进程继承启动环境。忘开代理的表现就是 pull 失败、页面可见。
@@ -76,7 +76,7 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 
 ```jsonc
 {"state":"unavailable"}
-{"state":"idle"}
+{"state":"idle","running":"<sha>|null"}
 {"state":"checking","output":"..."}
 {"state":"pulling","from":"<sha>","attempt":2,"output":"..."}
 {"state":"building","from":"<sha>","to":"<sha>","output":"..."}
@@ -85,11 +85,11 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 {"state":"failed","stage":"checking|pulling|building|restarting","from":"<sha>|null","error":"中文原因","output":"..."}
 ```
 
-`output` 为合并输出末尾，最多 64 KiB（按字符边界截断）。状态只在内存，新进程为 idle；`failed` / `up_to_date` 保留到下次 POST。
+`running` 为当前进程构建时的提交（build.sh 注入 `MICNEXT_COMMIT`，直接 cargo build 为 null），启动日志 `gateway listening` 同样打印。`output` 为合并输出末尾，最多 64 KiB（按字符边界截断）。状态只在内存，新进程为 idle；`failed` / `up_to_date` 保留到下次 POST。
 
 ### 4.3 前端
 
-`web/src/api/developer.ts` 新增 decoder 与两个调用；开发者诊断页新增「更新」页签。running 时每秒 GET；`restarting` 后请求失败视为重启中，恢复 200 → 「服务已恢复」，401 → 「token 已变化，请看终端新地址」。
+`web/src/api/developer.ts` 新增 decoder 与两个调用；开发者诊断页新增「更新」页签。running 时每秒 GET；见到 building/restarting 即记下目标 `to`（浏览器存储，随机 token 重新登录后仍在），之后见到 idle 时核对 `running == to`：一致显示「已更新并重启，当前运行 <sha>」，否则标红。重启很快，轮询不保证撞上连接失败，不能以此判断。401 由全局 token 失效处理。
 
 ## 五、实体、状态与不变量
 
@@ -120,7 +120,7 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 | bin/micnext `default-config.toml` | 注释示例 `# update_repo = ...` | — |
 | web | decoder、页签 | 新增 |
 
-core / store / tool / Channel 不改；不新增 crate、依赖或 run 终态。`build.sh` 不改。
+core / store / tool / Channel 不改；不新增 crate、依赖或 run 终态。`build.sh` 只在构建前导出 `MICNEXT_COMMIT`，参数契约不变。
 
 ## 七、相对 r2 的删减（human 已确认）
 

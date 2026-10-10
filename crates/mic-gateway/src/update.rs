@@ -17,6 +17,9 @@ use crate::error::ApiError;
 use crate::limits::{PULL_TIMEOUTS, UPDATE_OUTPUT_BYTES};
 use crate::service::App;
 
+/// 本程序构建时的提交；由 build.sh 注入，直接 cargo build 时为 `None`。
+pub(crate) const COMMIT: Option<&str> = option_env!("MICNEXT_COMMIT");
+
 /// 构建成功后请装配根停止并 exec 的目标。
 pub struct RestartRequest {
     pub executable: PathBuf,
@@ -72,7 +75,9 @@ enum Stage {
 #[serde(tag = "state", rename_all = "snake_case")]
 enum StatusView<'a> {
     Unavailable,
-    Idle,
+    Idle {
+        running: Option<&'static str>,
+    },
     Checking {
         output: &'a str,
     },
@@ -129,7 +134,7 @@ impl Updater {
         let state = self.state.lock().unwrap();
         let output = state.output.as_str();
         f(match &state.phase {
-            Phase::Idle => StatusView::Idle,
+            Phase::Idle => StatusView::Idle { running: COMMIT },
             Phase::Checking => StatusView::Checking { output },
             Phase::Pulling { from, attempt } => StatusView::Pulling {
                 from,

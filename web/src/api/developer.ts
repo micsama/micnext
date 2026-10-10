@@ -94,7 +94,7 @@ export type UpdateStage = "checking" | "pulling" | "building" | "restarting";
 
 export type UpdateStatus =
   | { state: "unavailable" }
-  | { state: "idle" }
+  | { state: "idle"; running: string | null }
   | { state: "checking"; output: string }
   | { state: "pulling"; from: string; attempt: number; output: string }
   | { state: "building"; from: string; to: string; output: string }
@@ -106,7 +106,7 @@ const stage = oneOf("checking", "pulling", "building", "restarting");
 
 const updateStates: { [S in UpdateStatus["state"]]: Decoder<Extract<UpdateStatus, { state: S }>> } = {
   unavailable: obj({ state: oneOf("unavailable") }),
-  idle: obj({ state: oneOf("idle") }),
+  idle: obj({ state: oneOf("idle"), running: nullable(str) }),
   checking: obj({ state: oneOf("checking"), output: str }),
   pulling: obj({ state: oneOf("pulling"), from: str, attempt: num, output: str }),
   building: obj({ state: oneOf("building"), from: str, to: str, output: str }),

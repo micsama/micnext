@@ -10,11 +10,15 @@ use crate::{delivery, wire};
 pub(crate) async fn resolve(
     kernel: &Kernel,
     account: &Account,
-    references: Vec<QuoteRef>,
+    references: Vec<Option<QuoteRef>>,
 ) -> Result<Vec<IncomingPart>, AccountError> {
     let mut out = Vec::with_capacity(references.len());
     let mut history = None;
     for reference in references {
+        let Some(reference) = reference else {
+            out.push(IncomingPart::Text("[引用失败]\n".to_owned()));
+            continue;
+        };
         let text = match incoming(kernel, account, reference.id).await? {
             Some((id, source_start)) => {
                 let messages = match &history {

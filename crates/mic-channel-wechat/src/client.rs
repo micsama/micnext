@@ -57,7 +57,8 @@ pub(crate) struct Updates {
 
 pub(crate) struct IncomingMessage {
     pub external_id: wire::MessageId,
-    pub references: Vec<QuoteRef>,
+    /// `None`：引用无法解析。
+    pub references: Vec<Option<QuoteRef>>,
     pub context_token: String,
     pub content: Vec<IncomingContent>,
 }
@@ -383,27 +384,41 @@ pub(crate) fn parse_updates(
         {
             continue;
         }
-        let context_token = required(message.context_token.clone(), "入站缺少 context_token")?;
-        let external_id = message
-            .message_id
-            .ok_or(ClientError::Protocol("入站缺少 message_id"))?;
+        // 单条消息残缺只丢这一条，不拖垮整个入站连接。
+        let (Some(context_token), Some(external_id)) = (
+            message
+                .context_token
+                .clone()
+                .filter(|token| !token.is_empty()),
+            message.message_id,
+        ) else {
+            tracing::error!(
+                has_message_id = message.message_id.is_some(),
+                "wechat inbound message missing context_token or message_id, skipped"
+            );
+            continue;
+        };
         let mut references = Vec::new();
         let mut content = Vec::new();
         for item in message.item_list.iter().flatten() {
             if let Some(reference) = &item.ref_msg {
-                references.push(parse_quote(reference)?);
+                references.push(
+                    parse_quote(reference)
+                        .inspect_err(|reason| {
+                            tracing::error!(reason, "wechat inbound quote unparsable");
+                        })
+                        .ok(),
+                );
             }
             match item.kind {
-                Some(1) => {
-                    let text = item
-                        .text_item
-                        .as_ref()
-                        .and_then(|item| item.text.as_ref())
-                        .ok_or(ClientError::Protocol("文本 item 缺少 text"))?;
-                    if !text.trim().is_empty() {
-                        content.push(IncomingContent::Text(text.clone()));
+                Some(1) => match item.text_item.as_ref().and_then(|item| item.text.as_ref()) {
+                    Some(text) if text.trim().is_empty() => {}
+                    Some(text) => content.push(IncomingContent::Text(text.clone())),
+                    None => {
+                        tracing::error!("wechat inbound text item missing text");
+                        content.push(IncomingContent::Unsupported(Unsupported::Other));
                     }
-                }
+                },
                 Some(3) => match item
                     .voice_item
                     .as_ref()
@@ -447,19 +462,16 @@ pub(crate) fn parse_updates(
     })
 }
 
-fn parse_quote(reference: &wire::RefMessage) -> Result<QuoteRef, ClientError> {
+fn parse_quote(reference: &wire::RefMessage) -> Result<QuoteRef, &'static str> {
     let id = reference
         .message_item
         .as_ref()
         .and_then(|item| item.msg_id.as_deref())
-        .ok_or(ClientError::Protocol("引用缺少 message_item.msg_id"))?;
+        .ok_or("引用缺少 message_item.msg_id")?;
     if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(ClientError::Protocol("引用 msg_id 不是十进制 uint64"));
+        return Err("引用 msg_id 不是十进制 uint64");
     }
-    let id = wire::MessageId(
-        id.parse()
-            .map_err(|_| ClientError::Protocol("引用 msg_id 超出 uint64"))?,
-    );
+    let id = wire::MessageId(id.parse().map_err(|_| "引用 msg_id 超出 uint64")?);
     let partial = reference
         .partial_text
         .as_ref()
@@ -472,7 +484,7 @@ fn parse_quote(reference: &wire::RefMessage) -> Result<QuoteRef, ClientError> {
                     .bytes()
                     .all(|byte| byte.is_ascii_hexdigit())
             {
-                return Err(ClientError::Protocol("部分引用锚点或 MD5 不合法"));
+                return Err("部分引用锚点或 MD5 不合法");
             }
             let mut partial = partial.clone();
             partial.quotemd5.make_ascii_lowercase();

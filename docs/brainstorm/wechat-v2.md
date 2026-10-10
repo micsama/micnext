@@ -35,6 +35,6 @@ human 方向：官方 SDK / API 支持的能力尽量都接上。依据为本地
 ## 三、未知项
 
 - 上下线通知：停服后「未连接」是否立即出现，决定是否接 notifystop。
-- 引用反查：`ref_msg.svr_id` 是否等于我们发送时拿到的 `message_id`，需实测。
+- 引用反查：已实测（2026-10-10）——引用 bot 回复时 `svr_id`、`title`、`partial_text` 均为 null，`message_item` 只有 `msg_id`、无正文；`message_item.msg_id` 等于出站 `wechat_delivery_attempt.external_message_id`（message 203 ↔ `7514528105921239688`），据此反查原 Reply。引用用户自己的文字、部分引用、图片的样本仍缺。
 - 入站媒体单个上限（SDK 默认 25 MB）、保留天数（SDK 7 天）是否照搬。
 - 表情包的实际 item 形态（type 2 还是其他）。

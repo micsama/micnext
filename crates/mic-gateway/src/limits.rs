@@ -32,11 +32,12 @@ pub(crate) const ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutabl
 /// `index.html` 等无哈希文件：每次都向服务端确认。
 pub(crate) const INDEX_CACHE_CONTROL: &str = "no-cache";
 
-/// 模型名与 API key 的长度上限（字符数）。
+/// 模型名最大字符数。
 pub(crate) const MODEL_NAME_MAX_CHARS: usize = 80;
 /// 服务商名称最大字符数。
 pub(crate) const ENDPOINT_NAME_MAX_CHARS: usize = 40;
-pub(crate) const API_KEY_MAX_CHARS: usize = 512;
+/// API key 最大字符数；需容纳 JWT 形式的 access_token。
+pub(crate) const API_KEY_MAX_CHARS: usize = 8192;
 
 /// 开发者日志：保留条数、文本总字节、单条文本字节、单条字段数。
 pub(crate) const LOG_RECORDS: usize = 10_000;

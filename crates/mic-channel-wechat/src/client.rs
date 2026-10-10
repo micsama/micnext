@@ -54,8 +54,15 @@ pub(crate) struct Updates {
 }
 
 pub(crate) struct IncomingMessage {
+    pub external_id: wire::MessageId,
+    pub references: Vec<QuoteRef>,
     pub context_token: String,
     pub content: Vec<IncomingContent>,
+}
+
+pub(crate) struct QuoteRef {
+    pub id: wire::MessageId,
+    pub partial: Option<wire::PartialText>,
 }
 
 pub(crate) enum IncomingContent {
@@ -343,25 +350,14 @@ pub(crate) fn parse_updates(
             continue;
         }
         let context_token = required(message.context_token.clone(), "入站缺少 context_token")?;
-        // TODO: 引用入站 ID 对应关系验证后删除。
-        tracing::debug!(
-            message_id = ?message.message_id.map(|id| id.0.to_string()),
-            item_msg_ids = ?message
-                .item_list
-                .iter()
-                .flatten()
-                .filter_map(|item| item.msg_id.as_deref())
-                .collect::<Vec<_>>(),
-            "wechat inbound identity"
-        );
+        let external_id = message
+            .message_id
+            .ok_or(ClientError::Protocol("入站缺少 message_id"))?;
+        let mut references = Vec::new();
         let mut content = Vec::new();
         for item in message.item_list.iter().flatten() {
-            // TODO: 引用回复实测样本采集，V2 引用实现后删除。
             if let Some(reference) = &item.ref_msg {
-                tracing::debug!(
-                    ref_msg = %serde_json::to_string(reference).expect("引用可序列化"),
-                    "wechat inbound quote"
-                );
+                references.push(parse_quote(reference)?);
             }
             match item.kind {
                 Some(1) => {
@@ -399,6 +395,8 @@ pub(crate) fn parse_updates(
             }
         }
         incoming.push(IncomingMessage {
+            external_id,
+            references,
             context_token,
             content,
         });
@@ -409,6 +407,41 @@ pub(crate) fn parse_updates(
         timeout_ms,
         incoming,
     })
+}
+
+fn parse_quote(reference: &wire::RefMessage) -> Result<QuoteRef, ClientError> {
+    let id = reference
+        .message_item
+        .as_ref()
+        .and_then(|item| item.msg_id.as_deref())
+        .ok_or(ClientError::Protocol("引用缺少 message_item.msg_id"))?;
+    if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(ClientError::Protocol("引用 msg_id 不是十进制 uint64"));
+    }
+    let id = wire::MessageId(
+        id.parse()
+            .map_err(|_| ClientError::Protocol("引用 msg_id 超出 uint64"))?,
+    );
+    let partial = reference
+        .partial_text
+        .as_ref()
+        .map(|partial| {
+            if partial.start.is_empty()
+                || partial.end.is_empty()
+                || partial.quotemd5.len() != 32
+                || !partial
+                    .quotemd5
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(ClientError::Protocol("部分引用锚点或 MD5 不合法"));
+            }
+            let mut partial = partial.clone();
+            partial.quotemd5.make_ascii_lowercase();
+            Ok(partial)
+        })
+        .transpose()?;
+    Ok(QuoteRef { id, partial })
 }
 
 fn validate_message(message: &wire::WechatMessage) -> Result<(), ClientError> {

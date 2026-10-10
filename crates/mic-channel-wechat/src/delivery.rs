@@ -264,6 +264,45 @@ async fn stored(kernel: &Kernel, id: MessageId) -> Result<Option<Outcome>, Accou
     .transpose()
 }
 
+pub(crate) async fn quoted_text(
+    kernel: &Kernel,
+    user: &crate::account::WechatUserId,
+    external_id: crate::wire::MessageId,
+) -> Result<Option<String>, AccountError> {
+    let user = user.0.clone();
+    let external_id = external_id.0.to_string();
+    let raw = kernel
+        .with_module_tx(move |tx| {
+            tx.query_row(
+                "SELECT d.plan_version, d.plan, a.chunk_index
+                 FROM wechat_delivery_attempt a
+                 JOIN wechat_delivery d ON d.message_id = a.message_id
+                 WHERE d.user_id = ?1 AND a.external_message_id = ?2
+                 ORDER BY a.message_id, a.chunk_index, a.attempt_no LIMIT 1",
+                params![user, external_id],
+                |row| {
+                    Ok((
+                        row.get::<_, u32>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .optional()
+        })
+        .await?;
+    raw.map(|(version, raw, chunk)| {
+        let plan = disk_plan(version, &raw)?;
+        let chunk =
+            usize::try_from(chunk).map_err(|_| AccountError::Invalid("引用发送段位置不合法"))?;
+        plan.chunks
+            .into_iter()
+            .nth(chunk)
+            .ok_or(AccountError::Invalid("引用发送段不存在"))
+    })
+    .transpose()
+}
+
 async fn begin(
     kernel: &Kernel,
     id: MessageId,

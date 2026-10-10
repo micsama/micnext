@@ -5,6 +5,7 @@ mod client;
 mod delivery;
 mod limits;
 mod login;
+mod quote;
 mod service;
 mod typing;
 mod wire;

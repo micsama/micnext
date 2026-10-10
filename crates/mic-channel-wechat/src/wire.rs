@@ -152,7 +152,7 @@ pub(crate) struct RefMessage {
     pub partial_text: Option<PartialText>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PartialText {
     pub start: String,

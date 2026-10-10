@@ -13,10 +13,11 @@ use serde::{Deserialize, Serialize};
 use crate::client::{https_base, required, ClientError};
 use crate::limits::{LOCAL_TOKEN_LIMIT, LONGPOLL_TIMEOUT_MS};
 
-pub(crate) const MIGRATIONS: &[Migration] = &[Migration {
-    module: "wechat",
-    version: 1,
-    sql: "
+pub(crate) const MIGRATIONS: &[Migration] = &[
+    Migration {
+        module: "wechat",
+        version: 1,
+        sql: "
 CREATE TABLE wechat_account (
   user_id TEXT PRIMARY KEY,
   bot_id TEXT NOT NULL,
@@ -67,17 +68,33 @@ CREATE TABLE wechat_delivery_attempt (
   PRIMARY KEY (message_id, chunk_index, attempt_no)
 );
 ",
-    secret_columns: &[
-        SecretColumn {
-            table: "wechat_account",
-            column: "bot_token",
-        },
-        SecretColumn {
-            table: "wechat_state",
-            column: "context_token",
-        },
-    ],
-}];
+        secret_columns: &[
+            SecretColumn {
+                table: "wechat_account",
+                column: "bot_token",
+            },
+            SecretColumn {
+                table: "wechat_state",
+                column: "context_token",
+            },
+        ],
+    },
+    Migration {
+        module: "wechat",
+        version: 2,
+        sql: "
+CREATE TABLE wechat_inbound_message (
+  message_id INTEGER PRIMARY KEY REFERENCES core_messages(id),
+  user_id TEXT NOT NULL REFERENCES wechat_account(user_id),
+  external_message_id TEXT NOT NULL,
+  source_start INTEGER NOT NULL CHECK(source_start >= 0)
+);
+CREATE INDEX wechat_inbound_message_external
+  ON wechat_inbound_message(user_id, external_message_id, message_id);
+",
+        secret_columns: &[],
+    },
+];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]

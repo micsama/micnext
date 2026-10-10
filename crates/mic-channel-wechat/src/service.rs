@@ -20,6 +20,7 @@ use crate::limits::{
     VERIFY_CODE_MAX_CHARS,
 };
 use crate::login::{self, Outcome, Progress};
+use crate::quote;
 use crate::typing;
 
 pub struct WechatModule;
@@ -468,21 +469,32 @@ async fn inbound(
             if parts.is_empty() {
                 continue;
             }
+            let mut quoted = quote::resolve(&kernel, &account, incoming.references).await?;
+            let source_start = quoted.len();
+            quoted.extend(parts);
             let message = if kinds.is_empty() {
                 kernel
-                    .append_user_input(account.view.session_id, account.person, parts)
+                    .append_user_input(account.view.session_id, account.person, quoted)
                     .await?
             } else {
                 kernel
                     .append_recorded_input(
                         account.view.session_id,
                         account.person,
-                        parts,
+                        quoted,
                         "wechat",
                         format!("微信渠道暂不支持{}，这条消息仅作记录。", kinds.join("、")),
                     )
                     .await?
             };
+            quote::remember(
+                &kernel,
+                &account,
+                incoming.external_id,
+                message,
+                source_start,
+            )
+            .await?;
             tracing::info!(
                 session_id = account.view.session_id.0,
                 message_id = message.0,

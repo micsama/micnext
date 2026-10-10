@@ -18,7 +18,7 @@ build() {
         release)
             # 确保本轮生成的全部页面资源重新嵌入二进制。
             cargo clean -p mic-gateway --release
-            cargo build --release --locked
+            cargo build --release --locked --config 'profile.release.strip="symbols"'
             ;;
         debug)
             cargo build --locked

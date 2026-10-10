@@ -19,7 +19,7 @@
 
 - 项目模块采 DEBUG/INFO/WARN/ERROR，依赖只采 INFO/WARN/ERROR，不采 TRACE。项目归属：event `Metadata::module_path` 第一段为 `micnext` 或以 `mic_` 开头；其余或无 module_path 视为依赖。新增项目 crate 无需登记。
 - 终端继续按 RUST_LOG，与内存层各自过滤；不得把 RUST_LOG 设为全局过滤，也不得用 release_max_level_info 等 feature 编译期排除 DEBUG。
-- 只采已有 tracing event：不新增聊天/工具输出埋点，不捕获 stderr、panic hook 或子进程输出。聊天原文可见，沿用已有秘密隐藏规则，不声称日志已脱敏。
+- 只采已有 tracing event：不新增聊天/工具输出埋点，不捕获 stderr、panic hook 或子进程输出。聊天原文可见，不声称日志已脱敏。凭据（bot_token、context_token 等）由 emit 侧遮蔽：DEBUG 常驻采集后，「仅 debug 级别输出」不再构成隐藏，Gateway/UI 不猜测脱敏。
 
 ### 2.2 Rust 公开契约（mic-gateway re-export）
 
@@ -72,9 +72,9 @@ level 严格四值；line 为 u32 或 null。前端两个强类型 decoder；未
 
 ### 2.5 页面
 
-- 浏览器同样最多 10,000 条/16 MiB；每页最多渲染 500 条匹配记录，可翻页；文本不解释 HTML。
+- 浏览器同样最多 10,000 条/16 MiB；最多渲染 500 条匹配记录：跟随时显示最近 500 条，暂停后按 500 条前后翻；文本不解释 HTML。
 - 过滤 = 级别集合 AND 精确 target AND 搜索（正文、target、字段名值）。普通文本不区分大小写；正则 `u`、可选 `i`。查询最多 512 字符、debounce 200ms；非法正则提示并保留上一有效筛选。不加 worker，接受复杂正则卡页。
-- 暂停/上翻只停跟随，继续接收。复制全部匹配记录（含未渲染页），截断项带标记，失败明确提示。
+- 暂停/上翻只停跟随，继续接收；视图锚定在当前首条记录（页面内编号），新日志与淘汰不移动正在看的内容；锚点被淘汰时提示并从最早保留记录显示。两页签切换不销毁，筛选、暂停位置、SQL 草稿与结果在页面生命周期内保留。复制全部匹配记录（含未渲染页），截断项带标记，失败明确提示。
 - 断线或流结束按 1/2/4/8/10s 退避重连，收到 ready 清空重放；401 走 auth.expire；400/协议错误停自动重试，提供手动重连。页面写明“内存日志，重启清空；重连重新加载最近窗口”。
 
 ## 三、只读 SQL
@@ -109,7 +109,7 @@ Store 汇总全部已注册迁移的声明；authorizer 对这些列的 `SQLITE_
 
 authorizer 白名单：`SELECT`、`READ`（凭据列 IGNORE）、`FUNCTION`、`RECURSIVE`；其余一律 DENY（写、DDL、ATTACH、PRAGMA、事务控制等）。只读打开是第二道防线。不用前缀或正则判断 SQL。rusqlite `prepare` 遇多条语句报错，即单条约束。
 
-每次查询装 progress handler：超过 2 秒中断。逐行读取到 200 行或结果文本 1 MiB 即停止并标记截断；statement 与读事务在返回前释放，结果传输不持有事务。需要给 mic-store 的 rusqlite 打开 `hooks` feature。
+每次查询装 progress handler，每 1000 条 VM 指令检查一次，超过 2 秒即中断；这不是硬墙钟期限，单条长指令（如大排序、生成巨值）可超出。连接设 `SQLITE_LIMIT_LENGTH` 32 MiB（大于库内图片上限），拦住 printf/zeroblob 生成的巨值。逐行读取：读入下一行会超过 200 行或累计文本 1 MiB 时，不复制该行，停止并标记截断（首行即超限时结果为空，页面提示用 substr 截取）；statement 与读事务在返回前释放，结果传输不持有事务。需要给 mic-store 的 rusqlite 打开 `hooks`、`limits` feature。
 
 ```rust
 // mic-store re-export，经 mic-core 透传
@@ -176,7 +176,7 @@ impl Store {
  "truncated":false,"elapsed_ms":3}
 ```
 
-Cell 为 tagged：`null`、`integer`（十进制字符串，避免 JS 精度丢失）、`real`（number）、`text`、`blob`（`bytes` 数字）。错误 `{"error":"中文原因"}`：400 Rejected/Timeout/请求非法，409 Busy，503 Unavailable，500 Store。
+Cell 为 tagged：`null`、`integer`（十进制字符串，避免 JS 精度丢失）、`real`（字符串，Rust `{:?}` 格式，含 `inf`/`-inf`；JSON number 无法表示非有限值）、`text`、`blob`（`bytes` 数字）。错误 `{"error":"中文原因"}`：400 Rejected/Timeout/请求非法，409 Busy，503 Unavailable，500 Store。
 
 ### 3.5 页面
 
@@ -221,7 +221,7 @@ sequenceDiagram
 | Store::open / open_in_memory | 签名不变；open 多开只读连接，失败启动报错 |
 | Kernel / KernelError | 新增两方法与一个变体；Gateway 对 KernelError 的匹配需补该分支 |
 | Module/Assembly/Channel/Provider/工具 | 无变化 |
-| 终端/RUST_LOG、`-p` | 行为等价；项目 DEBUG 实际求值，开销有界 |
+| 终端/RUST_LOG、`-p` | 行为等价；项目 DEBUG 实际求值：保留容量有界（条数/字节），但 emit 表达式本身的格式化与分配在采集截断前已发生，执行开销随埋点而定 |
 | 会话 SSE、Web auth、复制 | 复用，事件不变 |
 | 数据库 schema/文件 | 无迁移、不写盘 |
 

@@ -1,5 +1,6 @@
 import { ApiError } from "../api/client";
-import { readLogStream, type LogRecord } from "../api/developer";
+import type { LogRecord } from "../api/developer";
+import { readLogStream } from "../api/stream";
 import { ProtocolError } from "../api/types";
 import { sleep } from "../lib/sleep";
 
@@ -11,16 +12,20 @@ const MAX_BYTES = 16 * 1024 * 1024;
 
 export type LogStatus = "connecting" | "live" | "reconnecting";
 
+/** `n` 为本页面内递增编号，跨重连不复用，供暂停定位。 */
+export type LogEntry = LogRecord & { n: number };
+
 /** 开发者日志连接：收到 ready 清空并接收重放，断线按 1/2/4/8/10s 退避重连。 */
 export class LogFeed {
   /** 记录量大，不做深层代理；`version` 递增表示内容变化。 */
-  records: LogRecord[] = [];
+  records: LogEntry[] = [];
   version = $state(0);
   status = $state<LogStatus>("connecting");
   historyTrimmed = $state(false);
   /** 无法自动恢复的错误（请求被拒、版本不一致），需手动重连。 */
   fatal = $state<string | null>(null);
 
+  #next = 0;
   #sizes: number[] = [];
   #bytes = 0;
   #frame = 0;
@@ -28,6 +33,11 @@ export class LogFeed {
 
   constructor() {
     void this.#run();
+  }
+
+  /** 下一条记录将得到的编号。 */
+  get next(): number {
+    return this.#next;
   }
 
   close(): void {
@@ -83,7 +93,7 @@ export class LogFeed {
 
   #push(record: LogRecord): void {
     const size = sizeOf(record);
-    this.records.push(record);
+    this.records.push({ ...record, n: this.#next++ });
     this.#sizes.push(size);
     this.#bytes += size;
     let drop = 0;

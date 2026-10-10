@@ -1,5 +1,4 @@
 import { arr, bool, nullable, num, obj, oneOf, ProtocolError, str, type Decoder } from "./decode";
-import { readSse } from "./sse";
 
 // 与 docs/blueprints/developer-diagnostics.md §2.4、§3.4 一一对应。
 
@@ -24,7 +23,7 @@ export type LogEvent =
 export type Cell =
   | { type: "null" }
   | { type: "integer"; value: string }
-  | { type: "real"; value: number }
+  | { type: "real"; value: string }
   | { type: "text"; value: string }
   | { type: "blob"; bytes: number };
 
@@ -51,7 +50,7 @@ const logData: { [E in LogEvent["event"]]: Decoder<Extract<LogEvent, { event: E 
 const cells: { [T in Cell["type"]]: Decoder<Extract<Cell, { type: T }>> } = {
   null: obj({ type: oneOf("null") }),
   integer: obj({ type: oneOf("integer"), value: str }),
-  real: obj({ type: oneOf("real"), value: num }),
+  real: obj({ type: oneOf("real"), value: str }),
   text: obj({ type: oneOf("text"), value: str }),
   blob: obj({ type: oneOf("blob"), bytes: num }),
 };
@@ -78,7 +77,7 @@ export const parseQueryResult = (v: unknown): QueryResult => queryResult(v, "查
 
 export const parseTables = (v: unknown): TableSchema[] => tables(v, "表结构");
 
-function parseLogEvent(event: string, data: string): LogEvent {
+export function parseLogEvent(event: string, data: string): LogEvent {
   if (!Object.hasOwn(logData, event)) throw new ProtocolError(`事件 ${event}`);
   let parsed: unknown;
   try {
@@ -88,9 +87,4 @@ function parseLogEvent(event: string, data: string): LogEvent {
   }
   const decode = logData[event as LogEvent["event"]] as Decoder<unknown>;
   return { event, data: decode(parsed, `事件 ${event}`) } as LogEvent;
-}
-
-/** 打开开发者日志流：先回放保留窗口再跟随，流结束时返回。 */
-export async function readLogStream(signal: AbortSignal, onEvent: (e: LogEvent) => void): Promise<void> {
-  await readSse("/developer/logs/stream", signal, (event, data) => onEvent(parseLogEvent(event, data)));
 }

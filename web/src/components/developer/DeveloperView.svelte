@@ -36,8 +36,10 @@
       onclick={() => (tab = t.id)}>{t.label}</button>
   {/each}
 </nav>
-{#if tab === "logs"}
+<!-- 两页签常驻，切换不丢筛选、暂停位置与 SQL 草稿/结果。 -->
+<div class="flex min-h-0 flex-1 flex-col" class:hidden={tab !== "logs"}>
   <LogsTab {feed} />
-{:else}
+</div>
+<div class="flex min-h-0 flex-1 flex-col" class:hidden={tab !== "sql"}>
   <SqlTab />
-{/if}
+</div>

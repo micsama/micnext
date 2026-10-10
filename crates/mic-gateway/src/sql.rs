@@ -33,7 +33,7 @@ struct ResultView {
 enum CellView {
     Null,
     Integer { value: String },
-    Real { value: f64 },
+    Real { value: String },
     Text { value: String },
     Blob { bytes: u64 },
 }
@@ -96,7 +96,10 @@ fn cell_view(cell: Cell) -> CellView {
         Cell::Integer(v) => CellView::Integer {
             value: v.to_string(),
         },
-        Cell::Real(value) => CellView::Real { value },
+        // NOTE: JSON 无法表示 inf；Debug 格式保留指数写法（1e300）。
+        Cell::Real(v) => CellView::Real {
+            value: format!("{v:?}"),
+        },
         Cell::Text(value) => CellView::Text { value },
         Cell::Blob { bytes } => CellView::Blob { bytes },
     }

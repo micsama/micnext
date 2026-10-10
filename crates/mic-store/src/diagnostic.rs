@@ -6,11 +6,13 @@ use std::sync::{Mutex, TryLockError};
 use std::time::Instant;
 
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+use rusqlite::limits::Limit;
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 
 use crate::limits::{
     DIAGNOSTIC_BYTES, DIAGNOSTIC_PROGRESS_OPS, DIAGNOSTIC_ROWS, DIAGNOSTIC_TIMEOUT,
+    DIAGNOSTIC_VALUE_BYTES,
 };
 use crate::{SecretColumn, Store, StoreError};
 
@@ -18,7 +20,7 @@ use crate::{SecretColumn, Store, StoreError};
 pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<Cell>>,
-    /// 行数或文本字节达到上限，其后结果未读取。
+    /// 下一行会超出行数或文本字节上限，其后结果未返回。
     pub truncated: bool,
     pub elapsed_ms: u64,
 }
@@ -75,6 +77,7 @@ impl Diagnostic {
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
+        conn.set_limit(Limit::SQLITE_LIMIT_LENGTH, DIAGNOSTIC_VALUE_BYTES)?;
         let hidden = secrets.clone();
         conn.authorizer(Some(move |ctx: AuthContext<'_>| authorize(&hidden, ctx)))?;
         Ok(Self {
@@ -192,26 +195,29 @@ fn run(conn: &Connection, sql: &str, started: Instant) -> rusqlite::Result<Query
     let mut truncated = false;
     let mut cursor = stmt.query([])?;
     while let Some(row) = cursor.next()? {
-        if rows.len() == DIAGNOSTIC_ROWS || bytes >= DIAGNOSTIC_BYTES {
+        let mut size = 0;
+        for i in 0..width {
+            size += 8 + match row.get_ref(i)? {
+                ValueRef::Text(v) => v.len(),
+                _ => 0,
+            };
+        }
+        if rows.len() == DIAGNOSTIC_ROWS || bytes + size > DIAGNOSTIC_BYTES {
             truncated = true;
             break;
         }
+        bytes += size;
         let mut cells = Vec::with_capacity(width);
         for i in 0..width {
-            let cell = match row.get_ref(i)? {
+            cells.push(match row.get_ref(i)? {
                 ValueRef::Null => Cell::Null,
                 ValueRef::Integer(v) => Cell::Integer(v),
                 ValueRef::Real(v) => Cell::Real(v),
-                ValueRef::Text(v) => {
-                    bytes += v.len();
-                    Cell::Text(String::from_utf8_lossy(v).into_owned())
-                }
+                ValueRef::Text(v) => Cell::Text(String::from_utf8_lossy(v).into_owned()),
                 ValueRef::Blob(v) => Cell::Blob {
                     bytes: v.len() as u64,
                 },
-            };
-            bytes += 8;
-            cells.push(cell);
+            });
         }
         rows.push(cells);
     }

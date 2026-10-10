@@ -518,12 +518,37 @@ async fn decode<T: DeserializeOwned>(
             body_len = body.len(),
             "wechat response decode failed"
         );
-        // WARN: 原始响应可能含 bot_token 与消息正文，仅在 debug 级别输出。
-        tracing::debug!(
-            endpoint,
-            body = %String::from_utf8_lossy(&body),
-            "wechat response raw body"
-        );
+        // NOTE: 网页开发者日志常驻采集 DEBUG，凭据在此遮蔽；消息正文仍可见。
+        tracing::debug!(endpoint, body = %redacted(&body), "wechat response raw body");
         ClientError::Protocol("响应字段或枚举不匹配")
     })
+}
+
+/// 响应中携带凭据的字段名；值替换为占位。
+const SECRET_KEYS: [&str; 2] = ["bot_token", "context_token"];
+
+/// 非 JSON 无法定位凭据，只给长度。
+fn redacted(body: &[u8]) -> String {
+    fn walk(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, value) in map.iter_mut() {
+                    if SECRET_KEYS.contains(&key.as_str()) {
+                        *value = serde_json::Value::String("<已隐藏>".into());
+                    } else {
+                        walk(value);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(walk),
+            _ => {}
+        }
+    }
+    match serde_json::from_slice::<serde_json::Value>(body) {
+        Ok(mut value) => {
+            walk(&mut value);
+            value.to_string()
+        }
+        Err(_) => format!("<非 JSON 响应，{} 字节>", body.len()),
+    }
 }

@@ -109,7 +109,7 @@
       bind:value={sql}
       {onkeydown}
       spellcheck="false"
-      placeholder="输入一条只读 SQL，如 SELECT * FROM session LIMIT 20"
+      placeholder="输入一条只读 SQL，如 SELECT * FROM core_sessions LIMIT 20"
       class="h-32 shrink-0 resize-y border-b bg-background p-3 font-mono text-sm outline-none"></textarea>
     <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1.5 text-xs text-muted-foreground">
       <button
@@ -122,7 +122,11 @@
       <span>Ctrl/⌘ + Enter</span>
       {#if result}
         <span>{result.rows.length} 行 · {result.elapsed_ms} ms</span>
-        {#if result.truncated}<span class="text-amber-600 dark:text-amber-400">结果已截断（最多 200 行 / 1 MiB）</span>{/if}
+        {#if result.truncated}<span class="text-amber-600 dark:text-amber-400"
+            >{result.rows.length === 0
+              ? "首行文本超过 1 MiB，未返回；可用 substr() 截取"
+              : "结果已截断（最多 200 行 / 1 MiB）"}</span
+          >{/if}
         <button
           type="button"
           class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"

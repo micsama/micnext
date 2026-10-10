@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { LOG_LEVELS, type LogLevel, type LogRecord } from "../../api/developer";
+  import { LOG_LEVELS, type LogLevel } from "../../api/developer";
   import { copyText } from "../../lib/clipboard";
   import Icon from "../../lib/Icon.svelte";
-  import type { LogFeed } from "../../state/developer-logs.svelte";
+  import type { LogEntry, LogFeed } from "../../state/developer-logs.svelte";
 
   let { feed }: { feed: LogFeed } = $props();
 
@@ -68,12 +68,22 @@
     );
   });
 
-  /** null = 跟随最新一页。 */
-  let page = $state<number | null>(null);
-  const pageCount = $derived(Math.max(1, Math.ceil(matches.length / PAGE)));
-  const index = $derived(Math.min(page ?? pageCount - 1, pageCount - 1));
-  const rows = $derived(matches.slice(index * PAGE, (index + 1) * PAGE));
-  const following = $derived(page === null);
+  /** null = 跟随最新 PAGE 条；否则为当前页首条的 `n`，新日志与淘汰不移动视图。 */
+  let anchor = $state<number | null>(null);
+  const start = $derived.by(() => {
+    const last = Math.max(0, matches.length - PAGE);
+    if (anchor === null) return last;
+    const a = anchor;
+    const i = matches.findIndex((r) => r.n >= a);
+    return i === -1 ? last : i;
+  });
+  const rows = $derived(matches.slice(start, start + PAGE));
+  const following = $derived(anchor === null);
+  const anchorEvicted = $derived.by(() => {
+    void feed.version;
+    const first = feed.records[0];
+    return anchor !== null && first !== undefined && first.n > anchor;
+  });
 
   let list = $state<HTMLElement | null>(null);
 
@@ -83,11 +93,11 @@
   });
 
   function pause() {
-    page = index;
+    anchor = matches[start]?.n ?? feed.next;
   }
 
   function follow() {
-    page = null;
+    anchor = null;
   }
 
   function onscroll() {
@@ -113,7 +123,7 @@
     return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
   }
 
-  function line(r: LogRecord): string {
+  function line(r: LogEntry): string {
     const fields = r.fields.map((f) => ` ${f.name}=${f.value}`).join("");
     const at = r.file ? ` (${r.file}:${r.line ?? "?"})` : "";
     return `${new Date(r.timestamp_ms).toISOString()} ${r.level.toUpperCase()} ${r.target} ${r.message}${fields}${at}${r.truncated ? " [已截断]" : ""}`;
@@ -148,6 +158,11 @@
 {#if queryError}
   <p class="shrink-0 border-b px-3 py-1 text-xs text-destructive">{queryError}</p>
 {/if}
+{#if anchorEvicted}
+  <p class="shrink-0 border-b px-3 py-1 text-xs text-amber-600 dark:text-amber-400">
+    暂停处的日志已被淘汰，当前从最早保留的记录显示
+  </p>
+{/if}
 
 <div bind:this={list} {onscroll} class="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
   {#each rows as r, i (i)}
@@ -177,15 +192,16 @@
       type="button"
       class="rounded p-0.5 hover:bg-accent disabled:opacity-40"
       aria-label="上一页"
-      disabled={index === 0}
-      onclick={() => (page = index - 1)}><Icon name="chevron" class="size-3.5 rotate-180" /></button>
-    {index + 1} / {pageCount} 页
+      disabled={start === 0}
+      onclick={() => (anchor = matches[Math.max(0, start - PAGE)]!.n)}
+      ><Icon name="chevron" class="size-3.5 rotate-180" /></button>
+    第 {rows.length === 0 ? 0 : start + 1}–{start + rows.length} 条
     <button
       type="button"
       class="rounded p-0.5 hover:bg-accent disabled:opacity-40"
       aria-label="下一页"
-      disabled={index >= pageCount - 1}
-      onclick={() => (page = index + 1)}><Icon name="chevron" class="size-3.5" /></button>
+      disabled={start + PAGE >= matches.length}
+      onclick={() => (anchor = matches[start + PAGE]!.n)}><Icon name="chevron" class="size-3.5" /></button>
   </span>
   {#if following}
     <button type="button" class="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground" onclick={pause}>暂停滚动</button>

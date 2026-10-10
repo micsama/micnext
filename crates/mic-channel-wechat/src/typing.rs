@@ -99,6 +99,7 @@ impl Typing<'_> {
             return Ok(Flow::Expired);
         }
         let Some(token) = self.context.borrow().clone() else {
+            tracing::info!(run_id = run.0, "wechat typing skipped: no context token");
             return Ok(Flow::Continue);
         };
         let ticket = match self
@@ -107,19 +108,23 @@ impl Typing<'_> {
         {
             Ok(Some(ticket)) => ticket,
             Ok(None) => {
-                tracing::debug!("wechat typing ticket absent");
+                tracing::info!(run_id = run.0, "wechat typing skipped: ticket absent");
                 return Ok(Flow::Continue);
             }
             Err(error) => return best_effort(error),
         };
         let flow = self.send(&ticket, TypingStatus::Typing).await?;
+        tracing::debug!(run_id = run.0, "wechat typing started");
         *active = Some(Active { run, ticket });
         Ok(flow)
     }
 
     async fn end(&self, active: &mut Option<Active>) -> Result<Flow, ClientError> {
         match active.take() {
-            Some(active) => self.send(&active.ticket, TypingStatus::Cancel).await,
+            Some(active) => {
+                tracing::debug!(run_id = active.run.0, "wechat typing cancelled");
+                self.send(&active.ticket, TypingStatus::Cancel).await
+            }
             None => Ok(Flow::Continue),
         }
     }

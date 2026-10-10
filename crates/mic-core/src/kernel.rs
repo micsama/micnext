@@ -113,7 +113,7 @@ impl Kernel {
             &self.events,
             session_id,
             person,
-            validate(parts)?,
+            validate(parts).await?,
             InputDisposition::Pending,
             None,
         )
@@ -137,7 +137,7 @@ impl Kernel {
             &self.events,
             session_id,
             person,
-            validate(parts)?,
+            validate(parts).await?,
             InputDisposition::Held,
             Some(NewNotice {
                 source: source.to_owned(),

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/mic-message",
+    "crates/mic-media",
     "crates/mic-store",
     "crates/mic-tool",
     "crates/mic-core",

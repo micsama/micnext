@@ -4,6 +4,7 @@ version = "0.0.0"
 edition.workspace = true
 
 [dependencies]
+mic-media = { path = "../mic-media" }
 mic-message = { path = "../mic-message" }
 mic-store = { path = "../mic-store" }
 mic-tool = { path = "../mic-tool" }

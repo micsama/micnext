@@ -281,7 +281,7 @@ impl Assembly {
             &events,
             session_id,
             started.owner,
-            validate(vec![IncomingPart::Text(once.prompt)])?,
+            validate(vec![IncomingPart::Text(once.prompt)]).await?,
             InputDisposition::Pending,
             None,
         )

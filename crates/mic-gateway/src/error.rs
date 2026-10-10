@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use mic_core::{ChannelSetupError, InputError, KernelError, WorkdirError};
+use mic_core::{ChannelSetupError, InputError, KernelError, MediaError, WorkdirError};
 use mic_store::{DiagnosticError, ModelSettingsError, SettingsError};
 use serde::Serialize;
 
@@ -78,10 +78,8 @@ impl From<KernelError> for ApiError {
             },
             KernelError::Input(e) => match e {
                 InputError::Empty => Self::BadRequest(e.to_string()),
-                InputError::ImageTooLarge => Self::TooLarge(e.to_string()),
-                InputError::ImageLimit | InputError::InvalidImage => {
-                    Self::Unprocessable(e.to_string())
-                }
+                InputError::Image(MediaError::TooManyBytes) => Self::TooLarge(e.to_string()),
+                InputError::ImageLimit | InputError::Image(_) => Self::Unprocessable(e.to_string()),
             },
             KernelError::Config(e) => Self::Unprocessable(e.to_string()),
             KernelError::Probe(e) => Self::Unprocessable(e.to_string()),

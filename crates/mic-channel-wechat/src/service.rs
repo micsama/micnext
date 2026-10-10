@@ -7,6 +7,7 @@ use mic_core::{
     ChannelSetupView, EventReceiver, IncomingPart, Kernel, Module, ModuleConfig, Registry, Service,
     SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
 };
+use mic_message::limits::MAX_IMAGES_PER_INPUT;
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
@@ -20,6 +21,7 @@ use crate::limits::{
     VERIFY_CODE_MAX_CHARS,
 };
 use crate::login::{self, Outcome, Progress};
+use crate::media::{self, ImageFailure};
 use crate::quote;
 use crate::typing;
 
@@ -44,7 +46,7 @@ impl Module for WechatModule {
         reg.channel_setup(Setup { commands, snapshot });
         reg.channel_prompt(
             "wechat",
-            "WeChat: Markdown mostly works (no math, footnotes, collapsibles; code blocks unhighlighted). Tool activity is invisible, but text sent with tool calls reaches the user as messages: keep such updates short and occasional.",
+            "WeChat: Markdown mostly works (no math, footnotes, collapsibles; code blocks unhighlighted). Tool activity is invisible, but text sent with tool calls reaches the user as messages: keep such updates short and occasional. If the user's intent is unclear, ask.",
         );
         reg.service(Coordinator { commands: rx, view });
         Ok(())
@@ -465,27 +467,41 @@ async fn inbound(
             )
             .await?;
             context.send_replace(Some(incoming.context_token));
-            let Flattened { parts, kinds } = flatten(incoming.content);
+            // 取消时这条消息不落盘；批次未完成，下次启动按既有规则标 interrupted。
+            let flattened = tokio::select! {
+                biased;
+                () = stop.cancelled() => return Ok(ConnectionExit::Stopped),
+                flattened = flatten(&client, incoming.content) => flattened,
+            };
+            let Flattened {
+                parts,
+                unsupported,
+                mut failures,
+            } = flattened;
             if parts.is_empty() {
                 continue;
             }
             let mut quoted = quote::resolve(&kernel, &account, incoming.references).await?;
             let source_start = quoted.len();
             quoted.extend(parts);
-            let message = if kinds.is_empty() {
-                kernel
-                    .append_user_input(account.view.session_id, account.person, quoted)
-                    .await?
-            } else {
-                kernel
-                    .append_recorded_input(
-                        account.view.session_id,
-                        account.person,
-                        quoted,
-                        "wechat",
-                        format!("微信渠道暂不支持{}，这条消息仅作记录。", kinds.join("、")),
-                    )
-                    .await?
+            cap_images(&mut quoted, &mut failures);
+            let message = match notice(&unsupported, &failures) {
+                None => {
+                    kernel
+                        .append_user_input(account.view.session_id, account.person, quoted)
+                        .await?
+                }
+                Some(notice) => {
+                    kernel
+                        .append_recorded_input(
+                            account.view.session_id,
+                            account.person,
+                            quoted,
+                            "wechat",
+                            notice,
+                        )
+                        .await?
+                }
             };
             quote::remember(
                 &kernel,
@@ -498,7 +514,8 @@ async fn inbound(
             tracing::info!(
                 session_id = account.view.session_id.0,
                 message_id = message.0,
-                unsupported = kinds.len(),
+                unsupported = unsupported.len(),
+                failed_images = failures.len(),
                 "wechat input appended"
             );
         }
@@ -511,14 +528,17 @@ async fn inbound(
 struct Flattened {
     parts: Vec<IncomingPart>,
     /// 不支持的类型名，按首次出现去重。
-    kinds: Vec<&'static str>,
+    unsupported: Vec<&'static str>,
+    failures: Vec<ImageFailure>,
 }
 
-/// 不支持的 item 按原位置打扁成短占位，供用户与模型看到同一份记录。
-fn flatten(content: Vec<IncomingContent>) -> Flattened {
+/// 按原位置展开：图片下载规整后入列，失败与不支持的 item 打扁成短占位，
+/// 供用户与模型看到同一份记录。
+async fn flatten(client: &Client, content: Vec<IncomingContent>) -> Flattened {
     let mut out = Flattened {
         parts: Vec::with_capacity(content.len()),
-        kinds: Vec::new(),
+        unsupported: Vec::new(),
+        failures: Vec::new(),
     };
     for item in content {
         let (placeholder, kind) = match item {
@@ -531,7 +551,22 @@ fn flatten(content: Vec<IncomingContent>) -> Flattened {
                     .push(IncomingPart::Text(format!("[语音转写] {text}")));
                 continue;
             }
-            IncomingContent::Unsupported(Unsupported::Image) => ("[图片]".to_owned(), "图片"),
+            IncomingContent::Image(source) => {
+                let fetched = match source {
+                    Ok(source) => media::fetch(client, &source).await,
+                    Err(failure) => Err(failure),
+                };
+                match fetched {
+                    Ok(bytes) => out.parts.push(IncomingPart::Image(bytes)),
+                    Err(failure) => {
+                        tracing::warn!(?failure, "wechat inbound image dropped");
+                        out.parts
+                            .push(IncomingPart::Text(failure.placeholder().to_owned()));
+                        out.failures.push(failure);
+                    }
+                }
+                continue;
+            }
             IncomingContent::Unsupported(Unsupported::Voice) => ("[语音]".to_owned(), "语音"),
             IncomingContent::Unsupported(Unsupported::File { name }) => (
                 name.map_or_else(|| "[文件]".to_owned(), |name| format!("[文件：{name}]")),
@@ -543,11 +578,48 @@ fn flatten(content: Vec<IncomingContent>) -> Flattened {
             }
         };
         out.parts.push(IncomingPart::Text(placeholder));
-        if !out.kinds.contains(&kind) {
-            out.kinds.push(kind);
+        if !out.unsupported.contains(&kind) {
+            out.unsupported.push(kind);
         }
     }
     out
+}
+
+/// 整条（含引用前缀）图片数超过内核上限时，多出的改为占位并记为失败。
+fn cap_images(parts: &mut [IncomingPart], failures: &mut Vec<ImageFailure>) {
+    let mut images = 0;
+    for part in parts {
+        if let IncomingPart::Image(_) = part {
+            images += 1;
+            if images > MAX_IMAGES_PER_INPUT {
+                *part = IncomingPart::Text(ImageFailure::OverLimit.placeholder().to_owned());
+                failures.push(ImageFailure::OverLimit);
+            }
+        }
+    }
+}
+
+/// 有不支持类型或图片失败时，生成推回微信的处置说明。
+fn notice(unsupported: &[&str], failures: &[ImageFailure]) -> Option<String> {
+    let mut reasons = Vec::new();
+    if !unsupported.is_empty() {
+        reasons.push(format!("微信渠道暂不支持{}", unsupported.join("、")));
+    }
+    for failure in failures {
+        let reason = failure.reason().to_owned();
+        if !reasons.contains(&reason) {
+            reasons.push(reason);
+        }
+    }
+    if reasons.is_empty() {
+        return None;
+    }
+    let retry = if failures.is_empty() {
+        ""
+    } else {
+        "，请重发图片"
+    };
+    Some(format!("{}，这条消息仅作记录{retry}。", reasons.join("；")))
 }
 
 fn current<'a>(

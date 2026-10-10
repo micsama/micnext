@@ -24,3 +24,8 @@ pub(crate) const TYPING_TICKET_TTL: Duration = Duration::from_secs(12 * 60 * 60)
 pub(crate) const API_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) const NETWORK_SLOW_RETRY: Duration = Duration::from_secs(30);
 pub(crate) const NETWORK_SLOW_THRESHOLD: u32 = 3;
+pub(crate) const CDN_BASE: &str = "https://novac2c.cdn.weixin.qq.com/c2c";
+/// 图片下载总次数，失败立即重试。
+pub(crate) const IMAGE_DOWNLOAD_ATTEMPTS: u32 = 2;
+pub(crate) const IMAGE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const IMAGE_DOWNLOAD_BYTES: usize = 32 * 1024 * 1024;

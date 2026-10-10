@@ -23,19 +23,6 @@ impl ImageFormat {
             Self::WebP => "image/webp",
         }
     }
-
-    /// 按文件魔数识别；不信任文件名与浏览器给的 MIME。
-    pub fn sniff(bytes: &[u8]) -> Option<Self> {
-        if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
-            Some(Self::Png)
-        } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-            Some(Self::Jpeg)
-        } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-            Some(Self::WebP)
-        } else {
-            None
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

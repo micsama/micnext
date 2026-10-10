@@ -1,0 +1,9 @@
+[package]
+name = "mic-media"
+version = "0.0.0"
+edition.workspace = true
+
+[dependencies]
+mic-message = { path = "../mic-message" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+thiserror = "2"

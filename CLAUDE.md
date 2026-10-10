@@ -56,7 +56,8 @@ Blueprint → Implementation 不可跳；Brainstorm 按需前置。Human 决定�
 
 - `mic-message` 是 L0：零内部依赖，只被依赖。
 - `mic-store` / `mic-tool` 只依赖 `mic-message`，互不依赖，也不依赖 `mic-core`。
-- `mic-core` 依赖 `mic-message` + `mic-store` + `mic-tool`，不依赖任何 Channel 或功能模块。
+- `mic-media` 只依赖 `mic-message`，与 store/tool 互不依赖，也不依赖 `mic-core`。
+- `mic-core` 依赖 `mic-message` + `mic-store` + `mic-tool` + `mic-media`，不依赖任何 Channel 或功能模块。
 - `mic-gateway`、各 Channel、各功能模块（如 `mic-cron`）依赖 `mic-core`（port）+ 需要的下层 crate；模块之间不互相依赖，只由二进制装配。
 - 不得成环。新增跨 crate 依赖先回 B2；`lib.rs` 只 re-export 公开 API，内部默认 `pub(crate)`。
 

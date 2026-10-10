@@ -24,6 +24,7 @@ pub use error::{AssembleError, KernelError, RunError, WorkdirError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
 pub use input::{IncomingPart, InputError};
 pub use kernel::{EndpointDraft, Kernel, ModelDraft};
+pub use mic_media::MediaError;
 pub use mic_store::SecretValue;
 pub use module::{Activation, BoxError, Module, ModuleConfig, Registry, Service};
 pub use provider::{

@@ -6,8 +6,10 @@ use std::time::Duration;
 
 use crate::account::{Credentials, Token, WechatUserId};
 use crate::limits::{
-    API_BASE, API_TIMEOUT, APP_ID, BOT_TYPE, CLIENT_VERSION, PROTOCOL_VERSION, QR_TIMEOUT,
+    API_BASE, API_TIMEOUT, APP_ID, BOT_TYPE, CDN_BASE, CLIENT_VERSION, IMAGE_DOWNLOAD_BYTES,
+    IMAGE_DOWNLOAD_TIMEOUT, PROTOCOL_VERSION, QR_TIMEOUT,
 };
+use crate::media::ImageFailure;
 use crate::wire::{self, QrRequest, QrResponse, QrStatus, QrStatusResponse};
 
 #[derive(Debug, thiserror::Error)]
@@ -69,7 +71,15 @@ pub(crate) enum IncomingContent {
     Text(String),
     /// 微信服务端的语音转写。
     VoiceText(String),
+    Image(Result<ImageSource, ImageFailure>),
     Unsupported(Unsupported),
+}
+
+/// 边界一次 parse：下载地址已确定，密钥已解析。
+pub(crate) struct ImageSource {
+    pub url: Url,
+    /// `None` 为 CDN 明文。
+    pub key: Option<[u8; 16]>,
 }
 
 #[derive(Clone, Copy)]
@@ -80,7 +90,6 @@ pub(crate) enum TypingStatus {
 
 /// 当前不能交给模型的入站 item，保留类型与文件名。
 pub(crate) enum Unsupported {
-    Image,
     /// 无转写的语音。
     Voice,
     File {
@@ -102,6 +111,32 @@ impl Client {
             .build()
             .map_err(|_| ClientError::Protocol("HTTP client 初始化失败"))?;
         Ok(Self { http })
+    }
+
+    /// CDN 原样下载；超过 `IMAGE_DOWNLOAD_BYTES` 即中止。
+    pub async fn download(&self, url: &Url) -> Result<Vec<u8>, ClientError> {
+        let mut response = self
+            .http
+            .get(url.clone())
+            .timeout(IMAGE_DOWNLOAD_TIMEOUT)
+            .send()
+            .await
+            .map_err(|error| network_error("cdn_download", error))?;
+        if !response.status().is_success() {
+            return Err(ClientError::Rejected(response.status().as_u16()));
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|error| network_error("cdn_download", error))?
+        {
+            if body.len() + chunk.len() > IMAGE_DOWNLOAD_BYTES {
+                return Err(ClientError::Protocol("CDN 文件超过下载上限"));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(body)
     }
 
     pub async fn qr(&self, tokens: &[Token]) -> Result<Qr, ClientError> {
@@ -380,7 +415,9 @@ pub(crate) fn parse_updates(
                     }
                     _ => content.push(IncomingContent::Unsupported(Unsupported::Voice)),
                 },
-                Some(2) => content.push(IncomingContent::Unsupported(Unsupported::Image)),
+                Some(2) => content.push(IncomingContent::Image(parse_image(
+                    item.image_item.as_ref(),
+                ))),
                 Some(4) => content.push(IncomingContent::Unsupported(Unsupported::File {
                     name: item
                         .file_item
@@ -595,4 +632,45 @@ fn redacted(body: &[u8]) -> String {
         }
         Err(_) => format!("<非 JSON 响应，{} 字节>", body.len()),
     }
+}
+
+/// 规则同 SDK：密钥优先 `image_item.aeskey`（hex），否则 `media.aes_key`
+/// （base64 后为 16 字节原文或 32 位 hex 文本），都没有为明文；地址优先 `full_url`。
+fn parse_image(item: Option<&wire::ImageItem>) -> Result<ImageSource, ImageFailure> {
+    let item = item.ok_or(ImageFailure::Unparsable)?;
+    let media = item.media.as_ref().ok_or(ImageFailure::Unparsable)?;
+    let url = match (&media.full_url, &media.encrypt_query_param) {
+        (Some(full), _) => Url::parse(full).map_err(|_| ImageFailure::Unparsable)?,
+        (None, Some(param)) => {
+            let mut url = Url::parse(&format!("{CDN_BASE}/download")).expect("CDN_BASE 为合法 URL");
+            url.query_pairs_mut()
+                .append_pair("encrypted_query_param", param);
+            url
+        }
+        (None, None) => return Err(ImageFailure::Unparsable),
+    };
+    let key = match (&item.aeskey, &media.aes_key) {
+        (Some(hex), _) => Some(hex_key(hex.as_bytes())?),
+        (None, Some(b64)) => {
+            let raw = STANDARD.decode(b64).map_err(|_| ImageFailure::Unparsable)?;
+            Some(match raw.len() {
+                16 => raw.try_into().expect("长度已检查"),
+                _ => hex_key(&raw)?,
+            })
+        }
+        (None, None) => None,
+    };
+    Ok(ImageSource { url, key })
+}
+
+fn hex_key(hex: &[u8]) -> Result<[u8; 16], ImageFailure> {
+    if hex.len() != 32 {
+        return Err(ImageFailure::Unparsable);
+    }
+    let mut key = [0u8; 16];
+    for (byte, pair) in key.iter_mut().zip(hex.chunks(2)) {
+        let pair = std::str::from_utf8(pair).map_err(|_| ImageFailure::Unparsable)?;
+        *byte = u8::from_str_radix(pair, 16).map_err(|_| ImageFailure::Unparsable)?;
+    }
+    Ok(key)
 }

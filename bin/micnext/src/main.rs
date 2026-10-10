@@ -6,15 +6,17 @@ use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
 use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
 use mic_core::{Assembly, KernelEvent, KernelEventKind, Module, OnceOutcome, OneShot};
-use mic_gateway::DeveloperLogs;
+use mic_gateway::{DeveloperLogs, RestartRequest};
 use mic_message::{ContentPart, ExecOutcome, Message, MessageBody, ReplyBlock, ToolResultOutcome};
 use mic_store::RunState;
 use tokio::signal::unix::{signal, SignalKind};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
@@ -86,8 +88,9 @@ async fn run() -> Result<ExitCode> {
     default_key_file(&mut config, &path)
         .with_context(|| format!("配置文件 {} 有误", path.display()))?;
 
+    let (restart_tx, mut restart_rx) = mpsc::channel::<RestartRequest>(1);
     let modules: Vec<Box<dyn Module>> = vec![
-        Box::new(mic_gateway::GatewayModule::new(logs)),
+        Box::new(mic_gateway::GatewayModule::new(logs).with_restart_requests(restart_tx)),
         Box::new(mic_provider_openai::OpenAiModule),
         Box::new(mic_tool_shell::ShellModule),
         Box::new(mic_tool_fs::FsModule),
@@ -106,20 +109,34 @@ async fn run() -> Result<ExitCode> {
     let mut int = signal(SignalKind::interrupt()).context("无法注册 SIGINT 处理")?;
     let mut term = signal(SignalKind::terminate()).context("无法注册 SIGTERM 处理")?;
     let trigger = stop.clone();
-    tokio::spawn(async move {
-        tokio::select! {
-            _ = int.recv() => {}
-            _ = term.recv() => {}
-        }
-        tracing::info!("stopping");
+    // 先到者生效：外部信号先到则之后的重启请求不再接收。
+    let stopper = tokio::spawn(async move {
+        let restart = tokio::select! {
+            _ = int.recv() => None,
+            _ = term.recv() => None,
+            Some(r) = restart_rx.recv() => Some(r),
+        };
+        tracing::info!(restart = restart.is_some(), "stopping");
         trigger.cancel();
+        restart
     });
 
     match args.mode {
         Mode::Serve => {
             assembly.run(stop).await?;
             tracing::info!("stopped");
-            Ok(ExitCode::SUCCESS)
+            if !stopper.is_finished() {
+                return Ok(ExitCode::SUCCESS);
+            }
+            let Some(RestartRequest { executable }) = stopper.await.context("停止任务异常")?
+            else {
+                return Ok(ExitCode::SUCCESS);
+            };
+            eprintln!("正在重启：{}", executable.display());
+            let error = std::process::Command::new(&executable)
+                .args(std::env::args_os().skip(1))
+                .exec();
+            Err(error).with_context(|| format!("无法启动新程序 {}", executable.display()))
         }
         Mode::Once(prompt) => {
             let pwd = std::env::current_dir().context("无法读取当前目录")?;

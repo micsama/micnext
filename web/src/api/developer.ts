@@ -88,3 +88,36 @@ export function parseLogEvent(event: string, data: string): LogEvent {
   const decode = logData[event as LogEvent["event"]] as Decoder<unknown>;
   return { event, data: decode(parsed, `事件 ${event}`) } as LogEvent;
 }
+
+// docs/blueprints/self-update.md §4.2。
+export type UpdateStage = "checking" | "pulling" | "building" | "restarting";
+
+export type UpdateStatus =
+  | { state: "unavailable" }
+  | { state: "idle" }
+  | { state: "checking"; output: string }
+  | { state: "pulling"; from: string; attempt: number; output: string }
+  | { state: "building"; from: string; to: string; output: string }
+  | { state: "restarting"; from: string; to: string }
+  | { state: "up_to_date"; commit: string }
+  | { state: "failed"; stage: UpdateStage; from: string | null; error: string; output: string };
+
+const stage = oneOf("checking", "pulling", "building", "restarting");
+
+const updateStates: { [S in UpdateStatus["state"]]: Decoder<Extract<UpdateStatus, { state: S }>> } = {
+  unavailable: obj({ state: oneOf("unavailable") }),
+  idle: obj({ state: oneOf("idle") }),
+  checking: obj({ state: oneOf("checking"), output: str }),
+  pulling: obj({ state: oneOf("pulling"), from: str, attempt: num, output: str }),
+  building: obj({ state: oneOf("building"), from: str, to: str, output: str }),
+  restarting: obj({ state: oneOf("restarting"), from: str, to: str }),
+  up_to_date: obj({ state: oneOf("up_to_date"), commit: str }),
+  failed: obj({ state: oneOf("failed"), stage, from: nullable(str), error: str, output: str }),
+};
+
+/** serde 内部标签 `{"state": …}`。 */
+export const parseUpdateStatus = (v: unknown): UpdateStatus => {
+  const s = typeof v === "object" && v !== null ? (v as { state?: unknown }).state : undefined;
+  if (typeof s !== "string" || !Object.hasOwn(updateStates, s)) throw new ProtocolError("更新状态.state");
+  return (updateStates[s as UpdateStatus["state"]] as Decoder<UpdateStatus>)(v, "更新状态");
+};

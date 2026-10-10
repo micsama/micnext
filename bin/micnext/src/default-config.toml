@@ -15,3 +15,6 @@ owner = "dzmfg"
 # listen = "127.0.0.1:7878"
 # 访问 token：不写则每次启动随机生成；写了就固定用它（地址可收藏）。
 # token = "换成一串足够长的随机字符"
+# 网页一键更新：填部署仓库根目录（绝对路径）；更新后以 <仓库>/target/release/micnext 原参数重启。
+# 需要代理时在启动 shell 里先开好，git/bun/cargo 沿用。
+# update_repo = "/root/workspace/micnext"

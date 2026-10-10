@@ -8,15 +8,18 @@ use axum::http::StatusCode;
 use axum::routing::{delete, get, post, put};
 use axum::{middleware, Router};
 use mic_core::{BoxError, Kernel, Service};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
-use crate::{api, channels, log_stream, models, settings, sql, stream, web, DeveloperLogs};
+use crate::update::{RestartRequest, Updater};
+use crate::{api, channels, log_stream, models, settings, sql, stream, update, web, DeveloperLogs};
 
 pub(crate) struct Gateway {
     pub(crate) config: Config,
     pub(crate) logs: DeveloperLogs,
+    pub(crate) restart: Option<mpsc::Sender<RestartRequest>>,
 }
 
 /// 各请求共享的只读状态。
@@ -24,6 +27,8 @@ pub(crate) struct App {
     pub(crate) kernel: Kernel,
     pub(crate) token: String,
     pub(crate) logs: DeveloperLogs,
+    /// `None` = 未配置 `update_repo`。
+    pub(crate) updater: Option<Arc<Updater>>,
     /// 进程停止时结束所有 SSE 流。
     pub(crate) stop: CancellationToken,
 }
@@ -34,17 +39,33 @@ impl Service for Gateway {
         kernel: Kernel,
         stop: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send>> {
-        Box::pin(serve(self.config, self.logs, kernel, stop))
+        Box::pin(serve(*self, kernel, stop))
     }
 }
 
-async fn serve(
-    config: Config,
-    logs: DeveloperLogs,
-    kernel: Kernel,
-    stop: CancellationToken,
-) -> Result<(), BoxError> {
+async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Result<(), BoxError> {
+    let Gateway {
+        config,
+        logs,
+        restart,
+    } = gateway;
     web::ensure_built()?;
+    let updater = match (config.update_repo, restart) {
+        (None, _) => None,
+        (Some(_), None) => {
+            return Err("配置了 [gateway] update_repo，但装配根未接入重启通道".into())
+        }
+        (Some(repo), Some(restart)) => {
+            if !repo.join("build.sh").is_file() {
+                return Err(format!(
+                    "[gateway] update_repo 指向的 {} 下没有 build.sh，请改成部署仓库根目录",
+                    repo.display()
+                )
+                .into());
+            }
+            Some(Arc::new(Updater::new(repo, restart)))
+        }
+    };
     let token = match config.token {
         Some(t) => t,
         None => random_hex(TOKEN_BYTES),
@@ -62,6 +83,7 @@ async fn serve(
         kernel,
         token,
         logs,
+        updater,
         stop: stop.clone(),
     });
     let api = Router::new()
@@ -123,6 +145,7 @@ async fn serve(
         .route("/developer/logs/stream", get(log_stream::stream))
         .route("/developer/sql", post(sql::query))
         .route("/developer/sql/schema", get(sql::schema))
+        .route("/developer/update", get(update::status).post(update::start))
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(middleware::from_fn_with_state(app.clone(), api::authorize))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));

@@ -4,6 +4,7 @@
   import Header from "../Header.svelte";
   import LogsTab from "./LogsTab.svelte";
   import SqlTab from "./SqlTab.svelte";
+  import UpdateTab from "./UpdateTab.svelte";
 
   let { onmenu }: { onmenu: () => void } = $props();
 
@@ -15,10 +16,11 @@
   const feed = new LogFeed();
   $effect(() => () => feed.close());
 
-  type Tab = "logs" | "sql";
+  type Tab = "logs" | "sql" | "update";
   const tabs: { id: Tab; label: string }[] = [
     { id: "logs", label: "日志" },
     { id: "sql", label: "SQL" },
+    { id: "update", label: "更新" },
   ];
   let tab = $state<Tab>("logs");
 </script>
@@ -36,10 +38,13 @@
       onclick={() => (tab = t.id)}>{t.label}</button>
   {/each}
 </nav>
-<!-- 两页签常驻，切换不丢筛选、暂停位置与 SQL 草稿/结果。 -->
+<!-- 页签常驻，切换不丢筛选、暂停位置、SQL 草稿/结果与更新进度。 -->
 <div class="flex min-h-0 flex-1 flex-col" class:hidden={tab !== "logs"}>
   <LogsTab {feed} />
 </div>
 <div class="flex min-h-0 flex-1 flex-col" class:hidden={tab !== "sql"}>
   <SqlTab />
+</div>
+<div class="flex min-h-0 flex-1 flex-col" class:hidden={tab !== "update"}>
+  <UpdateTab />
 </div>

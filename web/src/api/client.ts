@@ -1,5 +1,12 @@
 import { auth } from "../state/auth.svelte";
-import { parseQueryResult, parseTables, type QueryResult, type TableSchema } from "./developer";
+import {
+  parseQueryResult,
+  parseTables,
+  parseUpdateStatus,
+  type QueryResult,
+  type TableSchema,
+  type UpdateStatus,
+} from "./developer";
 import {
   parseCreated,
   parseEndpoints,
@@ -73,7 +80,7 @@ async function request(method: string, path: string, body?: unknown): Promise<un
     throw new ApiError(0, "连不上服务，请确认 micnext 正在运行");
   }
   await ensureOk(res);
-  return res.status === 204 ? undefined : res.json();
+  return res.status === 204 || res.status === 202 ? undefined : res.json();
 }
 
 export async function listSessions(channel: string, before: Cursor | null): Promise<SessionPage> {
@@ -208,4 +215,12 @@ export async function runSql(sql: string): Promise<QueryResult> {
 
 export async function getSqlSchema(): Promise<TableSchema[]> {
   return parseTables(await request("GET", "/developer/sql/schema"));
+}
+
+export async function getUpdateStatus(): Promise<UpdateStatus> {
+  return parseUpdateStatus(await request("GET", "/developer/update"));
+}
+
+export async function startUpdate(): Promise<void> {
+  await request("POST", "/developer/update");
 }

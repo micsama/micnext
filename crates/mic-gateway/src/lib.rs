@@ -13,11 +13,15 @@ mod service;
 mod settings;
 mod sql;
 mod stream;
+mod update;
 mod web;
 
 use mic_core::{Activation, BoxError, Module, ModuleConfig, Registry};
 
 pub use crate::logs::DeveloperLogs;
+pub use crate::update::RestartRequest;
+
+use tokio::sync::mpsc;
 
 use crate::config::RawConfig;
 use crate::service::Gateway;
@@ -27,12 +31,24 @@ pub(crate) const WEB_CHANNEL: &str = "web";
 
 pub struct GatewayModule {
     logs: DeveloperLogs,
+    restart: Option<mpsc::Sender<RestartRequest>>,
 }
 
 impl GatewayModule {
     /// `logs` 由装配根创建并接入 tracing；本模块只读取。
     pub fn new(logs: DeveloperLogs) -> Self {
-        Self { logs }
+        Self {
+            logs,
+            restart: None,
+        }
+    }
+
+    /// 配置了 `update_repo` 时必须提供；构建成功后经此请装配根停止并 exec。
+    pub fn with_restart_requests(self, requests: mpsc::Sender<RestartRequest>) -> Self {
+        Self {
+            restart: Some(requests),
+            ..self
+        }
     }
 }
 
@@ -54,6 +70,7 @@ impl Module for GatewayModule {
         reg.service(Gateway {
             config,
             logs: self.logs.clone(),
+            restart: self.restart.clone(),
         });
         Ok(())
     }

@@ -18,6 +18,7 @@
 | B2 CLOSED：服务商/模型分层与图片输入均已实现并验收；遗留：模型不支持图片时的上游报错呈现、只发图时会话预览为空 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/model-settings.md`](docs/blueprints/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
 | 想法，待起 B1 | 会话/轮次基本属性随 session、turn 下发：输入框下统计行（轮·步·LLM/工具耗时·首 token·tok/s·缓存命中·token）与上下文占用圆环（悬停看用量）。现状：用量与调用起止已落库；工具耗时、首 token 未记录；模型无上下文窗口大小配置 | — |
 | 待起 B1（2026-10-09 服务器实测触发） | 工具执行隔离：模型以 root 经 bash 读了 micnext.db 与 `master.key` 所在目录。分两层：① 部署改用专用用户 `micnext`（human 进行中）；② bash 子进程套 bwrap，不挂 micnext 数据目录、私有 /tmp、按需 `--unshare-pid`；fs 工具在进程内，须另设路径边界；数据目录清单由 micnext 启动侧下发，不在两工具各写一份。待定：模型对服务器的权限定位（运维助手 vs 受限）、是否断网。环境事实：Ubuntu 24.04 `apparmor_restrict_unprivileged_userns=1`，已加 `/etc/apparmor.d/bwrap` 单程序放行并以 micnext 用户验证隔离生效 | 与「工具授权」缺口（cross-check §四-8～9）合并讨论 |
+| V2，待起 B1（方向 2026-10-10） | 微信媒体接入：图片走 CDN 下载 + AES 解密后作图片输入，表情包/GIF 等非 PNG/JPEG/WebP 内部转换；文件与视频先存入按日期分目录的临时目录，再落占位（含路径）供模型用文件工具读取；无转写语音维持占位。待定：临时目录位置与清理、尺寸上限、转换失败处置 | [`docs/blueprints/wechat-channel.md`](docs/blueprints/wechat-channel.md)；协议见 [`wechat-protocol.md`](docs/brainstorm/wechat-protocol.md) |
 | 待查（2026-10-09） | 微信引用回复：`ref_msg` 仅校验，被引用内容未进入记录，模型不知用户引用了哪句 | [`docs/blueprints/wechat-channel.md`](docs/blueprints/wechat-channel.md) |
 | 想法，未定 | 人设绑定 UI 主题；「理性大脑」人设定稿 | [`docs/brainstorm/runtime-settings.md`](docs/brainstorm/runtime-settings.md) §三 |
 | 已知缺口，待定义验收边界 | 入站去重、投递重复；模型/工具/历史尺寸、工具授权与进程退出 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-3、8～9 |

@@ -504,6 +504,11 @@ fn flatten(content: Vec<IncomingContent>) -> Flattened {
                 out.parts.push(IncomingPart::Text(text));
                 continue;
             }
+            IncomingContent::VoiceText(text) => {
+                out.parts
+                    .push(IncomingPart::Text(format!("[语音转写] {text}")));
+                continue;
+            }
             IncomingContent::Unsupported(Unsupported::Image) => ("[图片]".to_owned(), "图片"),
             IncomingContent::Unsupported(Unsupported::Voice) => ("[语音]".to_owned(), "语音"),
             IncomingContent::Unsupported(Unsupported::File { name }) => (

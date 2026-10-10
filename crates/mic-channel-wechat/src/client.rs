@@ -60,6 +60,8 @@ pub(crate) struct IncomingMessage {
 
 pub(crate) enum IncomingContent {
     Text(String),
+    /// 微信服务端的语音转写。
+    VoiceText(String),
     Unsupported(Unsupported),
 }
 
@@ -307,7 +309,7 @@ pub(crate) fn parse_updates(
                     .and_then(|voice| voice.text.as_ref())
                 {
                     Some(text) if !text.trim().is_empty() => {
-                        content.push(IncomingContent::Text(text.clone()))
+                        content.push(IncomingContent::VoiceText(text.clone()))
                     }
                     _ => content.push(IncomingContent::Unsupported(Unsupported::Voice)),
                 },

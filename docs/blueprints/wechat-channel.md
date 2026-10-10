@@ -1,7 +1,7 @@
 # B2：微信 Channel（v0b）
 
-**状态：Phase 1 CLOSED；Phase 2–5 已获准并实现，本地检查通过，真实扫码与收发待服务器人工验收；Phase 6 typing 已实现，待服务器验收。**
-起草日期：2026-10-08；阶段拆分与本次进度更新：2026-10-09。整份蓝图尚未 CLOSED，当前交接见 §11.5。
+**状态：CLOSED（2026-10-10）：Phase 1–6 均已实现并经服务器人工验收（扫码、收发、typing）。后续能力见 [V2 B1](../brainstorm/wechat-v2.md)。**
+起草日期：2026-10-08；阶段拆分：2026-10-09。
 
 **来源**：[B1 决定](../brainstorm/wechat-channel.md)、[iLink 协议素材](../brainstorm/wechat-protocol.md)。
 代码基线：`bca566c`（服务商/模型分层已落地）。协议类型核对官方包

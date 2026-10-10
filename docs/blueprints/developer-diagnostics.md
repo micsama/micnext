@@ -1,6 +1,6 @@
 # B2：Web 开发者诊断（日志 + 只读 SQL）
 
-**状态：已批准并实现，fmt/clippy/web check/build 通过，接口级验收通过；待网页与项目 DEBUG 采集人工验收后 CLOSED（2026-10-10）。合并原日志 B2 r2 与只读 SQL 方向；[更新重启](self-update.md)仍 HOLD，不依赖本文。**
+**状态：CLOSED（2026-10-10，网页与服务器人工验收通过）。合并原日志 B2 r2 与只读 SQL 方向；不依赖[更新重启](self-update.md)。**
 
 依据：[日志 B1](../brainstorm/developer-logs.md)、[SQL B1](../brainstorm/developer-sql.md)。个人开发者在网页上排查服务器问题：看实时日志，查数据库，不再登服务器。两项后端独立变化，只共用页面入口与鉴权。
 

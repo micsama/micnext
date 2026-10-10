@@ -2,6 +2,7 @@
   import { LOG_LEVELS, type LogLevel } from "../../api/developer";
   import { copyText } from "../../lib/clipboard";
   import Icon from "../../lib/Icon.svelte";
+  import { loadRecent, pushRecent } from "../../lib/recent";
   import type { LogEntry, LogFeed } from "../../state/developer-logs.svelte";
 
   let { feed }: { feed: LogFeed } = $props();
@@ -26,6 +27,22 @@
   /** 最近一次有效的搜索；null = 不按文本筛选。 */
   let matcher = $state<((s: string) => boolean) | null>(null);
   let queryError = $state<string | null>(null);
+
+  const HISTORY_KEY = "micnext.developer.logSearches";
+  let history = $state(loadRecent(HISTORY_KEY));
+
+  /** 回车或离开搜索框时记下有效搜索；边打边筛的中间态不记。 */
+  function remember() {
+    if (query.trim() === "") return;
+    if (regex) {
+      try {
+        new RegExp(query, "u");
+      } catch {
+        return;
+      }
+    }
+    history = pushRecent(HISTORY_KEY, history, query, 20);
+  }
 
   $effect(() => {
     const q = query;
@@ -147,9 +164,15 @@
   </select>
   <input
     bind:value={query}
+    list="developer-log-searches"
+    onkeydown={(e) => e.key === "Enter" && remember()}
+    onblur={remember}
     maxlength={QUERY_MAX}
     placeholder={regex ? "正则（搜索正文、模块、字段）" : "搜索正文、模块、字段"}
     class="min-w-48 flex-1 rounded-md border bg-background px-2 py-1 font-mono" />
+  <datalist id="developer-log-searches">
+    {#each history as h (h)}<option value={h}></option>{/each}
+  </datalist>
   <label class="flex items-center gap-1"><input type="checkbox" bind:checked={regex} />正则</label>
   <label class="flex items-center gap-1" class:opacity-50={!regex}>
     <input type="checkbox" bind:checked={ignoreCase} disabled={!regex} />忽略大小写

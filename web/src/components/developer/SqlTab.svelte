@@ -5,6 +5,7 @@
   import type { Cell, QueryResult, TableSchema } from "../../api/developer";
   import { copyText } from "../../lib/clipboard";
   import Icon from "../../lib/Icon.svelte";
+  import { loadRecent, pushRecent } from "../../lib/recent";
 
   let sql = $state("");
   let running = $state(false);
@@ -13,6 +14,9 @@
   let tables = $state.raw<TableSchema[] | null>(null);
   let schemaError = $state<string | null>(null);
   let copyNote = $state<string | null>(null);
+
+  const RECENT_KEY = "micnext.developer.sqlRecent";
+  let recent = $state(loadRecent(RECENT_KEY));
 
   /** 末尾补换行，让最后一个空行在高亮层里也占高度。 */
   const highlighted = $derived(hljs.highlight(sql, { language: "sql", ignoreIllegals: true }).value + "\n");
@@ -67,6 +71,7 @@
     error = null;
     try {
       result = await runSql(sql);
+      recent = pushRecent(RECENT_KEY, recent, sql.trim(), 30);
     } catch (e) {
       result = null;
       error = (e as Error).message;
@@ -124,6 +129,19 @@
 
 <div class="flex min-h-0 flex-1 flex-col md:flex-row">
   <aside class="shrink-0 overflow-y-auto border-b p-3 text-xs max-md:max-h-40 md:w-60 md:border-r md:border-b-0">
+    {#if recent.length > 0}
+      <details open class="mb-2 border-b pb-2">
+        <summary class="cursor-pointer text-muted-foreground">最近</summary>
+        <!-- 点选只填回输入框，不自动执行。 -->
+        {#each recent as q (q)}
+          <button
+            type="button"
+            title={q}
+            class="block w-full truncate rounded px-1 py-0.5 text-left font-mono hover:bg-accent"
+            onclick={() => (sql = q)}>{q.split("\n", 1)[0]}</button>
+        {/each}
+      </details>
+    {/if}
     {#if schemaError}
       <p class="text-destructive">{schemaError}</p>
     {:else if !tables}

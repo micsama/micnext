@@ -1,6 +1,6 @@
 # B2：微信入站图片 + 图片能力共享层
 
-**状态：r2 已批准（2026-10-10，human；附加约束：core 的 InputError 保持精简，图片只占一个变体）。** 来源：[V2 B1](../brainstorm/wechat-v2.md) §二 第 2 步。r2 吸收外部 review 5 条（全部 accept，均为本 Blueprint 缺陷）与 human 的分层要求：图片能力已有 Web、微信两个消费者，按变化轴拆出共享层。
+**状态：CLOSED（2026-10-10 服务器验收；GIF 仅本地冒烟）。r2 已批准（2026-10-10，human；附加约束：core 的 InputError 保持精简，图片只占一个变体）。** 来源：[V2 B1](../brainstorm/wechat-v2.md) §二 第 2 步。r2 吸收外部 review 5 条（全部 accept，均为本 Blueprint 缺陷）与 human 的分层要求：图片能力已有 Web、微信两个消费者，按变化轴拆出共享层。
 
 ## 一、用户可见行为（human 已确认）
 

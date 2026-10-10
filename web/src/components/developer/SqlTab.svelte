@@ -52,11 +52,12 @@
     }
   }
 
-  const escape = (s: string) =>
-    s.replaceAll("\\", "\\\\").replaceAll("\t", "\\t").replaceAll("\n", "\\n").replaceAll("\r", "\\r");
+  /** 表格单元内 `|` 与换行会破坏行结构。 */
+  const mdCell = (s: string) => s.replaceAll("\\", "\\\\").replaceAll("|", "\\|").replace(/\r?\n|\r/g, "<br>");
 
-  async function copyTsv(r: QueryResult) {
-    const lines = [r.columns, ...r.rows.map((row) => row.map(text))].map((cells) => cells.map(escape).join("\t"));
+  async function copyMarkdown(r: QueryResult) {
+    const row = (cells: string[]) => `| ${cells.map(mdCell).join(" | ")} |`;
+    const lines = [row(r.columns), row(r.columns.map(() => "---")), ...r.rows.map((cells) => row(cells.map(text)))];
     try {
       await copyText(lines.join("\n"));
       copyNote = "已复制";
@@ -64,6 +65,19 @@
       copyNote = "复制失败，浏览器拒绝写入剪贴板";
     }
     setTimeout(() => (copyNote = null), 2000);
+  }
+
+  /** RFC 4180；NULL 为空字段；带 BOM 让 Excel 按 UTF-8 打开。 */
+  function downloadCsv(r: QueryResult) {
+    const field = (s: string) => (/[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s);
+    const lines = [r.columns.map(field), ...r.rows.map((cells) => cells.map((c) => (c.type === "null" ? "" : field(text(c)))))];
+    const blob = new Blob(["﻿", lines.map((cells) => cells.join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `micnext-${new Date().toISOString().slice(0, 19).replaceAll(":", "")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 </script>
 
@@ -112,7 +126,11 @@
         <button
           type="button"
           class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
-          onclick={() => result && copyTsv(result)}><Icon name="copy" class="size-3.5" />复制为 TSV</button>
+          onclick={() => result && copyMarkdown(result)}><Icon name="copy" class="size-3.5" />复制为 Markdown</button>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+          onclick={() => result && downloadCsv(result)}><Icon name="arrowDown" class="size-3.5" />下载 CSV</button>
         {#if copyNote}<span>{copyNote}</span>{/if}
       {/if}
       <span class="ml-auto">只读连接；凭据列读作 NULL</span>

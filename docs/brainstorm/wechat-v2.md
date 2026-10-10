@@ -12,7 +12,7 @@ human 方向：官方 SDK / API 支持的能力尽量都接上。依据为本地
 | 扫码登录、长轮询入站、文本发送、分段 | `auth/`、`monitor/`、`send.ts` | 已接（V1） | — |
 | typing | `getconfig` / `sendtyping`，5 秒续发 | 已接（Phase 6） | — |
 | -14 会话失效 | `session-guard.ts` | 已接 | — |
-| 上下线通知 | `ilink/bot/msg/notifystart` / `notifystop` | 未接 | **接**：Service 启停各调一次，尽力而为 |
+| 上下线通知 | `ilink/bot/msg/notifystart` / `notifystop` | 未接 | 暂不接：「未连接」由微信按轮询中断自行显示，SDK 未说明通知的额外效果；实测停服后提示明显滞后再补 |
 | 入站图片 | `cdn/pic-decrypt.ts`、`media-download.ts`：CDN 下载 + AES-128-ECB | 占位 `[图片]` | **接**：作图片输入；非 PNG/JPEG/WebP（表情包、GIF）内部转换 |
 | 入站文件、视频 | `media-download.ts` | 占位 | **接**：存日期目录，占位带路径，模型用文件工具读 |
 | 入站无转写语音 | `media/silk-transcode.ts`（silk → wav） | 占位 `[语音]` | 不接：正常语音均有服务端转写，缺转写属少见情况，维持占位 |
@@ -26,7 +26,7 @@ human 方向：官方 SDK / API 支持的能力尽量都接上。依据为本地
 
 ## 二、建议顺序
 
-1. **notifystart/stop + 引用回复**：只动微信 crate 内部，不改公开契约，量小。
+1. **引用回复**：只动微信 crate 内部，不改公开契约，量小。
 2. **入站图片**：复用现有图片输入；新增 AES 依赖与转换规则。
 3. **入站文件/视频**：先定临时目录位置、清理与尺寸上限，与工具隔离（数据目录边界）一起看。
 4. **出站媒体**：需要模型侧发文件能力，跨 core/tool 契约，最后做。
@@ -34,6 +34,7 @@ human 方向：官方 SDK / API 支持的能力尽量都接上。依据为本地
 
 ## 三、未知项
 
+- 上下线通知：停服后「未连接」是否立即出现，决定是否接 notifystop。
 - 引用反查：`ref_msg.svr_id` 是否等于我们发送时拿到的 `message_id`，需实测。
 - 入站媒体单个上限（SDK 默认 25 MB）、保留天数（SDK 7 天）是否照搬。
 - 表情包的实际 item 形态（type 2 还是其他）。

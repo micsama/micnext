@@ -345,6 +345,13 @@ pub(crate) fn parse_updates(
         let context_token = required(message.context_token.clone(), "入站缺少 context_token")?;
         let mut content = Vec::new();
         for item in message.item_list.iter().flatten() {
+            // TODO: 引用回复实测样本采集，V2 引用实现后删除。
+            if let Some(reference) = &item.ref_msg {
+                tracing::debug!(
+                    ref_msg = %serde_json::to_string(reference).expect("引用可序列化"),
+                    "wechat inbound quote"
+                );
+            }
             match item.kind {
                 Some(1) => {
                     let text = item

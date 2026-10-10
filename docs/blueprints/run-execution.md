@@ -300,7 +300,7 @@ loop:
 
 ### 4.6 崩溃收尾与启动待命
 
-启动待命修订随 [微信 B2 Phase 1](wechat-channel.md#113-phase-1-的具体交付与人工验收) 于 2026-10-09 批准，统一覆盖全部 Channel。
+启动待命修订随 [微信 B2 Phase 1](wechat-channel.md#33-store-的启动待命契约) 于 2026-10-09 批准，统一覆盖全部 Channel。
 
 启动时（`run` 与 `run_once` 都做），在任何 worker 起来之前：
 

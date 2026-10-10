@@ -179,7 +179,7 @@ Web 设置页需要微信注册/连接入口。配置保存后重启生效，不
 3. `run` / `run_once` 共用启动：创建数据目录、独占锁 → 汇总 migrations → `Store::open` → 收尾遗留 run →
    `hold_unclaimed_inputs` 将遗留未认领输入登记为 held 并追加会话通知，不自动执行；
    之后 `run` 启动调度与 Service，只由运行期新输入 wake；`run_once` 不起 Service，只执行新 prompt。
-   此修订随 [微信 B2 Phase 1](wechat-channel.md#113-phase-1-的具体交付与人工验收) 于 2026-10-09 批准。
+   此修订随 [微信 B2 Phase 1](wechat-channel.md#33-store-的启动待命契约) 于 2026-10-09 批准。
 4. 退出：外部 `stop`（Ctrl-C/SIGTERM）→ 广播给所有 Service 并等待返回；任一 Service
    失败 → 广播 `stop`，等其余返回后报第一个错误。没有 Service 时 `run` 等待外部 `stop`。
 

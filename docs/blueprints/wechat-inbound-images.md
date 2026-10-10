@@ -1,11 +1,11 @@
 # B2：微信入站图片 + 图片能力共享层
 
-**状态：CLOSED（2026-10-10 服务器验收；GIF 仅本地冒烟）。r2 已批准（2026-10-10，human；附加约束：core 的 InputError 保持精简，图片只占一个变体）。** 来源：[V2 B1](../brainstorm/wechat-v2.md) §二 第 2 步。r2 吸收外部 review 5 条（全部 accept，均为本 Blueprint 缺陷）与 human 的分层要求：图片能力已有 Web、微信两个消费者，按变化轴拆出共享层。
+**状态：CLOSED（2026-10-10 服务器验收；GIF 仅本地冒烟）。** 来源：[V2 B1](../brainstorm/wechat-v2.md) §二 第 2 步。图片能力有 Web、微信两个消费者，按变化轴拆出共享层；core 的 InputError 保持精简，图片只占一个变体（human 约束）。
 
 ## 一、用户可见行为（human 已确认）
 
 - 微信图片交给模型看，网页会话里同样可见。只发图也马上回复；渠道提示加 `If the user's intent is unclear, ask.`（以后收文件同样适用）。
-- 微信对不合规的图（大图、GIF、表情包等）统一规整后交给模型。
+- 微信对不合规的图（大图、GIF 等）统一规整后交给模型。
 - 微信图片失败（地址/密钥解析、下载、解密、规整、超出单条数量）→ `[图片：…]` 占位，整条只记录不回复，处置说明推回微信并提示重发。仅下载会重试：失败立即重来，共 2 次，每次 15 s。
 - Web 策略不变（超限拒收），但「合规」改由共享层判定，比现在更严：坏文件、长边超限的图在发送时即被拒，而不是到模型调用时报错。
 
@@ -68,7 +68,7 @@ pub fn normalize(bytes: Vec<u8>) -> Result<ImageData, MediaError>;
 | `mic-message` | 删除 `ImageFormat::sniff` | 仅 core 使用 |
 | `mic-channel-wechat` | 新增依赖 `mic-media`；见 §五 | — |
 
-依赖方向：`mic-media` → `mic-message`；`mic-core`、`mic-channel-wechat` → `mic-media`。无环。批准后 `CLAUDE.md` 依赖不变量补一条：「`mic-media` 只依赖 `mic-message`，与 store/tool 互不依赖」。
+依赖方向：`mic-media` → `mic-message`；`mic-core`、`mic-channel-wechat` → `mic-media`。无环；`CLAUDE.md` 依赖不变量含此条。
 
 ## 五、微信侧
 
@@ -121,7 +121,7 @@ pub(crate) enum ImageFailure {
 
 `limits.rs` 新增上述三项与 `CDN_BASE = "https://novac2c.cdn.weixin.qq.com/c2c"`。依赖：`mic-media`、`aes` 0.8、`ecb` 0.1，tokio 加 `rt`。
 
-表情包 item 形态未采样：若不是 type 2，维持 `[不支持的消息]`，实现时采样报告，不在本 B2 扩展。
+表情包：SDK 无对应 item 类型；微信默认表情以 `[发呆]` 这类文本到达，按文本处理。human 实测只有默认表情会到达。
 
 ## 六、验收
 

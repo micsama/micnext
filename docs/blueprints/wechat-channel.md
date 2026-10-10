@@ -1,11 +1,9 @@
 # B2：微信 Channel（v0b）
 
 **状态：CLOSED（2026-10-10）：Phase 1–6 均已实现并经服务器人工验收（扫码、收发、typing）。后续能力见 [V2 B1](../brainstorm/wechat-v2.md)。**
-起草日期：2026-10-08；阶段拆分：2026-10-09。
 
-**来源**：[B1 决定](../brainstorm/wechat-channel.md)、[iLink 协议素材](../brainstorm/wechat-protocol.md)。
-代码基线：`bca566c`（服务商/模型分层已落地）。协议类型核对官方包
-`@tencent-weixin/openclaw-weixin@2.4.9` 的 `src/api/types.ts`、`src/auth/login-qr.ts`，不学习其框架胶水。
+本文是微信 Channel 的现行基础契约；V2 增量见 [引用 B2](wechat-quotes.md)、[入站图片 B2](wechat-inbound-images.md)。
+协议事实见 [iLink 协议素材](../brainstorm/wechat-protocol.md)，依据官方包 `@tencent-weixin/openclaw-weixin@2.4.9`。
 
 ## 一、行为与范围
 
@@ -14,7 +12,8 @@
   换用户启用另一对象；旧对象保留历史，旧号被顶、发送失败均可接受，不迁移积压。
 - 本版只有一个启用对象。对象内部状态相互独立，为以后两个用户各运行一个 ClawBot 保留边界；
   本版不提供多对象管理界面、群聊或白名单管理。
-- 入站接文本和服务端语音转写；普通 emoji 属于文本。图片、表情包、视频、文件接入延期到 V2。
+- 入站接文本、服务端语音转写和图片（[入站图片 B2](wechat-inbound-images.md)）；微信默认表情以 `[发呆]` 这类文本到达，SDK 无表情包类型。
+  文件、视频、无转写语音为占位（V2 待接）。
 - 每条落盘 Reply 的全部文本块合并发送；Notification 同一路径。超长文本分段，不流式、不做 Markdown 转换。
 - 微信发送首次失败后只重试一次，再失败则跳过并保留失败事实，后面的回复继续发送。
 - 重启不自动重跑旧任务、不自动补发旧回复。新消息可启动新一轮，带已有上下文及故障描述。
@@ -241,10 +240,11 @@ identity/session 创建后模块事务失败，最多留下无输入的空会话
 1. getupdates 使用本对象的游标。仅长轮询超时视为“无新响应”，保持原游标；不制造成功响应。
 2. 成功非空响应一次 parse 为强类型。先在模块事务保存完整 batch snapshot 与新游标，再逐条导入。
    空成功批次只更新游标/服务端 timeout。先提交游标明确选择至多一次导入，不保证崩溃窗口内每条都执行。
-3. 只接本对象扫码人、无 group_id、message_type=User 的消息；其他身份/群/bot 消息忽略，不回复。
-4. 已准入消息先更新 context_token，再按 item_list 原顺序收集文本和 voice.text，作为一次 UserInput 写入。
-   不支持的媒体与无转写语音按原位置打扁为文本占位，与处置说明经 `append_recorded_input` 同事务写入（见 conversation-parity.md）；
+3. 只接本对象扫码人、无 group_id、message_type=User 的消息；其他身份/群/bot/未知 message_type 忽略，不回复。
+4. 已准入消息先更新 context_token，再按 item_list 原顺序收集文本、voice.text 和图片，作为一次 UserInput 写入。
+   不支持的媒体、无转写语音和失败图片按原位置打扁为文本占位，与处置说明经 `append_recorded_input` 同事务写入（见 conversation-parity.md）；
    含占位的入站只记录（held），不启动模型。
+   单条消息内的缺陷只影响这一条，不断开入站连接（见 §6.2）。
 5. 使用本对象 session/person 调 append_user_input，沿用全部既有事件、落盘、取消和执行行为。
 6. 完成导入后标 batch completed。模块或 Store 不变量/写入错误 → Service Err，进程退出，保留 importing snapshot。
 
@@ -288,8 +288,11 @@ sender 唯一且每对象串行，保证该对象尝试顺序；与入站长轮�
 - 其他正常发送失败执行一次重试后跳过；Network/Timeout/Rejected 按强类型类别记录。
 - getupdates 的网络错误按有限固定退避继续等待入站；正常长轮询超时直接重发。
   数据库、不变量、磁盘版本与边界解析错误 fail fast，不能伪装成空消息。
-- Protocol 专指响应结构、必需字段或已知枚举契约破坏；必须向 Service 返回 Err，不进入发送重试或静默跳过。
+- Protocol 专指整个响应的结构、必需字段或已知枚举契约破坏；必须向 Service 返回 Err，不进入发送重试或静默跳过。
   结构合法的非零业务返回属于 Rejected，按正常发送失败处理。client 是这一分类的唯一来源。
+- 入站单条消息的缺陷按条降级并打日志，不返回 Err：否则未 ack 的消息重启后再推，入站永久卡死。
+  缺 context_token 或 message_id → 跳过该条（error）；未知 item type → `[不支持的消息]`（warn）；
+  文本 item 无 text → `[不支持的消息]`（error）；引用无法解析 → `[引用失败]`（error）。
 - 对外错误文案只包含类别和操作提示，不拼接含凭据的上游原文。
 
 ### 6.3 typing
@@ -336,20 +339,14 @@ Web 继续只能查看微信历史，不能经原 messages/persona/model 写接�
 
 client 完整接收源码所有已声明字段；暂无消费者的媒体、引用、工具 item 仍建强类型，不用 Value 漂流。
 wire DTO 拒绝未知字段，新增上游字段先补边界模型，不在运行期静默丢掉。
-所有响应的 ret/errcode 与 SDK 判定一致：缺失视为成功，出现非 0 为 BusinessRejected，-14 为登录失效。
+所有响应的 ret/errcode 与 SDK 判定一致：缺失视为成功，出现非 0 为 BusinessRejected，-14 为登录失效
+（实测 `getupdates` 成功响应不带 `ret`，`get_bot_qrcode` 带 SDK 未声明的 `"ret":0`）。
 可选字段在 wire 层保留 Option；业务需要的 user_id、context_token、游标等在相应成功分支一次验证后交给内部流程。
-
-**P3 契约补正（2026-10-09，human 已确认按 SDK 接口逐步调试）**：SDK 的 QRCodeResponse、StatusResponse 没有 `ret`：
-取二维码以 HTTP 成功且两个必需字符串非空为成功；轮询以 HTTP 成功、已知 status 及该状态的必需字段为准。
-confirmed 仍须完整凭据，未知字段/状态及缺失必需字段仍为 Protocol。
-**实测补正（2026-10-09，服务器）**：`get_bot_qrcode` 返回 `"ret":0`（SDK 未声明），两个登录响应补收 `ret`；
-`getupdates` 成功响应不带 `ret`，原「缺失 ret 即 Protocol」与 SDK（`monitor.ts` 仅在出现非 0 时判失败）及实测均不符，
-改为上文统一判定。入站实测另见：item `msg_id`/ref `svr_id` 为不透明字符串（如 `v1:…`），
-消息带 `root_id`/`parent_id`（数字），item 带 `button_item_list`（仅见空数组）与 `at_bot_username_list`。
-依据为本地 Bun 缓存的 `@tencent-weixin/openclaw-weixin@2.4.9/src/auth/login-qr.ts` 两个响应接口。
+取二维码以 HTTP 成功且两个必需字符串非空为成功；轮询以 HTTP 成功、已知 status 及该状态的必需字段为准；
+confirmed 须完整凭据，未知字段/状态及缺失必需字段为 Protocol。
 
 认证头/base_info 见协议素材 §二，协议值集中于 client/limits，不散落给 Gateway 或调用方。
-bot_agent 为 micnext/<version>；iLink-App-Id、bot_type 等实测项见 §十一，未验证前不声称协议兼容。
+bot_agent 为 micnext/<version>；iLink-App-Id=`bot`、bot_type=`3`、ClientVersion 取 2.4.9，服务器实测登录可用。
 
 wire 接收字段清单（字段 optional 性保留源码声明，嵌套类型独立）：
 
@@ -369,10 +366,10 @@ wire 接收字段清单（字段 optional 性保留源码声明，嵌套类型�
 
 † 为 SDK 未声明、实测补收字段；button_item_list 元素字段未知，非空时按报错路径补模型。
 message_id/root_id/parent_id 边界接受十进制字符串或整数，parse 为 u64，序列化为字符串；不经 f64。
-msg_id/svr_id 按 SDK 为不透明字符串。
+msg_id/svr_id 为不透明字符串（实测如 `v1:…`）。
 seq/尺寸/时长/索引使用无符号整数，时间毫秒使用 i64，ret/errcode 使用 i32；file.len 按源码接字符串。
-message_type/item_type/state 等数字在 wire 层完整接收，进入领域时 parse 成已知枚举；未知值为 Protocol，
-不猜未知媒体为文本。RefMessage 递归使用 Box，按 serde 已有深度约束，不新增手写递归机制。
+message_type/item_type/state 等数字在 wire 层完整接收，进入领域时 parse 成已知枚举；
+入站未知值按 §6.2 单条降级，不猜未知媒体为文本。RefMessage 递归使用 Box，按 serde 已有深度约束，不新增手写递归机制。
 
 build 后不变的旋钮统一放微信 limits.rs：长轮询/二维码轮询超时 35s、二维码有效期 5min、
 文本分段 4000 Unicode 字符、每段最多 2 次、发送重试等待 2s、入站网络错误退避 2s（连续 3 次后 30s）。
@@ -452,156 +449,13 @@ parallel change：先新增 port/委托/held 接口并保持旧调用可编译�
 旧 roadmap/cross-check 中重启生效、可靠补发和入站重复描述以本次批准契约为准，不留两套规范。
 自动压缩、V2 媒体和双对象 UI 不并入此次实现。
 
-## 十一、实施顺序与人工验收
 
-### 11.1 推进约定
+## 十一、验收记录与未实测项
 
-human 负责每阶段的人工验收与行为矫正。方向/契约确定后先写完代码、完成 fmt/clippy，再交 human 验收；
-验收通过后更新文档，不在实现期间不断扩写验收文档或主动补测试。
-默认阶段交付后等待 human 验收结论再进入下一阶段。本轮 human 明确批准 Phase 2–5 连续推进至能对话，
-再一起扫码与人工验收；该调整不覆盖 Phase 6 的 typing，也不把 SDK 核对等同于真实协议验收。
-批准某阶段仅覆盖下表列出的契约，不把未定协议事实或后续阶段视为一并批准。
-矫正在已批准契约内则直接修；改变公开契约或副作用边界则先修订本文，方向有真实分歧退回 B1。
+Phase 1（统一启动待命，§3.3）2026-10-09 验收；Phase 2–6（Kernel 能力、Web 扫码、入站、回复投递、typing）2026-10-10 服务器验收。
 
-每阶段均保持可编译，完成后执行 `cargo fmt`、`cargo clippy -- -D warnings`；
-仅改动覆盖既有测试时运行相关测试，不为阶段拆分新增测试框架、临时公开 API 或行为开关。
-新增 crate/feature 后补查默认构建与 `--no-default-features`，依赖方向以 `cargo tree` 核对。
-SQLite 迁移只前进；代码可回滚不等于数据库可降级。故障验收使用独立数据目录，避免改动日常历史。
-只在 human 明确要求时提交；全阶段验收通过并完成检查后才将整份本文标 CLOSED、更新 todo。
-
-协议不确定项先查本地参考 SDK；SDK 不足以定论时把具体问题交 human 搜索或实测，AI 不自行联网搜索。
-已定位本机完整 SDK：`/Users/xingji/.bun/install/cache/@tencent-weixin/openclaw-weixin@2.4.9@@registry.npmmirror.com@@@1`。
-已核对 `src/api/types.ts`、`src/api/api.ts`、`src/auth/login-qr.ts` 与 monitor 源码的字段、请求头和流程。
-真实账号请求属于接入验收；每次验收先说明请求目的和需要 human 操作的扫码/验证码步骤，不以搜资料替代实测。
-
-### 11.2 阶段与验收边界
-
-| 阶段 | 对应契约与交付范围 | human 验收后可确认的行为 | 状态 |
-|---|---|---|---|
-| Phase 1：统一启动待命 | §3.3；Store held 迁移/事务、调度谓词与上下文分离、Assembly 启动收尾、删除 scheduler 初始补跑路径；同步 core/store/run 蓝图 | 重启不执行旧输入；历史与故障说明保留；新输入仍正常启动一轮；Web 与 `-p` 正常 | CLOSED：已实现，human 功能验收通过 |
-| Phase 2：共享 Kernel 能力 | §3.2；身份/投递/通知委托、原子订阅切点、工作目录共享下沉及 Gateway 错误映射；删除旧 workdir helper | Web 建会话工作目录行为等价；既有聊天/SSE 正常；原子切点与通知不唤醒的代码/日志证据齐全 | 已实现，本地能力检查通过；human 已批准继续接入 |
-| Phase 3：Web 扫码登录闭环 | §二、§3.1、§四、§七、§八登录部分；新 crate/feature、完整模块迁移、登录 client、port/协调者/Service、完整凭据交接、Gateway 路由、设置页 | 实际扫码后保存账号；刷新不新建 attempt；验证码/过期/取消明确；同号会话不变、换号会话独立；浏览器无凭据 | 已实现；本地接口/迁移检查通过，真实扫码待服务器验收 |
-| Phase 4：微信入站 | §五、§八入站部分；getupdates、批次与游标事务、准入过滤、文本/语音转写、媒体 Notification、入站网络退避/-14、启动批次收尾 | 微信新文本在 Web 历史中出现并执行；纯媒体只落提示；群/他人/bot 不启动模型；崩溃后旧批次不重导 | 已实现；初始游标与真实入站行为待验收 |
-| Phase 5：微信回复投递 | §6.1～6.2、§八出站部分；sender 原子切点、Reply/Notification 提取、分段计划/尝试记录、一次重试/跳过、Lagged 补查、发送 -14、启动投递收尾 | 每次模型调用出话就发微信；失败预算正好两次；跳过不冒充 delivered；后续回复可发送；重登/重启不补发旧积压 | 已实现；真实投递与失败/重启场景待验收 |
-| Phase 6：typing 与整体验收 | §6.3；getconfig/sendtyping、run 生命周期与 Lagged 校准；复验停止/换号/断网/崩溃，回填协议实测、文档与 todo | 输入指示随 run 开始、回复送达后结束；慢 typing 不阻塞收发；所有对象隔离、故障与退出场景符合本文 | typing 已实现并在服务器显示（2026-10-10）；已改为回复送达后取消、缓存 ticket，待复验与整体验收 |
-
-Phase 3 内按 3a 协议边界与模块构建 → 3b 登录/账号/HTTP → 3c 设置页依次推进，每步保持编译通过。
-3a 先核对 SDK 的真实字段、optional 性、枚举、请求头和登录重定向；
-`iLink-App-Id`/`bot_type` 若仍无法确定，交 human 决定或查询，不能写一个猜测值后调用真实账号。
-3b 不引入 CLI 登录入口；3c 完成后才交付 Web 扫码验收。
-登录阶段的 Connected 表示已接受完整凭据，不宣称已完成后续入站、回复或 typing 阶段。
-
-Phase 4 首次启用轮询前必须核实新凭据空游标是否会重放旧历史；若会，先修订连接起点契约。
-Phase 4/5 的现场持久化、重启处置和取消随对应主路径一起实现，不能延期到 Phase 6 再补。
-阶段间的未实现能力只作为交付缺口说明，不新增永久的收发开关或另一条调试主路径。
-
-### 11.3 Phase 1 的具体交付与人工验收
-
-批准范围仅 §3.3：新增 `Store::hold_unclaimed_inputs(at)`，启动为旧未认领输入登记 held 并落一条会话通知；
-claim/absorb/待调度查询排除 held，上下文仍包含它们；统一覆盖常驻和 `-p` 的启动收尾。
-不新增 Channel port、微信 crate、登录路由、设置页改动或模型压缩。
-移除旧启动补跑机制后，调度责任全部由运行期的新输入 wake 承担，遗留输入的处置由持久化 held 承担；
-不把同一复杂度挪到微信分支，也不改变 run 终态或工具恢复语义。
-
-验收结果（2026-10-09）：human 已确认中断提示与旧输入待命功能正常。
-人工验收关注中断后重启是否待命，以及新指令能否带着旧历史与故障现场正常继续。
-
-实现为 core schema v5；holds 和会话通知同事务，调度/并入排除 held，上下文保留 held。
-`Assembly::start` 在 recovery 后统一处置遗留输入，scheduler 不再接初始补跑队列。
-删除旧补跑的四项核对：新输入 wake/claim 不变（正确性）；日志只记会话数（隐私）；
-recovery/holds 任一失败仍使启动 Err（失败行为）；输入、holds 时间和会话通知保留（可审计性）。
-
-通知文案按 human review 收口为“上次执行已中断”；仅有悬空工具时附加“部分工具结果未知”；
-未认领输入通知为“上次有消息未执行”。每个工具仍保留原有结果未知说明。
-Web 将相邻 Notification 放在一张左对齐的系统提示卡片中，原消息事实与顺序不变。
-
-开发检查：fmt、clippy 和构建通过；独立数据目录的 v4→v5 迁移、Web/CLI/Completion 待命、
-重复启动幂等、新输入/absorb、模型请求中的故障现场、`-p` 不起 Service 均通过。
-涉及的 core/store 无既有测试文件，未新增项目测试。临时验收脚本与本机目录不作为长期验收依赖。
-
-### 11.4 全阶段人工场景
-
-人工场景：
-
-- 未编入/未登录：Web 正确展示；-p 不连接微信。扫码、验证码、过期重取、页面刷新/关闭均有明确行为。
-- 同号重新扫码会话 id 不变；换号新会话，旧请求结果/待发项不串到新号。
-- 文本、语音转写（前缀 `[语音转写]`）进入一次 UserInput；不支持媒体打扁为占位并附处置说明，含占位的入站只记录；非扫码人/群/bot 消息不触发模型。
-- 一次模型调用的正文作为 Reply 发送，工具无文本不发，失败/中断 Notification 走同一路。
-- 模拟 sendmessage 两次失败：尝试记录正好 2 条、skipped 且 delivered_at=NULL，后面的回复继续发。
-  分段消息记录成功前缀及失败段；重启不重获预算或自动补发。
-- 在 batch 持久化后、写入中、发送记录前分别终止进程：现场可查，启动无旧工具执行，旧 batch 不重新导入。
-  之后发新消息，模型可见旧上下文和故障说明；显式发“继续”开启新 run。
-- -14 只影响所属对象；重新登录不迁移旧积压。正常断网有日志，Store/不变量失败退出。
-- RunStarted/Finished、Lagged、stop：typing 尽力校准；HTTP 等待和重试可取消，不出现自等待死锁。
-- 依赖用 cargo tree 核对：core 无具体 Channel，Gateway 与微信不互相依赖。
-
-仍需真实协议验证：App-Id/bot_type、context_token 时效、文字上限、上游顺序与重复、
-新凭据的初始游标、binded_redirect 的重取登录行为、typing 持续时间和发送错误分类。
-空游标若会重放旧连接历史，则本版不能直接按该起点启用收发：先修订连接起点契约，不以去重或静默丢弃绕过。
-这些不以 fallback 掩盖；缺配置/协议不匹配先返回显式错误，实测若要求改变公开契约则修订 B2 后再实现。
-
-### 11.5 当前交接（2026-10-09）
-
-#### 已交付的实现
-
-Phase 2–5 的主链路已提交并推送：`d87db45 feat(wechat): 接通扫码登录与消息收发`。
-默认构建包含微信；Gateway 通过 core port 访问登录状态，微信模块独立负责协议与收发。
-
-- Kernel 已提供身份解析、默认工作目录、通知落盘、待投递查询/确认和原子订阅切点；通知不唤醒模型。
-- 设置页已提供二维码、验证码、取消与连接状态；账号与完整凭据存 SQLite，同号复用会话、换号交接由协调者串行处理。
-  六张微信模块表覆盖账号、启用对象、游标/context_token、入站批次、投递计划和尝试记录。
-- 入站先持久化响应快照与游标，再导入获准的文本/语音转写；不支持媒体按占位与说明同事务落盘。旧未完成批次启动时收尾，不重新导入。
-- sender 从原子切点后的 Reply/Notification 提取正文，按 4000 个 Unicode 字符分段；每段最多两次尝试，共用 client_id。
-  失败跳过仍保留记录，重启不补发旧积压。收发任务使用固定账号快照，取消与交接等待数据库写入完成。
-- HTTP 失败日志已补齐接口名、连接阶段、I/O 类别、系统错误码与 TLS EOF 标记；HTTP 拒绝记录状态码。
-  不输出凭据、请求查询串、二维码内容或原始响应正文（解码失败的 debug 例外见凭据节）。页面仍使用简短失败提示。
-
-上述是实现事实；同号/换号、入站过滤、失败预算、重启处置等真实运行行为仍须按 §11.4 人工验收。
-Phase 6 的 typing 已实现；整体验收完成前不关闭蓝图。
-
-#### 已完成的本地检查
-
-- fmt/clippy、默认构建和无默认 feature 的 clippy 检查通过；cargo tree 核对内部依赖方向符合 §二。
-- 独立目录的 Kernel 能力检查通过：身份隔离、工作目录错误、通知不唤醒、投递确认、订阅切点并发场景。
-- 临时实例的启动、微信状态只读、鉴权/非法请求/无效 attempt、六张模块表迁移与 SQLite 完整性检查通过。
-- 前端类型检查和构建通过；release 二进制包含 Web 页面，复制到独立目录后能提供 HTML 与 JS/CSS。
-- 未新增项目测试；本地检查不替代扫码、微信入站/出站或故障场景验收。
-
-#### 真实接口与服务器现场
-
-本机获取二维码失败发生在 TLS 握手阶段，日志为 `get_bot_qrcode`、`connect=true`、`tls_handshake_eof=true`，
-尚未收到微信 HTTP 响应。清掉进程代理变量后仍失败；当时域名解析到 `198.18.0.0/15` 的 Fake IP，路由走 `utun5`。
-HTTP 代理及公司 CONNECT 代理的探测也出现 TLS EOF。未确定最终拦截来源，不能据此判定公司屏蔽或微信接口不兼容。
-SIT 转发脚本只处理指定 Redis/MySQL 地址，未发现直接处理微信流量的配置。
-
-human 已改用自己的腾讯云干净服务器验收。首次启动已生成 `/root/.config/micnext/config.toml` 并打开 SQLite，
-随后因 Web 产物缺失退出；旧提示要求 pnpm，但服务器未安装。当前尚无服务器成功扫码或对话的验收结果。
-
-#### 构建方式与下一步
-
-`f7612e5` 已加入独立 `build.sh` 与 debug/release 的产物缺失提示。
-随后 human 指定统一 Bun：已改为 Bun 1.3.14、`web/bun.lock` 与 Bun runtime，删除 pnpm 锁文件和专属配置。
-迁移核对的 143 个包版本不变；在 PATH 无 Node.js/pnpm 的环境中完成了前端和 Rust release 构建。
-这次 Bun 切换已提交为 `f995558 build(web): 统一前端使用 Bun 构建`，已推送；部署时拉取最新 master 即可。
-
-服务器手动安装 Rust 工具链和 Bun 后，在源码目录执行：
-
-```sh
-./build.sh
-./target/release/micnext
-# 或构建成功后直接启动：
-./build.sh run
-# debug 构建后启动：
-./build.sh debug run
-```
-
-脚本只检查工具，缺失即提示手动安装；依次执行 frozen-lockfile 安装、Bun 前端构建、
-默认 release 模式清理 gateway 的 release 产物并进行 Rust release 构建，确保最新 Web 资源嵌入二进制。
-debug 模式使用 `cargo build --locked`，不清理 gateway；运行时从磁盘读取 Web 产物。运行二进制不需要前端构建工具。
-`run` 后的参数原样传给 micnext，例如 `./build.sh run --config /path/to/config.toml`；
-用法与失败行为见 [build-script-run](build-script-run.md)。
-
-下一次 human 验收先完成服务启动与默认模型配置，再到「设置 → 微信」扫码，确认连接后发“你好”，
-核对微信收到回复及 Web「其他渠道 → 微信」历史；随后验证一次工具调用。
-首次连接还须核对空初始游标是否带回旧历史，该事实仍未实测；若发生重放，先修订连接起点契约。
-基础对话通过后再验证 §11.4 的验证码、取消/过期、同号/换号、媒体、断网、重启等场景，最后进入 Phase 6。
+- 启动待命实现为 core schema v5：holds 与会话通知同事务；Assembly 在 recovery 后统一处置遗留输入，scheduler 无初始补跑队列。
+  通知文案：“上次执行已中断”（仅有悬空工具时附“部分工具结果未知”）、“上次有消息未执行”。
+- typing 在回复送达后才取消：run 结束即取消时，服务器实测回复约晚 0.35 秒到达。
+- 未专门实测，遇到再回填 [协议素材](../brainstorm/wechat-protocol.md) §七：context_token 时效、单条文字上限、
+  上游顺序与重复、新凭据空游标是否重放旧历史、binded_redirect 的重新登录行为、sendmessage 错误码分类。

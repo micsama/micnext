@@ -1,10 +1,8 @@
-# 微信接入：iLink Bot 协议事实与接入方向
+# 微信接入：iLink Bot 协议事实
 
-**状态**：B1 素材（2026-10-08）。协议事实取自官方 npm 包 `@tencent-weixin/openclaw-weixin@2.4.9` 的源码
-（OpenClaw 框架的 Channel 插件）。本文只记协议事实、已定方向和待实测项，不含 B2 契约。
+**状态**：协议事实参考。取自官方 npm 包 `@tencent-weixin/openclaw-weixin@2.4.9` 的源码
+（OpenClaw 框架的 Channel 插件）及接入实测；只记协议事实，契约见 [微信 B2](../blueprints/wechat-channel.md)。
 插件里 `channel.ts`、`process-message.ts` 等是对接 OpenClaw 的胶水，不在学习范围。
-接入方向以 [`wechat-channel.md`](wechat-channel.md) 的 2026-10-08 human review 决定为准；
-下文协议事实保留，自动补发、单对象限制等早期方向已由该文修订。
 
 ## 一、已定方向（2026-10-08 与 human 确认）
 
@@ -12,8 +10,8 @@
 |---|---|
 | 1 | 凭据一律从 Web 设置页扫码登录获得，写入 SQLite；不手填，不进 `config.toml` |
 | 2 | 无流式。**每次模型调用的输出里带文本，就发一条微信消息**（与落盘的 `Reply` 对齐，见 §五） |
-| 3 | 要做 typing 指示：run 开始发「输入中」，结束取消 |
-| 4 | 下面 §六 的未验证点，不再调研，**接入后自己实测并回填本文** |
+| 3 | 要做 typing 指示（续发与取消时机见 B2 §6.3） |
+| 4 | §七 的未验证点不再调研，**遇到时实测并回填本文** |
 | 5 | 一个微信对象对应一个扫码用户和会话；同号续会话，用户身份归属及统一上下文能力见 B2 |
 
 ## 二、协议总览
@@ -39,8 +37,9 @@
 | `POST ilink/bot/getuploadurl` | 取媒体上传地址 |
 | `POST ilink/bot/msg/notifystart` / `notifystop` | 客户端启停通知 |
 
-响应统一含 `ret`（0 成功）、`errcode`、`errmsg`；`errcode == -14` 表示 token 失效。
-`message_id` / `msg_id` / `svr_id` 是 uint64，Rust 侧按 `u64` 或字符串接收，不走 f64。
+响应可含 `ret`（0 成功）、`errcode`、`errmsg`；缺失视为成功（实测 `getupdates` 成功响应不带 `ret`），`-14` 表示 token 失效。
+`message_id` 是 uint64，Rust 侧按十进制字符串或整数接收，不走 f64；item `msg_id`、ref `svr_id` 实测为不透明字符串（如 `v1:…`）。
+实测请求头取值：`iLink-App-Id: bot`，`bot_type=3`，ClientVersion 按 2.4.9 编码。
 
 ## 三、登录（扫码）
 
@@ -74,9 +73,15 @@
 `message_type`（1 用户 / 2 bot）、`message_state`（0 新 / 1 生成中 / 2 完成）、`item_list[]`、`context_token`、
 `run_id`、`create/update/delete_time_ms`。
 
+实测另有 SDK 未声明的 `root_id`/`parent_id`（数字）。
+
 **`MessageItem`**：`type`（1 文本 / 2 图片 / 3 语音 / 4 文件 / 5 视频 / 11 工具调用开始 / 12 工具调用结果）、
 `msg_id`、`ref_msg`（引用：`message_item`、`title` 摘要、`svr_id`、`partial_text`）、各类 `*_item`。
+实测另有 `button_item_list`（仅见空数组）、`at_bot_username_list`。无表情包类型：默认表情以 `[发呆]` 这类文本到达。
 语音带 `encode_type`（6 = silk）、`playtime`、可能的转写 `text`。上游字段按「暂无消费者也完整接收」建模。
+
+**引用**：`ref_msg.message_item.msg_id` 是被引消息的顶层 `message_id`（十进制，用户消息与 bot 发送段同此）；
+`partial_text { start, end, startindex, endindex, quotemd5 }` 描述部分选区，MD5 按微信显示文字计算。样本见 [V2 B1](wechat-v2.md) §三。
 
 **过滤**：只处理 `from_user_id == 扫码人` 且无 `group_id` 的消息；其余忽略。
 
@@ -101,8 +106,7 @@
 
 **typing**：`getconfig`（`ilink_user_id` + `context_token`）→ `typing_ticket`；
 `sendtyping { ilink_user_id, typing_ticket, status }`，1 = 输入中，2 = 取消。插件按用户缓存 ticket（24 小时内随机刷新，失败指数退避）。
-接法：run 开始发 1，run 结束（`run_finished`，任意终态）发 2；ticket 取不到则静默跳过 typing，不影响收发。
-长 run 期间 typing 是否会自动过期、是否要周期续发，待实测（§六）。
+SDK 每 5 秒续发一次 1。我们按此续发，回复送达后才发 2（详见 B2 §6.3）。
 
 ## 六、媒体
 
@@ -111,43 +115,26 @@
 响应头 `x-encrypted-param` 即下载参数。再发 `image_item.media = { encrypt_query_param, aes_key(base64), encrypt_type: 1 }`
 （文件另带 `file_name`、`len`；视频带 `video_size`）。
 
-**下载**：`media.full_url`，没有则 `<cdn>/download?encrypted_query_param=…`；AES-128-ECB 解密。
+**下载**：`media.full_url`，没有则 `<cdn>/download?encrypted_query_param=…`；AES-128-ECB(PKCS7) 解密，无 key 则为明文。
 key 有两种形态：base64 解出 16 字节；或解出 32 字符 hex 串再转字节。入站图片另有 `aeskey` hex 字段，优先用。
+入站图片已按此实现并服务器验收（[入站图片 B2](../blueprints/wechat-inbound-images.md)）。语音只取服务端 `voice_item.text` 转写，不转码 silk。
 
-入站图片解密后落阶段二的 SQLite blob 路径。语音先只取服务端 `voice_item.text` 转写，不转码 silk。
-
-## 七、对 micnext 设计的含义
-
-- **Gateway 不是统一中间层。** `mic-gateway` 是 **Web 这个 Channel 自己的前端适配器**（HTTP API + SSE + 嵌入前端），
-  不被任何 crate 依赖。统一层是 `mic-core` 的 `Kernel`：入站写入（`resolve_root_session`、`append_user_input`）、
-  事件订阅（`subscribe`）、稳定历史、投递记账都在它上面。微信 Channel 与 Web 平级，都只依赖 `mic-core`，
-  直接调 `Kernel`；它不需要也不应该经过 Gateway。`mic-store.md` §九、`mic-core-module.md` 里「经 Gateway 入站和发送」
-  的措辞是早期不精确的写法，B2 时一并修正。
-- **形态**：微信 Channel 是一个 `Module`，登记一个 `Service` 跑 `getupdates` 循环 + 订阅事件发消息 + typing。
-  纯 HTTP，`reqwest` 足够，无需外部进程。
-- **设置页**：登录/状态/重新登录的接口放在 `mic-gateway`（Web 的设置接口）里，但**调用微信模块提供的登录能力**
-  （二维码、轮询、落库）；这里 Gateway 与微信模块之间如何不互相依赖，由 B2 定（候选：登录能力经 `Kernel`/Registry 暴露的 port）。
-- **持久状态全进 SQLite**：`bot_token`/账号/`baseurl`/owner、`get_updates_buf`、`context_token`、投递记录。
-  `config.toml` 只需一个「是否启用微信」的启动开关或干脆不放，由 B2 定。
-- **入站顺序**：先写入消息（`append_user_input`）再保存 `get_updates_buf`，崩溃后可能重放，
-  这是早期草图，已由 [B2 提案](../blueprints/wechat-channel.md) §五 替代：先持久化批次现场与新游标，再导入。
-  本版不建入站去重表；异常重启待命，不自动重放旧任务。
-- 微信无法编辑已发消息，故流式不适用；`message_state=GENERATING` 插件本身也未使用，忽略。
-
-## 八、待实测（接入后回填）
+## 七、待实测（遇到再回填）
 
 | # | 问题 | 结果 |
 |---|---|---|
 | 1 | 不带 `context_token` 的主动推送能否送达；`context_token` 有无时间窗口 | |
 | 2 | 服务端是否按 `client_id` 去重 | |
-| 3 | `iLink-App-Id` 的取值；`bot_type=3` 的含义；自己的实现用什么值 | |
-| 4 | typing 在长 run 中是否自动过期，是否需周期续发 | |
+| 3 | `iLink-App-Id` 的取值；`bot_type=3` 的含义；自己的实现用什么值 | 用 SDK 值 `bot` / `3`，服务器登录可用；含义未知 |
+| 4 | typing 在长 run 中是否自动过期，是否需周期续发 | 按 SDK 每 5 秒续发，服务器显示正常；不续发是否过期未单独测 |
 | 5 | 同一用户连发多条时 `getupdates` 的顺序、批量与重复行为 | |
 | 6 | `-14` 之外 token 失效的其它表现；重新扫码后旧 `get_updates_buf` 是否仍有效 | |
 | 7 | 单条文本实际上限与超限时的服务端行为 | |
 | 8 | `ret != 0` 时 `sendmessage` 的错误码分类（限流、被拉黑、token 失效） | |
+| 9 | 新凭据以空游标首次 `getupdates` 是否带回旧历史 | |
+| 10 | `binded_redirect` 后重新取二维码能否正常登录 | |
 
-## 九、不学的部分
+## 八、不学的部分
 
-群聊（`group_id`）、多账号、框架配对流程（`pairing`）、`/echo` 与 debug 命令、完整引用消息存储（`quote-store`，656 行）、
-silk 转码、`notifystart/stop`（是否必需待实测，缺省先不接）。
+群聊（`group_id`）、多账号、框架配对流程（`pairing`）、完整引用消息存储（`quote-store`，656 行；我们复用 core 正文与出站计划）、
+silk 转码、工具进度 item、Markdown 过滤。`/echo` 等斜杠指令与 `notifystart/stop` 的取舍见 [V2 B1](wechat-v2.md)。

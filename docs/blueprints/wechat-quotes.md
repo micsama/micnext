@@ -2,11 +2,9 @@
 
 **状态：CLOSED（2026-10-10，服务器人工验收通过）。仅微信模块内部；不新增核心来源登记契约。**
 
-**Markdown 部分引用的边界已由 human 收口：** message 243 样本已证明部分选区按显示文字校验，表格的精确显示格式尚未确定。本步只用原消息文本生成候选并校验 MD5；无法精确还原选区时提供完整被引消息，显式注明选区未还原。不开辟微信渲染器重做路径，不声称已精确支持所有 Markdown 选区。该限制不阻塞本稿实施范围，详见下文失败行为。
+**已知 bug，human 明确延期（2026-10-10）：** 部分选区按微信显示文字校验 MD5（message 243 样本），Markdown/表格选区无法从原文精确还原时只提供全文并注明。不重做微信渲染器，优先级低。
 
-**已知 bug，human 明确延期（2026-10-10）：** Markdown/表格的部分引用可能无法精确定位，仅能提供全文；优先级低，后续有空再处理，不作为本轮 CLOSED 的阻塞项。普通文本部分引用与明确的全文降级仍属于本轮验收范围。
-
-来源：[V2 B1](../brainstorm/wechat-v2.md) §四。human 已决定引用关联与解析归微信，正文与内部 MessageId 继续复用 core。本 B2 因新增微信内部 `quote` 模块及其跨模块调用而起草，不新增 crate 或跨 crate 依赖。
+来源：[V2 B1](../brainstorm/wechat-v2.md) §三～四。引用关联与解析归微信，正文与内部 MessageId 复用 core；不新增 crate 或跨 crate 依赖。
 
 ## 一、已验证的协议事实与范围
 
@@ -15,7 +13,7 @@
 - 引用 bot：用引用 ID 查既有出站 attempt，再按 `chunk_index` 读取持久化发送计划；一个内部消息可有多个外部 ID。
 - 部分引用：固定原文 `看甲用。看乙用。看丙用。`，选择 `看乙用` 时 start=`看`、end=`用`、两个 index 均为 1；片段 UTF-8 MD5 为 `11409f8325b269b33af44bb68fa1243b`，与样本一致。全文计数规则匹配；相对 end 计数得到另一候选，由 MD5 排除。
 - 正常入站快照成功导入后立即删除。不能以批次快照为引用库，不保留快照来绕过关联缺失。
-- 接文字引用、bot 发送段引用、图片占位引用、部分文字引用。图片引用本步只表达图片类型，不下载图片、不向模型提供像素；图片输入另一步推进。
+- 接文字引用、bot 发送段引用、图片占位引用、部分文字引用。图片引用只表达图片类型，不下载被引图片、不向模型提供像素。
 
 ## 二、行为与失败边界
 
@@ -25,8 +23,9 @@
 - 图片引用为 `[引用：[图片]]`；本条新文字仍正常执行，不因所引用对象是图片而把本条变成 held 输入。
 - 部分文字引用优先放经过 MD5 校验的片段；定位或 MD5 校验不通过时按 human 决定提供完整被引消息，格式为 `[引用：{全文}]\n[引用说明：部分选区未还原，已提供全文。]`。这里的全文是原微信消息；bot 分段回复取被引用的实际发送段，不展开整个内部 Reply。含 Markdown 时本步按真实发送/原输入文本定位，不猜 Markdown 转换规则，失败仍可保留原消息信息。
 - 找不到关联（服务未采集的历史、旧版本输入、崩溃窗口等）明确表达 `[引用：原消息未找到]`。这属于可遇到的引用缺失，不冒充协议成功，不阻止本条新文字执行。
-- 协议必需字段缺失、引用 ID 不是十进制 uint64、磁盘版本/类型不匹配、关联指向的 core 消息缺失或归属不符、数据库写入失败均返回 Err，沿既有 Service 错误路径退出；不吞错误。
-- 已准入入站顶层 `message_id` 必需；不使用 item ID 或时间/正文猜测。`title/svr_id/message_item/partial_text` 等上游字段继续完整接收；本版按已观察到的 message_item ID 路径解释引用，不新增猜测优先级。
+- 引用本身无法解析（缺 message_item.msg_id、ID 不是十进制 uint64、部分引用锚点或 MD5 不合法）→ 该引用位置为 `[引用失败]` 并打 error 日志，本条照常处理；不断开入站连接（见[基础 B2](wechat-channel.md) §6.2）。
+- 磁盘版本/类型不匹配、关联指向的 core 消息缺失或归属不符、数据库写入失败均返回 Err，沿既有 Service 错误路径退出；不吞错误。
+- 已准入入站顶层 `message_id` 必需，缺失则跳过该条并打 error 日志；不使用 item ID 或时间/正文猜测。`title/svr_id/message_item/partial_text` 等上游字段继续完整接收；本版按已观察到的 message_item ID 路径解释引用，不新增猜测优先级。
 
 输入正文沿既有 Kernel 主路径落盘与发布，然后微信登记关联，登记成功才继续处理下一条入站。两次事务之间崩溃可能留下有正文但无关联的消息；重启不重导 batch、不补登记、不重跑输入。后续引用明确显示未找到。本步接受这个窗口，不引入恢复机制或改变已有至多一次导入边界。关联登记失败仍退出，不标本批导入完成。
 
@@ -45,7 +44,7 @@ pub(crate) struct QuoteRef {
 pub(crate) async fn resolve(
     kernel: &Kernel,
     account: &Account,
-    references: Vec<QuoteRef>,
+    references: Vec<Option<QuoteRef>>, // None：引用无法解析
 ) -> Result<Vec<IncomingPart>, AccountError>;
 
 pub(crate) async fn remember(
@@ -138,8 +137,8 @@ sequenceDiagram
 | 调用方 | 变更/兼容 |
 |---|---|
 | lib.rs | 私有声明 quote，不扩大 crate 公开 API |
-| client::parse_updates | 生产 external_id/references，删除两条临时采样日志；返回私有 IncomingMessage 新字段 |
-| account::recover_batches | 仍调用 parse_updates；完整旧磁盘快照在边界解析，缺必需 ID 明确 Err，不静默迁移 |
+| client::parse_updates | 生产 external_id/references；返回私有 IncomingMessage 新字段 |
+| account::recover_batches | 仍调用 parse_updates；完整旧磁盘快照在同一边界解析，规则与实时入站相同，不静默迁移 |
 | service 入站循环 | 唯一 IncomingMessage 消费者；引用组装、沿既有 append 路径，再登记关联 |
 | account::MIGRATIONS / install | 增加 v2 表，仍复用现有迁移登记 |
 | delivery | 新增只读引用段查询，发送执行、计划与尝试写入不变 |
@@ -151,8 +150,6 @@ sequenceDiagram
 
 服务器一轮验收：自己的新文字、bot 回复、自己的新图片、重复锚点部分引用四项；微信与 Web 正规历史和模型输入都显示相应引用前缀。图片引用后的文字正常执行。长 bot 回复引用第二段还原对应段。重启后新登记关联与旧出站记录仍可引用；升级前未登记用户消息明确显示未找到。Markdown/表格选区 MD5 不匹配时保留完整被引消息并显式说明选区未还原；数据库/版本错误不伪装成未找到。
 
-确认正文仅在 core、微信只存关联，临时 identity/quote 采样日志已删除；成功快照仍清理，不产生新 runner/event/终态。全部人工验收通过再标 CLOSED、更新 todo。
+确认正文仅在 core、微信只存关联；成功快照仍清理，不产生新 runner/event/终态。全部人工验收通过再标 CLOSED、更新 todo。
 
-本地实现验收（2026-10-10）：隔离临时数据目录，经真实 Assembly/Kernel/Store 调用验证自己的文字、图片占位、已发送的第二段（整条 skipped 仍可引用）、重复锚点部分引用、引用前缀不计入原文、MD5 不匹配时全文与说明、缺失占位、账号隔离；重启后再次读取同一关联与出站段均通过。先建微信 v1 数据库再启动 v2，迁移通过；成功 batch 快照仍删除；缺入站 ID、非数字引用 ID、非法 MD5 均明确 Err。临时验收 example 与数据目录已删除，不增加长期测试或生产入口；微信 crate 无既有测试文件。`cargo tree -p mic-channel-wechat --depth 1` 确认内部依赖不变。
-
-移除采样日志的四项核对：引用规则有实测依据且正文进入正规输入（正确性）；不再记录引用协议正文与入站 ID 临时样本（隐私边界）；协议/数据库错误仍 Err、未找到与部分降级显式进入对话（失败行为）；入站关联、core 原文及发送计划/尝试保留（可审计性）。
+本地实现验收（2026-10-10）：隔离数据目录经真实 Assembly/Kernel/Store 验证上述场景及 v1→v2 迁移；`cargo tree` 确认内部依赖不变。随后服务器人工验收通过。

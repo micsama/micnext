@@ -1,6 +1,6 @@
 # B2：对话记录与用户所见大致一致（第一步：微信媒体占位）
 
-**状态：修订 r2 待批准（2026-10-09）。r1 已实现并经服务器验收可用；r2 删除图文混发路径及其连带的 `about` 关联，批准后实现**
+**状态：CLOSED（2026-10-10）。r1 已实现并经服务器验收；r2 删除图文混发路径及其连带的 `about` 关联，已实现，fmt/clippy/svelte-check 通过**
 
 方向来源：[`docs/brainstorm/conversation-parity.md`](../brainstorm/conversation-parity.md)。
 

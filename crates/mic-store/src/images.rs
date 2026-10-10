@@ -37,7 +37,7 @@ fn data(format: String, bytes: Vec<u8>) -> Result<ImageData, StoreError> {
 }
 
 impl Store {
-    /// 写一条用户输入，可附一条解释它的通知（`about` = 该输入）；图片行、消息、hold 行与通知同事务，
+    /// 写一条用户输入，可附一条通知；图片行、消息、hold 行与通知同事务，
     /// 片段顺序保持。返回按 id 升序的输入与通知。
     pub async fn append_input(
         &self,
@@ -87,11 +87,7 @@ impl Store {
                 delivered_at: None,
             }];
             if let Some(NewNotice { source, text }) = notice {
-                let body = MessageBody::Notification {
-                    source,
-                    text,
-                    about: Some(id),
-                };
+                let body = MessageBody::Notification { source, text };
                 messages.push(Message {
                     id: insert_message(&tx, session_id, None, &body, at)?,
                     session_id,

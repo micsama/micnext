@@ -392,7 +392,6 @@ impl Exec<'_> {
         self.append(MessageBody::Notification {
             source: NOTIFICATION_SOURCE.into(),
             text,
-            about: None,
         })
         .await
     }

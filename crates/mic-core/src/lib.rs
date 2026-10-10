@@ -22,7 +22,7 @@ pub use channel_setup::{
 };
 pub use error::{AssembleError, KernelError, RunError, WorkdirError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
-pub use input::{IncomingPart, InputError, InputHandling};
+pub use input::{IncomingPart, InputError};
 pub use kernel::{EndpointDraft, Kernel, ModelDraft};
 pub use mic_store::SecretValue;
 pub use module::{Activation, BoxError, Module, ModuleConfig, Registry, Service};

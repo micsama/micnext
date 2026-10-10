@@ -58,9 +58,7 @@ impl Message {
                 "{}\n{note}",
                 Header::RuntimeNote.render()
             ))]),
-            MessageBody::Notification {
-                source, text: note, ..
-            } => {
+            MessageBody::Notification { source, text: note } => {
                 let at = local_time(self.created_at);
                 let header = Header::Notification {
                     src: source,

@@ -14,7 +14,7 @@ use mic_store::{
 use tokio::sync::mpsc;
 
 use crate::event::{EventReceiver, Events};
-use crate::input::{validate, IncomingPart, InputHandling};
+use crate::input::{validate, IncomingPart};
 use crate::provider::{resolve_key, Factories};
 use crate::run::now_ms;
 use crate::{request, ChannelSetup, KernelError, ProviderKindView, WorkdirError};
@@ -123,38 +123,28 @@ impl Kernel {
         Ok(messages[0].id)
     }
 
-    /// 渠道入站存在处理差异时使用：输入与处置说明原子落盘，按 id 顺序发布，`Run` 才唤醒。
-    /// 说明在模型窗口内与该输入同进同出。
-    pub async fn append_explained_input(
+    /// 只记录不执行的入站：输入以 held 落盘，与处置说明同事务，按 id 顺序发布，不唤醒。
+    pub async fn append_recorded_input(
         &self,
         session_id: SessionId,
         person: PersonId,
         parts: Vec<IncomingPart>,
-        handling: InputHandling,
         source: &str,
         notice: String,
     ) -> Result<MessageId, KernelError> {
-        let disposition = match handling {
-            InputHandling::Run => InputDisposition::Pending,
-            InputHandling::Record => InputDisposition::Held,
-        };
         let messages = append_input(
             &self.store,
             &self.events,
             session_id,
             person,
             validate(parts)?,
-            disposition,
+            InputDisposition::Held,
             Some(NewNotice {
                 source: source.to_owned(),
                 text: notice,
             }),
         )
         .await?;
-        if let InputHandling::Run = handling {
-            // 调度循环已退出（停止中）时发送失败，同 `append_user_input`。
-            let _ = self.wake.send(session_id).await;
-        }
         Ok(messages[0].id)
     }
 
@@ -180,7 +170,6 @@ impl Kernel {
                 MessageBody::Notification {
                     source: source.to_owned(),
                     text,
-                    about: None,
                 },
                 now_ms(),
             )

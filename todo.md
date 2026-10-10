@@ -7,7 +7,7 @@
 |---|---|---|
 | B2 CLOSED（2026-10-09） | 构建脚本支持 debug 与 run：默认 release，可构建后 exec 启动，运行参数原样透传 | [build-script-run](docs/blueprints/build-script-run.md) |
 | B2 已批准并实现，fmt/clippy 通过，待服务器验收后 CLOSED（2026-10-09） | 渠道提示：仅 Root，简短描述界面与表达适配；告知复用 Reply 投递 | [B2](docs/blueprints/channel-prompt.md)；[审查依据](docs/brainstorm/channel-prompt-review.md) |
-| B2 r1 已实现并验收；r2（删图文混发与 `about`）待批准（2026-10-09） | 对话记录与用户所见大致一致：长期记录与系统解释、临时微信媒体打扁；短占位与合并通知省 token；含占位入站只记录 | [B2](docs/blueprints/conversation-parity.md)；[B1](docs/brainstorm/conversation-parity.md) |
+| B2 CLOSED（2026-10-10） | 对话记录与用户所见大致一致：长期记录与系统解释、临时微信媒体打扁；短占位与合并通知省 token；含占位入站只记录 | [B2](docs/blueprints/conversation-parity.md)；[B1](docs/brainstorm/conversation-parity.md) |
 | B2 CLOSED（2026-10-09） | 统一消息头解释与 system prompt 布局；沿用现有模型呈现所有权 | [`docs/blueprints/system-prompt-layout.md`](docs/blueprints/system-prompt-layout.md) |
 | B1 余项：B（模型输入呈现）、F（工具参数）、E 余项（会话身份）待定；A 并入阶段二 | 最小正交审查余项 | [`docs/brainstorm/orthogonality-review-2026-09-24.md`](docs/brainstorm/orthogonality-review-2026-09-24.md) |
 | B1 第二轮收敛中 | 产品定位、Web + 微信、定时看板、同步/异步与 v0–v3 路线；全项目待决策项见 §四 | [`docs/brainstorm/product-roadmap.md`](docs/brainstorm/product-roadmap.md) |
@@ -18,7 +18,7 @@
 | B2 CLOSED：服务商/模型分层与图片输入均已实现并验收；遗留：模型不支持图片时的上游报错呈现、只发图时会话预览为空 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/model-settings.md`](docs/blueprints/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
 | 想法，待起 B1 | 会话/轮次基本属性随 session、turn 下发：输入框下统计行（轮·步·LLM/工具耗时·首 token·tok/s·缓存命中·token）与上下文占用圆环（悬停看用量）。现状：用量与调用起止已落库；工具耗时、首 token 未记录；模型无上下文窗口大小配置 | — |
 | 待起 B1（2026-10-09 服务器实测触发） | 工具执行隔离：模型以 root 经 bash 读了 micnext.db 与 `master.key` 所在目录。分两层：① 部署改用专用用户 `micnext`（human 进行中）；② bash 子进程套 bwrap，不挂 micnext 数据目录、私有 /tmp、按需 `--unshare-pid`；fs 工具在进程内，须另设路径边界；数据目录清单由 micnext 启动侧下发，不在两工具各写一份。待定：模型对服务器的权限定位（运维助手 vs 受限）、是否断网。环境事实：Ubuntu 24.04 `apparmor_restrict_unprivileged_userns=1`，已加 `/etc/apparmor.d/bwrap` 单程序放行并以 micnext 用户验证隔离生效 | 与「工具授权」缺口（cross-check §四-8～9）合并讨论 |
-| 待起 B1（2026-10-09） | 连续输入合批：微信图片与文字分条到达，空闲会话首条即唤醒导致逐条回复。倾向 core 调度层「最后一条输入后静默 N ms 再认领」，per-channel 窗口（Web 为 0）；待定窗口值、与执行中 absorb 的关系。同列微信待查：引用回复 `ref_msg` 当前被丢弃（转发给 bot 不可行，不处理） | — |
+| 待查（2026-10-09） | 微信引用回复：`ref_msg` 仅校验，被引用内容未进入记录，模型不知用户引用了哪句 | [`docs/blueprints/wechat-channel.md`](docs/blueprints/wechat-channel.md) |
 | 想法，未定 | 人设绑定 UI 主题；「理性大脑」人设定稿 | [`docs/brainstorm/runtime-settings.md`](docs/brainstorm/runtime-settings.md) §三 |
 | 已知缺口，待定义验收边界 | 入站去重、投递重复；模型/工具/历史尺寸、工具授权与进程退出 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-3、8～9 |
 | 待运行时骨架 | 日志路径与级别约定，定稿后补进 `CLAUDE.md` | — |

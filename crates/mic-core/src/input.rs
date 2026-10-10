@@ -10,14 +10,6 @@ pub enum IncomingPart {
     Image(Vec<u8>),
 }
 
-/// 入站输入的执行处置。
-pub enum InputHandling {
-    /// 照常执行：发布后唤醒。
-    Run,
-    /// 只记录：以 held 落盘，不唤醒；进入后续上下文。
-    Record,
-}
-
 /// 输入被整条拒收，不落任何消息或图片；文案面向用户。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InputError {

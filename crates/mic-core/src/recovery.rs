@@ -46,7 +46,6 @@ pub(crate) async fn recover(store: &Store) -> Result<usize, StoreError> {
             .chain([MessageBody::Notification {
                 source: NOTIFICATION_SOURCE.into(),
                 text: text.into(),
-                about: None,
             }])
             .collect();
         store.interrupt_run(run, closing, now_ms()).await?;

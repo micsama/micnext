@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use mic_core::{
     Activation, BoxError, BoxFuture, ChannelConnection, ChannelSetup, ChannelSetupError,
-    ChannelSetupView, EventReceiver, IncomingPart, InputHandling, Kernel, Module, ModuleConfig,
-    Registry, Service, SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
+    ChannelSetupView, EventReceiver, IncomingPart, Kernel, Module, ModuleConfig, Registry, Service,
+    SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
 };
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -454,11 +454,7 @@ async fn inbound(
             )
             .await?;
             context.send_replace(Some(incoming.context_token));
-            let Flattened {
-                parts,
-                has_text,
-                kinds,
-            } = flatten(incoming.content);
+            let Flattened { parts, kinds } = flatten(incoming.content);
             if parts.is_empty() {
                 continue;
             }
@@ -467,35 +463,19 @@ async fn inbound(
                     .append_user_input(account.view.session_id, account.person, parts)
                     .await?
             } else {
-                let (handling, notice) = if has_text {
-                    (
-                        InputHandling::Run,
-                        format!(
-                            "微信渠道暂不支持{}，仅将文字部分交给 AI 处理。",
-                            kinds.join("、")
-                        ),
-                    )
-                } else {
-                    (
-                        InputHandling::Record,
-                        format!("微信渠道暂不支持{}，这条消息仅作记录。", kinds.join("、")),
-                    )
-                };
                 kernel
-                    .append_explained_input(
+                    .append_recorded_input(
                         account.view.session_id,
                         account.person,
                         parts,
-                        handling,
                         "wechat",
-                        notice,
+                        format!("微信渠道暂不支持{}，这条消息仅作记录。", kinds.join("、")),
                     )
                     .await?
             };
             tracing::info!(
                 session_id = account.view.session_id.0,
                 message_id = message.0,
-                has_text,
                 unsupported = kinds.len(),
                 "wechat input appended"
             );
@@ -508,7 +488,6 @@ async fn inbound(
 
 struct Flattened {
     parts: Vec<IncomingPart>,
-    has_text: bool,
     /// 不支持的类型名，按首次出现去重。
     kinds: Vec<&'static str>,
 }
@@ -517,13 +496,11 @@ struct Flattened {
 fn flatten(content: Vec<IncomingContent>) -> Flattened {
     let mut out = Flattened {
         parts: Vec::with_capacity(content.len()),
-        has_text: false,
         kinds: Vec::new(),
     };
     for item in content {
         let (placeholder, kind) = match item {
             IncomingContent::Text(text) => {
-                out.has_text = true;
                 out.parts.push(IncomingPart::Text(text));
                 continue;
             }

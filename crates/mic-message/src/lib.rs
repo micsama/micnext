@@ -146,13 +146,8 @@ pub enum MessageBody {
     },
     /// 给模型看的框架备注，不投递。
     HarnessNote { text: String },
-    /// 投递给用户的框架通知；`about` 为其解释的那条输入，模型窗口内与该输入同进同出。
-    Notification {
-        source: String,
-        text: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        about: Option<MessageId>,
-    },
+    /// 投递给用户的框架通知。
+    Notification { source: String, text: String },
     /// 上下文截断，不进模型上下文。
     Boundary { boundary: ContextBoundary },
 }

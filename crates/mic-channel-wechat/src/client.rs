@@ -374,7 +374,6 @@ pub(crate) fn parse_updates(
     }
     let mut incoming = Vec::new();
     for message in snapshot.msgs.iter().flatten() {
-        validate_message(message)?;
         if message.from_user_id.as_deref() != Some(user.0.as_str())
             || message
                 .group_id
@@ -427,8 +426,10 @@ pub(crate) fn parse_updates(
                 })),
                 Some(5) => content.push(IncomingContent::Unsupported(Unsupported::Video)),
                 Some(0 | 11 | 12) => content.push(IncomingContent::Unsupported(Unsupported::Other)),
-                None => return Err(ClientError::Protocol("item 缺少 type")),
-                Some(_) => unreachable!("validate_message 已拒绝未知 type"),
+                kind => {
+                    tracing::warn!(?kind, "wechat inbound item type unknown");
+                    content.push(IncomingContent::Unsupported(Unsupported::Other));
+                }
             }
         }
         incoming.push(IncomingMessage {
@@ -479,37 +480,6 @@ fn parse_quote(reference: &wire::RefMessage) -> Result<QuoteRef, ClientError> {
         })
         .transpose()?;
     Ok(QuoteRef { id, partial })
-}
-
-fn validate_message(message: &wire::WechatMessage) -> Result<(), ClientError> {
-    if message
-        .message_type
-        .is_some_and(|kind| !matches!(kind, 0..=2))
-        || message
-            .message_state
-            .is_some_and(|state| !matches!(state, 0..=2))
-    {
-        return Err(ClientError::Protocol("未知 message_type 或 message_state"));
-    }
-    for item in message.item_list.iter().flatten() {
-        validate_item(item)?;
-    }
-    Ok(())
-}
-
-fn validate_item(item: &wire::MessageItem) -> Result<(), ClientError> {
-    if item
-        .kind
-        .is_some_and(|kind| !matches!(kind, 0..=5 | 11 | 12))
-    {
-        return Err(ClientError::Protocol("未知 item type"));
-    }
-    if let Some(reference) = &item.ref_msg {
-        if let Some(item) = &reference.message_item {
-            validate_item(item)?;
-        }
-    }
-    Ok(())
 }
 
 /// 与 SDK 一致：ret/errcode 缺失视为成功（实测 getupdates 成功响应不带 ret），出现则须为 0。

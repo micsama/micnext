@@ -10,6 +10,7 @@ import type { Credential, Endpoint, EndpointInput, Model, ModelInput, Preset } f
 
 export const PRESETS: { value: Preset; label: string }[] = [
   { value: "openai", label: "OpenAI" },
+  { value: "chatgpt", label: "ChatGPT 订阅（Codex）" },
   { value: "deepseek", label: "DeepSeek" },
   { value: "ollama", label: "Ollama" },
   { value: "generic", label: "OpenAI 兼容" },
@@ -20,15 +21,27 @@ export const presetLabel = (p: Preset): string => PRESETS.find((x) => x.value ==
 /** 未填 key 时服务端读取的环境变量。 */
 export const PRESET_ENV: Record<Preset, string | null> = {
   openai: "OPENAI_API_KEY",
+  chatgpt: null,
   deepseek: "DEEPSEEK_API_KEY",
   generic: "OPENAI_API_KEY",
   ollama: null,
 };
 
+/** key 输入框占位提示。 */
+export const keyHint = (p: Preset): string =>
+  p === "chatgpt"
+    ? "粘贴 ~/.codex/auth.json 里的 tokens.access_token（10 天内有效）"
+    : PRESET_ENV[p]
+      ? `留空读取 ${PRESET_ENV[p]}`
+      : "本机通常无需 key";
+
 export const OLLAMA_URL = "http://localhost:11434/v1";
 
 /** 地址固定、不填 base_url 的预设。 */
-export const fixedUrl = (p: Preset): boolean => p === "deepseek" || p === "openai";
+export const fixedUrl = (p: Preset): boolean => p === "deepseek" || p === "openai" || p === "chatgpt";
+
+/** 支持限制最大输出的预设（Codex 后端拒收）。 */
+export const limitable = (p: Preset): boolean => p !== "chatgpt";
 
 type Option = { value: string; label: string };
 const effort = (...values: string[]): Option[] => [
@@ -36,9 +49,10 @@ const effort = (...values: string[]): Option[] => [
   ...values.map((v) => ({ value: v, label: v === "none" ? "关闭思考" : v })),
 ];
 
-/** 各预设可选的推理强度；`default` 即不下发，交给服务端默认；`null` 为不支持。 */
+/** 各预设可选的推理强度；`default` 即不下发，由后端按预设补默认值（支持推理的预设均为 low）；`null` 为不支持。 */
 export const REASONING: Record<Preset, Option[] | null> = {
   openai: effort("none", "minimal", "low", "medium", "high", "xhigh", "max"),
+  chatgpt: effort("none", "minimal", "low", "medium", "high", "xhigh", "max"),
   deepseek: effort("none", "low", "high", "max"),
   ollama: null,
   generic: null,
@@ -110,7 +124,7 @@ const configOf = (f: EndpointForm): EndpointInput["config"] => ({
 });
 
 function modelInput(endpoint_id: number, r: ModelRow, preset: Preset): ModelInput {
-  const max = r.max_tokens.trim();
+  const max = limitable(preset) && r.max_tokens.trim();
   const effort = r.reasoning_effort !== "default" && REASONING[preset]?.some((o) => o.value === r.reasoning_effort);
   return {
     endpoint_id,

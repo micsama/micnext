@@ -207,6 +207,7 @@ impl Exec<'_> {
             SessionKind::Task { .. } | SessionKind::Triggered { .. } => None,
         };
         let req = request::build(
+            self.session.id,
             window,
             images,
             &self.session.pwd,

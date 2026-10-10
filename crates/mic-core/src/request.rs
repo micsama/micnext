@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use mic_message::{
     header_legend, ContentPart, ImageData, ImageId, Message, MessageBody, ModelView, ReplyBlock,
+    SessionId,
 };
 use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
@@ -47,6 +48,7 @@ pub(crate) fn image_ids(window: &ContextWindow) -> Vec<ImageId> {
 }
 
 pub(crate) fn build(
+    session: SessionId,
     window: ContextWindow,
     images: HashMap<ImageId, ImageData>,
     pwd: &str,
@@ -65,6 +67,7 @@ pub(crate) fn build(
         messages: order(window.messages),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
+        cache_key: format!("micnext-s{}", session.0),
     }
 }
 

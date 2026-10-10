@@ -1,12 +1,13 @@
-//! Responses：请求映射（无状态 `store=false`）、流事件处理与终态 output 转换。
+//! Responses：请求映射（无状态 `store=false`）、流事件处理与输出项转换。
 
 use std::collections::HashMap;
+use std::mem::take;
 
 use async_openai::types::responses::{
     EasyInputContent, EasyInputMessage, FunctionCallOutput, FunctionCallOutputItemParam,
     FunctionTool, FunctionToolCall, IncludeEnum, InputContent, InputImageContent, InputItem,
     InputTextContent, Item, MessagePhase, MessageType, OutputItem, OutputMessageContent,
-    Reasoning as ReasoningParam, ReasoningItem, ReasoningSummary, Response, ResponseErrorCode,
+    Reasoning as ReasoningParam, ReasoningItem, ReasoningSummary, ResponseErrorCode,
     ResponseStreamEvent, ResponseUsage, Role, SummaryPart, SummaryTextContent, Tool,
 };
 use mic_core::{ModelEvent, ModelRequest, ModelResponse, ProviderError, StopReason};
@@ -37,6 +38,7 @@ pub(crate) struct ResponsesRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<ReasoningParam>,
     include: Vec<IncludeEnum>,
+    prompt_cache_key: String,
     store: bool,
     stream: bool,
 }
@@ -111,6 +113,7 @@ pub(crate) fn request(
             ..Default::default()
         }),
         include: vec![IncludeEnum::ReasoningEncryptedContent],
+        prompt_cache_key: req.cache_key.clone(),
         store: false,
         stream: true,
     })
@@ -210,8 +213,12 @@ fn user_content(
     Ok(EasyInputContent::ContentList(out))
 }
 
-/// 增量只用于实时展示；终态 `response.output` 是唯一内容来源。
-pub(crate) struct Accumulator;
+/// 增量只用于实时展示；`response.output_item.done` 的条目是唯一内容来源
+/// （Codex 后端终态 `output` 为空，官方 API 两处一致）。
+#[derive(Default)]
+pub(crate) struct Accumulator {
+    items: Vec<(u32, OutputItem)>,
+}
 
 impl Accumulate for Accumulator {
     type Event = ResponseStreamEvent;
@@ -224,7 +231,13 @@ impl Accumulate for Accumulator {
             E::ResponseReasoningSummaryTextDelta(e) => {
                 Step::Deltas(vec![ModelEvent::ReasoningDelta(e.delta)])
             }
-            E::ResponseCompleted(e) => Step::Finished(finish(e.response, None)?),
+            E::ResponseOutputItemDone(e) => {
+                self.items.push((e.output_index, e.item));
+                Step::Deltas(Vec::new())
+            }
+            E::ResponseCompleted(e) => {
+                Step::Finished(finish(take(&mut self.items), e.response.usage, None)?)
+            }
             E::ResponseIncomplete(e) => {
                 let stop = match e
                     .response
@@ -241,7 +254,7 @@ impl Accumulate for Accumulator {
                         )))
                     }
                 };
-                Step::Finished(finish(e.response, Some(stop))?)
+                Step::Finished(finish(take(&mut self.items), e.response.usage, Some(stop))?)
             }
             E::ResponseFailed(e) => {
                 return Err(match e.response.error {
@@ -270,10 +283,15 @@ fn code_str(code: &ResponseErrorCode) -> String {
 }
 
 /// `stop` 为 `None` 时由输出推断：有工具调用即 ToolUse，有拒答即 ContentFilter。
-fn finish(resp: Response, stop: Option<StopReason>) -> Result<ModelResponse, ProviderError> {
+fn finish(
+    mut items: Vec<(u32, OutputItem)>,
+    usage: Option<ResponseUsage>,
+    stop: Option<StopReason>,
+) -> Result<ModelResponse, ProviderError> {
+    items.sort_by_key(|(index, _)| *index);
     let mut blocks = Vec::new();
     let mut refused = false;
-    for item in resp.output {
+    for (_, item) in items {
         match item {
             OutputItem::Message(m) => {
                 let mut text = String::new();
@@ -324,7 +342,7 @@ fn finish(resp: Response, stop: Option<StopReason>) -> Result<ModelResponse, Pro
     Ok(ModelResponse {
         blocks,
         stop,
-        usage: resp.usage.map(usage).transpose()?,
+        usage: usage.map(convert_usage).transpose()?,
     })
 }
 
@@ -343,7 +361,7 @@ fn reasoning(r: ReasoningItem) -> Option<Reasoning> {
     })
 }
 
-fn usage(u: ResponseUsage) -> Result<Usage, ProviderError> {
+fn convert_usage(u: ResponseUsage) -> Result<Usage, ProviderError> {
     let cache_write_tokens = u
         .input_tokens_details
         .cache_write_tokens

@@ -67,6 +67,9 @@ pub struct ModelRequest {
     pub messages: Vec<mic_message::Message>,
     /// 空 = 不开启工具调用。
     pub tools: Vec<mic_tool::ToolSpec>,
+    /// 同一会话稳定、不同会话不同的不透明串（`micnext-s{会话id}`），供上游做前缀缓存路由；
+    /// 不含用户内容。见 provider-cache-key.md。
+    pub cache_key: String,
 }
 
 pub enum ModelEvent {

@@ -137,6 +137,8 @@ pub struct ModelRequest {
     pub tools: Vec<ToolSpec>,
     /// `messages` 里 `ContentPart::Image` 引用的原件。
     pub images: HashMap<ImageId, ImageData>,
+    /// 同一会话稳定、不同会话不同的不透明串，供上游做前缀缓存路由；不含用户内容。
+    pub cache_key: String,
 }
 
 #[derive(Debug, Clone)]

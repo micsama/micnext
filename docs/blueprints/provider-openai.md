@@ -1,6 +1,6 @@
 # B2: OpenAI 协议族模型实现（mic-provider-openai）
 
-**状态**: CLOSED（2026-09-23 首版）；2026-10-10 按 [`provider-sdk-responses.md`](provider-sdk-responses.md) 整体改为 async-openai 实现并接入 Responses
+**状态**: CLOSED（2026-09-23 首版）；2026-10-10 按 [`provider-sdk-responses.md`](provider-sdk-responses.md) 整体改为 async-openai 实现并接入 Responses；同日按 [`provider-chatgpt.md`](provider-chatgpt.md) 增加 ChatGPT 订阅预设、按 [`provider-cache-key.md`](provider-cache-key.md) 发送会话缓存键
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M7；[`provider-port.md`](provider-port.md)（实现的契约）；配置分层与工厂契约见 [`model-settings.md`](model-settings.md) §四
 **依赖不变量**: 依赖 `mic-core`（port）+ `mic-message` + `mic-store`（`Usage`）+ `mic-tool`（`ToolSpec`）；不被任何 crate 依赖，只由二进制装配。
 
@@ -8,8 +8,8 @@
 
 ## 一、用户视角的效果
 
-- Web 设置页新建服务商，选预设：OpenAI、DeepSeek、Ollama、通用兼容服务。OpenAI / DeepSeek 地址固定不用填；Ollama 留空取本机；通用必须填地址。
-- key 可在 Web 填（加密入库），不填则读环境变量（OpenAI/通用 `OPENAI_API_KEY`，DeepSeek `DEEPSEEK_API_KEY`，Ollama 不需要）。
+- Web 设置页新建服务商，选预设：OpenAI、ChatGPT 订阅（Codex）、DeepSeek、Ollama、通用兼容服务。OpenAI / ChatGPT / DeepSeek 地址固定不用填；Ollama 留空取本机；通用必须填地址。
+- key 可在 Web 填（加密入库），不填则读环境变量（OpenAI/通用 `OPENAI_API_KEY`，DeepSeek `DEEPSEEK_API_KEY`，Ollama 不需要）。ChatGPT 订阅必须粘贴 Codex CLI 的 access_token（10 天有效，过期重贴），不读环境变量。
 - 回复流式显示；DeepSeek / Ollama 的思考过程、OpenAI 的推理摘要作为推理单独显示。
 - key 无效、余额不足直接说明原因；限流、服务端错误、断流、长时间无数据、空回复归为"暂时不可用"，由 core 决定是否重试。
 - 每次调用的用量（输入、输出、缓存读写、推理）入库，供统计。
@@ -26,19 +26,24 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 | 预设 | 协议 | 地址 | key 环境变量 |
 |---|---|---|---|
 | `openai` | Responses | 固定 `https://api.openai.com/v1`，不接受 `base_url` | `OPENAI_API_KEY` |
+| `chatgpt` | Responses（Codex 后端） | 固定 `https://chatgpt.com/backend-api/codex`，不接受 `base_url` | 无，必须粘贴 access_token |
 | `deepseek` | Chat（DeepSeek 方言） | 固定 `https://api.deepseek.com`，不接受 `base_url` | `DEEPSEEK_API_KEY` |
 | `ollama` | Chat（Ollama 方言） | 缺省 `http://localhost:11434/v1` | 无 |
 | `generic` | Chat（通用） | 必填 | `OPENAI_API_KEY` |
 
 `base_url` 只接受 http(s)，不得含账号密码、查询参数或锚点，末尾 `/` 去掉。有 key 时发 `Authorization: Bearer`（敏感头），无 key 不发。
 
+`chatgpt`：每轮建连时把 key 当 JWT 解析载荷（不验签），取 `https://api.openai.com/auth.chatgpt_account_id` 发为 `chatgpt-account-id` 头；缺 key、不是 Codex token、已过期 → `ConfigError`，不发请求。不发 `originator` / `OpenAI-Beta`。
+
 模型 `{max_tokens?, reasoning_effort?}`，模型名单列：
 
 | 预设 | `reasoning_effort` |
 |---|---|
-| `openai` | `none|minimal|low|medium|high|xhigh|max` 或不写（不写不发） |
+| `openai` / `chatgpt` | `none|minimal|low|medium|high|xhigh|max`，不写取 `low` |
 | `deepseek` | `none|low|high|max`，不写取 `low` |
 | 其它 | 只能不写 |
+
+`chatgpt` 的 `max_tokens` 必须不写（Codex 后端拒收 `max_output_tokens`）。
 
 ### 2.2 构建期旋钮（`src/limits.rs`）
 
@@ -47,6 +52,7 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 | `CONNECT_TIMEOUT` | 30 s | 建连超时 |
 | `STREAM_IDLE_TIMEOUT` | 300 s | 两次收到数据之间的最长间隔（含等待首字节） |
 | `PROBE_TIMEOUT` | 15 s | 测试连接整体超时 |
+| `CODEX_CLIENT_VERSION` | `"0.161.0"` | 向 Codex 后端声明的客户端版本；过旧时模型列表为空 |
 
 ## 三、传输
 
@@ -85,13 +91,13 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
   `insufficient_system_resource` → `Transient`；legacy `function_call` → `Protocol`；EOF 时缺 `finish_reason` → `Transient`。
 - 只接受单候选；`finish_reason` 之后再有内容增量 → `Protocol`。块顺序：推理、正文、工具调用。
 
-### 4.3 Responses（OpenAI）
+### 4.3 Responses（OpenAI / ChatGPT 订阅）
 
-- 无状态：`store=false`、`include=[reasoning.encrypted_content]`；有 effort 时 `reasoning={effort, summary: auto}`；`instructions` = system；工具 `strict=false`；`max_tokens` → `max_output_tokens`。
+- 无状态：`store=false`、`include=[reasoning.encrypted_content]`；`prompt_cache_key` = `cache_key`，`chatgpt` 另按请求发同值 `session_id` 头（Codex 后端缺此头不缓存，见 provider-cache-key）；有 effort 时 `reasoning={effort, summary: auto}`；`instructions` = system；工具 `strict=false`；`max_tokens` → `max_output_tokens`。
 - assistant 块按原顺序回传：正文 → assistant 消息（带 `phase`），工具调用 → `function_call`，工具结果 → `function_call_output`。
 - 推理回传：仅同模型、且有密文的推理，作为不带 id 的 reasoning item 发回（SDK 类型会把 id 序列化为 null，所以请求体自定义）。
 - 流中：正文与 refusal 增量 → `TextDelta`，推理摘要增量 → `ReasoningDelta`。
-- 终态 `response.output` 是唯一内容来源：
+- `response.output_item.done` 的条目（按 `output_index` 排序）是唯一内容来源；终态事件只提供结束状态、`incomplete_details`、usage 与错误（Codex 后端终态 `output` 为空）：
   - message → `Text { phase }`；refusal 转为可见正文，并记为 `ContentFilter`。
   - function_call → `ToolCall`，id 取 `call_id`。
   - reasoning → 有摘要：`Visible { 摘要段落以空行拼接, signature: 密文 }`；只有密文：`Redacted { data }`。
@@ -124,7 +130,7 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 
 文案为"中文说明（HTTP 状态，code）：上游 `error.message`"，只用状态、结构化 code 与 message，不拼原始响应体，不含 key。
 
-测试连接（`GET {base}/models`，解析 `data[].id`）：401/403 → `Auth`；超时、建连失败 → `Network`；其它状态或无法解析 → `Unexpected`。
+测试连接：标准为 `GET {base}/models` 解析 `data[].id`；`chatgpt` 为 `GET {base}/models?client_version={CODEX_CLIENT_VERSION}` 解析 `models[].slug`，为空报「没有可用模型，可能需要更新 CODEX_CLIENT_VERSION」。401/403 → `Auth`；超时、建连失败 → `Network`；其它状态、无法解析或本地 token 校验失败 → `Unexpected`。
 
 ## 五、副作用与依赖
 
@@ -143,9 +149,10 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 | `content` | 两协议共用的内容转换：文本拼接、图片 data URL、工具参数 |
 | `chat` / `responses` | 各自的请求映射、BYOT 类型、增量累积与终态转换 |
 | `probe` | `/models` 探测 |
+| `token` | ChatGPT access_token 解析与过期判断 |
 | `limits` | 构建期旋钮 |
 
 ## 七、已知演进
 
-- ChatGPT 订阅 Token：待 human 实测后另行增加预设，复用 Responses 路径（provider-sdk-responses §七）。
+- ChatGPT 订阅：手贴 token 不够用时，改为粘贴整份 auth.json 并自动刷新（需独立登录份，见 provider-chatgpt §五）。
 - Responses 出现新流事件导致解析失败时升级 SDK，不加兜底。

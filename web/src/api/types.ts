@@ -68,7 +68,7 @@ export type SessionItem = {
   model_id: number | null;
 };
 
-export type Preset = "generic" | "deepseek" | "ollama" | "openai";
+export type Preset = "generic" | "deepseek" | "ollama" | "openai" | "chatgpt";
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type Endpoint = {
@@ -252,7 +252,7 @@ const sessionItem: Decoder<SessionItem> = obj({
   model_id: nullable(num),
 });
 
-const preset = oneOf("generic", "deepseek", "ollama", "openai");
+const preset = oneOf("generic", "deepseek", "ollama", "openai", "chatgpt");
 
 const endpointList: Decoder<{ items: Endpoint[] }> = obj({
   items: arr(

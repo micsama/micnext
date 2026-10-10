@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_openai::traits::RequestOptionsBuilder;
 use futures_util::stream;
 use mic_core::{
     BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ProbeError, Provider,
@@ -7,7 +8,7 @@ use mic_core::{
 };
 
 use crate::client::{self, Client};
-use crate::config::{self, EndpointConfig, ModelConfig, Protocol, Resolved};
+use crate::config::{self, Backend, EndpointConfig, ModelConfig, Protocol, Resolved};
 use crate::stream::{drive, Open};
 use crate::{chat, probe, responses};
 
@@ -19,7 +20,7 @@ impl ProviderFactory for OpenAiFactory {
     }
 
     fn display_name(&self) -> &'static str {
-        "OpenAI / 兼容服务（DeepSeek / Ollama / vLLM 等）"
+        "OpenAI / ChatGPT 订阅 / 兼容服务（DeepSeek / Ollama / vLLM 等）"
     }
 
     fn check_endpoint(&self, json: &str) -> Result<String, ConfigError> {
@@ -63,10 +64,11 @@ impl ProviderFactory for OpenAiFactory {
         endpoint_json: &str,
         key: Option<SecretValue>,
     ) -> BoxFuture<Result<Vec<String>, ProbeError>> {
-        let client = EndpointConfig::parse(endpoint_json).and_then(|e| connect(&e, key));
+        let client =
+            EndpointConfig::parse(endpoint_json).and_then(|e| Ok((connect(&e, key)?, e.catalog())));
         Box::pin(async move {
-            let client = client.map_err(|e| ProbeError::Unexpected(e.message))?;
-            probe::list_models(client).await
+            let (client, catalog) = client.map_err(|e| ProbeError::Unexpected(e.message))?;
+            probe::list_models(client, catalog).await
         })
     }
 }
@@ -101,11 +103,18 @@ impl Provider for OpenAiProvider {
                 }
                 Err(e) => failed(e),
             },
-            Protocol::Responses => match responses::request(&self.cfg, &req) {
+            Protocol::Responses(backend) => match responses::request(&self.cfg, &req) {
                 Ok(body) => {
-                    let open: Open<_> =
-                        Box::pin(async move { client.responses().create_stream_byot(body).await });
-                    drive(open, responses::Accumulator)
+                    let key = req.cache_key;
+                    let open: Open<_> = Box::pin(async move {
+                        let api = client.responses();
+                        let api = match backend {
+                            Backend::OpenAi => api,
+                            Backend::Codex => api.header("session_id", key)?,
+                        };
+                        api.create_stream_byot(body).await
+                    });
+                    drive(open, responses::Accumulator::default())
                 }
                 Err(e) => failed(e),
             },

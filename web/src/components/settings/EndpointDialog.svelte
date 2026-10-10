@@ -13,8 +13,9 @@
     blankRow,
     effortLabel,
     fixedUrl,
+    keyHint,
+    limitable,
     OLLAMA_URL,
-    PRESET_ENV,
     PRESETS,
     presetLabel,
     probe,
@@ -89,12 +90,7 @@
     if (ok) void run(() => deleteEndpoint(id));
   }
 
-  const keyPlaceholder = (f: EndpointForm) =>
-    f.key_set
-      ? "留空保留现有 key"
-      : PRESET_ENV[f.preset]
-        ? `留空读取 ${PRESET_ENV[f.preset]}`
-        : "本机通常无需 key";
+  const keyPlaceholder = (f: EndpointForm) => (f.key_set ? "留空保留现有 key" : keyHint(f.preset));
 </script>
 
 <Dialog.Root bind:open={() => editing !== null, (o) => !o && void close()}>
@@ -188,9 +184,10 @@
                 <Input
                   type="number"
                   min="1"
-                  value={r.max_tokens}
+                  value={limitable(f.preset) ? r.max_tokens : ""}
                   oninput={(e) => (r.max_tokens = e.currentTarget.value)}
-                  placeholder="默认"
+                  disabled={!limitable(f.preset)}
+                  placeholder={limitable(f.preset) ? "默认" : "不支持"}
                   aria-label="最大输出"
                 />
                 {#if efforts}

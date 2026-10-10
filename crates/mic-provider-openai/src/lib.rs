@@ -1,4 +1,4 @@
-//! OpenAI 协议族的模型实现（基于 async-openai）：OpenAI 走 Responses，DeepSeek / Ollama / 通用兼容服务走 Chat Completions。
+//! OpenAI 协议族的模型实现（基于 async-openai）：OpenAI 与 ChatGPT 订阅走 Responses，DeepSeek / Ollama / 通用兼容服务走 Chat Completions。
 //! 契约：docs/blueprints/provider-openai.md、provider-sdk-responses.md；工厂契约见 model-settings.md §四。
 
 mod chat;
@@ -11,6 +11,7 @@ mod limits;
 mod probe;
 mod responses;
 mod stream;
+mod token;
 
 use mic_core::{Activation, BoxError, Module, ModuleConfig, Registry};
 

@@ -55,7 +55,7 @@
 
 **Chat**：系统提示、user 文本/图片、assistant 文本+工具调用、tool 结果按原规则映射；DeepSeek 同模型工具续轮回传 `reasoning_content`。不发 legacy functions。usage：标准 `cached_tokens`（Generic）/ `prompt_cache_hit_tokens`（DeepSeek）/ Ollama 无；`reasoning_tokens` 取标准字段。
 
-**Responses**：`instructions` + typed input；`store=false`、`stream=true`、`include=[reasoning.encrypted_content]`、`reasoning.summary=auto`（有 effort 时）；工具 `strict=false`。正文/摘要 delta → TextDelta/ReasoningDelta。终态 `response.output` 是唯一内容来源：message → Text（含 phase，refusal 转可见正文并 ContentFilter），function_call → ToolCall（`call_id` 为 id），reasoning → 见 §四；其它输出项 → Protocol。
+**Responses**：`instructions` + typed input；`store=false`、`stream=true`、`include=[reasoning.encrypted_content]`、`reasoning.summary=auto`（有 effort 时）；工具 `strict=false`。正文/摘要 delta → TextDelta/ReasoningDelta。`response.output_item.done` 的条目是唯一内容来源（[provider-chatgpt](provider-chatgpt.md) 修订：Codex 后端终态 `output` 为空）：message → Text（含 phase，refusal 转可见正文并 ContentFilter），function_call → ToolCall（`call_id` 为 id），reasoning → 见 §四；其它输出项 → Protocol。
 
 usage（终态一次转换）：
 
@@ -84,7 +84,7 @@ Responses：completed → EndTurn/ToolUse；incomplete `max_output_tokens` → M
 
 ## 七、ChatGPT 订阅（待验证）
 
-先由 human 用手动 Access Token 对 `POST /v1/responses`（`store=false, stream=true`）与 `GET /v1/models` 实测，确认权限与目录格式；通过后新增预设 `chatgpt`（凭据为 Token、不读环境变量），复用 Responses 全部路径。验证前不写任何订阅代码。
+已由 [provider-chatgpt](provider-chatgpt.md) 实现（结论：公开 API 不接受 Codex token，改走 Codex 后端）。原计划：先由 human 用手动 Access Token 对 `POST /v1/responses`（`store=false, stream=true`）与 `GET /v1/models` 实测，确认权限与目录格式；通过后新增预设 `chatgpt`（凭据为 Token、不读环境变量），复用 Responses 全部路径。验证前不写任何订阅代码。
 
 ## 八、实现步骤
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import hljs from "highlight.js/lib/common";
   import { onMount } from "svelte";
   import { getSqlSchema, runSql } from "../../api/client";
   import type { Cell, QueryResult, TableSchema } from "../../api/developer";
@@ -12,6 +13,46 @@
   let tables = $state.raw<TableSchema[] | null>(null);
   let schemaError = $state<string | null>(null);
   let copyNote = $state<string | null>(null);
+
+  /** 末尾补换行，让最后一个空行在高亮层里也占高度。 */
+  const highlighted = $derived(hljs.highlight(sql, { language: "sql", ignoreIllegals: true }).value + "\n");
+  let backdrop = $state<HTMLElement | null>(null);
+
+  const HEIGHT_KEY = "micnext.developer.sqlEditorHeight";
+  const HEIGHT_MIN = 80;
+  /** 输入框高度，拖动分隔条调整，按浏览器记住。 */
+  let editorHeight = $state(loadHeight());
+  let pane = $state<HTMLElement | null>(null);
+
+  function loadHeight(): number {
+    try {
+      const v = Number(localStorage.getItem(HEIGHT_KEY));
+      return v >= HEIGHT_MIN ? v : 200;
+    } catch {
+      return 200;
+    }
+  }
+
+  function startResize(e: PointerEvent) {
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+    const y0 = e.clientY;
+    const h0 = editorHeight;
+    const max = Math.max(HEIGHT_MIN, (pane?.clientHeight ?? 600) - 120);
+    const move = (ev: PointerEvent) => {
+      editorHeight = Math.min(max, Math.max(HEIGHT_MIN, h0 + ev.clientY - y0));
+    };
+    const up = () => {
+      handle.removeEventListener("pointermove", move);
+      try {
+        localStorage.setItem(HEIGHT_KEY, String(editorHeight));
+      } catch {
+        // NOTE: 存储不可用时仅本次有效。
+      }
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up, { once: true });
+  }
 
   onMount(() => {
     getSqlSchema().then(
@@ -104,13 +145,29 @@
     {/if}
   </aside>
 
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-    <textarea
-      bind:value={sql}
-      {onkeydown}
-      spellcheck="false"
-      placeholder="输入一条只读 SQL，如 SELECT * FROM core_sessions LIMIT 20"
-      class="h-32 shrink-0 resize-y border-b bg-background p-3 font-mono text-sm outline-none"></textarea>
+  <div bind:this={pane} class="flex min-h-0 min-w-0 flex-1 flex-col">
+    <!-- 透明文字的 textarea 叠在高亮层上，两层字体、内边距、换行与滚动须一致。 -->
+    <div class="relative shrink-0 bg-background font-mono text-sm" style:height="{editorHeight}px">
+      <pre
+        bind:this={backdrop}
+        aria-hidden="true"
+        class="pointer-events-none absolute inset-0 m-0 overflow-y-scroll p-3 break-words whitespace-pre-wrap"><code
+          >{@html highlighted}</code></pre>
+      <textarea
+        bind:value={sql}
+        {onkeydown}
+        onscroll={(e) => backdrop && (backdrop.scrollTop = e.currentTarget.scrollTop)}
+        spellcheck="false"
+        placeholder="输入一条只读 SQL，如 SELECT * FROM core_sessions LIMIT 20"
+        class="absolute inset-0 resize-none overflow-y-scroll bg-transparent p-3 break-words whitespace-pre-wrap text-transparent caret-foreground outline-none placeholder:text-muted-foreground"
+      ></textarea>
+    </div>
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="拖动调整输入框高度"
+      class="h-1.5 shrink-0 cursor-row-resize touch-none border-y bg-muted hover:bg-accent"
+      onpointerdown={startResize}></div>
     <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1.5 text-xs text-muted-foreground">
       <button
         type="button"

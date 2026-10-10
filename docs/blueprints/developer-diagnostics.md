@@ -180,7 +180,7 @@ Cell 为 tagged：`null`、`integer`（十进制字符串，避免 JS 精度丢�
 
 ### 3.5 页面
 
-SQL 输入框（Ctrl/Cmd+Enter 执行）、结果表格、耗时、截断提示、复制为 Markdown 表格、下载 CSV（RFC 4180，NULL 为空字段，带 UTF-8 BOM）；左侧表与列列表，凭据列标注“已隐藏”。不保存历史，不导出整库。
+SQL 输入框（复用 highlight.js 语法高亮，与结果区之间可拖动调高度并按浏览器记住；Ctrl/Cmd+Enter 执行）、结果表格、耗时、截断提示、复制为 Markdown 表格、下载 CSV（RFC 4180，NULL 为空字段，带 UTF-8 BOM）；左侧表与列列表，凭据列标注“已隐藏”。不保存历史，不导出整库。
 
 ## 四、实体与场景
 

@@ -343,6 +343,17 @@ pub(crate) fn parse_updates(
             continue;
         }
         let context_token = required(message.context_token.clone(), "入站缺少 context_token")?;
+        // TODO: 引用入站 ID 对应关系验证后删除。
+        tracing::debug!(
+            message_id = ?message.message_id.map(|id| id.0.to_string()),
+            item_msg_ids = ?message
+                .item_list
+                .iter()
+                .flatten()
+                .filter_map(|item| item.msg_id.as_deref())
+                .collect::<Vec<_>>(),
+            "wechat inbound identity"
+        );
         let mut content = Vec::new();
         for item in message.item_list.iter().flatten() {
             // TODO: 引用回复实测样本采集，V2 引用实现后删除。

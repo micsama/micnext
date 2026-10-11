@@ -9,7 +9,7 @@ use std::time::Duration;
 use async_openai::config::Config;
 use async_openai::error::{ApiError, OpenAIError, WrappedError};
 use async_openai::middleware::{HttpRequestFactory, ReqwestService};
-use reqwest::header::{HeaderMap, RETRY_AFTER};
+use reqwest::header::{AsHeaderName, HeaderMap, CONTENT_TYPE, RETRY_AFTER};
 use reqwest::{Response, StatusCode};
 use secrecy::SecretString;
 
@@ -97,12 +97,24 @@ impl tower::Service<HttpRequestFactory> for Transport {
                 return Ok(resp);
             }
             let retry_after = retry_after(resp.headers());
+            let path = resp.url().path().to_owned();
+            let content_type = header_str(resp.headers(), CONTENT_TYPE);
+            let cf_mitigated = header_str(resp.headers(), "cf-mitigated");
             let error = resp
                 .bytes()
                 .await
                 .ok()
                 .and_then(|b| serde_json::from_slice::<WrappedError>(&b).ok())
                 .map(|w| w.error);
+            tracing::warn!(
+                status = status.as_u16(),
+                path,
+                content_type,
+                cf_mitigated,
+                code = error.as_ref().and_then(|e| e.code.as_deref()),
+                message = error.as_ref().map(|e| e.message.as_str()),
+                "upstream http failure"
+            );
             Err(OpenAIError::Boxed(Box::new(HttpFailure {
                 status,
                 retry_after,
@@ -110,6 +122,10 @@ impl tower::Service<HttpRequestFactory> for Transport {
             })))
         })
     }
+}
+
+fn header_str(headers: &HeaderMap, name: impl AsHeaderName) -> Option<String> {
+    Some(headers.get(name)?.to_str().ok()?.to_owned())
 }
 
 /// 只认秒数形式；HTTP 日期形式视为未给。

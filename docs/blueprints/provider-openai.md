@@ -83,7 +83,7 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 | | DeepSeek | Ollama | 通用 |
 |---|---|---|---|
 | 推理来源 | delta `reasoning_content` | delta `reasoning` | 不解析 |
-| 推理回传 | 仅同模型、含工具调用、推理非空的轮次发 `reasoning_content` | 不回传 | 不回传 |
+| 推理回传 | 同模型的每个 assistant 轮都原样发 `reasoning_content`（官方协议；带 tools 时历史推理计入上下文），未思考时发空串（缺失或 null 上游 400） | 不回传 | 不回传 |
 | `cache_read_tokens` | `prompt_cache_hit_tokens` | None | `prompt_tokens_details.cached_tokens` |
 
 - 结束：SDK 吞掉 `[DONE]`，完成判据为「正常 EOF + 已收到 `finish_reason`」。

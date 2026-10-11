@@ -53,7 +53,7 @@
 
 ## 五、协议映射
 
-**Chat**：系统提示、user 文本/图片、assistant 文本+工具调用、tool 结果按原规则映射；DeepSeek 同模型工具续轮回传 `reasoning_content`。不发 legacy functions。usage：标准 `cached_tokens`（Generic）/ `prompt_cache_hit_tokens`（DeepSeek）/ Ollama 无；`reasoning_tokens` 取标准字段。
+**Chat**：系统提示、user 文本/图片、assistant 文本+工具调用、tool 结果按原规则映射；DeepSeek 同模型每个 assistant 轮回传 `reasoning_content`（未思考发空串，见 [provider-openai](provider-openai.md)）。不发 legacy functions。usage：标准 `cached_tokens`（Generic）/ `prompt_cache_hit_tokens`（DeepSeek）/ Ollama 无；`reasoning_tokens` 取标准字段。
 
 **Responses**：`instructions` + typed input；`store=false`、`stream=true`、`include=[reasoning.encrypted_content]`、`reasoning.summary=auto`（有 effort 时）；工具 `strict=false`。正文/摘要 delta → TextDelta/ReasoningDelta。`response.output_item.done` 的条目是唯一内容来源（[provider-chatgpt](provider-chatgpt.md) 修订：Codex 后端终态 `output` 为空）：message → Text（含 phase，refusal 转可见正文并 ContentFilter），function_call → ToolCall（`call_id` 为 id），reasoning → 见 §四；其它输出项 → Protocol。
 

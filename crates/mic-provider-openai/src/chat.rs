@@ -43,7 +43,7 @@ pub(crate) struct ChatRequest {
 struct Message {
     #[serde(flatten)]
     base: ChatCompletionRequestMessage,
-    /// DeepSeek 思考模式下工具往返必须回传。
+    /// DeepSeek 思考模式的推理回传。
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_content: Option<String>,
 }
@@ -125,6 +125,9 @@ pub(crate) fn request(
 }
 
 /// 一条 `Reply` 即一个 assistant turn。`echo_reasoning`：DeepSeek 且由本模型产出。
+///
+/// 按官方协议每轮都原样回传推理：带 tools 时历史推理全部进上下文，且原样回传才保持前缀缓存；
+/// 未思考的轮次发空串（当前轮工具调用缺失或为 null 时上游 400）。
 fn assistant(blocks: &[ReplyBlock], echo_reasoning: bool) -> Message {
     let mut text = String::new();
     let mut reasoning = String::new();
@@ -146,8 +149,6 @@ fn assistant(blocks: &[ReplyBlock], echo_reasoning: bool) -> Message {
             ),
         }
     }
-    // 思考模式下工具往返必须回传推理；其余推理不发，省 token。
-    let echo = echo_reasoning && !tool_calls.is_empty() && !reasoning.is_empty();
     Message {
         base: ChatCompletionRequestMessage::Assistant(ChatCompletionRequestAssistantMessage {
             content: (!text.is_empty())
@@ -155,7 +156,7 @@ fn assistant(blocks: &[ReplyBlock], echo_reasoning: bool) -> Message {
             tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
             ..Default::default()
         }),
-        reasoning_content: echo.then_some(reasoning),
+        reasoning_content: echo_reasoning.then_some(reasoning),
     }
 }
 

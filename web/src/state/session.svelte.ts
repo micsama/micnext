@@ -1,6 +1,7 @@
 import { ApiError, getContext, getMessages, revokeCompaction, getSession } from "../api/client";
 import { readStream } from "../api/stream";
 import { ProtocolError, type ContextView, type Message, type RunState, type SessionItem, type StreamEvent } from "../api/types";
+import { SvelteMap } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
 import { webSessions } from "./sessions.svelte";
 
@@ -57,6 +58,10 @@ export class SessionView {
   fatal = $state<string | null>(null);
   /** 首次回放之前的历史：`idle` 表示可能还有、可以取。 */
   earlier = $state<"idle" | "loading" | "none" | { error: string }>("idle");
+  /** 每次加载更早一页后的交界：插入前的首条消息 id → 本次取到的可见条数。 */
+  readonly loadedAt = new SvelteMap<number, number>();
+  /** 最近一次成功加载：每次换新对象，供界面弹出完成提示。 */
+  lastLoaded = $state<{ count: number; reachedStart: boolean } | null>(null);
 
   #abort = new AbortController();
 
@@ -81,6 +86,9 @@ export class SessionView {
       const page = await getMessages(this.id, first.id);
       if (this.#abort.signal.aborted) return;
       this.messages.unshift(...page.messages);
+      const shown = page.messages.filter((m) => m.body.kind !== "HarnessNote").length;
+      if (shown > 0) this.loadedAt.set(first.id, shown);
+      this.lastLoaded = { count: shown, reachedStart: !page.has_earlier };
       this.earlier = page.has_earlier ? "idle" : "none";
     } catch (error) {
       if (!this.#abort.signal.aborted) this.earlier = { error: (error as Error).message };

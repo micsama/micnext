@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Message, ToolResultOutcome } from "../api/types";
+  import { fly } from "svelte/transition";
+  import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import type { SessionView } from "../state/session.svelte";
   import DraftView from "./DraftView.svelte";
@@ -19,32 +21,39 @@
     return s;
   });
   const running = $derived(view.executingRun !== null);
-  const groups = $derived.by(() => {
+  const startedAt = $derived(view.messages[0]?.created_at);
+  // `loaded`：组首条 id → 在这组之前刚加载进来的条数，交界落在被跳过或并入的消息上时顺延到下一组。
+  const grouped = $derived.by(() => {
     const items: [Message, ...Message[]][] = [];
+    const loaded = new Map<number, number>();
+    let pending: number | undefined;
     for (const message of view.messages) {
+      pending = view.loadedAt.get(message.id) ?? pending;
       if (message.body.kind === "HarnessNote") continue;
       const previous = items.at(-1);
       if (message.body.kind === "Notification" && previous?.[0].body.kind === "Notification") {
         previous.push(message);
       } else {
         items.push([message]);
+        if (pending !== undefined) loaded.set(message.id, pending);
+        pending = undefined;
       }
     }
-    return items;
+    return { items, loaded };
   });
 
-  // 在底部时跟随新内容；用户上翻后不打扰。滚动事件晚于渲染，内容变高会让程序滚动后的位置看似离底，
-  // 只有 scrollTop 变小才算用户上翻。
+  // 滚动容器 column-reverse：scrollTop 从底部起算（0 为底，向上为负）。贴底时内容变高仍停在底部，
+  // 上方插入旧页、工具结果归并、图片加载都不移动视口，无需写 scrollTop——惯性滚动中写它会被 Safari 打断。
+  // 只有不贴底时下方变高（实时消息）才把视口内首条消息放回原位。
   let scroller: HTMLDivElement;
   let content: HTMLDivElement;
   let sentinel: HTMLDivElement;
   let stuck = $state(true);
   let lastTop = 0;
   const STICK_PX = 48;
-  // 不贴底时，视口内第一条消息及其相对视口顶部的位置；内容变高（插入旧页、工具结果归并、图片加载）后放回原位。
   let anchor: { el: Element; top: number } | null = null;
   // 校正触发的滚动事件异步到达，可能已晚于下一次 DOM 变化；此时重选会选到未校正的位置。
-  let adjustedTop = -1;
+  let adjustedTop = 1;
 
   function pickAnchor() {
     const top = scroller.getBoundingClientRect().top;
@@ -57,32 +66,47 @@
   }
   function onscroll() {
     const top = scroller.scrollTop;
-    if (scroller.scrollHeight - top - scroller.clientHeight < STICK_PX) stuck = true;
+    if (-top < STICK_PX) stuck = true;
     else if (top < lastTop) stuck = false;
     lastTop = top;
     if (!stuck && top !== adjustedTop) pickAnchor();
   }
   function toBottom() {
-    scroller.scrollTop = scroller.scrollHeight;
+    scroller.scrollTop = 0;
   }
   $effect(() => {
     const ro = new ResizeObserver(() => {
-      if (stuck) return toBottom();
+      if (stuck) return;
       if (!anchor?.el.isConnected) return pickAnchor();
-      scroller.scrollTop += anchor.el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.top;
+      const delta = anchor.el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.top;
+      if (Math.abs(delta) < 1) return;
+      scroller.scrollTop += delta;
       adjustedTop = scroller.scrollTop;
     });
     ro.observe(content);
     return () => ro.disconnect();
   });
 
-  // 哨兵离顶部一屏内就取更早一页。IntersectionObserver 只在相交变化时通知，
+  // 预取通常发生在视口外，加载中、完成、失败都在列表顶部浮出告知。
+  const TOAST_MS = 2500;
+  const pill =
+    "[grid-area:1/1] inline-flex items-center gap-2 rounded-full border bg-background/90 px-4 py-2 text-sm shadow-lg backdrop-blur";
+  let toast = $state<{ count: number; reachedStart: boolean } | null>(null);
+  $effect(() => {
+    const loaded = view.lastLoaded;
+    if (!loaded) return;
+    toast = loaded;
+    const timer = setTimeout(() => (toast = null), TOAST_MS);
+    return () => clearTimeout(timer);
+  });
+
+  // 哨兵离顶部三屏内就取更早一页，用户划到顶前通常已接上。IntersectionObserver 只在相交变化时通知，
   // 就绪或一页取完后重新 observe，让它按最新布局再报一次。
   let io: IntersectionObserver;
   $effect(() => {
     io = new IntersectionObserver((entries) => {
       if (entries.at(-1)?.isIntersecting) void view.loadEarlier();
-    }, { root: scroller, rootMargin: "100% 0px 0px 0px" });
+    }, { root: scroller, rootMargin: "300% 0px 0px 0px" });
     return () => io.disconnect();
   });
   $effect(() => {
@@ -92,21 +116,49 @@
   });
 </script>
 
+<style>
+  /* 交界提示：淡入后停留片刻，再退成一条淡线。 */
+  .loaded-divider {
+    animation: loaded-divider 4s ease forwards;
+  }
+  @keyframes loaded-divider {
+    0% { opacity: 0; transform: translateY(4px); }
+    8%, 70% { opacity: 1; transform: none; }
+    100% { opacity: 0.5; }
+  }
+</style>
+
 <div class="relative min-h-0 flex-1">
-  <div bind:this={scroller} {onscroll} class="h-full overflow-y-auto [overflow-anchor:none]">
-    <div bind:this={content} class="mx-auto max-w-3xl space-y-4 px-4 py-6">
+  <div bind:this={scroller} {onscroll} class="flex h-full flex-col-reverse overflow-y-auto [overflow-anchor:none]">
+    <!-- mb-auto：内容不满一屏时靠上。 -->
+    <div bind:this={content} class="mx-auto mb-auto w-full max-w-3xl space-y-4 px-4 py-6">
       <!-- 无提示时抵掉 space-y 给下一条的间距。 -->
-      <div bind:this={sentinel} class={["text-center text-xs text-muted-foreground", view.earlier === "idle" || (view.earlier === "none" && view.messages.length === 0) ? "-mb-4" : ""]}>
+      <div bind:this={sentinel} class={view.earlier === "loading" || (view.earlier === "none" && startedAt !== undefined) ? "" : "-mb-4"}>
         {#if view.earlier === "loading"}
-          加载更早的消息…
-        {:else if view.earlier === "none" && view.messages.length > 0}
-          — 会话开始 —
-        {:else if typeof view.earlier === "object"}
-          <span class="text-destructive">加载失败：{view.earlier.error}</span>
-          <button type="button" class="ml-2 underline hover:text-foreground" onclick={() => view.loadEarlier()}>重试</button>
+          <div class="flex flex-col items-center gap-2 py-6 text-sm text-muted-foreground duration-300 animate-in fade-in">
+            <Icon name="loader" class="size-6 animate-spin text-primary" />
+            正在加载更早的消息
+          </div>
+        {:else if view.earlier === "none" && startedAt !== undefined}
+          <div class="flex items-center gap-3 py-2 text-xs text-muted-foreground duration-500 animate-in fade-in">
+            <span class="h-px flex-1 bg-border"></span>
+            <span class="rounded-full border border-border px-3 py-1">会话开始 · {formatTime(startedAt)}</span>
+            <span class="h-px flex-1 bg-border"></span>
+          </div>
         {/if}
       </div>
-      {#each groups as messages (messages[0].id)}
+      {#each grouped.items as messages (messages[0].id)}
+        {@const loaded = grouped.loaded.get(messages[0].id)}
+        {#if loaded !== undefined}
+          <!-- 只动透明度不动高度：交界常在视口内，改高度会推动上方内容。 -->
+          <div class="loaded-divider flex items-center gap-3">
+            <span class="h-px flex-1 bg-linear-to-r from-transparent to-primary/50"></span>
+            <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+              <Icon name="arrowUp" class="size-3.5" />以上为新加载的 {loaded} 条
+            </span>
+            <span class="h-px flex-1 bg-linear-to-l from-transparent to-primary/50"></span>
+          </div>
+        {/if}
         {#if messages[0].body.kind === "Notification"}
           <aside aria-label="系统提示" class="rounded-xl border border-border bg-muted px-4 py-3">
             <div class="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -139,6 +191,22 @@
         <p class="text-center text-sm text-muted-foreground">加载中…</p>
       {/if}
     </div>
+  </div>
+  <div class="pointer-events-none absolute inset-x-0 top-3 grid justify-items-center">
+    {#if view.earlier === "loading"}
+      <div transition:fly={{ y: -12, duration: 200 }} class={[pill, "border-border text-foreground"]}>
+        <Icon name="loader" class="size-4 animate-spin text-primary" />正在加载更早的消息
+      </div>
+    {:else if typeof view.earlier === "object"}
+      <div transition:fly={{ y: -12, duration: 200 }} class={[pill, "pointer-events-auto border-destructive/40 text-destructive"]}>
+        <Icon name="alert" class="size-4" />加载失败：{view.earlier.error}
+        <button type="button" class="ml-1 font-medium underline" onclick={() => view.loadEarlier()}>重试</button>
+      </div>
+    {:else if toast}
+      <div transition:fly={{ y: -12, duration: 200 }} class={[pill, "border-success/40 text-success"]}>
+        <Icon name="check" class="size-4" />已加载 {toast.count} 条更早的消息{toast.reachedStart ? "，已到会话开头" : ""}
+      </div>
+    {/if}
   </div>
   {#if !stuck}
     <button

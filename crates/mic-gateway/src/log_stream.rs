@@ -1,20 +1,19 @@
-use std::convert::Infallible;
 use std::sync::Arc;
 
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::http::header;
-use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::sse::Event;
 use axum::response::IntoResponse;
 use axum::Json;
-use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::error::ApiError;
-use crate::limits::{LOG_BATCH, SSE_KEEPALIVE};
+use crate::limits::LOG_BATCH;
 use crate::logs::{After, LogRecord};
 use crate::service::App;
+use crate::sse;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -34,15 +33,7 @@ pub(crate) async fn stream(
     query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
     let (tx, rx) = mpsc::channel(LOG_BATCH);
     tokio::spawn(feed(app, tx));
-    let body = stream::unfold(rx, |mut rx| async move {
-        rx.recv()
-            .await
-            .map(|event| (Ok::<_, Infallible>(event), rx))
-    });
-    Ok((
-        [(header::CACHE_CONTROL, "no-store")],
-        Sse::new(body).keep_alive(KeepAlive::new().interval(SSE_KEEPALIVE)),
-    ))
+    Ok(([(header::CACHE_CONTROL, "no-store")], sse::respond(rx)))
 }
 
 /// 之前启动的最近日志与当前存储状态。

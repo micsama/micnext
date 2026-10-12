@@ -14,6 +14,7 @@ mod models;
 mod service;
 mod settings;
 mod sql;
+mod sse;
 mod stream;
 mod update;
 mod web;

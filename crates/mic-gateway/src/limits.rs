@@ -19,6 +19,8 @@ pub(crate) const PAGE_DEFAULT: u32 = 30;
 pub(crate) const PAGE_MAX: u32 = 100;
 /// SSE 心跳注释间隔。
 pub(crate) const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
+/// 一批 SSE 事件后静默多久补一条空注释。
+pub(crate) const SSE_NUDGE: Duration = Duration::from_millis(200);
 /// 单条流待发事件的缓冲；客户端读得慢时回压到内核订阅，落后即断流重连。
 pub(crate) const STREAM_BUFFER: usize = 256;
 /// 停止后等连接自行关闭的上限，超时直接断开。

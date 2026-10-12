@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use axum::extract::rejection::{PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
-use axum::response::sse::{Event, KeepAlive, Sse};
-use futures_util::stream::{self, Stream};
+use axum::response::sse::{Event, Sse};
+use futures_util::stream::Stream;
 use mic_core::{EventReceiver, KernelEventKind};
 use mic_message::{Message, MessageBody, MessageId, SessionId};
 use serde::{Deserialize, Serialize};
@@ -12,8 +12,9 @@ use tokio::sync::mpsc;
 
 use crate::api::session;
 use crate::error::ApiError;
-use crate::limits::{SSE_KEEPALIVE, STREAM_BUFFER};
+use crate::limits::STREAM_BUFFER;
 use crate::service::App;
+use crate::sse;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,10 +33,7 @@ pub(crate) async fn stream(
     let events = app.kernel.subscribe();
     let (tx, rx) = mpsc::channel(STREAM_BUFFER);
     tokio::spawn(feed(app, session.id, q.after.map(MessageId), events, tx));
-    let body = stream::unfold(rx, |mut rx| async move {
-        rx.recv().await.map(|event| (Ok(event), rx))
-    });
-    Ok(Sse::new(body).keep_alive(KeepAlive::new().interval(SSE_KEEPALIVE)))
+    Ok(sse::respond(rx))
 }
 
 /// 客户端断开（发送失败）、订阅落后、进程停止或出错时返回，流随之结束。

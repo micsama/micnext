@@ -1,6 +1,7 @@
 <script lang="ts">
   import { cn } from "$lib/utils";
   import { LogFeed } from "../../state/developer-logs.svelte";
+  import { router, type DeveloperTab } from "../../state/route.svelte";
   import Header from "../Header.svelte";
   import LogsTab from "./LogsTab.svelte";
   import SqlTab from "./SqlTab.svelte";
@@ -16,13 +17,12 @@
   const feed = new LogFeed();
   $effect(() => () => feed.close());
 
-  type Tab = "logs" | "sql" | "update";
-  const tabs: { id: Tab; label: string }[] = [
+  const tabs: { id: DeveloperTab; label: string }[] = [
     { id: "logs", label: "日志" },
     { id: "sql", label: "SQL" },
     { id: "update", label: "更新" },
   ];
-  let tab = $state<Tab>("logs");
+  const tab = $derived(router.current.kind === "developer" ? router.current.tab : "logs");
 </script>
 
 <Header title="开发者诊断" {onmenu} />
@@ -35,7 +35,7 @@
         t.id === tab ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:text-foreground",
       )}
       aria-current={t.id === tab ? "page" : undefined}
-      onclick={() => (tab = t.id)}>{t.label}</button>
+      onclick={() => router.go(`/developer/${t.id}`)}>{t.label}</button>
   {/each}
 </nav>
 <!-- 页签常驻，切换不丢筛选、暂停位置、SQL 草稿/结果与更新进度。 -->

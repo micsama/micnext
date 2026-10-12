@@ -1,12 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { ApiError, getUpdateStatus, startUpdate } from "../../api/client";
-  import { ProtocolError } from "../../api/decode";
-  import type { UpdateStage, UpdateStatus } from "../../api/developer";
+  import type { UpdateStage } from "../../api/developer";
   import Icon from "../../lib/Icon.svelte";
-  import { confirm } from "../../state/confirm.svelte";
+  import { updater } from "../../state/update.svelte";
 
-  const POLL_MS = 1000;
   const STAGES: Record<UpdateStage, string> = {
     checking: "检查工作区",
     pulling: "拉取代码",
@@ -14,98 +11,21 @@
     restarting: "重启",
   };
 
-  let status = $state.raw<UpdateStatus | null>(null);
-  let error = $state<string | null>(null);
-  /** 已请求重启，等待服务重新可连。 */
-  let reconnecting = $state(false);
-  /** 重启后核对：新进程报告的版本是否为目标提交。 */
-  let verdict = $state<{ target: string; running: string | null } | null>(null);
-
-  // 目标提交按浏览器记住：随机 token 重启后需重新登录，页面会重新挂载。
-  const TARGET_KEY = "micnext.developer.updateTarget";
-  function loadTarget(): string | null {
-    try {
-      return localStorage.getItem(TARGET_KEY);
-    } catch {
-      return null;
-    }
-  }
-  function saveTarget(v: string | null) {
-    try {
-      if (v === null) localStorage.removeItem(TARGET_KEY);
-      else localStorage.setItem(TARGET_KEY, v);
-    } catch {
-      // NOTE: 存储不可用时仅本页有效。
-    }
-  }
-  let target = loadTarget();
   let outputEl = $state<HTMLElement | null>(null);
-
-  const running = $derived(
-    status !== null && ["checking", "pulling", "building", "restarting"].includes(status.state),
-  );
+  const status = $derived(updater.status);
+  const running = $derived(updater.running);
+  const reconnecting = $derived(updater.reconnecting);
+  const verdict = $derived(updater.verdict);
+  const error = $derived(updater.error);
   const output = $derived(status !== null && "output" in status ? status.output : "");
   const short = (sha: string) => sha.slice(0, 7);
 
-  /** 本页是否已从服务取到过状态；首次之后再见到重启结果，说明页面代码是旧版。 */
-  let loaded = false;
-
-  async function refresh() {
-    try {
-      const next = await getUpdateStatus();
-      reconnecting = false;
-      if (next.state === "building" || next.state === "restarting") {
-        if (target !== next.to) saveTarget((target = next.to));
-      } else if (next.state === "idle" && target !== null) {
-        // 服务已换新版，重载取新界面，核对由重载后的页面按已存目标完成。
-        if (loaded) return location.reload();
-        verdict = { target, running: next.running };
-        saveTarget((target = null));
-      } else if (next.state !== "unavailable" && target !== null) {
-        saveTarget((target = null));
-      }
-      status = next;
-      error = null;
-      loaded = true;
-    } catch (e) {
-      if (loaded && target !== null && e instanceof ProtocolError) {
-        location.reload();
-      } else if (status?.state === "restarting" && e instanceof ApiError && e.status === 0) {
-        reconnecting = true;
-      } else {
-        error = (e as Error).message;
-      }
-    }
-  }
-
-  onMount(() => {
-    void refresh();
-    const timer = setInterval(() => {
-      if (running || reconnecting) void refresh();
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  });
+  onMount(() => void updater.refresh());
 
   $effect(() => {
     void output;
     if (outputEl) outputEl.scrollTop = outputEl.scrollHeight;
   });
-
-  async function update() {
-    const ok = await confirm.ask({
-      title: "拉取并更新？",
-      description: "有新提交时会构建并重启服务，正在进行的对话会被中断。页面关闭不影响更新。",
-      action: "更新",
-    });
-    if (!ok) return;
-    verdict = null;
-    try {
-      await startUpdate();
-    } catch (e) {
-      error = (e as Error).message;
-    }
-    await refresh();
-  }
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col gap-3 p-4 text-sm">
@@ -120,7 +40,7 @@
         type="button"
         disabled={running || reconnecting}
         class="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50"
-        onclick={update}>
+        onclick={() => updater.start()}>
         {#if running || reconnecting}<Icon name="loader" class="size-3.5 animate-spin" />{/if}检查并更新
       </button>
       <span class="text-muted-foreground">

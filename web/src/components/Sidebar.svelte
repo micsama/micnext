@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { Attachment } from "svelte/attachments";
   import { groupSessions } from "../lib/format";
   import Icon, { type IconName } from "../lib/Icon.svelte";
   import { router } from "../state/route.svelte";
   import { otherSessions, webSessions, type SessionList } from "../state/sessions.svelte";
   import { theme, type ThemeChoice } from "../state/theme.svelte";
+  import { updater } from "../state/update.svelte";
 
   let { open, onclose }: { open: boolean; onclose: () => void } = $props();
 
@@ -17,6 +19,14 @@
     light: { icon: "sun", label: "浅色" },
     dark: { icon: "moon", label: "深色" },
   };
+
+  onMount(() => void updater.refresh());
+  const updatable = $derived(updater.status !== null && updater.status.state !== "unavailable");
+  const updating = $derived(updater.running || updater.reconnecting);
+
+  async function quickUpdate() {
+    if (updating || (await updater.start())) go("/developer/update");
+  }
 
   function go(path: string) {
     router.go(path);
@@ -109,26 +119,40 @@
       {/each}
     {/if}
   </nav>
-  <div class="flex flex-wrap items-center justify-between border-t border-border p-2">
+  <div class="flex items-center gap-1 border-t border-border p-2">
     <button
       type="button"
       onclick={() => go("/settings")}
-      class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+      class="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
       class:text-foreground={router.current.kind === "settings"}>
       <Icon name="settings" />设置
     </button>
+    {#if updatable}
+      <button
+        type="button"
+        title={updating ? "正在更新，查看进度" : "检查并更新"}
+        aria-label={updating ? "正在更新，查看进度" : "检查并更新"}
+        onclick={quickUpdate}
+        class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground">
+        <Icon name={updating ? "loader" : "refresh"} class={updating ? "size-4 animate-spin" : "size-4"} />
+      </button>
+    {/if}
     <button
       type="button"
+      title="开发者诊断"
+      aria-label="开发者诊断"
       onclick={() => go("/developer")}
-      class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+      class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
       class:text-foreground={router.current.kind === "developer"}>
-      <Icon name="terminal" />开发者诊断
+      <Icon name="terminal" />
     </button>
     <button
       type="button"
+      title="主题：{THEME[theme.choice].label}（点击切换）"
+      aria-label="主题：{THEME[theme.choice].label}（点击切换）"
       onclick={() => theme.cycle()}
-      class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
-      <Icon name={THEME[theme.choice].icon} />主题：{THEME[theme.choice].label}
+      class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground">
+      <Icon name={THEME[theme.choice].icon} />
     </button>
   </div>
 </aside>

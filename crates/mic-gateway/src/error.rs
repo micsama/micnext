@@ -82,8 +82,7 @@ impl From<KernelError> for ApiError {
                 ModelSettingsError::Deleted
                 | ModelSettingsError::EndpointDeleted
                 | ModelSettingsError::NameTaken(_)
-                | ModelSettingsError::DefaultInUse
-                | ModelSettingsError::SessionExecuting => Self::Conflict(e.to_string()),
+                | ModelSettingsError::DefaultInUse => Self::Conflict(e.to_string()),
                 ModelSettingsError::Store(e) => Self::Internal(e.into()),
             },
             KernelError::Input(e) => match e {

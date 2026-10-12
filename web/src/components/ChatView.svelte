@@ -28,7 +28,7 @@
 
   const persona = $derived(item ? settingsStore.resolve(item.persona_id) : null);
   let pickError = $state<string | null>(null);
-  /** 本轮执行中改过选择：新人设从下一轮生效。 */
+  /** 本轮执行中改过人设或模型：从下一轮生效。 */
   let pickedDuringRun = $state(false);
   $effect(() => {
     if (view.executingRun === null) pickedDuringRun = false;
@@ -63,16 +63,20 @@
     pickError = null;
     try {
       await setSessionModel(view.id, id);
+      if (view.executingRun !== null) pickedDuringRun = true;
     } catch (e) {
       info.model_id = before;
       pickError = (e as Error).message;
     }
   }
 
+  const channelName = (c: string) => (c === "wechat" ? "微信" : c);
+
+  const modelNotice = $derived(pickError ?? (modelDeleted ? "原模型已删除，请重新选择" : null));
+  const pickedNotice = $derived(pickedDuringRun ? "已切换，下一轮生效" : null);
+  const readonlyNotice = $derived(modelNotice ?? pickedNotice);
   const notice = $derived(
-    pickError ??
-      (modelDeleted ? "原模型已删除，请重新选择" : null) ??
-      (persona?.replaced ? "原人设已删除，下一轮改用默认人设" : pickedDuringRun ? "人设已切换，下一轮生效" : null),
+    modelNotice ?? (persona?.replaced ? "原人设已删除，下一轮改用默认人设" : null) ?? pickedNotice,
   );
 </script>
 
@@ -95,12 +99,16 @@
         <PersonaPicker value={persona!.id} onpick={pick} />
       {/snippet}
       {#snippet trailing()}
-        <ModelPicker value={modelValue} onpick={pickModel} disabled={view.executingRun !== null} />
+        <ModelPicker value={modelValue} onpick={pickModel} />
       {/snippet}
     </Composer>
   {:else if item}
-    <p class="mx-auto w-full max-w-3xl px-4 pb-4 text-center text-sm text-muted-foreground">
-      该会话来自 {item.channel} 渠道，只能在这里查看
-    </p>
+    <div class="mx-auto w-full max-w-3xl space-y-1 px-4 pb-4">
+      {#if readonlyNotice}<p class="text-sm text-warning">{readonlyNotice}</p>{/if}
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-sm text-muted-foreground">消息请在{channelName(item.channel)}发送，这里可查看与切换模型</p>
+        <ModelPicker value={modelValue} onpick={pickModel} />
+      </div>
+    </div>
   {/if}
 {/if}

@@ -463,7 +463,7 @@ impl Kernel {
         Ok(self.store.set_default_model(id).await?)
     }
 
-    /// 会话下一轮用的模型；执行中拒绝。
+    /// 会话下一轮用的模型；本轮已在认领时读定，不受影响。
     pub async fn set_session_model(
         &self,
         session: SessionId,

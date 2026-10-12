@@ -130,7 +130,7 @@ impl Store {
         .await
     }
 
-    /// 会话存在由调用方保证。执行中拒绝。
+    /// 会话存在由调用方保证。
     pub async fn set_session_model(
         &self,
         session: SessionId,
@@ -139,15 +139,6 @@ impl Store {
         self.call_models(move |conn| {
             let tx = conn.transaction()?;
             live(&tx, id)?;
-            let executing: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM core_runs
-                               WHERE session_id = ?1 AND state = 'executing')",
-                [session.0],
-                |r| r.get(0),
-            )?;
-            if executing {
-                return Err(ModelSettingsError::SessionExecuting);
-            }
             tx.execute(
                 "UPDATE core_sessions SET model_id = ?1 WHERE id = ?2",
                 params![id.0, session.0],

@@ -56,8 +56,6 @@ pub enum ModelSettingsError {
     NameTaken(String),
     #[error("默认模型在这里：先把默认换到别处，再删除")]
     DefaultInUse,
-    #[error("会话正在执行，等本轮结束后再切换模型")]
-    SessionExecuting,
     #[error("新建模型没有可沿用的 API key")]
     InvalidSecretEdit,
     #[error(transparent)]

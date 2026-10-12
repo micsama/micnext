@@ -1,5 +1,7 @@
 # B2：模型设置与 Web 图片输入
 
+**现行修订（2026-10-12）**：会话模型与人设一致，执行中也可切换，下一轮生效；取消 `SessionExecuting`/409，见 [wechat-session-model](wechat-session-model.md)。
+
 **现行扩展（2026-10-12）**：模型上下文窗口独立列与表单字段按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
 
 **状态**：服务商/模型分层（原 A 批与 v3 修订）已实现并合并为本稿正文；图片输入（B 批）内核部分（mic-message → store → core → openai）已实现；HTTP 与 Web 部分已实现并手工验收，**CLOSED**。遗留：模型不支持图片时的上游报错呈现未处理（见 todo.md）。
@@ -20,7 +22,7 @@
 | 推理来源 | 保持现状（按请求模型名比较）；跨服务商同名误回传不处理 |
 | 迁移 | 不取消现有 schema_migrations；只扩展当前 schema；配置 JSON 不版本化 |
 
-仅有的跨实体规则：**执行中不能切会话模型（409）**。其余模型/图片规则一律不加。
+不设跨实体规则：会话模型随时可切，本轮在认领时读定，下一轮生效。其余模型/图片规则一律不加。
 
 ## 二、用户行为
 
@@ -34,7 +36,7 @@
 | NULL 会话收到输入 | 认领时取当时默认并写回 |
 | 无模型/所选已删 | 输入照常落盘，认领后经既有 Notification → ProviderFailed 收尾；Web 提示去设置 |
 | 执行中改配置/key | 本轮在认领时读定，后续 run 才用新值 |
-| 执行中切模型 | 409 `SessionExecuting`，无待切状态 |
+| 执行中切模型 | 立即保存，本轮不变，下一轮生效；执行中补发而并入本轮的输入仍用旧模型 |
 | 测试连接失败 | 脱敏中文原因，分网络不通 / 鉴权不过 / 返回意外 |
 | 发图 | 纯图片允许；纯文本去空白后为空且无图则拒；模型不收图 → 普通失败 |
 
@@ -152,7 +154,7 @@ Engine 持有工厂注册表。`claim_next` 后 `resolve_key` + 一次 `build` �
 
 | 归属 | 变体 | 结果 |
 |---|---|---|
-| ModelSettingsError | NotFound / Deleted / EndpointNotFound / EndpointDeleted / NameTaken / DefaultInUse / SessionExecuting / InvalidSecretEdit / Store | 404/409/422 |
+| ModelSettingsError | NotFound / Deleted / EndpointNotFound / EndpointDeleted / NameTaken / DefaultInUse / InvalidSecretEdit / Store | 404/409/422 |
 | InputError | Empty / TooLarge / InvalidImage / ImageLimit | 400/413/422，不落消息 |
 | ConfigError | field + 脱敏 message | 422 |
 | ProbeError | Network / Auth / Unexpected | 422 |
@@ -170,12 +172,12 @@ HTTP 与日志不含 SecretValue、密文、上游原始响应体。
 | POST /endpoints/test | `{endpoint_id?, kind, config, credential}` → `{models:[string]}`；失败 422 + 中文原因 |
 | GET /models；POST /models；PUT/DELETE /models/:id | 模型 CRUD（`endpoint_id,name,config`） |
 | GET/PUT /models/default | `{model_id}` |
-| PUT /sessions/:id/model | `{model_id}`；执行中 409 |
+| PUT /sessions/:id/model | `{model_id}`；Root 会话可调，执行中也可 |
 | POST /sessions；POST /sessions/:id/messages | `parts:[{kind:"text",text},{kind:"image",base64}]`；创建额外 `model_id`（可空取默认） |
 | GET /sessions/:id/images/:image_id | 既有鉴权 + 会话归属；原始字节，`Cache-Control: no-store` |
 
 DTO 均 `deny_unknown_fields`；会话 DTO 含 `model_id`，Message 的 Image 只含 id。
-设置页：服务商卡片（名称、类型、地址、key、测试）内嵌模型行；测试成功按返回生成模型草稿行；选择框按服务商分组。执行中禁用模型选择器。
+设置页：服务商卡片（名称、类型、地址、key、测试）内嵌模型行；测试成功按返回生成模型草稿行；选择框按服务商分组。执行中切换提示下一轮生效。
 **B 批 Web**：输入框支持选择/粘贴/拖入图片，本地预览可移除，成功后才清空；发送失败保留草稿。零模型时提示先去设置。
 历史图片用带 Authorization 的 fetch 取 blob 创建 object URL，切页 revoke；不把 token 拼 URL。
 
@@ -196,7 +198,7 @@ DTO 均 `deny_unknown_fields`；会话 DTO 含 `model_id`，Message 的 Image �
 | 空库启动、`-p` 纯文本 | Web 可设置；输入落盘并 ProviderFailed；无伪造调用记录；进程继续 |
 | 首条/换默认/删默认/删最后条 | 默认不变量成立；旧选择不自动换服务商 |
 | 修改 key 后继续工具往返 | 本轮用旧值，下一轮才用新值 |
-| 执行中切模型 | 409，选择不变 |
+| 执行中切模型 | 保存成功，下一轮生效 |
 | DB/响应/日志、key 文件丢失/密文篡改 | 无明文；明确 Err，不重建 key |
 | 文字/纯图/混合消息、重启回放 | 顺序稳定，消息与图同事务可读 |
 | 无 token、跨会话 image id、上传 path/URL | 拒绝 |

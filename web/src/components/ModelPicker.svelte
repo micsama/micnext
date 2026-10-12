@@ -2,11 +2,10 @@
   import * as Select from "$lib/components/ui/select";
   import { settingsStore } from "../state/settings.svelte";
 
-  let { value, onpick, disabled = false }: { value: number | null; onpick: (id: number) => void; disabled?: boolean } =
-    $props();
+  let { value, onpick }: { value: number | null; onpick: (id: number) => void } = $props();
 </script>
 
-<Select.Root type="single" value={value === null ? "" : String(value)} onValueChange={(v) => onpick(Number(v))} {disabled}>
+<Select.Root type="single" value={value === null ? "" : String(value)} onValueChange={(v) => onpick(Number(v))}>
   <Select.Trigger
     aria-label="模型"
     title="模型"

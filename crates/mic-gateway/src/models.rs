@@ -8,7 +8,9 @@ use axum::http::StatusCode;
 use axum::Json;
 use mic_core::{EndpointDraft, ModelDraft};
 use mic_message::limits::{MAX_IMAGES_PER_INPUT, MAX_IMAGE_BYTES};
-use mic_store::{CredentialWrite, EndpointId, EndpointView, ModelId, ModelView, SecretValue};
+use mic_store::{
+    CredentialWrite, EndpointId, EndpointView, ModelId, ModelView, SecretValue, SessionKind,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
@@ -267,7 +269,8 @@ pub(crate) async fn set_session_model(
     body: Result<Json<ModelRef>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let session = api::session(&app, id).await?;
-    if !api::writable(&session) {
+    // 会话设置对所有 Root 会话开放，与能否从 Web 发消息无关。
+    if !matches!(session.kind, SessionKind::Root { .. }) {
         return Err(ApiError::ReadOnly);
     }
     app.kernel

@@ -5,6 +5,7 @@
   import QRCode from "$lib/vendor/qrcode.js";
   import { beginWechatLogin, cancelWechatLogin, getWechat, submitWechatCode } from "../../api/client";
   import type { SetupProgress, WechatView } from "../../api/types";
+  import { router } from "../../state/route.svelte";
   import Group from "./Group.svelte";
 
   let view = $state<WechatView | null>(null);
@@ -94,6 +95,9 @@
           <p class="text-sm font-medium">{account ? ({ connected: "已连接", needs_login: "需要重新登录", faulted: "连接异常" }[account.connection]) : "未连接"}</p>
           {#if account}
             <p class="break-all text-xs text-muted-foreground">{account.user_id}</p>
+            <button type="button" class="text-xs text-primary underline" onclick={() => router.go(`/s/${account!.session_id}`)}>
+              打开微信会话（可切换模型）
+            </button>
           {/if}
         </div>
         {#if !active}

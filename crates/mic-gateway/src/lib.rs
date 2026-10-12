@@ -4,6 +4,7 @@
 mod api;
 mod channels;
 mod config;
+mod context;
 mod error;
 mod limits;
 mod log_stream;

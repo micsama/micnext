@@ -195,7 +195,7 @@ pub(crate) struct Created {
 
 #[derive(Serialize)]
 pub(crate) struct Accepted {
-    message_id: MessageId,
+    pub(crate) message_id: MessageId,
 }
 
 pub(crate) async fn create_session(
@@ -313,6 +313,16 @@ async fn append(
     session: SessionId,
     parts: Vec<IncomingPart>,
 ) -> Result<MessageId, ApiError> {
+    if let [IncomingPart::Text(text)] = parts.as_slice() {
+        if let Some(command) =
+            mic_core::parse_session_command(text).map_err(mic_core::KernelError::from)?
+        {
+            return Ok(app
+                .kernel
+                .append_session_command(session, app.kernel.owner(), command)
+                .await?);
+        }
+    }
     Ok(app
         .kernel
         .append_user_input(session, app.kernel.owner(), parts)

@@ -64,6 +64,10 @@ pub enum RunError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum KernelError {
+    #[error(transparent)]
+    CommandParse(#[from] crate::CommandParseError),
+    #[error(transparent)]
+    ContextCommand(#[from] mic_store::ContextCommandError),
     #[error("会话不存在")]
     SessionNotFound,
     #[error(transparent)]

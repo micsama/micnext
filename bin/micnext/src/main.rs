@@ -268,6 +268,7 @@ impl Render {
                 };
                 format!("◀ {tool_name} {status}")
             }
+            MessageBody::Command { command, .. } => format!("[command] {command:?}"),
             MessageBody::HarnessNote { text } => format!("[runtime-note] {text}"),
             MessageBody::Notification { source, text } => {
                 format!("[notification {source}] {text}")

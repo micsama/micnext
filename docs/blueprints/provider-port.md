@@ -1,5 +1,7 @@
 # B2: 模型 port（Provider trait、流式事件、用量、失败分类）
 
+**现行扩展（2026-10-12）**：ModelRequest.tool_choice 与 Command 的模型视图按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
+
 **状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-core/src/provider.rs`、`crates/mic-message/src/model_view.rs`，随步 3' 实跑验收）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 修订（`model()`、`blocks`、`Option<Usage>`、视图按 `MessageBody`）
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M5；[`product-roadmap.md`](../brainstorm/product-roadmap.md)
 §四-8（Provider 失败语义）；[`mic-message.md`](mic-message.md) §三（一条 `Reply` 即一个 assistant turn）
@@ -59,7 +61,10 @@ pub trait Provider: Send + Sync + 'static {
     fn stream(&self, req: ModelRequest) -> BoxStream<Result<ModelEvent, ProviderError>>;
 }
 
+pub enum ToolChoice { Auto, None }
+
 pub struct ModelRequest {
+    pub tool_choice: ToolChoice,
     /// 系统提示；空串 = 不发。
     pub system: String,
     /// 本次上下文内的历史消息，按 core 组装的顺序（run-execution §4.4）。Provider 逐条经
@@ -168,7 +173,8 @@ impl Message {
 | `Notification{source}` | `User` | `[notification src=<source> at=<时间>]` |
 | `Completion{exec_id, outcome}` | `User` | `[completion exec_id=<id>]`，后接 outcome |
 | `Reply` | `Assistant` | — |
-| `Boundary` | `None` | — |
+| `Command::Compact { text: Some(..) }` | `User` | 原文字，待认领与总结请求由 core/store 排除 |
+| 其它 `Command` / `Boundary` | `None` | — |
 | `ToolResult{Terminal(outcome)}` | `Tool` | outcome 为 `Completed` 时无头 |
 | `ToolResult{Dispatched{exec_id}}` | `Tool` | `[dispatched exec_id=<id>]`，说明结果稍后以 completion 送达 |
 

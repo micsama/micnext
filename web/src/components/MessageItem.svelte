@@ -4,16 +4,20 @@
   import Icon from "../lib/Icon.svelte";
   import HistoryImage from "./HistoryImage.svelte";
   import { outcomeText } from "./outcome";
+  import type { SessionView } from "../state/session.svelte";
+  import ContextBoundaryView from "./ContextBoundaryView.svelte";
   import ReplyView from "./ReplyView.svelte";
   import ToolRow from "./ToolRow.svelte";
 
   let {
     message,
+    view,
     results,
     callIds,
     running,
   }: {
     message: Message;
+    view: SessionView;
     results: Map<string, ToolResultOutcome>;
     callIds: Set<string>;
     running: boolean;
@@ -41,6 +45,12 @@
     </div>
     <span class="pointer-events-none absolute top-full right-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{time}</span>
   </div>
+{:else if body.kind === "Command"}
+  <p class="text-sm text-muted-foreground" title={time}>
+    {#if body.command === "Clear"}/clear
+    {:else if "Compact" in body.command}/compact{body.command.Compact.text ? ` ${body.command.Compact.text}` : ""}
+    {:else}撤回压缩{/if}
+  </p>
 {:else if body.kind === "Reply"}
   <div class="group relative">
     <ReplyView blocks={body.blocks} {results} {running} />
@@ -60,9 +70,9 @@
 {:else if body.kind === "Notification"}
   <p class="text-sm leading-6 whitespace-pre-wrap break-words text-muted-foreground" title="{body.source} · {time}">{body.text}</p>
 {:else if body.kind === "Boundary"}
-  <div class="flex items-center gap-3 text-xs text-muted-foreground" title={time}>
-    <div class="h-px flex-1 bg-border"></div>
-    {body.boundary === "UserClear" ? "上下文已清空" : "以上内容已压缩"}
-    <div class="h-px flex-1 bg-border"></div>
-  </div>
+  {#if body.boundary === "UserClear"}
+    <div class="flex items-center gap-3 text-xs text-muted-foreground" title={time}><div class="h-px flex-1 bg-border"></div>上下文已清空<div class="h-px flex-1 bg-border"></div></div>
+  {:else}
+    <ContextBoundaryView id={message.id} result={body.boundary.Compaction} {view} />
+  {/if}
 {/if}

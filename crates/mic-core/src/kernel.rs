@@ -3,7 +3,9 @@ use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mic_message::{ImageData, ImageId, Message, MessageBody, MessageId, PersonId, SessionId};
+use mic_message::{
+    ImageData, ImageId, Message, MessageBody, MessageId, PersonId, SessionCommand, SessionId,
+};
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
     CredentialWrite, EndpointId, EndpointView, EndpointWrite, Identity, InputDisposition, ModelId,
@@ -40,12 +42,60 @@ pub struct EndpointDraft {
 
 /// 创建/修改模型的输入；`config_json` 是该 kind 的模型参数。
 pub struct ModelDraft {
+    pub context_window: Option<NonZeroU32>,
     pub endpoint_id: EndpointId,
     pub name: String,
     pub config_json: String,
 }
 
 impl Kernel {
+    pub async fn context_view(
+        &self,
+        session: SessionId,
+    ) -> Result<mic_store::ContextView, KernelError> {
+        self.store
+            .session(session)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        Ok(self.store.context_view(session).await?)
+    }
+
+    pub async fn append_session_command(
+        &self,
+        session: SessionId,
+        person: PersonId,
+        command: SessionCommand,
+    ) -> Result<MessageId, KernelError> {
+        let session = self
+            .store
+            .session(session)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        if let SessionCommand::RevokeCompaction { boundary_id } = &command {
+            let view = self.store.context_view(session.id).await?;
+            if !view
+                .compactions
+                .iter()
+                .any(|v| v.boundary_id == *boundary_id)
+            {
+                return Err(mic_store::ContextCommandError::BoundaryNotFound.into());
+            }
+            if view.active_boundary != Some(*boundary_id) {
+                return Err(mic_store::ContextCommandError::NotCurrentCompaction.into());
+            }
+        }
+        let channel = session_channel(&self.store, &session).await?;
+        let publish = self.events.publisher().await;
+        let message = self
+            .store
+            .append_command(session.id, person, command, now_ms())
+            .await?;
+        let id = message.id;
+        publish.appended(session.id, &channel, message);
+        drop(publish);
+        let _ = self.wake.send(session.id).await;
+        Ok(id)
+    }
     pub(crate) fn new(
         store: Store,
         owner: PersonId,
@@ -447,6 +497,7 @@ impl Kernel {
             &draft.config_json,
         )?;
         Ok(ModelWrite {
+            context_window: draft.context_window,
             endpoint_id: draft.endpoint_id,
             name: draft.name,
             config_json,

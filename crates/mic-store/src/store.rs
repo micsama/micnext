@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use mic_message::{ContextBoundary, Message, MessageBody, MessageId, PersonId, SessionId};
+use mic_message::{Message, MessageBody, MessageId, PersonId, SessionId};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::diagnostic::Diagnostic;
@@ -13,10 +13,10 @@ use crate::row::{
 use crate::secrets::Cipher;
 use crate::{endpoints, models};
 use crate::{
-    ClaimedModel, ClaimedRun, ContextWindow, Identity, Migration, ModelCallId, ModelCallOutcome,
-    NewModelCall, NewSession, PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunSettings,
-    RunState, SecretColumn, SecretKeyFile, Session, SessionCursor, SessionPage, SessionSummary,
-    Settings, SettingsError, StoreError,
+    ClaimedModel, ClaimedRun, CompactionSettings, Identity, Migration, ModelCallId,
+    ModelCallOutcome, NewModelCall, NewSession, PendingDelivery, Person, Persona, PersonaId, Run,
+    RunId, RunInput, RunSettings, RunState, SecretColumn, SecretKeyFile, Session, SessionCursor,
+    SessionPage, SessionSummary, Settings, SettingsError, StoreError,
 };
 
 #[derive(Clone)]
@@ -316,7 +316,7 @@ impl Store {
                     summaries(
                         "s.kind = 'root' AND s.channel = ?1
                          AND EXISTS (SELECT 1 FROM core_messages m
-                                      WHERE m.session_id = s.id AND m.kind = 'UserInput')"
+                                      WHERE m.session_id = s.id AND m.kind IN ('UserInput', 'Command'))"
                     )
                 ))?
                 .query_map(
@@ -380,33 +380,7 @@ impl Store {
     ) -> Result<(ModelCallId, Option<Message>), StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
-            let (error, usage) = match &call.outcome {
-                ModelCallOutcome::Replied { usage, .. } => (None, *usage),
-                ModelCallOutcome::Failed { error } => (Some(error.as_str()), None),
-            };
-            let tokens =
-                |f: fn(&crate::Usage) -> Option<u64>| usage.as_ref().and_then(f).map(|n| n as i64);
-            tx.execute(
-                "INSERT INTO core_model_calls
-                   (session_id, run_id, model, error, input_tokens, output_tokens,
-                    cache_read_tokens, cache_write_tokens, reasoning_tokens,
-                    started_at, finished_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![
-                    call.session_id.0,
-                    call.run_id.map(|r| r.0),
-                    call.model,
-                    error,
-                    tokens(|u| Some(u.input_tokens)),
-                    tokens(|u| Some(u.output_tokens)),
-                    tokens(|u| u.cache_read_tokens),
-                    tokens(|u| u.cache_write_tokens),
-                    tokens(|u| u.reasoning_tokens),
-                    call.started_at,
-                    call.finished_at,
-                ],
-            )?;
-            let call_id = ModelCallId(tx.last_insert_rowid());
+            let call_id = crate::context::insert_call(&tx, &call)?;
             let reply = match call.outcome {
                 ModelCallOutcome::Replied { blocks, .. } if !blocks.is_empty() => {
                     let body = MessageBody::Reply {
@@ -454,12 +428,14 @@ impl Store {
             tx.execute(
                 "UPDATE core_settings
                  SET default_persona_id = ?1, general_prompt = ?2, default_workdir = ?3,
-                     max_turns = ?4",
+                     max_turns = ?4, compaction_trigger_percent = ?5, compaction_keep_steps = ?6",
                 params![
                     s.default_persona.0,
                     s.general_prompt,
                     s.default_workdir,
-                    s.max_turns
+                    s.max_turns,
+                    s.compaction.trigger_percent,
+                    s.compaction.keep_steps
                 ],
             )?;
             tx.commit()?;
@@ -654,11 +630,10 @@ impl Store {
                     params![persona.id.0, session_id.0],
                 )?;
             }
-            let (general_prompt, max_turns): (String, u32) = tx.query_row(
-                "SELECT general_prompt, max_turns FROM core_settings",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )?;
+            let current = read_settings(&tx)?;
+            let general_prompt = current.general_prompt;
+            let max_turns = current.max_turns;
+            let compaction = current.compaction;
             let model = models::claim_model(&tx, &cipher, session_id)?;
             let (model_id, model_name) = match &model {
                 ClaimedModel::Missing => (None, None),
@@ -670,8 +645,8 @@ impl Store {
                 "INSERT INTO core_runs
                    (session_id, state, created_at,
                     persona_id, persona_name, persona_prompt, general_prompt, max_turns,
-                    model_id, model_name)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    model_id, model_name, compaction_trigger_percent, compaction_keep_steps)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     session_id.0,
                     RunState::Executing.as_str(),
@@ -683,10 +658,26 @@ impl Store {
                     max_turns,
                     model_id,
                     model_name,
+                    compaction.trigger_percent,
+                    compaction.keep_steps,
                 ],
             )?;
             let id = RunId(tx.last_insert_rowid());
             assign_run(&tx, id, &ids)?;
+            let first = tx.query_row(
+                &format!("SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.id = ?1"),
+                [ids[0]],
+                row::message,
+            )?;
+            let input = match first.body {
+                MessageBody::Command { command, .. } => RunInput::Command {
+                    message_id: first.id,
+                    command,
+                },
+                _ => RunInput::Conversation {
+                    message_ids: ids.iter().map(|id| MessageId(*id)).collect(),
+                },
+            };
             tx.commit()?;
             let run = Run {
                 id,
@@ -696,11 +687,13 @@ impl Store {
                 finished_at: None,
             };
             let settings = RunSettings {
+                compaction,
                 persona,
                 general_prompt,
                 max_turns,
             };
             Ok(Some(ClaimedRun {
+                input,
                 run,
                 settings,
                 model,
@@ -710,26 +703,34 @@ impl Store {
     }
 
     /// 把非 held 未认领输入开头同一 person 的一段并入 `run`，要求该 person 与 run 首条输入相同；
-    /// 有并入返回 true。调用方保证 run 处于 `Executing`。
-    pub async fn absorb(&self, run: RunId) -> Result<bool, StoreError> {
+    /// 返回并入的输入 id。调用方保证 run 处于 `Executing`。
+    pub async fn absorb(&self, run: RunId) -> Result<Vec<MessageId>, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
             let (session_id, person): (i64, i64) = tx.query_row(
                 "SELECT session_id, person_id FROM core_messages
-                 WHERE run_id = ?1 AND kind IN ('UserInput', 'Completion')
+                 WHERE run_id = ?1 AND kind IN ('UserInput', 'Completion', 'Command')
                  ORDER BY id LIMIT 1",
                 [run.0],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
             let Some((ids, p)) = unclaimed_head(&tx, session_id)? else {
-                return Ok(false);
+                return Ok(Vec::new());
             };
             if p != person {
-                return Ok(false);
+                return Ok(Vec::new());
+            }
+            let kind: String = tx.query_row(
+                "SELECT kind FROM core_messages WHERE id = ?1",
+                [ids[0]],
+                |r| r.get(0),
+            )?;
+            if kind == "Command" {
+                return Ok(Vec::new());
             }
             assign_run(&tx, run, &ids)?;
             tx.commit()?;
-            Ok(true)
+            Ok(ids.into_iter().map(MessageId).collect())
         })
         .await
     }
@@ -826,47 +827,6 @@ impl Store {
                 ))?
                 .query_map([run.0], row::message)?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
-        })
-        .await
-    }
-
-    pub async fn context_window(&self, session_id: SessionId) -> Result<ContextWindow, StoreError> {
-        self.call(move |conn| {
-            let boundary = conn
-                .query_row(
-                    &format!(
-                        "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM}
-                         WHERE m.session_id = ?1 AND m.kind = 'Boundary'
-                         ORDER BY m.id DESC LIMIT 1"
-                    ),
-                    [session_id.0],
-                    row::message,
-                )
-                .optional()?;
-            let (after, summary) = match boundary {
-                Some(Message {
-                    id,
-                    body: MessageBody::Boundary { boundary },
-                    ..
-                }) => (
-                    id.0,
-                    match boundary {
-                        ContextBoundary::Compaction { summary } => Some(summary),
-                        ContextBoundary::UserClear => None,
-                    },
-                ),
-                _ => (0, None),
-            };
-            let messages = conn
-                .prepare(&format!(
-                    "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM}
-                     WHERE m.session_id = ?1 AND m.id > ?2
-                       AND (NOT ({UNCLAIMED}) OR {HELD_INPUT})
-                     ORDER BY m.id"
-                ))?
-                .query_map(params![session_id.0, after], row::message)?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(ContextWindow { summary, messages })
         })
         .await
     }
@@ -1035,7 +995,7 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
 
 fn read_settings(conn: &Connection) -> rusqlite::Result<Settings> {
     conn.query_row(
-        "SELECT default_persona_id, general_prompt, default_workdir, max_turns FROM core_settings",
+        "SELECT default_persona_id, general_prompt, default_workdir, max_turns, compaction_trigger_percent, compaction_keep_steps FROM core_settings",
         [],
         |r| {
             Ok(Settings {
@@ -1043,6 +1003,7 @@ fn read_settings(conn: &Connection) -> rusqlite::Result<Settings> {
                 general_prompt: r.get(1)?,
                 default_workdir: r.get(2)?,
                 max_turns: r.get(3)?,
+                compaction: CompactionSettings { trigger_percent: r.get(4)?, keep_steps: r.get(5)? },
             })
         },
     )
@@ -1096,7 +1057,7 @@ fn unclaimed_head(
     session_id: i64,
 ) -> rusqlite::Result<Option<(Vec<i64>, i64)>> {
     let mut stmt = tx.prepare(&format!(
-        "SELECT m.id, m.person_id FROM core_messages m
+        "SELECT m.id, m.person_id, m.kind FROM core_messages m
          WHERE m.session_id = ?1 AND {UNCLAIMED} AND NOT ({HELD_INPUT})
          ORDER BY m.id"
     ))?;
@@ -1104,9 +1065,15 @@ fn unclaimed_head(
     let mut head: Option<(Vec<i64>, i64)> = None;
     while let Some(r) = rows.next()? {
         let (id, p): (i64, i64) = (r.get(0)?, r.get(1)?);
+        let kind: String = r.get(2)?;
         match &mut head {
-            None => head = Some((vec![id], p)),
-            Some((ids, cur)) if *cur == p => ids.push(id),
+            None => {
+                head = Some((vec![id], p));
+                if kind == "Command" {
+                    break;
+                }
+            }
+            Some((ids, cur)) if *cur == p && kind != "Command" => ids.push(id),
             Some(_) => break,
         }
     }
@@ -1152,7 +1119,9 @@ fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
 fn is_input(body: &MessageBody) -> bool {
     matches!(
         body,
-        MessageBody::UserInput { .. } | MessageBody::Completion { .. }
+        MessageBody::UserInput { .. }
+            | MessageBody::Completion { .. }
+            | MessageBody::Command { .. }
     )
 }
 

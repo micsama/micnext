@@ -1,5 +1,7 @@
 # B2: OpenAI 协议族模型实现（mic-provider-openai）
 
+**现行扩展（2026-10-12）**：Chat / Responses 的 tool_choice 映射按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
+
 **状态**: CLOSED（2026-09-23 首版）；2026-10-10 按 [`provider-sdk-responses.md`](provider-sdk-responses.md) 整体改为 async-openai 实现并接入 Responses；同日按 [`provider-chatgpt.md`](provider-chatgpt.md) 增加 ChatGPT 订阅预设、按 [`provider-cache-key.md`](provider-cache-key.md) 发送会话缓存键
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M7；[`provider-port.md`](provider-port.md)（实现的契约）；配置分层与工厂契约见 [`model-settings.md`](model-settings.md) §四
 **依赖不变量**: 依赖 `mic-core`（port）+ `mic-message` + `mic-store`（`Usage`）+ `mic-tool`（`ToolSpec`）；不被任何 crate 依赖，只由二进制装配。

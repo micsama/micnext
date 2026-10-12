@@ -28,7 +28,8 @@ pub(crate) const RUN_COLS: &str = "id, session_id, state, created_at, finished_a
 pub(crate) const PERSONA_COLS: &str = "id, name, prompt, builtin, deleted_at IS NOT NULL";
 
 /// 未认领输入谓词，`m` 为 core_messages 别名。
-pub(crate) const UNCLAIMED: &str = "m.run_id IS NULL AND m.kind IN ('UserInput', 'Completion')";
+pub(crate) const UNCLAIMED: &str =
+    "m.run_id IS NULL AND m.kind IN ('UserInput', 'Completion', 'Command')";
 
 /// 已处置为待命的输入谓词，`m` 为 core_messages 别名。
 pub(crate) const HELD_INPUT: &str =

@@ -14,7 +14,9 @@ use tokio_util::sync::CancellationToken;
 use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
 use crate::update::{RestartRequest, Updater};
-use crate::{api, channels, log_stream, models, settings, sql, stream, update, web, DeveloperLogs};
+use crate::{
+    api, channels, context, log_stream, models, settings, sql, stream, update, web, DeveloperLogs,
+};
 
 pub(crate) struct Gateway {
     pub(crate) config: Config,
@@ -106,6 +108,12 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         )
         .route("/sessions/{id}/images/{image_id}", get(api::get_image))
         .route("/sessions/{id}/stream", get(stream::stream))
+        .route("/commands", get(context::commands))
+        .route("/sessions/{id}/context", get(context::get_context))
+        .route(
+            "/sessions/{id}/compactions/{boundary_id}/revoke",
+            post(context::revoke),
+        )
         .route("/sessions/{id}/persona", put(settings::set_session_persona))
         .route(
             "/settings",

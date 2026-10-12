@@ -34,9 +34,16 @@ export type ReplyBlock =
   | { Text: { text: string; phase: "commentary" | "final_answer" | null } }
   | { ToolCall: { id: string; name: string; args: unknown } };
 
-export type ContextBoundary = { Compaction: { summary: string } } | "UserClear";
+export type FileSnapshot = { path: string; outcome: { Read: { text: string; extent: "Complete" | "Truncated" } } | { Unavailable: { reason: string } } };
+export type Compaction = { summary: string; keep_from: number | null; files: FileSnapshot[]; extra: string | null };
+export type ContextBoundary = { Compaction: Compaction } | "UserClear";
+export type SessionCommand = { Compact: { text: string | null } } | "Clear" | { RevokeCompaction: { boundary_id: number } };
+export type CompactionView = { boundary_id: number; result: Compaction; state: { kind: "applied" } | { kind: "revoked"; at: number } };
+export type ContextView = { active_boundary: number | null; compactions: CompactionView[] };
+export type CommandSpec = { name: string; usage: string; description: string };
 
 export type MessageBody =
+  | { kind: "Command"; person: number; command: SessionCommand }
   | { kind: "UserInput"; person: number; parts: ContentPart[] }
   | { kind: "Reply"; model: string; blocks: ReplyBlock[] }
   | { kind: "ToolResult"; tool_name: string; tool_call_id: string; outcome: ToolResultOutcome }
@@ -83,6 +90,7 @@ export type Endpoint = {
 };
 
 export type Model = {
+  context_window: number | null;
   id: number;
   endpoint_id: number;
   name: string;
@@ -104,12 +112,14 @@ export type EndpointInput = {
 export type EndpointTestInput = Omit<EndpointInput, "name"> & { endpoint_id?: number };
 
 export type ModelInput = {
+  context_window: number | null;
   endpoint_id: number;
   name: string;
   config: { max_tokens?: number; reasoning_effort?: string };
 };
 
 export type Settings = {
+  compaction: { trigger_percent: number; keep_steps: number };
   default_persona_id: number;
   general_prompt: string;
   default_workdir: string;
@@ -215,10 +225,18 @@ const replyBlock: Decoder<ReplyBlock> = tagged({
   ToolCall: obj({ id: str, name: str, args: any }),
 });
 
-const compaction = tagged({ Compaction: obj({ summary: str }) });
+const fileSnapshot: Decoder<FileSnapshot> = obj({ path: str, outcome: tagged({ Read: obj({ text: str, extent: oneOf("Complete", "Truncated") }), Unavailable: obj({ reason: str }) }) });
+const compactionResult: Decoder<Compaction> = obj({ summary: str, keep_from: nullable(num), files: arr(fileSnapshot), extra: nullable(str) });
+const compaction = tagged({ Compaction: compactionResult });
+const command: Decoder<SessionCommand> = (v, at) => v === "Clear" ? v : tagged({ Compact: obj({ text: nullable(str) }), RevokeCompaction: obj({ boundary_id: num }) })(v, at);
+const compactionState: Decoder<CompactionView["state"]> = kinded<{ applied: Record<string, never>; revoked: { at: number } }>({ applied: {}, revoked: { at: num } });
+const contextView: Decoder<ContextView> = obj({ active_boundary: nullable(num), compactions: arr(obj({ boundary_id: num, result: compactionResult, state: compactionState })) });
+export const parseContextView = (v: unknown): ContextView => contextView(v, "上下文");
+export const parseCommands = (v: unknown): CommandSpec[] => obj({ items: arr(obj({ name: str, usage: str, description: str })) })(v, "指令列表").items;
 const boundary: Decoder<ContextBoundary> = (v, at) => (v === "UserClear" ? v : compaction(v, at));
 
 const messageBody: Decoder<MessageBody> = kinded({
+  Command: { person: num, command },
   UserInput: { person: num, parts: arr(contentPart) },
   Reply: { model: str, blocks: arr(replyBlock) },
   ToolResult: {
@@ -273,6 +291,7 @@ const modelList: Decoder<ModelList> = obj({
       id: num,
       endpoint_id: num,
       name: str,
+      context_window: nullable(num),
       config: obj({
         max_tokens: nullable(num),
         reasoning_effort: nullable(oneOf("none", "minimal", "low", "medium", "high", "xhigh", "max")),
@@ -290,6 +309,7 @@ const kindList: Decoder<{ items: { kind: string; display_name: string }[]; input
 const testResult: Decoder<{ models: string[] }> = obj({ models: arr(str) });
 
 const settings: Decoder<Settings> = obj({
+  compaction: obj({ trigger_percent: num, keep_steps: num }),
   default_persona_id: num,
   general_prompt: str,
   default_workdir: str,

@@ -69,3 +69,19 @@ impl From<rusqlite::Error> for ModelSettingsError {
         Self::Store(e.into())
     }
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum ContextCommandError {
+    #[error("压缩边界不存在")]
+    BoundaryNotFound,
+    #[error("目标已不是当前生效的压缩，无法撤回")]
+    NotCurrentCompaction,
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+impl From<rusqlite::Error> for ContextCommandError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Store(error.into())
+    }
+}

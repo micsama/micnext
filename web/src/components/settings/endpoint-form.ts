@@ -67,6 +67,7 @@ export type ModelRow = {
   id: number | null;
   name: string;
   max_tokens: string;
+  context_window: string;
   reasoning_effort: string;
 };
 
@@ -93,7 +94,7 @@ export const blankEndpoint = (): EndpointForm => ({
   models: [],
 });
 
-export const blankRow = (name = ""): ModelRow => ({ id: null, name, max_tokens: "", reasoning_effort: "default" });
+export const blankRow = (name = ""): ModelRow => ({ id: null, name, max_tokens: "", context_window: "", reasoning_effort: "default" });
 
 export const toForm = (e: Endpoint, models: Model[]): EndpointForm => ({
   id: e.id,
@@ -108,6 +109,7 @@ export const toForm = (e: Endpoint, models: Model[]): EndpointForm => ({
     .map((m) => ({
       id: m.id,
       name: m.name,
+      context_window: m.context_window === null ? "" : String(m.context_window),
       max_tokens: m.config.max_tokens === null ? "" : String(m.config.max_tokens),
       reasoning_effort: m.config.reasoning_effort ?? "default",
     })),
@@ -129,6 +131,7 @@ function modelInput(endpoint_id: number, r: ModelRow, preset: Preset): ModelInpu
   return {
     endpoint_id,
     name: r.name.trim(),
+    context_window: r.context_window.trim() ? Number(r.context_window) : null,
     config: {
       ...(max && { max_tokens: Number(max) }),
       ...(effort && { reasoning_effort: r.reasoning_effort }),

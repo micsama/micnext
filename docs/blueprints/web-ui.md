@@ -1,5 +1,7 @@
 # B2: Web 前端（web/，M10）
 
+**现行扩展（2026-10-12）**：命令补全、摘要展开与撤回状态刷新按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
+
 **状态**: CLOSED（2026-09-24 批准并实现于 `web/` 与 `crates/mic-gateway/src/web.rs`；§八 1～10 已用 DeepSeek `deepseek-flash` + Playwright 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加设置页（§4.3）（`/settings`）与输入框旁人设选择
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M10、步 6；[`gateway.md`](gateway.md)（调用的契约）；
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.1、§2.2
@@ -104,7 +106,8 @@ mic-message 形状变化时，改它的 B2 须把本文列为调用方（gateway
 | `Completion` | 一行"后台任务完成：工具名"，可展开输出（v2 才会产生，先最小呈现） |
 | `HarnessNote` | 不显示（给模型看的备注） |
 | `Notification` | 居中的灰色系统提示 |
-| `Boundary` | 分隔线："以上内容已压缩" / "上下文已清空" |
+| `Boundary` | 压缩：✓ 已压缩，可展开摘要/快照并撤回当前边界；失效显示已撤回；clear 显示清空分隔线 |
+| `Command` | 显示指令入站文字；不作为回复草稿 |
 
 工具行的参数摘要：参数对象的第一个字符串值，截到一行；展开后显示完整 JSON 和输出文本，
 输出区限高、内部滚动。失败输出 `Failed{kind, message}` 显示 message；`Cancelled` 显示"已取消"。

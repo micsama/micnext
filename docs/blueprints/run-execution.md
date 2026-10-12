@@ -1,5 +1,7 @@
 # B2: 执行主路径（调度、Agent 循环、落盘、崩溃收尾、实时事件）+ `-p`
 
+**现行扩展（2026-10-12）**：请求前自动压缩、指令隔离与同 worker 撤回按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
+
 **状态**: CLOSED（2026-09-23 批准并实现于 `crates/mic-core`、`crates/mic-store`、`bin/micnext`；§九验收 1～9 通过）；实现中追加的两处修订（bin 依赖、`ExecFailureKind::as_str`）已确认；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 由 Query 改为 run（原 `query-execution.md`），其 §四 验收通过；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 改：`max_turns` 与提示词人设/偏好来自 run 认领时的 `RunSettings`，`[core] max_turns` 移到网页设置
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M6、M11 的 `-p`；[`next-gen-architecture.md`](../brainstorm/next-gen-architecture.md)
 §4.4～4.7、§五（写者与不变量 I1～I4）；[`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.4、§2.5、§四-7/8/10；
@@ -32,8 +34,7 @@
 
 不定（各自 B2）：
 - 打断正在进行的输出或工具调用（当前一律等待，见 §十）。
-- `/clear`、压缩、Skill、ContextContributor、Hook（v1+）。本文的上下文组装只读 `context_window`，
-  压缩 summary 由 v1 产生。
+- Skill、ContextContributor、Hook；`/clear`、压缩与撤回已经按 context-compaction 联合契约接入。
 - 异步工具（`Dispatched`/`Completion` 的生产者，v2）。本文的调度与上下文规则已按"`Completion` 可认领、
   映射为 user 视图"处理，届时不改主路径。
 - Gateway 读稳定历史（回放、会话列表、用量）的方法：随 M9 B2 与其消费者一起加入。
@@ -266,7 +267,7 @@ loop:
   - 一律包成 `ToolResult{tool_name, tool_call_id, Terminal(..)}`。
 - HarnessNote 以 `append` 落盘（`MessageBody::HarnessNote`），模型视图为 `[runtime-note]` user 消息；
   排在本批工具结果之后（§4.4 规则 2 也保证这一点）。
-- 每次请求前重读 `context_window`：历史以 Store 为唯一真相，循环不在内存里另存一份。
+- 每次请求前先判断当前有效历史是否压缩，成功后再重读 `context_window`：历史以 Store 为唯一真相，循环不在内存里另存一份。
 
 ### 4.4 请求组装
 
@@ -275,7 +276,7 @@ loop:
   轮次用尽后的总结调用传空。
 - **system prompt**：`<instructions>` / `<persona>` / `<context>` 三块，布局见
   [`system-prompt-layout.md`](system-prompt-layout.md) §三；人设与偏好取本轮 `RunSettings`。
-- **messages**：从 `context_window.messages` 按 id 升序生成。仍待调度的输入已由 store 排除，held 输入保留（mic-store §4.1、§4.4
+- **messages**：从 `context_window.messages` 的 id 顺序生成，将本次待回答输入移至末尾，再保持工具调用/结果配对。仍待调度的输入已由 store 排除，held 输入保留（mic-store §4.1、§4.4
   不变量 3），吸收之后才到达的那部分留给下一个边界。一条规则：
   - **有工具调用在等结果时，user 视图消息往后放**：按 id 扫描，碰到 `Reply` 把其 `ToolCall` 块记为未结，
     碰到对应的 `ToolResult` 销账。有未结调用时遇到 user 视图消息（用户输入、`HarnessNote`、`Notification`、
@@ -350,7 +351,7 @@ loop:
   加 §4.4 规则 2 保证；崩溃留下的悬空调用由 §4.6 补齐后才会有下一轮。
 - **I2**：同一会话至多一个 `executing` run（store）且至多一个 worker（调度表）。
 - **I4**：遗留执行只收尾、不重放；遗留未认领输入 held，不自动执行。只有新输入唤醒新 run。
-- **一个 run 一个 person**：`claim_next` 与 `absorb` 都只取非 held 未认领输入开头同一 person 的一段。
+- **一个 run 一个 person**：`claim_next` 与 `absorb` 都只取非 held 未认领输入开头同一 person 的连续普通输入段，遇到指令即停止。
 - **单写者**：一个会话的产出只由持有其 `executing` run 的 worker 写，启动收尾时没有 worker。
 - **数据目录独占**：同一时刻只有一个进程执行 §4.6（文件锁）。
 
@@ -377,7 +378,7 @@ sequenceDiagram
     W->>DB: 写 ToolResult (id 13)
     W->>DB: absorb → m2.run_id = R1
     Note over W: 请求 messages：10, 11, 13, 12（规则：12 排到 13 之后）
-    W->>DB: 写 Reply (id 14)，无工具调用；absorb → false；finish R1 completed
+    W->>DB: 写 Reply (id 14)，无工具调用；absorb → 空输入 id 列表；finish R1 completed
     W-->>S: 结束
     S->>W: Dirty → 重起 worker
     W->>DB: claim_next → None

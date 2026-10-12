@@ -10,7 +10,7 @@ use mic_message::{
 use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
 
-use crate::ModelRequest;
+use crate::{ModelRequest, ToolChoice};
 
 const BASE_PROMPT: &str = include_str!("prompts/system.md");
 
@@ -57,12 +57,14 @@ pub(crate) fn build(
     settings: &RunSettings,
 ) -> ModelRequest {
     ModelRequest {
+        tool_choice: ToolChoice::Auto,
         system: system_prompt(
             settings,
             pwd,
             channel_prompt,
             tools,
             window.summary.as_deref(),
+            &window.files,
         ),
         messages: order(window.messages),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
@@ -79,6 +81,7 @@ fn system_prompt(
     channel_prompt: Option<&str>,
     tools: &[ToolHandle],
     summary: Option<&str>,
+    files: &[mic_message::FileSnapshot],
 ) -> String {
     let mut persona = vec![settings.persona.prompt.clone()];
     if !settings.general_prompt.is_empty() {
@@ -94,6 +97,20 @@ fn system_prompt(
     );
     if let Some(summary) = summary {
         context.push(format!("Summary of the earlier conversation:\n{summary}"));
+    }
+    for file in files {
+        let content = match &file.outcome {
+            mic_message::FileSnapshotOutcome::Read { text, extent } => {
+                format!("{text}\nSnapshot extent: {extent:?}")
+            }
+            mic_message::FileSnapshotOutcome::Unavailable { reason } => {
+                format!("Unavailable: {reason}")
+            }
+        };
+        context.push(format!(
+            "File snapshot at compaction time: {}\n{content}",
+            file.path
+        ));
     }
     [
         INSTRUCTIONS.clone(),

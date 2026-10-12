@@ -48,6 +48,16 @@ impl From<ChannelSetupError> for ApiError {
 impl From<KernelError> for ApiError {
     fn from(e: KernelError) -> Self {
         match e {
+            KernelError::CommandParse(error) => Self::BadRequest(error.to_string()),
+            KernelError::ContextCommand(error) => match error {
+                mic_store::ContextCommandError::BoundaryNotFound => {
+                    Self::NotFound("压缩边界不存在")
+                }
+                mic_store::ContextCommandError::NotCurrentCompaction => {
+                    Self::Conflict(error.to_string())
+                }
+                mic_store::ContextCommandError::Store(error) => Self::Internal(error.into()),
+            },
             KernelError::SessionNotFound => Self::NotFound(SESSION_NOT_FOUND),
             KernelError::Workdir(e) => {
                 let hint = match &e {

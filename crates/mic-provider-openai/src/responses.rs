@@ -10,7 +10,7 @@ use async_openai::types::responses::{
     Reasoning as ReasoningParam, ReasoningItem, ReasoningSummary, ResponseErrorCode,
     ResponseStreamEvent, ResponseUsage, Role, SummaryPart, SummaryTextContent, Tool,
 };
-use mic_core::{ModelEvent, ModelRequest, ModelResponse, ProviderError, StopReason};
+use mic_core::{ModelEvent, ModelRequest, ModelResponse, ProviderError, StopReason, ToolChoice};
 use mic_message::{
     AssistantPhase, ContentPart, ImageData, ImageId, ModelView, Reasoning, ReplyBlock,
 };
@@ -28,6 +28,8 @@ use crate::stream::{Accumulate, Step};
 #[derive(Serialize)]
 pub(crate) struct ResponsesRequest {
     model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
     input: Vec<Input>,
@@ -91,6 +93,10 @@ pub(crate) fn request(
     }
     Ok(ResponsesRequest {
         model: cfg.model.clone(),
+        tool_choice: match req.tool_choice {
+            ToolChoice::Auto => None,
+            ToolChoice::None => Some("none"),
+        },
         instructions: (!req.system.is_empty()).then(|| req.system.clone()),
         input,
         tools: req

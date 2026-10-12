@@ -59,6 +59,7 @@ pub(crate) struct ModelItem {
     id: ModelId,
     endpoint_id: EndpointId,
     name: String,
+    context_window: Option<std::num::NonZeroU32>,
     /// 该 kind 的模型参数。
     config: Box<RawValue>,
 }
@@ -104,6 +105,7 @@ pub(crate) struct TestResult {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ModelBody {
+    context_window: Option<u32>,
     endpoint_id: EndpointId,
     name: String,
     config: Box<RawValue>,
@@ -301,6 +303,7 @@ fn endpoint_item(app: &App, v: EndpointView) -> EndpointItem {
 fn item(v: ModelView) -> ModelItem {
     let config = RawValue::from_string(v.config_json).expect("库内配置是合法 JSON");
     ModelItem {
+        context_window: v.context_window,
         id: v.id,
         endpoint_id: v.endpoint_id,
         name: v.name,
@@ -347,6 +350,13 @@ fn draft(b: ModelBody) -> Result<ModelDraft, ApiError> {
         )));
     }
     Ok(ModelDraft {
+        context_window: b
+            .context_window
+            .map(|value| {
+                std::num::NonZeroU32::new(value)
+                    .ok_or_else(|| ApiError::Unprocessable("上下文窗口须为正整数".into()))
+            })
+            .transpose()?,
         endpoint_id: b.endpoint_id,
         name,
         config_json: b.config.get().to_owned(),

@@ -1,5 +1,7 @@
 # B2: mic-store（连带 mic-message 修订）
 
+**现行扩展（2026-10-12）**：边界、指令认领、absorb 返回值与 schema core v6按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
+
 **状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`，含会话列举增量）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 重写为 session / run / message / model_call；微信投递完成判据随 v0b；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加 schema core v2（§6.1）（人设、对话偏好、会话人设、run 设置快照）
 **来源**: [`mic-store-design.md`](../brainstorm/mic-store-design.md)（B1）、
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §二、§四
@@ -105,9 +107,12 @@ pub struct Run {
 }
 
 pub struct ContextWindow {
+    pub boundary_id: Option<MessageId>,
+    pub files: Vec<FileSnapshot>,
+    pub usage: Option<ContextUsage>,
     /// 最近一次 `Compaction` 的摘要。
     pub summary: Option<String>,
-    /// 最近一次 `Boundary` 之后的消息，按 id；包含 held 输入，排除仍待调度的输入。
+    /// 当前有效历史与边界保留的输入，按 id；包含 held 输入，排除仍待调度的输入。
     pub messages: Vec<Message>,
 }
 
@@ -154,6 +159,7 @@ pub struct NewSession {
 
 /// 一次模型调用尝试（含失败与重试）。
 pub struct NewModelCall {
+    pub context: ModelCallContext,
     pub session_id: SessionId,
     pub run_id: Option<RunId>,
     /// 请求模型名（`Provider::model()`）。
@@ -202,7 +208,7 @@ m.run_id IS NULL AND m.kind IN ('UserInput', 'Completion')
 
 - `claim_next` 单事务：会话已有 `executing` run → `None`；没有段 → `None`；否则插入 `executing` run，
   回填这段的 `run_id`；同一事务读会话人设（已删除则改用默认人设并写回会话）与对话偏好，写进 run 快照列并作为 `RunSettings` 返回。
-- `absorb(run)` 单事务：取同样的段，其 person 等于该 run 首条输入的 person 才回填；有回填返回 true。
+- `absorb(run)` 单事务：取同样的段，其 person 等于该 run 首条输入的 person 才回填；返回实际回填的输入 id；遇到指令停止，不跨过指令。
 
 分组键是 person 而非种类：同一 person 相邻的用户消息与 completion 进同一个 run；不同 person 发起的
 completion 不会合并，保证"一个 run 一个 person"。
@@ -307,7 +313,7 @@ impl Store {
     pub async fn claim_next(&self, session_id: SessionId, now: i64)
         -> Result<Option<(Run, RunSettings)>, StoreError>;
     /// 执行中并入新输入（§4.1），有并入返回 true。调用方保证 run 处于 `executing`。
-    pub async fn absorb(&self, run: RunId) -> Result<bool, StoreError>;
+    pub async fn absorb(&self, run: RunId) -> Result<Vec<MessageId>, StoreError>;
     /// 启动时登记遗留未认领输入为 held，返回本次新增的会话通知。
     pub async fn hold_unclaimed_inputs(&self, at: i64) -> Result<Vec<Message>, StoreError>;
     /// 有非 held 未认领输入的会话；不再用于启动补跑。

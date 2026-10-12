@@ -66,12 +66,12 @@
             </div>
             <div class="space-y-2 pl-5.5">
               {#each messages as message (message.id)}
-                <MessageItem {message} {results} {callIds} {running} />
+                <MessageItem {view} {message} {results} {callIds} {running} />
               {/each}
             </div>
           </aside>
         {:else}
-          <MessageItem message={messages[0]} {results} {callIds} {running} />
+          <MessageItem {view} message={messages[0]} {results} {callIds} {running} />
         {/if}
       {/each}
       {#if view.draft}
@@ -82,6 +82,7 @@
           <Icon name="loader" class="size-3.5 animate-spin" />处理中…
         </div>
       {/if}
+      {#if view.contextError}<p class="text-sm text-destructive">上下文状态加载失败：{view.contextError}</p>{/if}
       {#if view.notice}
         <p class="flex items-center gap-2 text-sm text-warning"><Icon name="alert" class="size-4" />{view.notice}</p>
       {/if}

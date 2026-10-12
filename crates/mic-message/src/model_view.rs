@@ -3,7 +3,9 @@
 
 use chrono::{Local, SecondsFormat, TimeZone};
 
-use crate::{ContentPart, ExecOutcome, Message, MessageBody, ReplyBlock, ToolResultOutcome};
+use crate::{
+    ContentPart, ExecOutcome, Message, MessageBody, ReplyBlock, SessionCommand, ToolResultOutcome,
+};
 
 /// 一条历史消息在模型请求里的呈现。
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +28,18 @@ impl Message {
     /// `Boundary` 不进上下文，返回 `None`。
     pub fn model_view(&self) -> Option<ModelView<'_>> {
         Some(match &self.body {
+            MessageBody::Command {
+                person,
+                command: SessionCommand::Compact { text: Some(value) },
+            } => ModelView::User(with_header(
+                Header::User {
+                    id: &person.0.to_string(),
+                    at: &local_time(self.created_at),
+                }
+                .render(),
+                vec![text(value.clone())],
+            )),
+            MessageBody::Command { .. } => return None,
             MessageBody::UserInput { person, parts } => {
                 let (id, at) = (person.0.to_string(), local_time(self.created_at));
                 ModelView::User(with_header(

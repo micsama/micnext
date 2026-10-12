@@ -124,14 +124,56 @@ pub enum ReplyBlock {
 /// 压缩/`/clear` 产生的上下文边界。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContextBoundary {
-    Compaction { summary: String },
+    Compaction(Compaction),
     UserClear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SessionCommand {
+    Compact { text: Option<String> },
+    Clear,
+    RevokeCompaction { boundary_id: MessageId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Compaction {
+    pub summary: String,
+    pub keep_from: Option<MessageId>,
+    pub files: Vec<FileSnapshot>,
+    pub extra: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileSnapshot {
+    pub path: String,
+    pub outcome: FileSnapshotOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FileSnapshotOutcome {
+    Read {
+        text: String,
+        extent: SnapshotExtent,
+    },
+    Unavailable {
+        reason: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SnapshotExtent {
+    Complete,
+    Truncated,
 }
 
 /// 消息闭集：一个变体 = 一个产出者的一次产出。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum MessageBody {
+    Command {
+        person: PersonId,
+        command: SessionCommand,
+    },
     /// 一次入站：文字与文件同条。
     UserInput {
         person: PersonId,

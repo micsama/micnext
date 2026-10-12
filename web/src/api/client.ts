@@ -8,6 +8,8 @@ import {
   type UpdateStatus,
 } from "./developer";
 import {
+  parseContextView, parseCommands,
+  type ContextView, type CommandSpec,
   parseCreated,
   parseEndpoints,
   parseModels,
@@ -223,4 +225,14 @@ export async function getUpdateStatus(): Promise<UpdateStatus> {
 
 export async function startUpdate(): Promise<void> {
   await request("POST", "/developer/update");
+}
+
+export async function getContext(sessionId: number): Promise<ContextView> {
+  return parseContextView(await request("GET", `/sessions/${sessionId}/context`));
+}
+export async function listCommands(): Promise<CommandSpec[]> {
+  return parseCommands(await request("GET", "/commands"));
+}
+export async function revokeCompaction(sessionId: number, boundaryId: number): Promise<void> {
+  await request("POST", `/sessions/${sessionId}/compactions/${boundaryId}/revoke`);
 }

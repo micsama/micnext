@@ -1,5 +1,7 @@
 # B2：模型设置与 Web 图片输入
 
+**现行扩展（2026-10-12）**：模型上下文窗口独立列与表单字段按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
+
 **状态**：服务商/模型分层（原 A 批与 v3 修订）已实现并合并为本稿正文；图片输入（B 批）内核部分（mic-message → store → core → openai）已实现；HTTP 与 Web 部分已实现并手工验收，**CLOSED**。遗留：模型不支持图片时的上游报错呈现未处理（见 todo.md）。
 **方向记录**：[B1](../brainstorm/model-settings.md)。阶段二以本稿替代 [runtime-settings.md](runtime-settings.md) §四。
 
@@ -83,18 +85,18 @@ pub struct SecretValue; // 无 Debug/Display/Serialize，drop 时 zeroize
 pub enum CredentialWrite { Keep, Clear, Set(SecretValue) } // 创建时 Keep → InvalidSecretEdit
 pub struct EndpointView { id, name, kind, config_json, key_set }
 pub struct EndpointWrite { name, kind, config_json, credential }
-pub struct ModelView { id, endpoint_id, name, config_json }
-pub struct ModelWrite { endpoint_id, name, config_json }
-pub enum ClaimedModel { Missing, Deleted{..}, Selected { id, name /*服务商 / 模型*/, kind, endpoint_json, model_name, model_json, key } }
+pub struct ModelView { id, endpoint_id, name, config_json, context_window: Option<NonZeroU32> }
+pub struct ModelWrite { endpoint_id, name, config_json, context_window: Option<NonZeroU32> }
+pub enum ClaimedModel { Missing, Deleted{..}, Selected { id, name /*服务商 / 模型*/, kind, endpoint_json, model_name, model_json, key, context_window } }
 // Store：endpoints/endpoint/create_endpoint/update_endpoint/delete_endpoint/endpoint_key；
 //        models/model/create_model/update_model/delete_model/default_model/set_default_model/set_session_model；
-//        claim_next -> ClaimedRun { run, settings, model }
+//        claim_next -> ClaimedRun { run, settings, model, input }
 ```
 
 | 表 | 字段与约束 |
 |---|---|
 | core_endpoints | id、name、kind、config_json、key_cipher（可空）、deleted_at、created_at、updated_at；活动名唯一 |
-| core_models | id、endpoint_id FK、name、config_json、deleted_at、…；同服务商活动模型名唯一 |
+| core_models | id、endpoint_id FK、name、config_json、context_window（空 = 100000）、deleted_at、…；同服务商活动模型名唯一 |
 | core_settings | default_model_id 可空 FK；必须活动；零活动模型恰好 NULL |
 | core_sessions | model_id 可空 FK；软删除不清引用 |
 | core_runs | model_id、model_name 快照 |
@@ -142,7 +144,7 @@ openai：纯文本 user 仍为字符串；含图时 content 数组按序发 text
 
 Kernel：`provider_kinds`(同步) / `endpoints` / `endpoint` / `key_env` / `create_endpoint` / `update_endpoint` / `delete_endpoint` / `test_endpoint` /
 `models` / `model` / `default_model` / `create_model` / `update_model` / `delete_model` / `set_default_model` / `set_session_model`。
-`EndpointDraft { name, kind, config_json, credential }`、`ModelDraft { endpoint_id, name, config_json }`；`now` 由内核产生。
+`EndpointDraft { name, kind, config_json, credential }`、`ModelDraft { endpoint_id, name, config_json, context_window }`；`now` 由内核产生。
 写命令：工厂 `check` → Store 事务；失败不落部分状态。`test_endpoint(draft, existing)`：`Keep` 取库内 key，再回退 env，不写任何状态。
 
 Engine 持有工厂注册表。`claim_next` 后 `resolve_key` + 一次 `build` 创建实例，本轮重试/工具往返/absorb 复用。

@@ -13,7 +13,7 @@ use async_openai::types::chat::{
     ChatCompletionStreamOptions, ChatCompletionStreamResponseDelta, ChatCompletionTool,
     ChatCompletionTools, CompletionUsage, FunctionCall, FunctionObject, ImageUrl, ReasoningEffort,
 };
-use mic_core::{ModelEvent, ModelRequest, ModelResponse, ProviderError, StopReason};
+use mic_core::{ModelEvent, ModelRequest, ModelResponse, ProviderError, StopReason, ToolChoice};
 use mic_message::{ContentPart, ImageData, ImageId, ModelView, Reasoning, ReplyBlock};
 use mic_store::Usage;
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,8 @@ use crate::stream::{Accumulate, Step};
 #[derive(Serialize)]
 pub(crate) struct ChatRequest {
     model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<&'static str>,
     messages: Vec<Message>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<ChatCompletionTools>,
@@ -99,6 +101,10 @@ pub(crate) fn request(
     }
     Ok(ChatRequest {
         model: cfg.model.clone(),
+        tool_choice: match req.tool_choice {
+            ToolChoice::Auto => None,
+            ToolChoice::None => Some("none"),
+        },
         messages,
         tools: req
             .tools

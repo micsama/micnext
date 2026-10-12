@@ -1,5 +1,7 @@
 # B2: 运行期设置（人设、提示词分块、对话偏好；模型设置为阶段二）
 
+**现行扩展（2026-10-12）**：对话组压缩偏好与认领快照按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
+
 **状态**: 阶段一 CLOSED（2026-10-08 批准并实现于 mic-store / mic-core / mic-gateway / web；验收用开发库副本、假模型服务与 Playwright 实跑通过）；阶段二已起联合 B2 草案，待批准
 **契约所在**: 存储与方法见 [`mic-store.md`](mic-store.md) §6.1；接口与校验见 [`gateway.md`](gateway.md) §4.4；
 页面见 [`web-ui.md`](web-ui.md) §4.3；system prompt 组装见 [`run-execution.md`](run-execution.md) §4.4。本文只留决定、不变量与阶段二草案。

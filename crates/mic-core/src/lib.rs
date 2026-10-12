@@ -3,6 +3,9 @@
 
 mod assembly;
 mod channel_setup;
+mod command;
+mod compaction;
+mod context_usage;
 mod error;
 mod event;
 mod input;
@@ -20,6 +23,7 @@ pub use channel_setup::{
     ChannelConnection, ChannelSetup, ChannelSetupError, ChannelSetupView, LinkedChannel,
     SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
 };
+pub use command::{parse_session_command, session_commands, CommandParseError, CommandSpec};
 pub use error::{AssembleError, KernelError, RunError, WorkdirError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
 pub use input::{IncomingPart, InputError};
@@ -29,5 +33,5 @@ pub use mic_store::SecretValue;
 pub use module::{Activation, BoxError, Module, ModuleConfig, Registry, Service};
 pub use provider::{
     BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ModelResponse, ProbeError,
-    Provider, ProviderError, ProviderFactory, ProviderKindView, StopReason,
+    Provider, ProviderError, ProviderFactory, ProviderKindView, StopReason, ToolChoice,
 };

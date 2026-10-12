@@ -9,7 +9,7 @@ use crate::{
     ClaimedModel, EndpointId, ModelId, ModelSettingsError, ModelView, ModelWrite, Store, StoreError,
 };
 
-const MODEL_COLS: &str = "id, endpoint_id, name, config_json";
+const MODEL_COLS: &str = "id, endpoint_id, name, config_json, context_window";
 
 fn view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelView> {
     Ok(ModelView {
@@ -17,6 +17,7 @@ fn view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelView> {
         endpoint_id: EndpointId(row.get(1)?),
         name: row.get(2)?,
         config_json: row.get(3)?,
+        context_window: row.get(4)?,
     })
 }
 
@@ -53,9 +54,9 @@ impl Store {
             endpoints::live(&tx, m.endpoint_id)?;
             ensure_name_free(&tx, m.endpoint_id, &m.name, None)?;
             tx.execute(
-                "INSERT INTO core_models (endpoint_id, name, config_json, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?4)",
-                params![m.endpoint_id.0, m.name, m.config_json, now],
+                "INSERT INTO core_models (endpoint_id, name, config_json, created_at, updated_at, context_window)
+                 VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+                params![m.endpoint_id.0, m.name, m.config_json, now, m.context_window],
             )?;
             let id = ModelId(tx.last_insert_rowid());
             if read_default(&tx)?.is_none() {
@@ -82,9 +83,9 @@ impl Store {
             }
             ensure_name_free(&tx, m.endpoint_id, &m.name, Some(id))?;
             tx.execute(
-                "UPDATE core_models SET name = ?1, config_json = ?2, updated_at = ?3
+                "UPDATE core_models SET name = ?1, config_json = ?2, updated_at = ?3, context_window = ?5
                  WHERE id = ?4",
-                params![m.name, m.config_json, now, id.0],
+                params![m.name, m.config_json, now, id.0, m.context_window],
             )?;
             tx.commit()?;
             Ok(())
@@ -241,30 +242,32 @@ pub(crate) fn claim_model(
             default.0
         }
     };
-    let (endpoint_name, kind, endpoint_json, blob, endpoint_id, model_name, model_json, deleted): (
-        String,
-        String,
-        String,
-        Option<Vec<u8>>,
-        i64,
-        String,
-        String,
-        bool,
+    let (
+        endpoint_name,
+        kind,
+        endpoint_json,
+        blob,
+        endpoint_id,
+        model_name,
+        model_json,
+        deleted,
+        context_window,
     ) = tx.query_row(
         "SELECT e.name, e.kind, e.config_json, e.key_cipher, e.id, m.name, m.config_json,
-                m.deleted_at IS NOT NULL
+                m.deleted_at IS NOT NULL, m.context_window
          FROM core_models m JOIN core_endpoints e ON e.id = m.endpoint_id WHERE m.id = ?1",
         [id],
         |r| {
             Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-                r.get(6)?,
-                r.get(7)?,
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<Vec<u8>>>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, String>(6)?,
+                r.get::<_, bool>(7)?,
+                r.get::<_, Option<std::num::NonZeroU32>>(8)?,
             ))
         },
     )?;
@@ -275,6 +278,7 @@ pub(crate) fn claim_model(
     }
     let key = blob.map(|b| cipher.decrypt(endpoint_id, &b)).transpose()?;
     Ok(ClaimedModel::Selected {
+        context_window,
         id,
         name,
         kind,

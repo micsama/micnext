@@ -1,5 +1,7 @@
 # B2: 网关（mic-gateway，M9）
 
+**现行扩展（2026-10-12）**：命令清单、上下文结果与撤回接口按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
+
 **状态**: CLOSED（2026-09-24 批准并实现于 `crates/mic-gateway`；§八 1～9 用 curl/脚本与 DeepSeek 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加设置与人设接口（§4.4）、会话人设，`workdir` 移到网页设置
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M9、§二 对接方式与 v0a 简化；
 [`product-roadmap.md`](../brainstorm/product-roadmap.md) §2.2、§2.5、§四-2

@@ -1,6 +1,6 @@
-import { ApiError, getSession } from "../api/client";
+import { ApiError, getContext, revokeCompaction, getSession } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, type Message, type RunState, type SessionItem, type StreamEvent } from "../api/types";
+import { ProtocolError, type ContextView, type Message, type RunState, type SessionItem, type StreamEvent } from "../api/types";
 import { sleep } from "../lib/sleep";
 import { webSessions } from "./sessions.svelte";
 
@@ -20,6 +20,32 @@ export class SessionView {
   /** 会话本身的信息，首次连上前取得。 */
   info = $state<SessionItem | null>(null);
   messages = $state<Message[]>([]);
+  context = $state<ContextView | null>(null);
+  contextError = $state<string | null>(null);
+  revoking = $state<number | null>(null);
+  #contextRefresh: Promise<void> | null = null;
+  #contextDirty = false;
+
+  async revoke(boundaryId: number): Promise<void> {
+    this.revoking = boundaryId;
+    try { await revokeCompaction(this.id, boundaryId); }
+    catch (error) { this.revoking = null; throw error; }
+  }
+
+  #refreshContext(): void {
+    this.#contextDirty = true;
+    if (this.#contextRefresh) return;
+    this.#contextRefresh = (async () => {
+      while (this.#contextDirty && !this.#abort.signal.aborted) {
+        this.#contextDirty = false;
+        try {
+          this.context = await getContext(this.id);
+          this.contextError = null;
+          if (this.revoking !== null && this.context.active_boundary !== this.revoking) this.revoking = null;
+        } catch (error) { this.contextError = (error as Error).message; }
+      }
+    })().finally(() => { this.#contextRefresh = null; });
+  }
   draft = $state<Draft | null>(null);
   executingRun = $state<number | null>(null);
   ready = $state(false);
@@ -76,6 +102,7 @@ export class SessionView {
   }
 
   #apply(e: StreamEvent): void {
+    if (e.event === "ready" || e.event === "run_finished" || (e.event === "message" && ["Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
     switch (e.event) {
       case "message":
         this.messages.push(e.data);

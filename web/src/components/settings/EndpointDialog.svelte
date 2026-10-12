@@ -166,10 +166,11 @@
           <section class="space-y-2">
             <div
               class="grid items-center gap-2 px-1 text-xs text-muted-foreground {efforts
-                ? 'grid-cols-[1fr_6rem_7rem_2rem]'
-                : 'grid-cols-[1fr_6rem_2rem]'}"
+                ? 'grid-cols-[1fr_6rem_6rem_7rem_2rem]'
+                : 'grid-cols-[1fr_6rem_6rem_2rem]'}"
             >
               <span>模型 ID</span>
+              <span>上下文</span>
               <span>最大输出</span>
               {#if efforts}<span>推理</span>{/if}
               <span></span>
@@ -177,10 +178,11 @@
             {#each f.models as r, i (i)}
               <div
                 class="grid items-center gap-2 {efforts
-                  ? 'grid-cols-[1fr_6rem_7rem_2rem]'
-                  : 'grid-cols-[1fr_6rem_2rem]'}"
+                  ? 'grid-cols-[1fr_6rem_6rem_7rem_2rem]'
+                  : 'grid-cols-[1fr_6rem_6rem_2rem]'}"
               >
                 <Input bind:value={r.name} class="font-mono text-xs" placeholder="模型 ID" aria-label="模型 ID" />
+                <Input type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="100000" aria-label="上下文窗口（默认 100000）" />
                 <Input
                   type="number"
                   min="1"

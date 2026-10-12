@@ -128,6 +128,7 @@ pub struct ProviderKindView {
 
 #[derive(Debug, Clone)]
 pub struct ModelRequest {
+    pub tool_choice: ToolChoice,
     /// 系统提示；空串 = 不发。
     pub system: String,
     /// 本次上下文内的历史消息，按 core 组装的顺序。Provider 逐条经 `Message::model_view` 映射，
@@ -139,6 +140,12 @@ pub struct ModelRequest {
     pub images: HashMap<ImageId, ImageData>,
     /// 同一会话稳定、不同会话不同的不透明串，供上游做前缀缓存路由；不含用户内容。
     pub cache_key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolChoice {
+    Auto,
+    None,
 }
 
 #[derive(Debug, Clone)]

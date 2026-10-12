@@ -20,6 +20,7 @@
     general_prompt: s.general_prompt,
     default_workdir: s.default_workdir,
     max_turns: s.max_turns,
+    compaction: { ...s.compaction },
   });
 
   let draft = $state(untrack(() => pick(settings)));
@@ -123,6 +124,17 @@
         />
       </div>
       {@render error("max_turns")}
+    </div>
+
+    <div class="space-y-2 px-4 py-3">
+      {@render label("上下文压缩", "compaction")}
+      <div class="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+        <label for="compaction-percent">触发比例（%）</label>
+        <Input id="compaction-percent" type="number" min="1" max="80" class="w-24" value={draft.compaction.trigger_percent} onfocus={() => (editing = "compaction")} onchange={(e) => save("compaction", { ...draft.compaction, trigger_percent: Number(e.currentTarget.value) })} onblur={() => (editing = null)} />
+        <label for="compaction-steps">保留步数</label>
+        <Input id="compaction-steps" type="number" min="0" max="100" class="w-24" value={draft.compaction.keep_steps} onfocus={() => (editing = "compaction")} onchange={(e) => save("compaction", { ...draft.compaction, keep_steps: Number(e.currentTarget.value) })} onblur={() => (editing = null)} />
+      </div>
+      {@render error("compaction")}
     </div>
 
     <div class="space-y-2 px-4 py-3">

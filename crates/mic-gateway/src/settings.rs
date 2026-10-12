@@ -6,7 +6,7 @@ use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use mic_store::{PersonaId, Settings};
+use mic_store::{CompactionSettings, PersonaId, Settings};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{self, json};
@@ -16,6 +16,7 @@ use crate::service::App;
 
 #[derive(Serialize)]
 pub(crate) struct SettingsView {
+    compaction: CompactionSettings,
     default_persona_id: PersonaId,
     general_prompt: String,
     default_workdir: String,
@@ -27,6 +28,7 @@ pub(crate) struct SettingsView {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SettingsBody {
+    compaction: CompactionSettings,
     default_persona_id: PersonaId,
     general_prompt: String,
     default_workdir: String,
@@ -69,6 +71,7 @@ pub(crate) async fn get_settings(
 ) -> Result<Json<SettingsView>, ApiError> {
     let s = app.kernel.settings().await?;
     Ok(Json(SettingsView {
+        compaction: s.compaction,
         default_persona_id: s.default_persona,
         general_prompt: s.general_prompt,
         default_workdir: s.default_workdir,
@@ -82,6 +85,11 @@ pub(crate) async fn put_settings(
     body: Result<Json<SettingsBody>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let b = json(body)?;
+    if !(1..=80).contains(&b.compaction.trigger_percent) || b.compaction.keep_steps > 100 {
+        return Err(ApiError::BadRequest(
+            "压缩触发比例须在 1 到 80 之间，保留步数须在 0 到 100 之间".into(),
+        ));
+    }
     if b.general_prompt.chars().count() > PROMPT_MAX_CHARS {
         return Err(ApiError::BadRequest(format!(
             "通用偏好最多 {PROMPT_MAX_CHARS} 字"
@@ -100,6 +108,7 @@ pub(crate) async fn put_settings(
     }
     app.kernel
         .update_settings(Settings {
+            compaction: b.compaction,
             default_persona: b.default_persona_id,
             general_prompt: b.general_prompt,
             default_workdir,

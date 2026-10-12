@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
+use std::num::NonZeroU32;
 
-use mic_message::{Message, PersonId, ReplyBlock, SessionId};
+use mic_message::{
+    Compaction, FileSnapshot, Message, MessageId, PersonId, ReplyBlock, SessionCommand, SessionId,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::SecretValue;
@@ -51,6 +54,7 @@ pub struct EndpointWrite {
 /// 服务商下的一个模型：模型名 + 该 kind 自己解析的参数。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelView {
+    pub context_window: Option<NonZeroU32>,
     pub id: ModelId,
     pub endpoint_id: EndpointId,
     pub name: String,
@@ -58,6 +62,7 @@ pub struct ModelView {
 }
 
 pub struct ModelWrite {
+    pub context_window: Option<NonZeroU32>,
     pub endpoint_id: EndpointId,
     pub name: String,
     pub config_json: String,
@@ -72,6 +77,7 @@ pub enum ClaimedModel {
         name: String,
     },
     Selected {
+        context_window: Option<NonZeroU32>,
         id: ModelId,
         /// 「服务商 / 模型」。
         name: String,
@@ -84,9 +90,26 @@ pub enum ClaimedModel {
 }
 
 pub struct ClaimedRun {
+    pub input: RunInput,
     pub run: Run,
     pub settings: RunSettings,
     pub model: ClaimedModel,
+}
+
+pub enum RunInput {
+    Conversation {
+        message_ids: Vec<MessageId>,
+    },
+    Command {
+        message_id: MessageId,
+        command: SessionCommand,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompactionSettings {
+    pub trigger_percent: u8,
+    pub keep_steps: u32,
 }
 
 /// 人设：名字 + 提示词。内置的只读；删除为软删除，按 id 仍可读。
@@ -102,6 +125,7 @@ pub struct Persona {
 /// 对话偏好，全局一份。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
+    pub compaction: CompactionSettings,
     /// 始终是未删除的人设。
     pub default_persona: PersonaId,
     /// 对所有人设生效；空串 = 无。
@@ -114,6 +138,7 @@ pub struct Settings {
 /// 认领时定下的本轮设置，执行期间不变；同时落为 run 快照。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunSettings {
+    pub compaction: CompactionSettings,
     pub persona: Persona,
     pub general_prompt: String,
     pub max_turns: u32,
@@ -234,10 +259,46 @@ pub struct Run {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextWindow {
-    /// 最近一次 `Compaction` 的摘要。
+    pub boundary_id: Option<MessageId>,
+    pub files: Vec<FileSnapshot>,
+    pub usage: Option<ContextUsage>,
+    /// 当前有效压缩边界的摘要。
     pub summary: Option<String>,
-    /// 最近一次 `Boundary` 之后的消息，按 id；包含 held 输入，排除仍待调度的输入。
+    /// 当前有效历史与边界保留的输入，按 id；包含 held 输入，排除仍待调度的输入。
     pub messages: Vec<Message>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CompactionState {
+    Applied,
+    Revoked { at: i64 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CompactionView {
+    pub boundary_id: MessageId,
+    pub result: Compaction,
+    pub state: CompactionState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ContextView {
+    pub active_boundary: Option<MessageId>,
+    pub compactions: Vec<CompactionView>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelCallContext {
+    pub boundary_id: Option<MessageId>,
+    pub through: Option<MessageId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextUsage {
+    pub model_id: ModelId,
+    pub input_tokens: u64,
+    pub through: Option<MessageId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -260,6 +321,7 @@ pub struct Usage {
 /// 一次模型调用尝试（含失败与重试）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewModelCall {
+    pub context: ModelCallContext,
     pub session_id: SessionId,
     pub run_id: Option<RunId>,
     /// 请求模型名。

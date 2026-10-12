@@ -483,6 +483,33 @@ async fn inbound(
             if parts.is_empty() {
                 continue;
             }
+            if incoming.references.is_empty() && notice(&unsupported, &failures).is_none() {
+                if let [mic_core::IncomingPart::Text(text)] = parts.as_slice() {
+                    match mic_core::parse_session_command(text) {
+                        Ok(Some(command)) => {
+                            kernel
+                                .append_session_command(
+                                    account.view.session_id,
+                                    account.person,
+                                    command,
+                                )
+                                .await?;
+                            continue;
+                        }
+                        Err(error) => {
+                            kernel
+                                .append_notification(
+                                    account.view.session_id,
+                                    "micnext",
+                                    error.to_string(),
+                                )
+                                .await?;
+                            continue;
+                        }
+                        Ok(None) => {}
+                    }
+                }
+            }
             let mut quoted = quote::resolve(&kernel, &account, incoming.references).await?;
             let source_start = quoted.len();
             quoted.extend(parts);

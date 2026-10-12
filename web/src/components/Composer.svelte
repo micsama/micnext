@@ -1,5 +1,7 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { onMount, type Snippet } from "svelte";
+  import { listCommands } from "../api/client";
+  import type { CommandSpec } from "../api/types";
   import type { InputPart } from "../api/types";
   import Icon from "../lib/Icon.svelte";
   import { settingsStore } from "../state/settings.svelte";
@@ -31,7 +33,13 @@
   type Attachment = { file: File; url: string };
 
   let text = $state("");
+  let commands = $state<CommandSpec[]>([]);
+  let commandIndex = $state(0);
+  onMount(() => { void listCommands().then((items) => { commands = items; }).catch((e: Error) => { error = e.message; }); });
+  function complete(command: CommandSpec) { text = `/${command.name} `; commandIndex = 0; input.focus(); }
+
   let attachments = $state<Attachment[]>([]);
+  const suggestions = $derived(text.trim().startsWith("/") && !/\s/.test(text.trim()) && attachments.length === 0 ? commands.filter((c) => `/${c.name}`.startsWith(text.trim())) : []);
   let picker: HTMLInputElement;
   let dragging = $state(false);
   const limits = $derived(settingsStore.inputLimits);
@@ -118,6 +126,14 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
+    if (suggestions.length > 0 && !e.isComposing) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        commandIndex = (commandIndex + (e.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length;
+        return;
+      }
+      if (e.key === "Tab") { e.preventDefault(); complete(suggestions[commandIndex % suggestions.length]!); return; }
+    }
     // 输入法选词中的回车不发送。
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
@@ -157,6 +173,15 @@
               <Icon name="x" class="size-3" />
             </button>
           </div>
+        {/each}
+      </div>
+    {/if}
+    {#if suggestions.length > 0}
+      <div class="mb-1 rounded-xl border border-border bg-background p-1">
+        {#each suggestions as command, i (command.name)}
+          <button type="button" class="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent {i === commandIndex % suggestions.length ? 'bg-accent' : ''}" onclick={() => complete(command)}>
+            <span class="font-mono">{command.usage}</span><span class="text-xs text-muted-foreground">{command.description}</span>
+          </button>
         {/each}
       </div>
     {/if}

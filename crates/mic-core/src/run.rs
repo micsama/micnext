@@ -5,10 +5,14 @@ use std::future::poll_fn;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mic_message::{ExecFailureKind, ExecOutcome, MessageBody, ReplyBlock, ToolResultOutcome};
+use mic_message::{
+    ExecFailureKind, ExecOutcome, MessageBody, MessageId, ReplyBlock, SessionCommand,
+    ToolResultOutcome,
+};
 use mic_store::{
-    ClaimedModel, ClaimedRun, ModelCallOutcome, NewModelCall, Run, RunSettings, RunState, Session,
-    SessionKind, Store, StoreError, ToolScope,
+    ClaimedModel, ClaimedRun, ContextCommandError, ModelCallContext, ModelCallOutcome, ModelId,
+    NewModelCall, Run, RunInput, RunSettings, RunState, Session, SessionKind, Store, StoreError,
+    ToolScope,
 };
 use mic_tool::{ToolContext, ToolHandle};
 use tokio::task::JoinSet;
@@ -45,6 +49,7 @@ impl Engine {
             run,
             settings,
             model,
+            input,
         } = claimed;
         self.events.emit(
             session.id,
@@ -61,21 +66,93 @@ impl Engine {
                 .cloned()
                 .collect(),
         };
-        let exec = Exec {
+        let (model_id, context_window) = match &model {
+            ClaimedModel::Selected {
+                id, context_window, ..
+            } => (
+                Some(*id),
+                context_window
+                    .map(|v| v.get())
+                    .unwrap_or(crate::limits::DEFAULT_CONTEXT_WINDOW),
+            ),
+            _ => (None, crate::limits::DEFAULT_CONTEXT_WINDOW),
+        };
+        let pending_inputs = match &input {
+            RunInput::Conversation { message_ids } => message_ids.clone(),
+            RunInput::Command {
+                message_id,
+                command: SessionCommand::Compact { text: Some(_) },
+            } => vec![*message_id],
+            _ => Vec::new(),
+        };
+        let mut exec = Exec {
             engine: self,
             session,
             channel,
             run: &run,
             settings: &settings,
             tools,
+            pending_inputs,
+            model_id,
+            context_window,
         };
-        let state = match self.provider(model) {
-            Ok(provider) => exec.execute(provider.as_ref()).await?,
-            Err(text) => {
-                tracing::warn!(session = session.id.0, run = run.id.0, %text, "model unavailable");
-                exec.notify(text).await?;
-                RunState::ProviderFailed
+        let state = match input {
+            RunInput::Command {
+                message_id,
+                command: SessionCommand::Clear,
+            } => {
+                let publish = self.events.publisher().await;
+                for message in self
+                    .store
+                    .clear_context(session.id, run.id, message_id, now_ms())
+                    .await?
+                {
+                    publish.appended(session.id, channel, message);
+                }
+                RunState::Completed
             }
+            RunInput::Command {
+                command: SessionCommand::RevokeCompaction { boundary_id },
+                ..
+            } => {
+                let publish = self.events.publisher().await;
+                let result = self
+                    .store
+                    .revoke_compaction(session.id, run.id, boundary_id, now_ms())
+                    .await;
+                match result {
+                    Ok(messages) => {
+                        for message in messages {
+                            publish.appended(session.id, channel, message);
+                        }
+                    }
+                    Err(ContextCommandError::Store(error)) => return Err(error),
+                    Err(error) => {
+                        drop(publish);
+                        exec.notify(format!("未撤回压缩：{error}。")).await?;
+                    }
+                }
+                RunState::Completed
+            }
+            input => match self.provider(model) {
+                Ok(provider) => match input {
+                    RunInput::Command {
+                        command: SessionCommand::Compact { text },
+                        ..
+                    } => match exec.compact(provider.as_ref(), text.clone()).await? {
+                        Err(failed) => failed,
+                        Ok(()) if text.is_some() => exec.execute(provider.as_ref()).await?,
+                        Ok(()) => RunState::Completed,
+                    },
+                    RunInput::Conversation { .. } => exec.execute(provider.as_ref()).await?,
+                    _ => unreachable!("非模型指令已处理"),
+                },
+                Err(text) => {
+                    tracing::warn!(session = session.id.0, run = run.id.0, %text, "model unavailable");
+                    exec.notify(text).await?;
+                    RunState::ProviderFailed
+                }
+            },
         };
         self.store.finish_run(run.id, state, now_ms()).await?;
         tracing::info!(
@@ -128,13 +205,16 @@ impl Engine {
     }
 }
 
-struct Exec<'a> {
-    engine: &'a Engine,
-    session: &'a Session,
-    channel: &'a str,
-    run: &'a Run,
-    settings: &'a RunSettings,
-    tools: Vec<ToolHandle>,
+pub(crate) struct Exec<'a> {
+    pub(crate) engine: &'a Engine,
+    pub(crate) session: &'a Session,
+    pub(crate) channel: &'a str,
+    pub(crate) run: &'a Run,
+    pub(crate) settings: &'a RunSettings,
+    pub(crate) tools: Vec<ToolHandle>,
+    pub(crate) pending_inputs: Vec<MessageId>,
+    pub(crate) model_id: Option<ModelId>,
+    pub(crate) context_window: u32,
 }
 
 struct Call {
@@ -144,7 +224,8 @@ struct Call {
 }
 
 impl Exec<'_> {
-    async fn execute(&self, provider: &dyn Provider) -> Result<RunState, StoreError> {
+    async fn execute(&mut self, provider: &dyn Provider) -> Result<RunState, StoreError> {
+        let tools = self.tools.clone();
         let max_turns = self.settings.max_turns;
         let warn_at = (max_turns * MAX_TURNS_WARN_PERCENT / 100).max(1);
         let mut calls = 0;
@@ -167,7 +248,7 @@ impl Exec<'_> {
                 .await?;
             }
             calls += 1;
-            let tool_calls = match self.call_model(provider, &self.tools).await? {
+            let tool_calls = match self.call_model(provider, &tools).await? {
                 Ok(tool_calls) => tool_calls,
                 Err(failed) => return Ok(failed),
             };
@@ -183,18 +264,31 @@ impl Exec<'_> {
     }
 
     /// 把已到达的新输入并入本 run；有并入返回 true。
-    async fn absorb(&self) -> Result<bool, StoreError> {
-        self.engine.store.absorb(self.run.id).await
+    async fn absorb(&mut self) -> Result<bool, StoreError> {
+        let inputs = self.engine.store.absorb(self.run.id).await?;
+        let absorbed = !inputs.is_empty();
+        self.pending_inputs.extend(inputs);
+        Ok(absorbed)
     }
 
     /// `tools` 为空即不开放工具。每次尝试落盘调用行，成功时连同 `Reply`；返回其中的工具调用。
     /// 失败已落盘通知，返回终态。
     async fn call_model(
-        &self,
+        &mut self,
         provider: &dyn Provider,
         tools: &[ToolHandle],
     ) -> Result<Result<Vec<Call>, RunState>, StoreError> {
+        if self.needs_compaction().await? {
+            let extra = self.pending_text().await?;
+            if let Err(failed) = self.compact(provider, extra).await? {
+                return Ok(Err(failed));
+            }
+        }
         let window = self.engine.store.context_window(self.session.id).await?;
+        let context = ModelCallContext {
+            boundary_id: window.boundary_id,
+            through: window.messages.last().map(|m| m.id),
+        };
         let images = self
             .engine
             .store
@@ -206,7 +300,7 @@ impl Exec<'_> {
             }
             SessionKind::Task { .. } | SessionKind::Triggered { .. } => None,
         };
-        let req = request::build(
+        let mut req = request::build(
             self.session.id,
             window,
             images,
@@ -215,15 +309,18 @@ impl Exec<'_> {
             tools,
             self.settings,
         );
+        req.messages
+            .sort_by_key(|message| self.pending_inputs.contains(&message.id));
         let mut attempt = 1;
         loop {
             let started_at = now_ms();
             let error = match self.stream(provider, req.clone()).await {
                 Ok(reply) => {
+                    self.pending_inputs.clear();
                     return self
-                        .persist_reply(provider, started_at, reply)
+                        .persist_reply(provider, started_at, reply, context)
                         .await
-                        .map(Ok)
+                        .map(Ok);
                 }
                 Err(e) => e,
             };
@@ -233,6 +330,7 @@ impl Exec<'_> {
                 ModelCallOutcome::Failed {
                     error: error.to_string(),
                 },
+                context,
             )
             .await?;
             match &error {
@@ -285,6 +383,7 @@ impl Exec<'_> {
         provider: &dyn Provider,
         started_at: i64,
         reply: ModelResponse,
+        context: ModelCallContext,
     ) -> Result<Vec<Call>, StoreError> {
         let calls = reply
             .blocks
@@ -302,7 +401,7 @@ impl Exec<'_> {
             usage: reply.usage,
             blocks: reply.blocks,
         };
-        self.record(provider, started_at, outcome).await?;
+        self.record(provider, started_at, outcome, context).await?;
         match reply.stop {
             StopReason::MaxTokens => {
                 self.notify("回复达到输出长度上限，内容不完整。".into())
@@ -323,12 +422,14 @@ impl Exec<'_> {
         provider: &dyn Provider,
         started_at: i64,
         outcome: ModelCallOutcome,
+        context: ModelCallContext,
     ) -> Result<(), StoreError> {
         let publish = self.engine.events.publisher().await;
         let (_, reply) = self
             .engine
             .store
             .record_model_call(NewModelCall {
+                context,
                 session_id: self.session.id,
                 run_id: Some(self.run.id),
                 model: provider.model().to_owned(),
@@ -389,7 +490,7 @@ impl Exec<'_> {
     }
 
     /// 投递给用户的框架通知。
-    async fn notify(&self, text: String) -> Result<(), StoreError> {
+    pub(crate) async fn notify(&self, text: String) -> Result<(), StoreError> {
         self.append(MessageBody::Notification {
             source: NOTIFICATION_SOURCE.into(),
             text,

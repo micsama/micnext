@@ -10,6 +10,12 @@ const CORE: &str = "core";
 const CORE_MIGRATIONS: &[Migration] = &[
     Migration {
         module: CORE,
+        version: 6,
+        sql: CORE_V6,
+        secret_columns: &[],
+    },
+    Migration {
+        module: CORE,
         version: 1,
         sql: CORE_V1,
         secret_columns: &[],
@@ -39,6 +45,30 @@ const CORE_MIGRATIONS: &[Migration] = &[
         secret_columns: &[],
     },
 ];
+
+const CORE_V6: &str = "
+ALTER TABLE core_models ADD COLUMN context_window INTEGER CHECK(context_window > 0);
+ALTER TABLE core_settings ADD COLUMN compaction_trigger_percent INTEGER NOT NULL DEFAULT 80 CHECK(compaction_trigger_percent BETWEEN 1 AND 80);
+ALTER TABLE core_settings ADD COLUMN compaction_keep_steps INTEGER NOT NULL DEFAULT 15 CHECK(compaction_keep_steps BETWEEN 0 AND 100);
+ALTER TABLE core_runs ADD COLUMN compaction_trigger_percent INTEGER;
+ALTER TABLE core_runs ADD COLUMN compaction_keep_steps INTEGER;
+ALTER TABLE core_messages ADD COLUMN compaction_revoked_at INTEGER;
+CREATE TABLE core_boundary_inputs (
+  boundary_id INTEGER NOT NULL REFERENCES core_messages(id),
+  message_id INTEGER NOT NULL REFERENCES core_messages(id),
+  PRIMARY KEY(boundary_id, message_id)
+);
+ALTER TABLE core_model_calls ADD COLUMN context_boundary_id INTEGER REFERENCES core_messages(id);
+ALTER TABLE core_model_calls ADD COLUMN context_through_id INTEGER REFERENCES core_messages(id);
+DROP INDEX idx_messages_unclaimed;
+CREATE INDEX idx_messages_unclaimed ON core_messages(session_id, id)
+  WHERE run_id IS NULL AND kind IN ('UserInput', 'Completion', 'Command');
+UPDATE core_messages SET payload = json_set(payload,
+  '$.boundary.Compaction.keep_from', NULL,
+  '$.boundary.Compaction.files', json('[]'),
+  '$.boundary.Compaction.extra', NULL)
+WHERE kind = 'Boundary' AND json_type(payload, '$.boundary.Compaction') = 'object';
+";
 
 const CORE_V1: &str = "
 CREATE TABLE core_persons (

@@ -5,6 +5,7 @@
 
 | 状态 | 主题 | 文档 |
 |---|---|---|
+| B2 待批准（2026-10-12） | Web 微信设置增加已有会话模型选择，复用服务商与模型条目；`/model` 后续另定 | [B2](docs/blueprints/wechat-session-model.md) |
 | 已知 bug，待排查；human 明确延期（2026-10-10） | Web「检查并更新」后部分消息尾部不可见，刷新无效、发新消息后恢复；IP:端口直连，根因未确认 | [排查记录](docs/brainstorm/web-message-replay.md) |
 | B2 已实现：DeepSeek、ChatGPT 订阅（2026-10-12）已验收，OpenAI（API key）与订阅缓存命中待验收 | 模型调用迁移 async-openai；新增 OpenAI（Responses）与 ChatGPT 订阅（Codex 后端，手贴 access_token）预设；Responses 发会话缓存键 | [SDK B2](docs/blueprints/provider-sdk-responses.md)；[ChatGPT B2](docs/blueprints/provider-chatgpt.md)；[缓存键 B2](docs/blueprints/provider-cache-key.md)；现行契约 [provider-openai](docs/blueprints/provider-openai.md) |
 | B2 CLOSED（2026-10-09） | 构建脚本支持 debug 与 run：默认 release，可构建后 exec 启动，运行参数原样透传 | [build-script-run](docs/blueprints/build-script-run.md) |

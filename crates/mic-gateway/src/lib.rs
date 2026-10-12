@@ -6,6 +6,7 @@ mod channels;
 mod config;
 mod error;
 mod limits;
+mod log_store;
 mod log_stream;
 mod logs;
 mod models;

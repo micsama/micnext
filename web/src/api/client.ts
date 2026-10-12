@@ -1,8 +1,10 @@
 import { auth } from "../state/auth.svelte";
 import {
+  parseLogHistory,
   parseQueryResult,
   parseTables,
   parseUpdateStatus,
+  type LogHistory,
   type QueryResult,
   type TableSchema,
   type UpdateStatus,
@@ -215,6 +217,10 @@ export async function runSql(sql: string): Promise<QueryResult> {
 
 export async function getSqlSchema(): Promise<TableSchema[]> {
   return parseTables(await request("GET", "/developer/sql/schema"));
+}
+
+export async function getLogHistory(): Promise<LogHistory> {
+  return parseLogHistory(await request("GET", "/developer/logs/history"));
 }
 
 export async function getUpdateStatus(): Promise<UpdateStatus> {

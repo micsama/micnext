@@ -142,6 +142,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
             "/personas/{id}",
             put(settings::update_persona).delete(settings::delete_persona),
         )
+        .route("/developer/logs/history", get(log_stream::history))
         .route("/developer/logs/stream", get(log_stream::stream))
         .route("/developer/sql", post(sql::query))
         .route("/developer/sql/schema", get(sql::schema))

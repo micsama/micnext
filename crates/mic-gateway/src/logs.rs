@@ -1,8 +1,9 @@
-//! 开发者日志：进程内有界缓冲与 tracing 采集层。
-//! 契约：docs/blueprints/developer-diagnostics.md §二。
+//! 开发者日志：进程内有界缓冲与 tracing 采集层；INFO 及以上另交落盘线程。
+//! 契约：docs/blueprints/developer-diagnostics.md §二，docs/blueprints/developer-log-history.md。
 
 use std::collections::VecDeque;
 use std::fmt::{self, Write as _};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,6 +16,7 @@ use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::registry::LookupSpan;
 
 use crate::limits::{LOG_FIELDS, LOG_RECORDS, LOG_RECORD_BYTES, LOG_TOTAL_BYTES};
+use crate::log_store::{self, History, Sink, Storage};
 
 /// 进程内存日志；clone 共享同一缓冲。
 #[derive(Clone)]
@@ -23,7 +25,11 @@ pub struct DeveloperLogs {
 }
 
 struct Inner {
+    /// 本进程标识，取 `new` 时的毫秒时间戳；「本次启动以来」以此为界。
+    boot_id: u64,
     buffer: Mutex<Buffer>,
+    /// 写者是落盘线程。
+    storage: Arc<Mutex<Storage>>,
     /// 最新已追加记录的 seq；只表示「可能有新记录」。
     latest: watch::Sender<u64>,
 }
@@ -35,37 +41,60 @@ struct Buffer {
     latest: u64,
     bytes: usize,
     trimmed: bool,
+    /// `persist` 之后才有；与缓冲同锁，保证落盘顺序与 seq 一致。
+    sink: Option<Sink>,
 }
 
 #[derive(Serialize)]
 pub(crate) struct LogRecord {
     #[serde(skip)]
     pub(crate) seq: u64,
-    timestamp_ms: u64,
-    level: LogLevel,
-    target: String,
-    message: String,
-    fields: Vec<LogField>,
-    file: Option<String>,
-    line: Option<u32>,
-    truncated: bool,
+    pub(crate) timestamp_ms: u64,
+    pub(crate) level: LogLevel,
+    pub(crate) target: String,
+    pub(crate) message: String,
+    pub(crate) fields: Vec<LogField>,
+    pub(crate) file: Option<String>,
+    pub(crate) line: Option<u32>,
+    pub(crate) truncated: bool,
     #[serde(skip)]
     bytes: usize,
 }
 
-#[derive(Serialize, Clone, Copy)]
+#[derive(Serialize, Clone, Copy, PartialEq, PartialOrd)]
 #[serde(rename_all = "lowercase")]
-enum LogLevel {
+pub(crate) enum LogLevel {
     Debug,
     Info,
     Warn,
     Error,
 }
 
+impl LogLevel {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warn => "warn",
+            Self::Error => "error",
+        }
+    }
+
+    pub(crate) fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "debug" => Self::Debug,
+            "info" => Self::Info,
+            "warn" => Self::Warn,
+            "error" => Self::Error,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Serialize)]
-struct LogField {
-    name: &'static str,
-    value: String,
+pub(crate) struct LogField {
+    pub(crate) name: &'static str,
+    pub(crate) value: String,
 }
 
 /// 建立连接时的保留窗口。
@@ -91,7 +120,11 @@ impl DeveloperLogs {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Inner {
+                boot_id: now_ms(),
                 buffer: Mutex::new(Buffer::default()),
+                storage: Arc::new(Mutex::new(Storage::Memory {
+                    reason: "未启用落盘".to_owned(),
+                })),
                 latest: watch::Sender::new(0),
             }),
         }
@@ -103,6 +136,40 @@ impl DeveloperLogs {
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
         Capture { logs: self.clone() }.with_filter(filter_fn(captured))
+    }
+
+    /// 开始把 INFO 及以上落到 `dir`（不存在则创建），连同缓冲里已有的记录；只调用一次。
+    /// 失败不返回错误：依次降级为文本文件、仅内存，并 emit ERROR。
+    pub fn persist(&self, dir: &Path) {
+        let mut buffer = self.lock();
+        let sink = log_store::spawn(
+            dir.to_owned(),
+            self.inner.boot_id,
+            self.inner.storage.clone(),
+        );
+        for record in &buffer.records {
+            sink.offer(record);
+        }
+        buffer.sink = Some(sink);
+    }
+
+    /// 阻塞等待已排队的记录写完，最多 `LOG_FLUSH_TIMEOUT`；未 `persist` 时立即返回。
+    pub fn flush(&self) {
+        let sink = self.lock().sink.clone();
+        if let Some(sink) = sink {
+            sink.flush();
+        }
+    }
+
+    /// 之前启动的最近记录与当前存储状态。阻塞读库。
+    pub(crate) fn history(&self) -> Result<History, rusqlite::Error> {
+        let storage = self
+            .inner
+            .storage
+            .lock()
+            .expect("日志存储状态锁中毒")
+            .clone();
+        log_store::history(storage, self.inner.boot_id)
     }
 
     pub(crate) fn subscribe(&self) -> watch::Receiver<u64> {
@@ -145,7 +212,11 @@ impl DeveloperLogs {
             buffer.latest += 1;
             record.seq = buffer.latest;
             buffer.bytes += record.bytes;
-            buffer.records.push_back(Arc::new(record));
+            let record = Arc::new(record);
+            if let Some(sink) = &buffer.sink {
+                sink.offer(&record);
+            }
+            buffer.records.push_back(record);
             while buffer.records.len() > LOG_RECORDS || buffer.bytes > LOG_TOTAL_BYTES {
                 let evicted = buffer.records.pop_front().expect("超限时缓冲非空");
                 buffer.bytes -= evicted.bytes;
@@ -206,9 +277,7 @@ impl<S: Subscriber> Layer<S> for Capture {
         let bytes = LOG_RECORD_BYTES - budget.left;
         self.logs.push(LogRecord {
             seq: 0,
-            timestamp_ms: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis() as u64),
+            timestamp_ms: now_ms(),
             level,
             target,
             message,
@@ -307,4 +376,10 @@ impl Visit for Collect {
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
         self.write(field, format_args!("{value:?}"));
     }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }

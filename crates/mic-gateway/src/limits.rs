@@ -46,6 +46,19 @@ pub(crate) const LOG_RECORD_BYTES: usize = 16 * 1024;
 pub(crate) const LOG_FIELDS: usize = 128;
 /// 日志流每批读取条数，也是单连接待发事件上限。
 pub(crate) const LOG_BATCH: usize = 128;
+/// 日志落盘：待写队列条数、每批（一个事务）条数。
+pub(crate) const LOG_PERSIST_QUEUE: usize = 4096;
+pub(crate) const LOG_PERSIST_BATCH: usize = 256;
+/// 日志库：每写多少批检查一次大小；超过上限删最旧的 1/5。
+pub(crate) const LOG_TRIM_EVERY: u32 = 64;
+pub(crate) const LOG_DB_BYTES: i64 = 80 * 1024 * 1024;
+pub(crate) const LOG_WAL_BYTES: i64 = 4 * 1024 * 1024;
+/// 降级文本日志超过此大小清空重写。
+pub(crate) const LOG_FILE_BYTES: u64 = 16 * 1024 * 1024;
+/// 退出前等待日志写完的上限。
+pub(crate) const LOG_FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
+/// 网页一次拉取之前启动的日志条数。
+pub(crate) const LOG_HISTORY_RECORDS: usize = 2000;
 /// 诊断 SQL 文本上限。
 pub(crate) const SQL_MAX_BYTES: usize = 16 * 1024;
 /// 一键更新：git pull 重试机会及各次超时，机会数即长度；立即重试，超时扣一次、

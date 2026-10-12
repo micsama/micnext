@@ -19,6 +19,13 @@
 
   const STATUS = { connecting: "连接中…", live: "实时", reconnecting: "已断开，正在重连…" } as const;
 
+  /** 「全部」含之前启动的日志；切换回到底部。 */
+  let scope = $state<"all" | "current">("all");
+  const source = $derived.by(() => {
+    void feed.version;
+    return scope === "all" ? [...feed.history, ...feed.records] : feed.records;
+  });
+
   let levels = $state<Record<LogLevel, boolean>>({ debug: true, info: true, warn: true, error: true });
   let target = $state("");
   let query = $state("");
@@ -69,15 +76,11 @@
     return () => clearTimeout(t);
   });
 
-  const targets = $derived.by(() => {
-    void feed.version;
-    return [...new Set(feed.records.map((r) => r.target))].sort();
-  });
+  const targets = $derived([...new Set(source.map((r) => r.target))].sort());
 
   const matches = $derived.by(() => {
-    void feed.version;
     const m = matcher;
-    return feed.records.filter(
+    return source.filter(
       (r) =>
         levels[r.level] &&
         (target === "" || r.target === target) &&
@@ -97,8 +100,7 @@
   const rows = $derived(matches.slice(start, start + PAGE));
   const following = $derived(anchor === null);
   const anchorEvicted = $derived.by(() => {
-    void feed.version;
-    const first = feed.records[0];
+    const first = source[0];
     return anchor !== null && first !== undefined && first.n > anchor;
   });
 
@@ -121,6 +123,27 @@
     if (!following || !list) return;
     if (list.scrollHeight - list.scrollTop - list.clientHeight > 8) pause();
   }
+
+  function setScope(next: "all" | "current") {
+    scope = next;
+    anchor = null;
+  }
+
+  /** 与上一行属于不同启动时返回分隔文案。 */
+  function bootLabel(i: number): string | null {
+    const g = start + i;
+    const boot = matches[g]!.boot_id;
+    if (g > 0 && matches[g - 1]!.boot_id === boot) return null;
+    return boot === null ? "本次启动" : `启动于 ${new Date(boot).toLocaleString()}`;
+  }
+
+  const storageNote = $derived.by(() => {
+    const s = feed.storage;
+    if (s === null || s.kind === "sqlite") return null;
+    return s.kind === "file"
+      ? `日志库不可用（${s.reason}），已改写到 ${s.path}`
+      : `日志只在内存（${s.reason}），重启后不可回看`;
+  });
 
   let copyNote = $state<string | null>(null);
 
@@ -148,6 +171,14 @@
 </script>
 
 <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2 text-xs">
+  <div class="flex overflow-hidden rounded-md border">
+    {#each [["all", "全部"], ["current", "本次启动以来"]] as const as [value, label] (value)}
+      <button
+        type="button"
+        class="px-2 py-1 {scope === value ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'}"
+        onclick={() => setScope(value)}>{label}</button>
+    {/each}
+  </div>
   <div class="flex items-center gap-2">
     {#each LOG_LEVELS as l (l)}
       <label class="flex items-center gap-1">
@@ -178,6 +209,12 @@
     <input type="checkbox" bind:checked={ignoreCase} disabled={!regex} />忽略大小写
   </label>
 </div>
+{#if storageNote}
+  <p class="shrink-0 border-b px-3 py-1 text-xs text-amber-600 dark:text-amber-400">{storageNote}</p>
+{/if}
+{#if feed.historyError}
+  <p class="shrink-0 border-b px-3 py-1 text-xs text-destructive">{feed.historyError}</p>
+{/if}
 {#if queryError}
   <p class="shrink-0 border-b px-3 py-1 text-xs text-destructive">{queryError}</p>
 {/if}
@@ -189,6 +226,10 @@
 
 <div bind:this={list} {onscroll} class="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
   {#each rows as r, i (i)}
+    {@const boot = scope === "all" ? bootLabel(i) : null}
+    {#if boot}
+      <div class="border-b border-border/50 px-3 py-0.5 text-center text-muted-foreground">—— {boot} ——</div>
+    {/if}
     <div class="border-b border-border/50 px-3 py-0.5 break-all whitespace-pre-wrap">
       <span class="text-muted-foreground">{time(r.timestamp_ms)}</span>
       <span class={LEVEL_CLASS[r.level]}>{r.level.toUpperCase().padEnd(5)}</span>
@@ -197,7 +238,7 @@
           class="text-amber-600 dark:text-amber-400"> [已截断]</span>{/if}
     </div>
   {:else}
-    <p class="p-3 text-muted-foreground">{feed.records.length === 0 ? "暂无日志" : "没有匹配的日志"}</p>
+    <p class="p-3 text-muted-foreground">{source.length === 0 ? "暂无日志" : "没有匹配的日志"}</p>
   {/each}
 </div>
 
@@ -209,7 +250,7 @@
   {:else}
     <span class:text-destructive={feed.status === "reconnecting"}>{STATUS[feed.status]}</span>
   {/if}
-  <span>{matches.length} / {feed.records.length} 条{feed.historyTrimmed ? "（更早的已淘汰）" : ""}</span>
+  <span>{matches.length} / {source.length} 条{feed.historyTrimmed ? "（更早的已淘汰）" : ""}</span>
   <span class="flex items-center gap-1">
     <button
       type="button"
@@ -237,5 +278,5 @@
     class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
     onclick={copyAll}><Icon name="copy" class="size-3.5" />复制筛选结果</button>
   {#if copyNote}<span>{copyNote}</span>{/if}
-  <span class="ml-auto">内存日志，重启清空；重连重新加载最近窗口</span>
+  <span class="ml-auto">保留最近日志（最多 100 MB）；「全部」含之前启动的最近 2000 条</span>
 </div>

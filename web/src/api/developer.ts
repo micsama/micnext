@@ -1,6 +1,6 @@
-import { arr, bool, nullable, num, obj, oneOf, ProtocolError, str, type Decoder } from "./decode";
+import { arr, bool, kinded, nullable, num, obj, oneOf, ProtocolError, str, type Decoder } from "./decode";
 
-// 与 docs/blueprints/developer-diagnostics.md §2.4、§3.4 一一对应。
+// 与 docs/blueprints/developer-diagnostics.md §2.4、§3.4，developer-log-history.md §四 一一对应。
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -15,6 +15,16 @@ export type LogRecord = {
   line: number | null;
   truncated: boolean;
 };
+
+/** 日志落盘去向；非 sqlite 时之前启动的日志不可读。 */
+export type LogStorage =
+  | { kind: "sqlite" }
+  | { kind: "file"; path: string; reason: string }
+  | { kind: "memory"; reason: string };
+
+export type StoredLogRecord = LogRecord & { boot_id: number };
+
+export type LogHistory = { storage: LogStorage; boot_id: number; records: StoredLogRecord[] };
 
 export type LogEvent =
   | { event: "ready"; data: { retained_count: number; history_trimmed: boolean } }
@@ -31,7 +41,7 @@ export type QueryResult = { columns: string[]; rows: Cell[][]; truncated: boolea
 
 export type TableSchema = { name: string; columns: { name: string; decl_type: string; secret: boolean }[] };
 
-const logRecord: Decoder<LogRecord> = obj({
+const logRecordFields = {
   timestamp_ms: num,
   level: oneOf(...LOG_LEVELS),
   target: str,
@@ -40,7 +50,27 @@ const logRecord: Decoder<LogRecord> = obj({
   file: nullable(str),
   line: nullable(num),
   truncated: bool,
+};
+
+const logRecord: Decoder<LogRecord> = obj(logRecordFields);
+
+const storage: Decoder<LogStorage> = kinded<{
+  sqlite: Record<never, never>;
+  file: { path: string; reason: string };
+  memory: { reason: string };
+}>({
+  sqlite: {},
+  file: { path: str, reason: str },
+  memory: { reason: str },
 });
+
+const logHistory: Decoder<LogHistory> = obj({
+  storage,
+  boot_id: num,
+  records: arr(obj<StoredLogRecord>({ ...logRecordFields, boot_id: num })),
+});
+
+export const parseLogHistory = (v: unknown): LogHistory => logHistory(v, "日志历史");
 
 const logData: { [E in LogEvent["event"]]: Decoder<Extract<LogEvent, { event: E }>["data"]> } = {
   ready: obj({ retained_count: num, history_trimmed: bool }),

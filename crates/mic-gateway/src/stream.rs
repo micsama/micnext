@@ -80,17 +80,21 @@ async fn feed(
     mut events: EventReceiver,
     tx: mpsc::Sender<Event>,
 ) {
-    // 首次只回放最近一页，更早的经 `page` 取；重连从 `after` 续传。
+    // 首次只回放最近一页并告知是否还有更早的，更早的经 `page` 取；重连从 `after` 续传。
     let replayed = match after {
-        Some(_) => app.kernel.messages_after(session_id, after).await,
+        Some(_) => app
+            .kernel
+            .messages_after(session_id, after)
+            .await
+            .map(|messages| (messages, None)),
         None => app
             .kernel
             .messages_page(session_id, None, PAGE_ROUNDS, PAGE_MESSAGES)
             .await
-            .map(|page| page.messages),
+            .map(|page| (page.messages, Some(page.has_earlier))),
     };
-    let replayed = match replayed {
-        Ok(messages) => messages,
+    let (replayed, has_earlier) = match replayed {
+        Ok(replayed) => replayed,
         Err(e) => return tracing::error!(error = %e, "gateway replay failed"),
     };
     let mut last = after;
@@ -106,6 +110,7 @@ async fn feed(
     };
     let ready = Ready {
         executing_run: executing_run.map(|r| r.0),
+        has_earlier,
     };
     if !send(&app, &tx, json_event("ready", &ready)).await {
         return;
@@ -182,6 +187,8 @@ async fn send(app: &App, tx: &mpsc::Sender<Event>, event: Event) -> bool {
 #[derive(Serialize)]
 struct Ready {
     executing_run: Option<i64>,
+    /// 首次回放之前是否还有消息；重连续传时为 null。
+    has_earlier: Option<bool>,
 }
 
 #[derive(Serialize)]

@@ -146,7 +146,7 @@ export class SessionView {
       case "ready":
         this.ready = true;
         this.reconnecting = false;
-        if (this.messages.length === 0) this.earlier = "none";
+        if (e.data.has_earlier !== null) this.earlier = e.data.has_earlier ? "idle" : "none";
         this.executingRun = e.data.executing_run;
         break;
       case "run_started":

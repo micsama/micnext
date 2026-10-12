@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Message, ToolResultOutcome } from "../api/types";
+  import { untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
@@ -87,17 +88,41 @@
     return () => ro.disconnect();
   });
 
-  // 预取通常发生在视口外，加载中、完成、失败都在列表顶部浮出告知。
+  // 预取通常发生在视口外：列表顶部不可见时才浮出提示，可见时由列表内提示负责，避免两处重复。
   const TOAST_MS = 2500;
   const pill =
     "[grid-area:1/1] inline-flex items-center gap-2 rounded-full border bg-background/90 px-4 py-2 text-sm shadow-lg backdrop-blur";
+  const SLOW_MS = 300;
+  let sentinelInView = $state(false);
+  // 加载超过 SLOW_MS 才浮出，快的不闪。
+  let slow = $state(false);
+  $effect(() => {
+    if (view.earlier !== "loading") return void (slow = false);
+    const timer = setTimeout(() => (slow = true), SLOW_MS);
+    return () => clearTimeout(timer);
+  });
+  // 本次加载期间是否看到过列表内的加载提示；看到过就不再弹完成提示。
+  let sawInline = false;
+  $effect(() => {
+    if (view.earlier === "loading") sawInline = untrack(() => sentinelInView);
+  });
+  $effect(() => {
+    if (view.earlier === "loading" && sentinelInView) sawInline = true;
+  });
   let toast = $state<{ count: number; reachedStart: boolean } | null>(null);
   $effect(() => {
     const loaded = view.lastLoaded;
-    if (!loaded) return;
+    if (!loaded || loaded.count === 0 || sawInline) return;
     toast = loaded;
     const timer = setTimeout(() => (toast = null), TOAST_MS);
     return () => clearTimeout(timer);
+  });
+  $effect(() => {
+    const seen = new IntersectionObserver((entries) => {
+      sentinelInView = entries.at(-1)?.isIntersecting ?? false;
+    }, { root: scroller });
+    seen.observe(sentinel);
+    return () => seen.disconnect();
   });
 
   // 哨兵离顶部三屏内就取更早一页，用户划到顶前通常已接上。IntersectionObserver 只在相交变化时通知，
@@ -132,19 +157,24 @@
   <div bind:this={scroller} {onscroll} class="flex h-full flex-col-reverse overflow-y-auto [overflow-anchor:none]">
     <!-- mb-auto：内容不满一屏时靠上。 -->
     <div bind:this={content} class="mx-auto mb-auto w-full max-w-3xl space-y-4 px-4 py-6">
-      <!-- 无提示时抵掉 space-y 给下一条的间距。 -->
-      <div bind:this={sentinel} class={view.earlier === "loading" || (view.earlier === "none" && startedAt !== undefined) ? "" : "-mb-4"}>
+      <!-- 固定高度：上方变高会往视口外长，切换状态只换内容，提示才始终可见。 -->
+      <div bind:this={sentinel} class="flex h-14 items-center justify-center">
         {#if view.earlier === "loading"}
-          <div class="flex flex-col items-center gap-2 py-6 text-sm text-muted-foreground duration-300 animate-in fade-in">
-            <Icon name="loader" class="size-6 animate-spin text-primary" />
+          <div class="flex items-center gap-2 text-sm text-muted-foreground duration-300 animate-in fade-in">
+            <Icon name="loader" class="size-5 animate-spin text-primary" />
             正在加载更早的消息
           </div>
         {:else if view.earlier === "none" && startedAt !== undefined}
-          <div class="flex items-center gap-3 py-2 text-xs text-muted-foreground duration-500 animate-in fade-in">
+          <div class="flex w-full items-center gap-3 text-xs text-muted-foreground duration-500 animate-in fade-in">
             <span class="h-px flex-1 bg-border"></span>
             <span class="rounded-full border border-border px-3 py-1">会话开始 · {formatTime(startedAt)}</span>
             <span class="h-px flex-1 bg-border"></span>
           </div>
+        {:else if typeof view.earlier === "object"}
+          <p class="text-sm text-destructive">
+            加载失败：{view.earlier.error}
+            <button type="button" class="ml-2 font-medium underline" onclick={() => view.loadEarlier()}>重试</button>
+          </p>
         {/if}
       </div>
       {#each grouped.items as messages (messages[0].id)}
@@ -193,7 +223,9 @@
     </div>
   </div>
   <div class="pointer-events-none absolute inset-x-0 top-3 grid justify-items-center">
-    {#if view.earlier === "loading"}
+    {#if sentinelInView}
+      <!-- 列表顶部可见，由列表内提示负责。 -->
+    {:else if view.earlier === "loading" && slow}
       <div transition:fly={{ y: -12, duration: 200 }} class={[pill, "border-border text-foreground"]}>
         <Icon name="loader" class="size-4 animate-spin text-primary" />正在加载更早的消息
       </div>

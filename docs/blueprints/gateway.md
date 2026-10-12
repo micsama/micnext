@@ -191,7 +191,7 @@ mic-message 形状变化即 wire 变化，由改 mic-message 的 B2 列 M10 为�
 | `draft_discarded` | — | `{}` |
 | `run_started` | — | `{"run_id": 5}` |
 | `run_finished` | — | `{"run_id": 5, "state": "completed"}`（snake_case，同库列值） |
-| `ready` | — | `{"executing_run": 5 \| null}`：回放结束、之后都是实时 |
+| `ready` | — | `{"executing_run": 5 \| null, "has_earlier": true \| false \| null}`：回放结束、之后都是实时；`has_earlier` 见 [web-message-paging](web-message-paging.md) §4.1 |
 
 只有 `message` 带 `id`，所以客户端记下的最后一个事件 id 恰是稳定游标，重连时作 `after` 传回。
 

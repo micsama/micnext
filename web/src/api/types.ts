@@ -199,7 +199,7 @@ export type StreamEvent =
   | { event: "draft_discarded"; data: Record<string, never> }
   | { event: "run_started"; data: { run_id: number } }
   | { event: "run_finished"; data: { run_id: number; state: RunState } }
-  | { event: "ready"; data: { executing_run: number | null } };
+  | { event: "ready"; data: { executing_run: number | null; has_earlier: boolean | null } };
 
 const fileRef: Decoder<FileRef> = obj({ path: str, mime: str, size_bytes: num });
 
@@ -343,7 +343,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
     run_id: num,
     state: oneOf("executing", "completed", "provider_failed", "max_turns", "interrupted"),
   }),
-  ready: obj({ executing_run: nullable(num) }),
+  ready: obj({ executing_run: nullable(num), has_earlier: nullable(bool) }),
 };
 
 export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入限额").input_limits;

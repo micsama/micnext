@@ -2,6 +2,8 @@
 
 **状态：CLOSED（2026-10-10，网页与服务器人工验收通过）。合并原日志 B2 r2 与只读 SQL 方向；不依赖[更新重启](self-update.md)。**
 
+> 日志「重启清空」已由 [开发者日志留痕](developer-log-history.md) 替代：INFO+ 落盘，网页可看之前启动的最近日志。
+
 依据：[日志 B1](../brainstorm/developer-logs.md)、[SQL B1](../brainstorm/developer-sql.md)。个人开发者在网页上排查服务器问题：看实时日志，查数据库，不再登服务器。两项后端独立变化，只共用页面入口与鉴权。
 
 ## 一、用户行为

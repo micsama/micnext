@@ -6,6 +6,7 @@ use axum::extract::{Query, State};
 use axum::http::header;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
+use axum::Json;
 use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -42,6 +43,20 @@ pub(crate) async fn stream(
         [(header::CACHE_CONTROL, "no-store")],
         Sse::new(body).keep_alive(KeepAlive::new().interval(SSE_KEEPALIVE)),
     ))
+}
+
+/// 之前启动的最近日志与当前存储状态。
+pub(crate) async fn history(
+    State(app): State<Arc<App>>,
+    query: Result<Query<NoQuery>, QueryRejection>,
+) -> Result<impl IntoResponse, ApiError> {
+    query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
+    let logs = app.logs.clone();
+    let history = tokio::task::spawn_blocking(move || logs.history())
+        .await
+        .expect("日志历史查询不 panic")
+        .map_err(|e| ApiError::Unavailable(format!("读取日志库失败：{e}")))?;
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(history)))
 }
 
 /// 客户端断开、进程停止或实时阶段未读记录被淘汰时返回，流随之结束。

@@ -1,5 +1,5 @@
-import { ApiError } from "../api/client";
-import type { LogRecord } from "../api/developer";
+import { ApiError, getLogHistory } from "../api/client";
+import type { LogRecord, LogStorage } from "../api/developer";
 import { readLogStream } from "../api/stream";
 import { ProtocolError } from "../api/types";
 import { sleep } from "../lib/sleep";
@@ -12,13 +12,18 @@ const MAX_BYTES = 16 * 1024 * 1024;
 
 export type LogStatus = "connecting" | "live" | "reconnecting";
 
-/** `n` 为本页面内递增编号，跨重连不复用，供暂停定位。 */
-export type LogEntry = LogRecord & { n: number };
+/** `n` 为本页面内递增编号，跨重连不复用，供暂停定位；之前启动的为负数。`boot_id` 为 null 表示本次启动。 */
+export type LogEntry = LogRecord & { n: number; boot_id: number | null };
 
-/** 开发者日志连接：收到 ready 清空并接收重放，断线按 1/2/4/8/10s 退避重连。 */
+/** 开发者日志连接：收到 ready 清空并接收重放、重新拉取之前启动的日志，断线按 1/2/4/8/10s 退避重连。 */
 export class LogFeed {
   /** 记录量大，不做深层代理；`version` 递增表示内容变化。 */
   records: LogEntry[] = [];
+  /** 之前启动的最近日志，按时间升序。 */
+  history: LogEntry[] = [];
+  /** 落盘去向；拉取成功前为 null。 */
+  storage = $state<LogStorage | null>(null);
+  historyError = $state<string | null>(null);
   version = $state(0);
   status = $state<LogStatus>("connecting");
   historyTrimmed = $state(false);
@@ -62,6 +67,7 @@ export class LogFeed {
         await readLogStream(signal, (e) => {
           if (e.event === "ready") {
             this.#clear();
+            void this.#loadHistory(signal);
             this.historyTrimmed = e.data.history_trimmed;
             this.status = "live";
             delay = RETRY_MIN_MS;
@@ -84,6 +90,20 @@ export class LogFeed {
     }
   }
 
+  async #loadHistory(signal: AbortSignal): Promise<void> {
+    try {
+      const h = await getLogHistory();
+      if (signal.aborted) return;
+      this.history = h.records.map((r, i) => ({ ...r, n: i - h.records.length }));
+      this.storage = h.storage;
+      this.historyError = null;
+    } catch (e) {
+      if (signal.aborted) return;
+      this.historyError = `之前启动的日志读取失败：${(e as Error).message}`;
+    }
+    this.#touch();
+  }
+
   #clear(): void {
     this.records = [];
     this.#sizes = [];
@@ -93,7 +113,7 @@ export class LogFeed {
 
   #push(record: LogRecord): void {
     const size = sizeOf(record);
-    this.records.push({ ...record, n: this.#next++ });
+    this.records.push({ ...record, n: this.#next++, boot_id: null });
     this.#sizes.push(size);
     this.#bytes += size;
     let drop = 0;

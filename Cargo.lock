@@ -1607,11 +1607,13 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "chrono",
  "futures-util",
  "getrandom 0.3.4",
  "mic-core",
  "mic-message",
  "mic-store",
+ "rusqlite",
  "rust-embed",
  "serde",
  "serde_json",

@@ -7,6 +7,7 @@ mod config;
 mod context;
 mod error;
 mod limits;
+mod log_store;
 mod log_stream;
 mod logs;
 mod models;

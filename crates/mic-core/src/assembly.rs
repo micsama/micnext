@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fs::{File, TryLockError};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mic_message::{PersonId, SessionId};
@@ -189,6 +189,11 @@ impl Assembly {
             channel_setups: Arc::new(channel_setups),
             channel_prompts: Arc::new(channel_prompts),
         })
+    }
+
+    /// 已解析的数据目录。
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
     }
 
     /// 常驻：独占数据目录、打开 Store、崩溃收尾、起调度与各 Service，直到 `stop` 或出错。

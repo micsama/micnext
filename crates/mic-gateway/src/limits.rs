@@ -48,7 +48,8 @@ pub(crate) const LOG_FIELDS: usize = 128;
 pub(crate) const LOG_BATCH: usize = 128;
 /// 诊断 SQL 文本上限。
 pub(crate) const SQL_MAX_BYTES: usize = 16 * 1024;
-/// 一键更新：git pull 各次的超时，次数即长度；失败或超时立即重试。
+/// 一键更新：git pull 重试机会及各次超时，机会数即长度；立即重试，超时扣一次、
+/// 非零退出（如代理 502 秒回）扣半次。
 pub(crate) const PULL_TIMEOUTS: [Duration; 5] = [
     Duration::from_secs(20),
     Duration::from_secs(30),

@@ -226,30 +226,42 @@ impl Updater {
     }
 
     async fn pull(&self, from: &str) -> Result<(), String> {
-        let total = PULL_TIMEOUTS.len();
-        for (i, timeout) in PULL_TIMEOUTS.into_iter().enumerate() {
-            let attempt = i + 1;
+        // 以半次为单位计重试机会。
+        let budget = PULL_TIMEOUTS.len() * 2;
+        let mut spent = 0;
+        let mut attempt = 0;
+        while spent < budget {
+            attempt += 1;
+            let timeout = PULL_TIMEOUTS[spent / 2];
             self.set(Phase::Pulling {
                 from: from.to_owned(),
                 attempt,
             });
             self.append(&format!(
-                "$ git pull --ff-only（第 {attempt}/{total} 次）\n"
+                "$ git pull --ff-only（第 {attempt} 次，剩余 {} 次机会）\n",
+                halves(budget - spent)
             ));
             let mut git = Command::new("git");
             git.args(["pull", "--ff-only"]);
             match tokio::time::timeout(timeout, self.stream(git)).await {
                 Ok(Ok(status)) if status.success() => return Ok(()),
-                Ok(Ok(status)) => self.append(&format!("git pull 失败（{status}）\n")),
+                Ok(Ok(status)) => {
+                    spent += 1;
+                    self.append(&format!("git pull 失败（{status}），扣半次\n"));
+                }
                 Ok(Err(e)) => return Err(format!("无法运行 git：{e}")),
-                Err(_) => self.append(&format!(
-                    "git pull {} 秒未完成，已终止\n",
-                    timeout.as_secs()
-                )),
+                Err(_) => {
+                    spent += 2;
+                    self.append(&format!(
+                        "git pull {} 秒未完成，已终止\n",
+                        timeout.as_secs()
+                    ));
+                }
             }
         }
         Err(format!(
-            "git pull 连续 {total} 次失败，请检查网络或启动前是否开了代理"
+            "git pull {} 次重试机会用完仍失败，请检查网络或启动前是否开了代理",
+            PULL_TIMEOUTS.len()
         ))
     }
 
@@ -312,6 +324,14 @@ impl Updater {
             }
             output.drain(..cut);
         }
+    }
+}
+
+/// 半次单位换成可读次数。
+fn halves(n: usize) -> String {
+    match n % 2 {
+        0 => (n / 2).to_string(),
+        _ => format!("{}.5", n / 2),
     }
 }
 

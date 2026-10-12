@@ -33,14 +33,19 @@
     return items;
   });
 
-  // 在底部时跟随新内容；用户上翻后不打扰。
+  // 在底部时跟随新内容；用户上翻后不打扰。滚动事件晚于渲染，内容变高会让程序滚动后的位置看似离底，
+  // 只有 scrollTop 变小才算用户上翻。
   let scroller: HTMLDivElement;
   let content: HTMLDivElement;
   let stuck = $state(true);
+  let lastTop = 0;
   const STICK_PX = 48;
 
   function onscroll() {
-    stuck = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < STICK_PX;
+    const top = scroller.scrollTop;
+    if (scroller.scrollHeight - top - scroller.clientHeight < STICK_PX) stuck = true;
+    else if (top < lastTop) stuck = false;
+    lastTop = top;
   }
   function toBottom() {
     scroller.scrollTop = scroller.scrollHeight;

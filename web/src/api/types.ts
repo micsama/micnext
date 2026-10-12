@@ -135,6 +135,7 @@ export type Persona = { id: number; name: string; prompt: string; builtin: boole
 export type Cursor = { before_at: number; before_id: number };
 
 export type SessionPage = { items: SessionItem[]; next: Cursor | null };
+export type MessagePage = { messages: Message[]; has_earlier: boolean };
 
 export type Created = { session_id: number; message_id: number };
 
@@ -258,6 +259,8 @@ const message: Decoder<Message> = obj({
   delivered_at: nullable(num),
 });
 
+const messagePage: Decoder<MessagePage> = obj({ messages: arr(message), has_earlier: bool });
+
 const sessionItem: Decoder<SessionItem> = obj({
   id: num,
   channel: str,
@@ -348,6 +351,8 @@ export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入
 export const parseSessionItem = (v: unknown): SessionItem => sessionItem(v, "会话");
 
 export const parseSessionPage = (v: unknown): SessionPage => sessionPage(v, "会话列表");
+
+export const parseMessagePage = (v: unknown): MessagePage => messagePage(v, "历史消息");
 
 export const parseCreated = (v: unknown): Created => created(v, "新建会话");
 

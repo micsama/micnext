@@ -6,7 +6,6 @@
   const compactionState = $derived(view.context?.compactions.find((c) => c.boundary_id === id)?.state);
   const revoked = $derived(compactionState?.kind === "revoked");
   const canRevoke = $derived(view.info?.writable && compactionState?.kind === "applied" && view.context?.active_boundary === id);
-  const kept = $derived(result.keep_from === null ? 0 : view.messages.filter((m) => m.body.kind === "Reply" && m.id >= result.keep_from! && m.id < id).length);
   let error = $state<string | null>(null);
   async function revoke() {
     error = null;
@@ -19,7 +18,7 @@
   <summary class="flex cursor-pointer items-center gap-2 px-4 py-3 select-none">
     <span class={revoked ? "text-muted-foreground" : "text-emerald-600 dark:text-emerald-400"}>{revoked ? "↶" : "✓"}</span>
     <span class="font-medium">{revoked ? "已撤回" : "已压缩"}</span>
-    <span class="text-xs text-muted-foreground">保留 {kept} 步 · 查看摘要</span>
+    <span class="text-xs text-muted-foreground">查看摘要</span>
   </summary>
   <div class="space-y-4 border-t border-border px-4 py-3">
     <Markdown source={result.summary} />

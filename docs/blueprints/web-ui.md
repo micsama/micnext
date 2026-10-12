@@ -132,7 +132,7 @@ mic-message 形状变化时，改它的 B2 须把本文列为调用方（gateway
 
 ## 五、会话状态与流
 
-每个打开的会话一份状态：
+每个打开的会话一份状态。首次回放只有最近一页，更早的历史由 `earlier` / `loadEarlier()` 往前补，见 [web-message-paging](web-message-paging.md) §五。
 
 ```ts
 type SessionView = {

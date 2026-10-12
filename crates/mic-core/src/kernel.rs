@@ -8,10 +8,10 @@ use mic_message::{
 };
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
-    CredentialWrite, EndpointId, EndpointView, EndpointWrite, Identity, InputDisposition, ModelId,
-    ModelView, ModelWrite, NewInputPart, NewNotice, NewSession, PendingDelivery, Persona,
-    PersonaId, QueryResult, RunId, Session, SessionCursor, SessionKind, SessionPage,
-    SessionSummary, Settings, Store, StoreError, TableSchema,
+    CredentialWrite, EndpointId, EndpointView, EndpointWrite, Identity, InputDisposition,
+    MessagePage, ModelId, ModelView, ModelWrite, NewInputPart, NewNotice, NewSession,
+    PendingDelivery, Persona, PersonaId, QueryResult, RunId, Session, SessionCursor, SessionKind,
+    SessionPage, SessionSummary, Settings, Store, StoreError, TableSchema,
 };
 use tokio::sync::mpsc;
 
@@ -282,6 +282,20 @@ impl Kernel {
         after: Option<MessageId>,
     ) -> Result<Vec<Message>, KernelError> {
         Ok(self.store.messages_after(session_id, after).await?)
+    }
+
+    /// `before` 之前的一页，见 `Store::messages_page`。
+    pub async fn messages_page(
+        &self,
+        session_id: SessionId,
+        before: Option<MessageId>,
+        rounds: NonZeroU32,
+        cap: NonZeroU32,
+    ) -> Result<MessagePage, KernelError> {
+        Ok(self
+            .store
+            .messages_page(session_id, before, rounds, cap)
+            .await?)
     }
 
     /// 该会话正在执行的 run。

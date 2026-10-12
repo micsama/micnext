@@ -25,9 +25,9 @@ pub use store::Store;
 pub use types::{
     ClaimedModel, ClaimedRun, CompactionSettings, CompactionState, CompactionView, ContextUsage,
     ContextView, ContextWindow, CredentialWrite, DeliveryTarget, EndpointId, EndpointView,
-    EndpointWrite, Identity, InputDisposition, Migration, ModelCallContext, ModelCallId,
-    ModelCallOutcome, ModelId, ModelView, ModelWrite, NewInputPart, NewModelCall, NewNotice,
-    NewSession, PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunInput, RunSettings,
-    RunState, SecretColumn, Session, SessionCursor, SessionKind, SessionPage, SessionSummary,
-    Settings, ToolScope, Usage,
+    EndpointWrite, Identity, InputDisposition, MessagePage, Migration, ModelCallContext,
+    ModelCallId, ModelCallOutcome, ModelId, ModelView, ModelWrite, NewInputPart, NewModelCall,
+    NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunInput,
+    RunSettings, RunState, SecretColumn, Session, SessionCursor, SessionKind, SessionPage,
+    SessionSummary, Settings, ToolScope, Usage,
 };

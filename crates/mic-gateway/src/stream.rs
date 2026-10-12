@@ -4,6 +4,7 @@ use std::sync::Arc;
 use axum::extract::rejection::{PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::response::sse::{Event, Sse};
+use axum::Json;
 use futures_util::stream::Stream;
 use mic_core::{EventReceiver, KernelEventKind};
 use mic_message::{Message, MessageBody, MessageId, SessionId};
@@ -12,7 +13,7 @@ use tokio::sync::mpsc;
 
 use crate::api::session;
 use crate::error::ApiError;
-use crate::limits::STREAM_BUFFER;
+use crate::limits::{PAGE_MESSAGES, PAGE_ROUNDS, STREAM_BUFFER};
 use crate::service::App;
 use crate::sse;
 
@@ -36,6 +37,41 @@ pub(crate) async fn stream(
     Ok(sse::respond(rx))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PageQuery {
+    before: i64,
+}
+
+#[derive(Serialize)]
+pub(crate) struct Page {
+    messages: Vec<Message>,
+    has_earlier: bool,
+}
+
+/// 首次回放之前的历史，一页一页往前取。
+pub(crate) async fn page(
+    State(app): State<Arc<App>>,
+    id: Result<Path<i64>, PathRejection>,
+    query: Result<Query<PageQuery>, QueryRejection>,
+) -> Result<Json<Page>, ApiError> {
+    let session = session(&app, id).await?;
+    let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
+    let page = app
+        .kernel
+        .messages_page(
+            session.id,
+            Some(MessageId(q.before)),
+            PAGE_ROUNDS,
+            PAGE_MESSAGES,
+        )
+        .await?;
+    Ok(Json(Page {
+        messages: page.messages,
+        has_earlier: page.has_earlier,
+    }))
+}
+
 /// 客户端断开（发送失败）、订阅落后、进程停止或出错时返回，流随之结束。
 async fn feed(
     app: Arc<App>,
@@ -44,7 +80,16 @@ async fn feed(
     mut events: EventReceiver,
     tx: mpsc::Sender<Event>,
 ) {
-    let replayed = match app.kernel.messages_after(session_id, after).await {
+    // 首次只回放最近一页，更早的经 `page` 取；重连从 `after` 续传。
+    let replayed = match after {
+        Some(_) => app.kernel.messages_after(session_id, after).await,
+        None => app
+            .kernel
+            .messages_page(session_id, None, PAGE_ROUNDS, PAGE_MESSAGES)
+            .await
+            .map(|page| page.messages),
+    };
+    let replayed = match replayed {
         Ok(messages) => messages,
         Err(e) => return tracing::error!(error = %e, "gateway replay failed"),
     };

@@ -1,4 +1,4 @@
-import { ApiError, getContext, revokeCompaction, getSession } from "../api/client";
+import { ApiError, getContext, getMessages, revokeCompaction, getSession } from "../api/client";
 import { readStream } from "../api/stream";
 import { ProtocolError, type ContextView, type Message, type RunState, type SessionItem, type StreamEvent } from "../api/types";
 import { sleep } from "../lib/sleep";
@@ -55,6 +55,8 @@ export class SessionView {
   notice = $state<string | null>(null);
   /** 无法继续的错误（会话不存在、版本不一致），不再重连。 */
   fatal = $state<string | null>(null);
+  /** 首次回放之前的历史：`idle` 表示可能还有、可以取。 */
+  earlier = $state<"idle" | "loading" | "none" | { error: string }>("idle");
 
   #abort = new AbortController();
 
@@ -68,6 +70,21 @@ export class SessionView {
 
   get lastId(): number | null {
     return this.messages.at(-1)?.id ?? null;
+  }
+
+  /** 取 messages[0] 之前的一页插到最前面；同一时刻只跑一个。 */
+  async loadEarlier(): Promise<void> {
+    const first = this.messages[0];
+    if (!this.ready || !first || this.earlier === "loading" || this.earlier === "none") return;
+    this.earlier = "loading";
+    try {
+      const page = await getMessages(this.id, first.id);
+      if (this.#abort.signal.aborted) return;
+      this.messages.unshift(...page.messages);
+      this.earlier = page.has_earlier ? "idle" : "none";
+    } catch (error) {
+      if (!this.#abort.signal.aborted) this.earlier = { error: (error as Error).message };
+    }
   }
 
   async #run(): Promise<void> {
@@ -121,6 +138,7 @@ export class SessionView {
       case "ready":
         this.ready = true;
         this.reconnecting = false;
+        if (this.messages.length === 0) this.earlier = "none";
         this.executingRun = e.data.executing_run;
         break;
       case "run_started":

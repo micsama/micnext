@@ -222,6 +222,15 @@ pub struct SessionPage {
     pub next: Option<SessionCursor>,
 }
 
+/// 会话消息的一页，规则见 docs/blueprints/web-message-paging.md §二。
+#[derive(Debug, Clone, PartialEq)]
+pub struct MessagePage {
+    /// id 升序。
+    pub messages: Vec<Message>,
+    /// 本页之前还有消息。
+    pub has_earlier: bool,
+}
+
 /// 一次 agent loop 的状态。失败详情看调用记录的 `error`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunState {

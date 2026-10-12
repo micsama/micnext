@@ -21,6 +21,7 @@ import {
   parsePersonas,
   parseSessionItem,
   parseSessionPage,
+  parseMessagePage,
   parseSettings,
   parseSetupAttempt,
   parseWechatView,
@@ -36,6 +37,7 @@ import {
   type Persona,
   type SessionItem,
   type SessionPage,
+  type MessagePage,
   type Settings,
   type SettingsInput,
   type SetupAttempt,
@@ -98,6 +100,10 @@ export async function listSessions(channel: string, before: Cursor | null): Prom
 
 export async function getSession(id: number): Promise<SessionItem> {
   return parseSessionItem(await request("GET", `/sessions/${id}`));
+}
+
+export async function getMessages(sessionId: number, before: number): Promise<MessagePage> {
+  return parseMessagePage(await request("GET", `/sessions/${sessionId}/messages?before=${before}`));
 }
 
 export async function createSession(parts: InputPart[], personaId: number, modelId: number): Promise<Created> {

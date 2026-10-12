@@ -1,5 +1,6 @@
 //! build 后不改的旋钮。
 
+use std::num::NonZeroU32;
 use std::time::Duration;
 
 /// 一条消息的最大字符数。
@@ -17,6 +18,9 @@ pub(crate) const MAX_INPUT_BODY_BYTES: usize = 24 * 1024 * 1024;
 /// 会话列表每页条数：缺省与上限。
 pub(crate) const PAGE_DEFAULT: u32 = 30;
 pub(crate) const PAGE_MAX: u32 = 100;
+/// 会话消息一页：最近轮数与条数上限。
+pub(crate) const PAGE_ROUNDS: NonZeroU32 = NonZeroU32::new(20).unwrap();
+pub(crate) const PAGE_MESSAGES: NonZeroU32 = NonZeroU32::new(300).unwrap();
 /// SSE 心跳注释间隔。
 pub(crate) const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
 /// 一批 SSE 事件后静默多久补一条空注释。

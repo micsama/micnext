@@ -13,7 +13,7 @@ use crate::row::{
 use crate::secrets::Cipher;
 use crate::{endpoints, models};
 use crate::{
-    ClaimedModel, ClaimedRun, CompactionSettings, Identity, Migration, ModelCallId,
+    ClaimedModel, ClaimedRun, CompactionSettings, Identity, MessagePage, Migration, ModelCallId,
     ModelCallOutcome, NewModelCall, NewSession, PendingDelivery, Person, Persona, PersonaId, Run,
     RunId, RunInput, RunSettings, RunState, SecretColumn, SecretKeyFile, Session, SessionCursor,
     SessionPage, SessionSummary, Settings, SettingsError, StoreError,
@@ -850,6 +850,31 @@ impl Store {
         .await
     }
 
+    /// `before` 之前的一页（不含 `before`；`None` = 到最新）：最近 `rounds` 轮，至多 `cap` 条。
+    pub async fn messages_page(
+        &self,
+        session_id: SessionId,
+        before: Option<MessageId>,
+        rounds: NonZeroU32,
+        cap: NonZeroU32,
+    ) -> Result<MessagePage, StoreError> {
+        let before = before.map_or(i64::MAX, |id| id.0);
+        self.call(move |conn| {
+            let newest_first = conn
+                .prepare(&format!(
+                    "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM}
+                     WHERE m.session_id = ?1 AND m.id < ?2 ORDER BY m.id DESC LIMIT ?3"
+                ))?
+                .query_map(
+                    params![session_id.0, before, i64::from(cap.get()) + 1],
+                    row::message,
+                )?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(cut_page(newest_first, rounds, cap))
+        })
+        .await
+    }
+
     // ---- 投递 ----
 
     pub async fn pending_deliveries(
@@ -1139,3 +1164,27 @@ pub(crate) fn insert_message(
     )?;
     Ok(MessageId(conn.last_insert_rowid()))
 }
+
+/// `newest_first` 为倒序的至多 `cap + 1` 条：截到第 `rounds` 条 `UserInput` 或第 `cap` 条为止。
+fn cut_page(mut newest_first: Vec<Message>, rounds: NonZeroU32, cap: NonZeroU32) -> MessagePage {
+    let cap = cap.get() as usize;
+    let mut seen = 0;
+    let len = newest_first
+        .iter()
+        .take(cap)
+        .position(|m| {
+            seen += u32::from(matches!(m.body, MessageBody::UserInput { .. }));
+            seen == rounds.get()
+        })
+        .map_or(newest_first.len().min(cap), |i| i + 1);
+    let has_earlier = newest_first.len() > len;
+    newest_first.truncate(len);
+    newest_first.reverse();
+    MessagePage {
+        messages: newest_first,
+        has_earlier,
+    }
+}
+
+#[cfg(test)]
+mod tests;

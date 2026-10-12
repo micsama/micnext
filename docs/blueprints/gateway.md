@@ -122,6 +122,7 @@ impl Store {
 | `POST /api/sessions` | `{"text": "…"}` | 201 `{"session_id": 3, "message_id": 12}` |
 | `POST /api/sessions/{id}/messages` | `{"text": "…"}` | 202 `{"message_id": 13}` |
 | `GET /api/sessions/{id}/stream[?after=<message_id>]` | — | 200 `text/event-stream`（§五） |
+| `GET /api/sessions/{id}/messages?before=<message_id>` | — | 200 `{"messages", "has_earlier"}`，往前取一页（[web-message-paging](web-message-paging.md) §4.2） |
 
 - `POST /api/sessions`：生成随机 `chat`，以设置里的默认工作目录（展开 `~/`，不存在则创建）、`ToolScope::All`、无投递目标调
   `resolve_root_session("web", chat, …)`，再 `append_user_input(owner, [Text])`。两步不在一个事务：
@@ -197,7 +198,7 @@ mic-message 形状变化即 wire 变化，由改 mic-message 的 B2 列 M10 为�
 ### 5.2 交接顺序
 
 1. `kernel.subscribe()`，开始缓冲本会话的事件（其它会话丢弃）。
-2. `messages_after(session, after)` 回放，逐条发 `message`；记回放到的最大 id 为 N（没有则取 `after`）。
+2. 回放，逐条发 `message`；记回放到的最大 id 为 N（没有则取 `after`）。带 `after` 时回放 `messages_after(session, after)`；不带时只回放最近一页 `messages_page`（[web-message-paging](web-message-paging.md) §4.1）。
 3. `executing_run(session)`，发 `ready`。
 4. 按到达顺序转发订阅里的事件（先是回放期间缓冲的，之后是实时的），规则（run-execution §3.1）：
    - 增量立即转发（不暂存，实时显示不被延迟），并记"有未结束的草稿"。

@@ -250,7 +250,8 @@ pub(crate) fn init(conn: &mut Connection, modules: &[Migration]) -> Result<(), S
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+        .expect("系统时钟早于 1970")
+        .as_millis() as i64
 }
 
 /// 按模块首次出现的顺序分组，组内按版本升序。

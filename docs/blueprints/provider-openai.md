@@ -11,7 +11,7 @@
 - Web 设置页新建服务商，选预设：OpenAI、ChatGPT 订阅（Codex）、DeepSeek、Ollama、通用兼容服务。OpenAI / ChatGPT / DeepSeek 地址固定不用填；Ollama 留空取本机；通用必须填地址。
 - key 可在 Web 填（加密入库），不填则读环境变量（OpenAI/通用 `OPENAI_API_KEY`，DeepSeek `DEEPSEEK_API_KEY`，Ollama 不需要）。ChatGPT 订阅必须粘贴 Codex CLI 的 access_token（10 天有效，过期重贴），不读环境变量。
 - 回复流式显示；DeepSeek / Ollama 的思考过程、OpenAI 的推理摘要作为推理单独显示。
-- key 无效、余额不足直接说明原因；限流、服务端错误、断流、长时间无数据、空回复归为"暂时不可用"，由 core 决定是否重试。
+- key 无效、余额不足直接说明原因；限流、服务端错误、断流、长时间无数据归为"暂时不可用"，由 core 决定是否重试。
 - 每次调用的用量（输入、输出、缓存读写、推理）入库，供统计。
 
 ## 二、公开接口
@@ -107,7 +107,7 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 ### 4.4 公共响应规则
 
 - 工具参数解析为 JSON **对象**才存 `Value::Object`；否则原文存 `Value::String`，由 `mic-tool` 边界报参数错误给模型自纠，回传时逐字还原。
-- `EndTurn` 但没有任何内容块 → `Transient`（"上游返回了空回复"）。
+- `EndTurn` 但没有任何内容块是合法终态，不重试：调用行照常记录，不产生 Reply。
 - 用量在终态一次转换；上游没给的项为 `None`，整个 usage 缺失则 `ModelResponse.usage = None`，不编造 0：
 
 | 领域字段 | Chat | Responses |
@@ -145,7 +145,7 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 | `config` | 配置解析、规范化、`Resolved` |
 | `client` | SDK `Config`、无重试 service、`HttpFailure` |
 | `error` | SDK / HTTP / 流内错误 → `ProviderError` / `ProbeError` |
-| `stream` | 共用流驱动：打开、逐事件、空闲超时、EOF、空回复判定 |
+| `stream` | 共用流驱动：打开、逐事件、空闲超时、EOF |
 | `content` | 两协议共用的内容转换：文本拼接、图片 data URL、工具参数 |
 | `chat` / `responses` | 各自的请求映射、BYOT 类型、增量累积与终态转换 |
 | `probe` | `/models` 探测 |

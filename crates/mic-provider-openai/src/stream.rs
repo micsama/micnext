@@ -6,7 +6,7 @@ use std::pin::Pin;
 use async_openai::error::OpenAIError;
 use async_openai::types::stream::StreamResponse;
 use futures_util::stream::{self, StreamExt};
-use mic_core::{BoxStream, ModelEvent, ModelResponse, ProviderError, StopReason};
+use mic_core::{BoxStream, ModelEvent, ModelResponse, ProviderError};
 
 use crate::error::{self, transient};
 use crate::limits::STREAM_IDLE_TIMEOUT;
@@ -64,12 +64,8 @@ pub(crate) fn drive<A: Accumulate>(open: Open<A::Event>, acc: A) -> BoxStream<It
     )
 }
 
-/// 正常结束却没有任何内容视为上游故障，交给 core 重试。
 fn finish<A: Accumulate>(resp: Result<ModelResponse, ProviderError>) -> (Vec<Item>, State<A>) {
     match resp {
-        Ok(resp) if resp.stop == StopReason::EndTurn && resp.blocks.is_empty() => {
-            fail(transient("上游返回了空回复"))
-        }
         Ok(resp) => (vec![Ok(ModelEvent::Finished(resp))], State::Done),
         Err(e) => fail(e),
     }

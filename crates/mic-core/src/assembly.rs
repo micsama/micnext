@@ -407,11 +407,7 @@ fn install(m: &dyn Module, reg: &mut Registry, cfg: toml::Value) -> Result<(), A
 /// `[core] data_dir`（绝对路径或 `~/` 开头），缺省按 XDG：`$XDG_DATA_HOME/micnext` 或 `~/.local/share/micnext`。
 fn resolve_data_dir(configured: Option<String>) -> Result<PathBuf, BoxError> {
     if let Some(dir) = configured {
-        return match dir.strip_prefix("~/") {
-            Some(rest) => Ok(home()?.join(rest)),
-            None if dir.starts_with('/') => Ok(PathBuf::from(dir)),
-            None => Err(format!("data_dir 必须是绝对路径或以 ~/ 开头，当前为 \"{dir}\"").into()),
-        };
+        return resolve_abs("data_dir", &dir);
     }
     let base = match std::env::var_os("XDG_DATA_HOME") {
         Some(d) if !d.is_empty() => PathBuf::from(d),

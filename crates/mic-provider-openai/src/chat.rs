@@ -237,7 +237,6 @@ enum FinishReason {
     Length,
     ToolCalls,
     ContentFilter,
-    FunctionCall,
     /// DeepSeek：上游资源不足中断。
     InsufficientSystemResource,
 }
@@ -348,9 +347,6 @@ impl Accumulate for Accumulator {
             Some(FinishReason::ContentFilter) => StopReason::ContentFilter,
             Some(FinishReason::InsufficientSystemResource) => {
                 return Err(transient("上游资源不足，回复被中断"))
-            }
-            Some(FinishReason::FunctionCall) => {
-                return Err(protocol("收到未请求的 legacy function_call"))
             }
             None => return Err(transient("流在 finish_reason 之前结束")),
         };

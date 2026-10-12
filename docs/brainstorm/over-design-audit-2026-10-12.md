@@ -17,6 +17,8 @@ provider 基本干净，只有一处与蓝图矛盾；gateway 与工具类 crate
 
 ## A. 私有项，可直接改（B2 豁免）
 
+**处理结果（2026-10-12）**：A1、A3 已改；A5 只做了 crate 内部分（`resolve_data_dir` 复用 `resolve_abs`，store 的 `now_ms` 由静默回 0 改为与其余三份一致的 `expect`），跨 crate 合并需在 `mic-message` 新增公开函数，走 B2，暂不做；A4 不改：库内 `config_json` 属磁盘外部数据，升级后旧行可能解析失败，`build` 会以「配置有误」报错，`expect` 会把它变成 panic；A6 随 D1 决定；A2 随 C 决定。
+
 | # | 位置 | 问题 | 依据或来源 |
 |---|---|---|---|
 | A1 | `mic-provider-openai/src/stream.rs:67` `finish` | 正常结束（EndTurn）但没有内容时按 `Transient` 重试 | 326e21f（2026-09-24）初版沿用至今。[provider-sdk-responses](../blueprints/provider-sdk-responses.md) §六（2026-10-10 批准）写明「空正文的合法终态不再猜测重试」，但代码和 [provider-openai](../blueprints/provider-openai.md) 第 14、110、148 行仍保留，两份文档互相矛盾，一处真相被破坏。删除前须确认 core 能正常落盘空 `Reply`。 |

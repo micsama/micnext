@@ -1,6 +1,6 @@
 # B2: ChatGPT 订阅预设（手贴 access_token）
 
-**状态**：APPROVED（2026-10-10），已实现，fmt/clippy/Web check 通过，待 §七 验收后 CLOSED
+**状态**：CLOSED（2026-10-12，human 服务器验收 ChatGPT 订阅通过；§七-3 OpenAI 预设回归随 [provider-sdk-responses](provider-sdk-responses.md) §十-2 验收）
 **方向来源**：human 选定走 Codex 内部后端（方案 A），先只贴 access_token、不做刷新，不够用再换方案。
 **修订**：[provider-sdk-responses](provider-sdk-responses.md) §五「终态 `response.output` 是唯一内容来源」改为 §三；现行契约同步到 [provider-openai](provider-openai.md)。
 

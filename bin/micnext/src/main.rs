@@ -84,6 +84,17 @@ async fn run() -> Result<ExitCode> {
         Mode::Serve => registry.with(logs.layer()).init(),
         Mode::Once(_) => registry.init(),
     }
+    // 替换默认 hook：终端已由日志层输出，再链上默认 hook 会打印两遍。
+    let panic_logs = logs.clone();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        tracing::error!(
+            thread = thread.name().unwrap_or("<unnamed>"),
+            backtrace = %std::backtrace::Backtrace::force_capture(),
+            "{info}"
+        );
+        panic_logs.flush();
+    }));
 
     let (path, text) = load_config(args.config)?;
     let mut config: toml::Table = text
@@ -128,10 +139,14 @@ async fn run() -> Result<ExitCode> {
     match args.mode {
         Mode::Serve => {
             logs.persist(&assembly.data_dir().join("logs"));
-            let result = assembly.run(stop).await;
+            if let Err(error) = assembly.run(stop).await {
+                let error = anyhow::Error::from(error);
+                tracing::error!(error = format!("{error:#}"), "stopped on failure");
+                logs.flush();
+                return Ok(ExitCode::FAILURE);
+            }
             tracing::info!("stopped");
             logs.flush();
-            result?;
             if !stopper.is_finished() {
                 return Ok(ExitCode::SUCCESS);
             }

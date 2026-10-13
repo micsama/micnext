@@ -13,10 +13,7 @@ use mic_tool::ToolContext;
 use serde::Serialize;
 
 use crate::context_usage::request_tokens;
-use crate::limits::{
-    COMPACTION_BUDGET_PERCENT, MAX_MODEL_ATTEMPTS, MAX_RETRY_WAIT, RETRY_BASE, SNAPSHOT_BYTES,
-    SNAPSHOT_FILES,
-};
+use crate::limits::{COMPACTION_BUDGET_PERCENT, SNAPSHOT_BYTES, SNAPSHOT_FILES};
 use crate::run::{now_ms, Exec};
 use crate::{
     request, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, StopReason,
@@ -177,6 +174,15 @@ impl Exec<'_> {
                             return Ok(Ok(()));
                         }
                         Err(reason) => {
+                            tracing::warn!(
+                                session = self.session.id.0,
+                                run = self.run.id.0,
+                                purpose = "compaction",
+                                model = provider.model(),
+                                attempt,
+                                error = %reason,
+                                "compaction output rejected"
+                            );
                             self.engine
                                 .store
                                 .record_model_call(self.compaction_call(
@@ -205,17 +211,12 @@ impl Exec<'_> {
                             },
                         ))
                         .await?;
-                    match &error {
-                        ProviderError::Transient { retry_after, .. }
-                            if attempt < MAX_MODEL_ATTEMPTS =>
-                        {
-                            let wait = retry_after
-                                .unwrap_or(RETRY_BASE * 2u32.pow(attempt - 1))
-                                .min(MAX_RETRY_WAIT);
+                    match self.retry_wait("compaction", provider, &error, attempt) {
+                        Some(wait) => {
                             tokio::time::sleep(wait).await;
                             attempt += 1;
                         }
-                        _ => {
+                        None => {
                             self.notify(format!(
                                 "上下文压缩失败：{error}。请处理原因后重试，或清空上下文。"
                             ))

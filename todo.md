@@ -5,6 +5,8 @@
 
 | 状态 | 主题 | 文档 |
 |---|---|---|
+| B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 错误保留现有类型至处置边界记一次，级别与字段名固定；正文/标题共用 Provider 构建，正文/压缩共用重试日志；补压缩、工具依赖、服务致命退出与 panic 日志，Provider 上游失败降 DEBUG；为 Langfuse 留接缝，不接入 | [B2](docs/blueprints/error-logging.md) |
+| B1 方向讨论，未实施（2026-10-13） | 用现有 SQLite 还原 run trace（run 为 trace，模型/工具/压缩为 span）；主干数据已够，缺工具起止与首 token；倾向先只读 SQL 视图 | [B1](docs/brainstorm/run-trace.md) |
 | B2 已实现，本地验收通过，待服务器人工验收（2026-10-13） | 思考档位按供应商保守默认 + 已知模型覆盖；DeepSeek/Sol 默认 low、Luna 默认 medium，未知 Codex 默认三档、low；11 项测试与 11 组隔离验收通过 | [B2](docs/blueprints/reasoning-model-capabilities.md)；[B1](docs/brainstorm/reasoning-model-capabilities.md) |
 | B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 会话归档：后端仅标记，记录保留；新消息仍隐藏，手工恢复；前端成功后整页刷新，4 组隔离整体链路通过 | [B2](docs/blueprints/session-archive.md)；[B1](docs/brainstorm/session-archive.md) |
 | B2 已实现，本地验收通过，待 human 验收（2026-10-13）；体积 21.9 → 17.3 MiB，未达 16.5 目标待定 | 模型调用改回手写，移除 async-openai（体积 15.0 → 21.6 MiB 主因）；reqwest 统一 0.13 + ring；功能不变，未知流事件改为忽略并告警 | [B2](docs/blueprints/provider-handwritten.md) |

@@ -136,6 +136,30 @@ impl Factories {
             })
     }
 
+    /// 已认领模型的本轮实例：解析 key 回退与思考档位后交给工厂。
+    pub(crate) fn build(
+        &self,
+        kind: &str,
+        endpoint_json: &str,
+        model_name: &str,
+        model_json: &str,
+        reasoning_effort: Option<ReasoningEffort>,
+        key: Option<SecretValue>,
+    ) -> Result<Arc<dyn Provider>, ConfigError> {
+        let factory = self.get(kind)?;
+        let effort = resolve_reasoning(
+            factory.reasoning_options(endpoint_json, model_name)?,
+            reasoning_effort,
+        )?;
+        factory.build(
+            endpoint_json,
+            resolve_key(key, factory.key_env(endpoint_json)),
+            model_name,
+            model_json,
+            effort,
+        )
+    }
+
     pub(crate) fn kinds(&self) -> Vec<ProviderKindView> {
         self.0
             .values()

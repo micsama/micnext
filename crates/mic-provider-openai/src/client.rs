@@ -89,13 +89,13 @@ async fn send(req: RequestBuilder) -> Result<Response, Failure> {
         .ok()
         .and_then(|b| serde_json::from_slice::<WrappedError>(&b).ok())
         .map(|w| w.error);
-    tracing::warn!(
+    tracing::debug!(
         status = status.as_u16(),
         path,
         content_type,
         cf_mitigated,
         code = error.as_ref().and_then(|e| e.code.as_deref()),
-        message = error.as_ref().map(|e| e.message.as_str()),
+        upstream_message = error.as_ref().map(|e| e.message.as_str()),
         "upstream http failure"
     );
     Err(Failure::Http(HttpFailure {

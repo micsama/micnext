@@ -12,7 +12,7 @@ use tokio::task::{Id, JoinSet};
 
 use crate::event::{Events, KernelEventKind};
 use crate::limits::{TITLE_CHARS, TITLE_INPUT_CHARS, TITLE_TIMEOUT};
-use crate::provider::{resolve_key, resolve_reasoning, Factories};
+use crate::provider::Factories;
 use crate::run::now_ms;
 use crate::{
     ConfigError, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, RunError,
@@ -177,7 +177,7 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
     let provider = match provider {
         Ok(provider) => provider,
         Err(error) => {
-            tracing::warn!(session = job.session.id.0, %error, "title model unavailable");
+            tracing::warn!(session = job.session.id.0, purpose = "title", %error, "title model unavailable");
             return store
                 .save_title_result(job.session.id, Err(error.to_string()), None)
                 .await;
@@ -216,6 +216,7 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
     if let Err(error) = &result {
         tracing::warn!(
             session = job.session.id.0,
+            purpose = "title",
             model = provider.model(),
             elapsed_ms = finished_at - started_at,
             %error,
@@ -277,20 +278,14 @@ fn build_provider(
             reasoning_effort,
             key,
             ..
-        } => {
-            let factory = factories.get(&kind)?;
-            let effort = resolve_reasoning(
-                factory.reasoning_options(&endpoint_json, &model_name)?,
-                reasoning_effort,
-            )?;
-            factory.build(
-                &endpoint_json,
-                resolve_key(key, factory.key_env(&endpoint_json)),
-                &model_name,
-                &model_json,
-                effort,
-            )
-        }
+        } => factories.build(
+            &kind,
+            &endpoint_json,
+            &model_name,
+            &model_json,
+            reasoning_effort,
+            key,
+        ),
     }
 }
 

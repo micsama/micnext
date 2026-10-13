@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::future::poll_fn;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use mic_message::{
     ExecFailureKind, ExecOutcome, MessageBody, MessageId, ReplyBlock, SessionCommand,
@@ -19,7 +20,7 @@ use tokio::task::JoinSet;
 
 use crate::event::{Events, KernelEventKind};
 use crate::limits::{MAX_MODEL_ATTEMPTS, MAX_RETRY_WAIT, MAX_TURNS_WARN_PERCENT, RETRY_BASE};
-use crate::provider::{resolve_key, resolve_reasoning, Factories};
+use crate::provider::Factories;
 use crate::{
     request, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, StopReason,
 };
@@ -194,15 +195,14 @@ impl Engine {
                 ..
             } => self
                 .factories
-                .get(&kind)
-                .and_then(|f| {
-                    let key = resolve_key(key, f.key_env(&endpoint_json));
-                    let effort = resolve_reasoning(
-                        f.reasoning_options(&endpoint_json, &model_name)?,
-                        reasoning_effort,
-                    )?;
-                    f.build(&endpoint_json, key, &model_name, &model_json, effort)
-                })
+                .build(
+                    &kind,
+                    &endpoint_json,
+                    &model_name,
+                    &model_json,
+                    reasoning_effort,
+                    key,
+                )
                 .map_err(|e| {
                     format!("模型「{name}」的调用配置有误（{e}）。请检查会话思考档位与模型设置后重新发送。")
                 }),
@@ -338,17 +338,12 @@ impl Exec<'_> {
                 context,
             )
             .await?;
-            match &error {
-                ProviderError::Transient { retry_after, .. } if attempt < MAX_MODEL_ATTEMPTS => {
-                    let wait = retry_after
-                        .unwrap_or(RETRY_BASE * 2u32.pow(attempt - 1))
-                        .min(MAX_RETRY_WAIT);
-                    tracing::warn!(model = provider.model(), %error, attempt, ?wait, "model call failed, retrying");
+            match self.retry_wait("conversation", provider, &error, attempt) {
+                Some(wait) => {
                     tokio::time::sleep(wait).await;
                     attempt += 1;
                 }
-                _ => {
-                    tracing::warn!(model = provider.model(), %error, attempt, "model call failed");
+                None => {
                     self.notify(provider_failure_text(&error, attempt)).await?;
                     return Ok(Err(RunState::ProviderFailed));
                 }
@@ -480,6 +475,19 @@ impl Exec<'_> {
                 Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
                 Err(e) => unreachable!("工具任务不会被单独取消：{e}"),
             };
+            if let ExecOutcome::Failed {
+                kind: ExecFailureKind::Dependency,
+                message,
+            } = &outcome
+            {
+                tracing::warn!(
+                    session = self.session.id.0,
+                    run = self.run.id.0,
+                    tool = tool_name,
+                    error = message,
+                    "tool dependency failed"
+                );
+            }
             self.append(MessageBody::ToolResult {
                 tool_name,
                 tool_call_id,
@@ -488,6 +496,35 @@ impl Exec<'_> {
             .await?;
         }
         Ok(())
+    }
+
+    /// 模型调用失败的处置日志与重试判定：返回重试前的等待，`None` 即放弃。
+    pub(crate) fn retry_wait(
+        &self,
+        purpose: &'static str,
+        provider: &dyn Provider,
+        error: &ProviderError,
+        attempt: u32,
+    ) -> Option<Duration> {
+        let wait = match error {
+            ProviderError::Transient { retry_after, .. } if attempt < MAX_MODEL_ATTEMPTS => Some(
+                retry_after
+                    .unwrap_or(RETRY_BASE * 2u32.pow(attempt - 1))
+                    .min(MAX_RETRY_WAIT),
+            ),
+            _ => None,
+        };
+        tracing::warn!(
+            session = self.session.id.0,
+            run = self.run.id.0,
+            purpose,
+            model = provider.model(),
+            attempt,
+            ?wait,
+            %error,
+            "model call failed"
+        );
+        wait
     }
 
     /// 给模型看的框架备注。

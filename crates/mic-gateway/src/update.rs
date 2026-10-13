@@ -28,6 +28,8 @@ pub struct RestartRequest {
 pub(crate) struct Updater {
     repo: PathBuf,
     restart: mpsc::Sender<RestartRequest>,
+    /// 本进程二进制的字节数，启动时读定（构建会原地替换同一路径）。
+    running_size: Option<u64>,
     state: Mutex<Task>,
 }
 
@@ -51,6 +53,7 @@ enum Phase {
     Restarting {
         from: String,
         to: String,
+        to_size: u64,
     },
     UpToDate {
         commit: String,
@@ -77,6 +80,7 @@ enum StatusView<'a> {
     Unavailable,
     Idle {
         running: Option<&'static str>,
+        size: Option<u64>,
     },
     Checking {
         output: &'a str,
@@ -94,6 +98,8 @@ enum StatusView<'a> {
     Restarting {
         from: &'a str,
         to: &'a str,
+        from_size: Option<u64>,
+        to_size: u64,
     },
     UpToDate {
         commit: &'a str,
@@ -123,6 +129,10 @@ impl Updater {
         Self {
             repo,
             restart,
+            running_size: std::env::current_exe()
+                .and_then(std::fs::metadata)
+                .map(|m| m.len())
+                .ok(),
             state: Mutex::new(Task {
                 phase: Phase::Idle,
                 output: String::new(),
@@ -134,7 +144,10 @@ impl Updater {
         let state = self.state.lock().unwrap();
         let output = state.output.as_str();
         f(match &state.phase {
-            Phase::Idle => StatusView::Idle { running: COMMIT },
+            Phase::Idle => StatusView::Idle {
+                running: COMMIT,
+                size: self.running_size,
+            },
             Phase::Checking => StatusView::Checking { output },
             Phase::Pulling { from, attempt } => StatusView::Pulling {
                 from,
@@ -142,7 +155,12 @@ impl Updater {
                 output,
             },
             Phase::Building { from, to } => StatusView::Building { from, to, output },
-            Phase::Restarting { from, to } => StatusView::Restarting { from, to },
+            Phase::Restarting { from, to, to_size } => StatusView::Restarting {
+                from,
+                to,
+                from_size: self.running_size,
+                to_size: *to_size,
+            },
             Phase::UpToDate { commit } => StatusView::UpToDate { commit },
             Phase::Failed { stage, from, error } => StatusView::Failed {
                 stage: *stage,
@@ -214,12 +232,16 @@ impl Updater {
             return Err(format!("构建失败（{status}），旧服务继续运行"));
         }
 
+        let executable = self.repo.join("target/release/micnext");
+        let to_size = std::fs::metadata(&executable)
+            .map_err(|e| format!("读取构建产物 {} 失败：{e}", executable.display()))?
+            .len();
         self.set(Phase::Restarting {
             from: from.clone(),
             to: to.clone(),
+            to_size,
         });
-        tracing::info!(%from, %to, "update restarting");
-        let executable = self.repo.join("target/release/micnext");
+        tracing::info!(%from, %to, from_size = ?self.running_size, to_size, "update restarting");
         self.restart
             .try_send(RestartRequest { executable })
             .map_err(|e| format!("无法通知重启：{e}"))

@@ -19,6 +19,15 @@
   const error = $derived(updater.error);
   const output = $derived(status !== null && "output" in status ? status.output : "");
   const short = (sha: string) => sha.slice(0, 7);
+  const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  /** 新版大小，旧版已知时附相对变化。 */
+  function sizeText(size: number | null, from: number | null): string {
+    if (size === null) return "";
+    if (from === null || from === 0) return ` · ${mb(size)}`;
+    const pct = ((size - from) / from) * 100;
+    const delta = Math.abs(pct) < 0.05 ? "±0%" : `${pct > 0 ? "+" : "−"}${Math.abs(pct).toFixed(1)}%`;
+    return ` · ${mb(size)}（${delta}）`;
+  }
 
   onMount(() => void updater.refresh());
 
@@ -53,17 +62,19 @@
         {:else if status.state === "building"}
           {STAGES.building}：{short(status.from)} → {short(status.to)}
         {:else if status.state === "restarting"}
-          {STAGES.restarting}：{short(status.from)} → {short(status.to)}
+          {STAGES.restarting}：{short(status.from)} → {short(status.to)}{sizeText(status.to_size, status.from_size)}
         {:else if status.state === "up_to_date"}
           已是最新（{short(status.commit)}），未重启。
         {:else if status.state === "idle" && !verdict}
-          当前运行 {status.running ? short(status.running) : "未知版本（非 build.sh 构建）"}
+          当前运行 {status.running ? short(status.running) : "未知版本（非 build.sh 构建）"}{sizeText(status.size, null)}
         {/if}
       </span>
     </div>
     {#if verdict && status.state === "idle" && !reconnecting}
       {#if verdict.running === verdict.target}
-        <p class="text-emerald-600 dark:text-emerald-400">已更新并重启，当前运行 {short(verdict.target)}。</p>
+        <p class="text-emerald-600 dark:text-emerald-400">
+          已更新并重启，当前运行 {short(verdict.target)}{sizeText(verdict.size, verdict.fromSize)}。
+        </p>
       {:else}
         <p class="text-destructive">
           已重启，但当前运行 {verdict.running ? short(verdict.running) : "未知版本"}，不是目标 {short(verdict.target)}。

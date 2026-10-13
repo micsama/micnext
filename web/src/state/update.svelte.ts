@@ -4,20 +4,23 @@ import type { UpdateStatus } from "../api/developer";
 import { confirm } from "./confirm.svelte";
 
 const POLL_MS = 1000;
-// 目标提交按浏览器记住：随机 token 重启后需重新登录，页面会重新挂载。
+// 目标提交与旧版大小按浏览器记住：随机 token 重启后需重新登录，页面会重新挂载。
 const TARGET_KEY = "micnext.developer.updateTarget";
 
-function loadTarget(): string | null {
+type Target = { commit: string; fromSize: number | null };
+
+function loadTarget(): Target | null {
   try {
-    return localStorage.getItem(TARGET_KEY);
+    const v = JSON.parse(localStorage.getItem(TARGET_KEY) ?? "null") as Target | null;
+    return typeof v?.commit === "string" ? v : null;
   } catch {
     return null;
   }
 }
-function saveTarget(v: string | null) {
+function saveTarget(v: Target | null) {
   try {
     if (v === null) localStorage.removeItem(TARGET_KEY);
-    else localStorage.setItem(TARGET_KEY, v);
+    else localStorage.setItem(TARGET_KEY, JSON.stringify(v));
   } catch {
     // NOTE: 存储不可用时仅本页有效。
   }
@@ -30,7 +33,9 @@ class Updater {
   /** 已请求重启，等待服务重新可连。 */
   reconnecting = $state(false);
   /** 重启后核对：新进程报告的版本是否为目标提交。 */
-  verdict = $state<{ target: string; running: string | null } | null>(null);
+  verdict = $state<{ target: string; running: string | null; fromSize: number | null; size: number | null } | null>(
+    null,
+  );
   readonly running = $derived(
     this.status !== null && ["checking", "pulling", "building", "restarting"].includes(this.status.state),
   );
@@ -45,11 +50,18 @@ class Updater {
       const next = await getUpdateStatus();
       this.reconnecting = false;
       if (next.state === "building" || next.state === "restarting") {
-        if (this.#target !== next.to) saveTarget((this.#target = next.to));
+        const fromSize = next.state === "restarting" ? next.from_size : null;
+        if (this.#target?.commit !== next.to || this.#target.fromSize !== fromSize)
+          saveTarget((this.#target = { commit: next.to, fromSize }));
       } else if (next.state === "idle" && this.#target !== null) {
         // 服务已换新版，重载取新界面，核对由重载后的页面按已存目标完成。
         if (this.#loaded) return location.reload();
-        this.verdict = { target: this.#target, running: next.running };
+        this.verdict = {
+          target: this.#target.commit,
+          running: next.running,
+          fromSize: this.#target.fromSize,
+          size: next.size,
+        };
         saveTarget((this.#target = null));
       } else if (next.state !== "unavailable" && this.#target !== null) {
         saveTarget((this.#target = null));

@@ -127,7 +127,7 @@ export type UpdateStatus =
   | { state: "idle"; running: string | null; size: number | null }
   | { state: "checking"; output: string }
   | { state: "pulling"; from: string; attempt: number; output: string }
-  | { state: "building"; from: string; to: string; output: string }
+  | { state: "building"; from: string; to: string; from_size: number | null; output: string }
   | { state: "restarting"; from: string; to: string; from_size: number | null; to_size: number }
   | { state: "up_to_date"; commit: string }
   | { state: "failed"; stage: UpdateStage; from: string | null; error: string; output: string };
@@ -139,7 +139,7 @@ const updateStates: { [S in UpdateStatus["state"]]: Decoder<Extract<UpdateStatus
   idle: obj({ state: oneOf("idle"), running: nullable(str), size: nullable(num) }),
   checking: obj({ state: oneOf("checking"), output: str }),
   pulling: obj({ state: oneOf("pulling"), from: str, attempt: num, output: str }),
-  building: obj({ state: oneOf("building"), from: str, to: str, output: str }),
+  building: obj({ state: oneOf("building"), from: str, to: str, from_size: nullable(num), output: str }),
   restarting: obj({ state: oneOf("restarting"), from: str, to: str, from_size: nullable(num), to_size: num }),
   up_to_date: obj({ state: oneOf("up_to_date"), commit: str }),
   failed: obj({ state: oneOf("failed"), stage, from: nullable(str), error: str, output: str }),

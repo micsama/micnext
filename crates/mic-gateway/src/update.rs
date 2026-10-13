@@ -93,6 +93,7 @@ enum StatusView<'a> {
     Building {
         from: &'a str,
         to: &'a str,
+        from_size: Option<u64>,
         output: &'a str,
     },
     Restarting {
@@ -154,7 +155,12 @@ impl Updater {
                 attempt: *attempt,
                 output,
             },
-            Phase::Building { from, to } => StatusView::Building { from, to, output },
+            Phase::Building { from, to } => StatusView::Building {
+                from,
+                to,
+                from_size: self.running_size,
+                output,
+            },
             Phase::Restarting { from, to, to_size } => StatusView::Restarting {
                 from,
                 to,

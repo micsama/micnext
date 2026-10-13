@@ -50,9 +50,9 @@ class Updater {
       const next = await getUpdateStatus();
       this.reconnecting = false;
       if (next.state === "building" || next.state === "restarting") {
-        const fromSize = next.state === "restarting" ? next.from_size : null;
-        if (this.#target?.commit !== next.to || this.#target.fromSize !== fromSize)
-          saveTarget((this.#target = { commit: next.to, fromSize }));
+        // 重启阶段很短，轮询常撞不上，旧版大小须在构建阶段就记下。
+        if (this.#target?.commit !== next.to || this.#target.fromSize !== next.from_size)
+          saveTarget((this.#target = { commit: next.to, fromSize: next.from_size }));
       } else if (next.state === "idle" && this.#target !== null) {
         // 服务已换新版，重载取新界面，核对由重载后的页面按已存目标完成。
         if (this.#loaded) return location.reload();

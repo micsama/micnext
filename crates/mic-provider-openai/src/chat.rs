@@ -126,7 +126,7 @@ pub(crate) fn request(
             include_obfuscation: None,
         },
         max_tokens: cfg.max_tokens,
-        reasoning_effort: cfg.reasoning_effort.map(|e| e.sdk()),
+        reasoning_effort: cfg.reasoning_effort.map(crate::config::sdk_effort),
     })
 }
 

@@ -66,3 +66,141 @@ fn earliest_round_exact() {
 fn empty() {
     assert_eq!(page("", 2, 3), (vec![], false));
 }
+
+#[test]
+fn reasoning_is_per_session_and_fixed_when_claimed() {
+    use crate::{
+        ClaimedModel, CredentialWrite, EndpointWrite, InputDisposition, ModelWrite, NewInputPart,
+        NewSession, ReasoningEffort as E, RunState, SessionKind, Store, ToolScope,
+    };
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let store = Store::open_in_memory(&[]).await.unwrap();
+            let owner = store.ensure_person("test", 1).await.unwrap();
+            let endpoint = store
+                .create_endpoint(
+                    EndpointWrite {
+                        name: "test".into(),
+                        kind: "openai".into(),
+                        config_json: "{}".into(),
+                        credential: CredentialWrite::Clear,
+                    },
+                    1,
+                )
+                .await
+                .unwrap();
+            let model = store
+                .create_model(
+                    ModelWrite {
+                        endpoint_id: endpoint,
+                        name: "test".into(),
+                        config_json: "{}".into(),
+                        context_window: None,
+                    },
+                    1,
+                )
+                .await
+                .unwrap();
+            let mut sessions = Vec::new();
+            for (chat, effort) in [("a", Some(E::High)), ("b", Some(E::None))] {
+                let session = store
+                    .create_session(NewSession {
+                        kind: SessionKind::Root {
+                            channel: "web".into(),
+                            chat: chat.into(),
+                        },
+                        parent_session_id: None,
+                        delivery_target: None,
+                        pwd: "/tmp".into(),
+                        tool_scope: ToolScope::All,
+                        created_at: 1,
+                        persona: None,
+                        model: Some(model),
+                        reasoning_effort: effort,
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    store
+                        .session_summary(session.id)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .session
+                        .reasoning_effort,
+                    effort
+                );
+                sessions.push(session);
+            }
+            let a = sessions[0].id;
+            store
+                .append_input(
+                    a,
+                    owner,
+                    vec![NewInputPart::Text("first".into())],
+                    InputDisposition::Pending,
+                    None,
+                    2,
+                )
+                .await
+                .unwrap();
+            let claimed = store.claim_next(a, 3).await.unwrap().unwrap();
+            store.set_session_model(a, model, None).await.unwrap();
+            assert_eq!(claimed.settings.reasoning_effort, Some(E::High));
+            assert!(matches!(
+                claimed.model,
+                ClaimedModel::Selected {
+                    reasoning_effort: Some(E::High),
+                    ..
+                }
+            ));
+            let run_id = claimed.run.id;
+            let persisted = store
+                .call(move |conn| {
+                    Ok(conn.query_row(
+                        "SELECT reasoning_effort FROM core_runs WHERE id = ?1",
+                        [run_id.0],
+                        |row| row.get::<_, Option<E>>(0),
+                    )?)
+                })
+                .await
+                .unwrap();
+            assert_eq!(persisted, Some(E::High));
+            assert_eq!(
+                store
+                    .session(sessions[1].id)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .reasoning_effort,
+                Some(E::None)
+            );
+            store
+                .finish_run(run_id, RunState::Completed, 4)
+                .await
+                .unwrap();
+            store
+                .append_input(
+                    a,
+                    owner,
+                    vec![NewInputPart::Text("next".into())],
+                    InputDisposition::Pending,
+                    None,
+                    5,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                store
+                    .claim_next(a, 6)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .settings
+                    .reasoning_effort,
+                None
+            );
+        });
+}

@@ -19,7 +19,7 @@
 ## 二、公开接口
 
 crate 只导出 `OpenAiModule`（`name() = "openai"`，`Activation::Always`），`install` 登记 `openai` 工厂。
-Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_model` / `key_env` / `build` / `list_models`）语义见 model-settings §四。
+Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_model` / `reasoning_options` / `key_env` / `build` / `list_models`）语义见 model-settings §四，思考选择见 [reasoning-selection](reasoning-selection.md)。
 
 ### 2.1 配置（JSON，`deny_unknown_fields`）
 
@@ -37,13 +37,13 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 
 `chatgpt`：每轮建连时把 key 当 JWT 解析载荷（不验签），取 `https://api.openai.com/auth.chatgpt_account_id` 发为 `chatgpt-account-id` 头；缺 key、不是 Codex token、已过期 → `ConfigError`，不发请求。不发 `originator` / `OpenAI-Beta`。
 
-模型 `{max_tokens?, reasoning_effort?}`，模型名单列：
+模型静态配置只含 `{max_tokens?}`，模型名单列。思考强度属于会话调用选择，GET 返回可用节点，core 按本轮快照解析默认值后传给工厂 `build`：
 
 | 预设 | `reasoning_effort` |
 |---|---|
-| `openai` / `chatgpt` | `none|minimal|low|medium|high|xhigh|max`，不写取 `low` |
-| `deepseek` | `none|low|high|max`，不写取 `low` |
-| 其它 | 只能不写 |
+| `openai` / `chatgpt` | none / minimal / low / medium / high / xhigh / max，未选择档位用 low |
+| `deepseek` | none / low / high / max，未选择档位用 low |
+| 其它 | 无档位，不发送参数 |
 
 `chatgpt` 的 `max_tokens` 必须不写（Codex 后端拒收 `max_output_tokens`）。
 

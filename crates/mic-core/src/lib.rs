@@ -33,5 +33,6 @@ pub use mic_store::SecretValue;
 pub use module::{Activation, BoxError, Module, ModuleConfig, Registry, Service};
 pub use provider::{
     BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ModelResponse, ProbeError,
-    Provider, ProviderError, ProviderFactory, ProviderKindView, StopReason, ToolChoice,
+    Provider, ProviderError, ProviderFactory, ProviderKindView, ReasoningOptions, StopReason,
+    ToolChoice,
 };

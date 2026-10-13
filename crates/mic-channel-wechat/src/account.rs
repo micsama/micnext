@@ -305,6 +305,7 @@ pub(crate) async fn save(
                         created_at: now_ms(),
                         persona: None,
                         model: None,
+                        reasoning_effort: None,
                     },
                 )
                 .await?

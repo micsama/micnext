@@ -30,10 +30,7 @@
   const address = (e: Endpoint) => e.config.base_url ?? "官方地址";
   const credential = (e: Endpoint) =>
     e.key_set ? "已保存 key" : e.key_env ? `读取 ${e.key_env}` : "无 key";
-  const meta = (m: Model) =>
-    [m.config.max_tokens !== null && `${m.config.max_tokens} tokens`, m.config.reasoning_effort]
-      .filter(Boolean)
-      .join(" · ");
+  const meta = (m: Model) => m.config.max_tokens === null ? "" : `${m.config.max_tokens} tokens`;
 </script>
 
 <div class="space-y-6">

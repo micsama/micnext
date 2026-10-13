@@ -10,14 +10,15 @@ use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
     CredentialWrite, EndpointId, EndpointView, EndpointWrite, Identity, InputDisposition,
     MessagePage, ModelId, ModelView, ModelWrite, NewInputPart, NewNotice, NewSession,
-    PendingDelivery, Persona, PersonaId, QueryResult, RunId, Session, SessionCursor, SessionKind,
-    SessionPage, SessionSummary, Settings, Store, StoreError, TableSchema,
+    PendingDelivery, Persona, PersonaId, QueryResult, ReasoningEffort, RunId, Session,
+    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, Store, StoreError,
+    TableSchema,
 };
 use tokio::sync::mpsc;
 
 use crate::event::{EventReceiver, Events};
 use crate::input::{validate, IncomingPart};
-use crate::provider::{resolve_key, Factories};
+use crate::provider::{resolve_key, resolve_reasoning, Factories};
 use crate::run::now_ms;
 use crate::{request, ChannelSetup, KernelError, ProviderKindView, WorkdirError};
 
@@ -142,11 +143,14 @@ impl Kernel {
         chat: &str,
         init: NewSession,
     ) -> Result<Session, KernelError> {
+        self.check_reasoning(init.model, init.reasoning_effort)
+            .await?;
         Ok(self.store.resolve_root_session(channel, chat, init).await?)
     }
 
     /// Task/Triggered 用。
     pub async fn create_session(&self, s: NewSession) -> Result<SessionId, KernelError> {
+        self.check_reasoning(s.model, s.reasoning_effort).await?;
         Ok(self.store.create_session(s).await?.id)
     }
 
@@ -453,6 +457,44 @@ impl Kernel {
         Ok(self.store.model(id).await?)
     }
 
+    /// 模型目录与调用选择共用的思考档位来源。
+    pub async fn model_reasoning(
+        &self,
+        model: &ModelView,
+    ) -> Result<Option<crate::ReasoningOptions>, KernelError> {
+        let endpoint = self
+            .store
+            .endpoint(model.endpoint_id)
+            .await?
+            .ok_or(mic_store::ModelSettingsError::EndpointNotFound)?;
+        Ok(self
+            .factories
+            .get(&endpoint.kind)?
+            .reasoning_options(&endpoint.config_json, &model.name)?)
+    }
+
+    async fn check_reasoning(
+        &self,
+        model: Option<ModelId>,
+        effort: Option<ReasoningEffort>,
+    ) -> Result<(), KernelError> {
+        match model {
+            Some(id) => {
+                let model = self.store.selectable_model(id).await?;
+                resolve_reasoning(self.model_reasoning(&model).await?, effort)?;
+            }
+            None if effort.is_some() => {
+                return Err(crate::ConfigError {
+                    field: "reasoning_effort".into(),
+                    message: "未指定模型时不能指定思考档位".into(),
+                }
+                .into())
+            }
+            None => {}
+        }
+        Ok(())
+    }
+
     pub async fn default_model(&self) -> Result<Option<ModelId>, KernelError> {
         Ok(self.store.default_model().await?)
     }
@@ -482,8 +524,13 @@ impl Kernel {
         &self,
         session: SessionId,
         model: ModelId,
+        reasoning_effort: Option<ReasoningEffort>,
     ) -> Result<(), KernelError> {
-        Ok(self.store.set_session_model(session, model).await?)
+        self.check_reasoning(Some(model), reasoning_effort).await?;
+        Ok(self
+            .store
+            .set_session_model(session, model, reasoning_effort)
+            .await?)
     }
 
     fn checked_endpoint(&self, draft: EndpointDraft) -> Result<EndpointWrite, KernelError> {

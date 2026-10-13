@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { InputPart } from "../api/types";
+  import type { InputPart, ReasoningEffort } from "../api/types";
   import { sendMessage, setSessionModel, setSessionPersona } from "../api/client";
   import { router } from "../state/route.svelte";
   import type { SessionView } from "../state/session.svelte";
@@ -56,17 +56,25 @@
     !item || modelDeleted ? null : (item.model_id ?? settingsStore.defaultModelId),
   );
 
-  async function pickModel(id: number) {
+  let modelSaving = $state(false);
+
+  async function pickModel(id: number, effort: ReasoningEffort | null = null) {
+    if (modelSaving) return;
     const info = view.info!;
-    const before = info.model_id;
+    const before = { model: info.model_id, effort: info.reasoning_effort };
     info.model_id = id;
+    info.reasoning_effort = effort;
+    modelSaving = true;
     pickError = null;
     try {
-      await setSessionModel(view.id, id);
+      await setSessionModel(view.id, id, effort);
       if (view.executingRun !== null) pickedDuringRun = true;
     } catch (e) {
-      info.model_id = before;
+      info.model_id = before.model;
+      info.reasoning_effort = before.effort;
       pickError = (e as Error).message;
+    } finally {
+      modelSaving = false;
     }
   }
 
@@ -94,20 +102,20 @@
   {/if}
   <MessageList {view} />
   {#if item?.writable}
-    <Composer onsend={send} autofocus {notice}>
+    <Composer onsend={send} autofocus {notice} blocked={modelSaving}>
       {#snippet leading()}
         <PersonaPicker value={persona!.id} onpick={pick} />
       {/snippet}
       {#snippet trailing()}
-        <ModelPicker value={modelValue} onpick={pickModel} />
+        <ModelPicker value={modelValue} onpick={(id) => pickModel(id)} reasoningEffort={item.reasoning_effort} onreasoning={(effort) => pickModel(modelValue!, effort)} disabled={modelSaving} />
       {/snippet}
     </Composer>
   {:else if item}
     <div class="mx-auto w-full max-w-3xl space-y-1 px-4 pb-4">
       {#if readonlyNotice}<p class="text-sm text-warning">{readonlyNotice}</p>{/if}
       <div class="flex items-center justify-between gap-3">
-        <p class="text-sm text-muted-foreground">消息请在{channelName(item.channel)}发送，这里可查看与切换模型</p>
-        <ModelPicker value={modelValue} onpick={pickModel} />
+        <p class="text-sm text-muted-foreground">消息请在{channelName(item.channel)}发送，这里可切换模型与思考强度</p>
+        <ModelPicker value={modelValue} onpick={(id) => pickModel(id)} reasoningEffort={item.reasoning_effort} onreasoning={(effort) => pickModel(modelValue!, effort)} disabled={modelSaving} />
       </div>
     </div>
   {/if}

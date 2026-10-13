@@ -43,32 +43,12 @@ export const fixedUrl = (p: Preset): boolean => p === "deepseek" || p === "opena
 /** 支持限制最大输出的预设（Codex 后端拒收）。 */
 export const limitable = (p: Preset): boolean => p !== "chatgpt";
 
-type Option = { value: string; label: string };
-const effort = (...values: string[]): Option[] => [
-  { value: "default", label: "默认" },
-  ...values.map((v) => ({ value: v, label: v === "none" ? "关闭思考" : v })),
-];
-
-/** 各预设可选的推理强度；`default` 即不下发，由后端按预设补默认值（支持推理的预设均为 low）；`null` 为不支持。 */
-export const REASONING: Record<Preset, Option[] | null> = {
-  openai: effort("none", "minimal", "low", "medium", "high", "xhigh", "max"),
-  chatgpt: effort("none", "minimal", "low", "medium", "high", "xhigh", "max"),
-  deepseek: effort("none", "low", "high", "max"),
-  ollama: null,
-  generic: null,
-};
-
-/** 切换预设后旧取值可能不在新列表里，视同默认。 */
-export const effortLabel = (p: Preset, v: string): string =>
-  REASONING[p]?.find((o) => o.value === v)?.label ?? "默认";
-
 export type ModelRow = {
   /** 新行为 null。 */
   id: number | null;
   name: string;
   max_tokens: string;
   context_window: string;
-  reasoning_effort: string;
 };
 
 export type EndpointForm = {
@@ -94,7 +74,7 @@ export const blankEndpoint = (): EndpointForm => ({
   models: [],
 });
 
-export const blankRow = (name = ""): ModelRow => ({ id: null, name, max_tokens: "", context_window: "", reasoning_effort: "default" });
+export const blankRow = (name = ""): ModelRow => ({ id: null, name, max_tokens: "", context_window: "" });
 
 export const toForm = (e: Endpoint, models: Model[]): EndpointForm => ({
   id: e.id,
@@ -111,7 +91,6 @@ export const toForm = (e: Endpoint, models: Model[]): EndpointForm => ({
       name: m.name,
       context_window: m.context_window === null ? "" : String(m.context_window),
       max_tokens: m.config.max_tokens === null ? "" : String(m.config.max_tokens),
-      reasoning_effort: m.config.reasoning_effort ?? "default",
     })),
 });
 
@@ -127,14 +106,12 @@ const configOf = (f: EndpointForm): EndpointInput["config"] => ({
 
 function modelInput(endpoint_id: number, r: ModelRow, preset: Preset): ModelInput {
   const max = limitable(preset) && r.max_tokens.trim();
-  const effort = r.reasoning_effort !== "default" && REASONING[preset]?.some((o) => o.value === r.reasoning_effort);
   return {
     endpoint_id,
     name: r.name.trim(),
     context_window: r.context_window.trim() ? Number(r.context_window) : null,
     config: {
       ...(max && { max_tokens: Number(max) }),
-      ...(effort && { reasoning_effort: r.reasoning_effort }),
     },
   };
 }

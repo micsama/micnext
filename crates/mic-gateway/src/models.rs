@@ -6,10 +6,11 @@ use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use mic_core::{EndpointDraft, ModelDraft};
+use mic_core::{EndpointDraft, ModelDraft, ReasoningOptions};
 use mic_message::limits::{MAX_IMAGES_PER_INPUT, MAX_IMAGE_BYTES};
 use mic_store::{
-    CredentialWrite, EndpointId, EndpointView, ModelId, ModelView, SecretValue, SessionKind,
+    CredentialWrite, EndpointId, EndpointView, ModelId, ModelView, ReasoningEffort, SecretValue,
+    SessionKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -58,6 +59,7 @@ pub(crate) struct EndpointList {
 
 #[derive(Serialize)]
 pub(crate) struct ModelItem {
+    reasoning: Option<ReasoningOptions>,
     id: ModelId,
     endpoint_id: EndpointId,
     name: String,
@@ -127,6 +129,14 @@ pub(crate) struct ModelCreated {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ModelRef {
     model_id: ModelId,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SessionModelBody {
+    model_id: ModelId,
+    #[serde(deserialize_with = "Deserialize::deserialize")]
+    reasoning_effort: Option<ReasoningEffort>,
 }
 
 #[derive(Serialize)]
@@ -213,7 +223,11 @@ pub(crate) async fn test_endpoint(
 }
 
 pub(crate) async fn list_models(State(app): State<Arc<App>>) -> Result<Json<ModelList>, ApiError> {
-    let items = app.kernel.models().await?.into_iter().map(item).collect();
+    let mut items = Vec::new();
+    for model in app.kernel.models().await? {
+        let reasoning = app.kernel.model_reasoning(&model).await?;
+        items.push(item(model, reasoning));
+    }
     let default_model_id = app.kernel.default_model().await?;
     Ok(Json(ModelList {
         items,
@@ -266,15 +280,16 @@ pub(crate) async fn put_default(
 pub(crate) async fn set_session_model(
     State(app): State<Arc<App>>,
     id: Result<Path<i64>, PathRejection>,
-    body: Result<Json<ModelRef>, JsonRejection>,
+    body: Result<Json<SessionModelBody>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let session = api::session(&app, id).await?;
     // 会话设置对所有 Root 会话开放，与能否从 Web 发消息无关。
     if !matches!(session.kind, SessionKind::Root { .. }) {
         return Err(ApiError::ReadOnly);
     }
+    let body = json(body)?;
     app.kernel
-        .set_session_model(session.id, json(body)?.model_id)
+        .set_session_model(session.id, body.model_id, body.reasoning_effort)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -303,9 +318,10 @@ fn endpoint_item(app: &App, v: EndpointView) -> EndpointItem {
     }
 }
 
-fn item(v: ModelView) -> ModelItem {
+fn item(v: ModelView, reasoning: Option<ReasoningOptions>) -> ModelItem {
     let config = RawValue::from_string(v.config_json).expect("库内配置是合法 JSON");
     ModelItem {
+        reasoning,
         context_window: v.context_window,
         id: v.id,
         endpoint_id: v.endpoint_id,

@@ -635,6 +635,11 @@ impl Store {
             let max_turns = current.max_turns;
             let compaction = current.compaction;
             let model = models::claim_model(&tx, &cipher, session_id)?;
+            let reasoning_effort = tx.query_row(
+                "SELECT reasoning_effort FROM core_sessions WHERE id = ?1",
+                [session_id.0],
+                |row| row.get::<_, Option<crate::ReasoningEffort>>(0),
+            )?;
             let (model_id, model_name) = match &model {
                 ClaimedModel::Missing => (None, None),
                 ClaimedModel::Deleted { id, name } | ClaimedModel::Selected { id, name, .. } => {
@@ -645,8 +650,8 @@ impl Store {
                 "INSERT INTO core_runs
                    (session_id, state, created_at,
                     persona_id, persona_name, persona_prompt, general_prompt, max_turns,
-                    model_id, model_name, compaction_trigger_percent, compaction_keep_steps)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    model_id, model_name, compaction_trigger_percent, compaction_keep_steps, reasoning_effort)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![
                     session_id.0,
                     RunState::Executing.as_str(),
@@ -660,6 +665,7 @@ impl Store {
                     model_name,
                     compaction.trigger_percent,
                     compaction.keep_steps,
+                    reasoning_effort,
                 ],
             )?;
             let id = RunId(tx.last_insert_rowid());
@@ -687,6 +693,7 @@ impl Store {
                 finished_at: None,
             };
             let settings = RunSettings {
+                reasoning_effort,
                 compaction,
                 persona,
                 general_prompt,
@@ -985,8 +992,8 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
         "INSERT INTO core_sessions
            (kind, channel, chat, parent_tool_call_id, trigger_module, trigger_ref,
             parent_session_id, delivery_channel, delivery_version, delivery_payload,
-            pwd, tool_scope, created_at, persona_id, model_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            pwd, tool_scope, created_at, persona_id, model_id, reasoning_effort)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             kind.kind,
             kind.channel,
@@ -1003,6 +1010,7 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
             new.created_at,
             persona_id.0,
             model_id.map(|id| id.0),
+            new.reasoning_effort,
         ],
     )?;
     Ok(Session {
@@ -1015,6 +1023,7 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
         created_at: new.created_at,
         persona_id,
         model_id,
+        reasoning_effort: new.reasoning_effort,
     })
 }
 
@@ -1136,8 +1145,8 @@ fn summaries(filter: &str) -> String {
 fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
     Ok(SessionSummary {
         session: row::session(r)?,
-        last_activity_at: r.get(16)?,
-        preview: r.get(17)?,
+        last_activity_at: r.get(17)?,
+        preview: r.get(18)?,
     })
 }
 

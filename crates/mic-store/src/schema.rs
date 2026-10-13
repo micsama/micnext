@@ -10,6 +10,12 @@ const CORE: &str = "core";
 const CORE_MIGRATIONS: &[Migration] = &[
     Migration {
         module: CORE,
+        version: 7,
+        sql: CORE_V7,
+        secret_columns: &[],
+    },
+    Migration {
+        module: CORE,
         version: 6,
         sql: CORE_V6,
         secret_columns: &[],
@@ -45,6 +51,13 @@ const CORE_MIGRATIONS: &[Migration] = &[
         secret_columns: &[],
     },
 ];
+
+const CORE_V7: &str = "
+ALTER TABLE core_sessions ADD COLUMN reasoning_effort TEXT
+  CHECK(reasoning_effort IS NULL OR (model_id IS NOT NULL AND reasoning_effort IN ('none','minimal','low','medium','high','xhigh','max')));
+ALTER TABLE core_runs ADD COLUMN reasoning_effort TEXT;
+UPDATE core_models SET config_json = json_remove(config_json, '$.reasoning_effort');
+";
 
 const CORE_V6: &str = "
 ALTER TABLE core_models ADD COLUMN context_window INTEGER CHECK(context_window > 0);
@@ -328,3 +341,6 @@ fn applied_version(conn: &Connection, module: &str) -> Result<u32, StoreError> {
         .optional()?;
     Ok(version.unwrap_or(0))
 }
+
+#[cfg(test)]
+mod tests;

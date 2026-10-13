@@ -277,6 +277,7 @@ impl Assembly {
                     created_at: now,
                     persona: None,
                     model: None,
+                    reasoning_effort: None,
                 },
             )
             .await?;

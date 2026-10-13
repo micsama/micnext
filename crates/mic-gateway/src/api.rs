@@ -14,14 +14,13 @@ use base64::Engine;
 use mic_core::IncomingPart;
 use mic_message::{ImageId, MessageId, SessionId};
 use mic_store::{
-    ModelId, NewSession, PersonaId, Session, SessionCursor, SessionKind, SessionSummary, ToolScope,
+    ModelId, NewSession, PersonaId, ReasoningEffort, Session, SessionCursor, SessionKind,
+    SessionSummary, ToolScope,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{
-    ApiError, IMAGE_NOT_FOUND, MODEL_NOT_FOUND, PERSONA_NOT_FOUND, SESSION_NOT_FOUND,
-};
+use crate::error::{ApiError, IMAGE_NOT_FOUND, PERSONA_NOT_FOUND, SESSION_NOT_FOUND};
 use crate::limits::{CHAT_ID_BYTES, MAX_TEXT_CHARS, PAGE_DEFAULT, PAGE_MAX};
 use crate::service::{random_hex, App};
 use crate::WEB_CHANNEL;
@@ -69,6 +68,7 @@ pub(crate) struct SessionItem {
     persona_id: PersonaId,
     /// 下一轮用的模型；`null` = 下次认领时取当时默认。
     model_id: Option<ModelId>,
+    reasoning_effort: Option<ReasoningEffort>,
 }
 
 #[derive(Serialize)]
@@ -143,6 +143,7 @@ fn item(s: SessionSummary) -> Option<SessionItem> {
         writable,
         persona_id: s.session.persona_id,
         model_id: s.session.model_id,
+        reasoning_effort: s.session.reasoning_effort,
     })
 }
 
@@ -185,6 +186,7 @@ pub(crate) struct CreateBody {
     persona_id: PersonaId,
     /// 缺省 = 当时的默认模型。
     model_id: Option<ModelId>,
+    reasoning_effort: Option<ReasoningEffort>,
 }
 
 #[derive(Serialize)]
@@ -209,11 +211,6 @@ pub(crate) async fn create_session(
         Some(p) if p.deleted => return Err(ApiError::Conflict(PERSONA_DELETED.into())),
         Some(_) => {}
     }
-    if let Some(id) = body.model_id {
-        if app.kernel.model(id).await?.is_none() {
-            return Err(ApiError::NotFound(MODEL_NOT_FOUND));
-        }
-    }
     let pwd = app.kernel.default_workdir().await?;
     let chat = random_hex(CHAT_ID_BYTES);
     let session = app
@@ -233,6 +230,7 @@ pub(crate) async fn create_session(
                 created_at: now_ms(),
                 persona: Some(body.persona_id),
                 model: body.model_id,
+                reasoning_effort: body.reasoning_effort,
             },
         )
         .await?;

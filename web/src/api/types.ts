@@ -73,10 +73,12 @@ export type SessionItem = {
   persona_id: number;
   /** 下一轮用的模型；null = 下次取当时的默认模型。 */
   model_id: number | null;
+  reasoning_effort: ReasoningEffort | null;
 };
 
 export type Preset = "generic" | "deepseek" | "ollama" | "openai" | "chatgpt";
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningOptions = { choices: ReasoningEffort[]; default: ReasoningEffort };
 
 export type Endpoint = {
   id: number;
@@ -94,7 +96,8 @@ export type Model = {
   id: number;
   endpoint_id: number;
   name: string;
-  config: { max_tokens: number | null; reasoning_effort: ReasoningEffort | null };
+  config: { max_tokens: number | null };
+  reasoning: ReasoningOptions | null;
 };
 
 export type ModelList = { items: Model[]; default_model_id: number | null };
@@ -115,7 +118,7 @@ export type ModelInput = {
   context_window: number | null;
   endpoint_id: number;
   name: string;
-  config: { max_tokens?: number; reasoning_effort?: string };
+  config: { max_tokens?: number };
 };
 
 export type Settings = {
@@ -261,6 +264,8 @@ const message: Decoder<Message> = obj({
 
 const messagePage: Decoder<MessagePage> = obj({ messages: arr(message), has_earlier: bool });
 
+const reasoningEffort = oneOf("none", "minimal", "low", "medium", "high", "xhigh", "max");
+
 const sessionItem: Decoder<SessionItem> = obj({
   id: num,
   channel: str,
@@ -271,6 +276,7 @@ const sessionItem: Decoder<SessionItem> = obj({
   writable: bool,
   persona_id: num,
   model_id: nullable(num),
+  reasoning_effort: nullable(reasoningEffort),
 });
 
 const preset = oneOf("generic", "deepseek", "ollama", "openai", "chatgpt");
@@ -297,8 +303,8 @@ const modelList: Decoder<ModelList> = obj({
       context_window: nullable(num),
       config: obj({
         max_tokens: nullable(num),
-        reasoning_effort: nullable(oneOf("none", "minimal", "low", "medium", "high", "xhigh", "max")),
       }),
+      reasoning: nullable(obj({ choices: arr(reasoningEffort), default: reasoningEffort })),
     }),
   ),
   default_model_id: nullable(num),

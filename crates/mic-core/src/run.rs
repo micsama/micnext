@@ -19,7 +19,7 @@ use tokio::task::JoinSet;
 
 use crate::event::{Events, KernelEventKind};
 use crate::limits::{MAX_MODEL_ATTEMPTS, MAX_RETRY_WAIT, MAX_TURNS_WARN_PERCENT, RETRY_BASE};
-use crate::provider::{resolve_key, Factories};
+use crate::provider::{resolve_key, resolve_reasoning, Factories};
 use crate::{
     request, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, StopReason,
 };
@@ -189,6 +189,7 @@ impl Engine {
                 endpoint_json,
                 model_name,
                 model_json,
+                reasoning_effort,
                 key,
                 ..
             } => self
@@ -196,10 +197,14 @@ impl Engine {
                 .get(&kind)
                 .and_then(|f| {
                     let key = resolve_key(key, f.key_env(&endpoint_json));
-                    f.build(&endpoint_json, key, &model_name, &model_json)
+                    let effort = resolve_reasoning(
+                        f.reasoning_options(&endpoint_json, &model_name)?,
+                        reasoning_effort,
+                    )?;
+                    f.build(&endpoint_json, key, &model_name, &model_json, effort)
                 })
                 .map_err(|e| {
-                    format!("模型「{name}」的配置有误（{e}）。请在 设置 → 模型 修改后重新发送。")
+                    format!("模型「{name}」的调用配置有误（{e}）。请检查会话思考档位与模型设置后重新发送。")
                 }),
         }
     }
@@ -536,3 +541,6 @@ pub(crate) fn now_ms() -> i64 {
         .expect("系统时钟早于 1970")
         .as_millis() as i64
 }
+
+#[cfg(test)]
+mod tests;

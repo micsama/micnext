@@ -22,6 +22,18 @@ pub struct PersonaId(pub i64);
 #[serde(transparent)]
 pub struct ModelId(pub i64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct EndpointId(pub i64);
@@ -85,6 +97,7 @@ pub enum ClaimedModel {
         endpoint_json: String,
         model_name: String,
         model_json: String,
+        reasoning_effort: Option<ReasoningEffort>,
         key: Option<SecretValue>,
     },
 }
@@ -138,6 +151,7 @@ pub struct Settings {
 /// 认领时定下的本轮设置，执行期间不变；同时落为 run 快照。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunSettings {
+    pub reasoning_effort: Option<ReasoningEffort>,
     pub compaction: CompactionSettings,
     pub persona: Persona,
     pub general_prompt: String,
@@ -197,6 +211,8 @@ pub struct Session {
     pub persona_id: PersonaId,
     /// 下一轮用的模型；`None` = 认领时取当时默认并写回。
     pub model_id: Option<ModelId>,
+    /// `None` = 使用模型默认档位；`Some(ReasoningEffort::None)` = 显式关闭思考。
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 /// 会话列表分页游标：上一页最后一项的排序键。
@@ -380,6 +396,7 @@ pub struct NewSession {
     pub persona: Option<PersonaId>,
     /// `None` = 建会话时的默认模型（可能仍为空）。
     pub model: Option<ModelId>,
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 /// 入站输入的片段；图片是已验证的原件，由 `append_input` 同事务落库。

@@ -34,6 +34,7 @@ import {
   type InputPart,
   type ModelInput,
   type ModelList,
+  type ReasoningEffort,
   type Persona,
   type SessionItem,
   type SessionPage,
@@ -106,16 +107,16 @@ export async function getMessages(sessionId: number, before: number): Promise<Me
   return parseMessagePage(await request("GET", `/sessions/${sessionId}/messages?before=${before}`));
 }
 
-export async function createSession(parts: InputPart[], personaId: number, modelId: number): Promise<Created> {
-  return parseCreated(await request("POST", "/sessions", { parts, persona_id: personaId, model_id: modelId }));
+export async function createSession(parts: InputPart[], personaId: number, modelId: number, reasoningEffort: ReasoningEffort | null): Promise<Created> {
+  return parseCreated(await request("POST", "/sessions", { parts, persona_id: personaId, model_id: modelId, reasoning_effort: reasoningEffort }));
 }
 
 export async function setSessionPersona(sessionId: number, personaId: number): Promise<void> {
   await request("PUT", `/sessions/${sessionId}/persona`, { persona_id: personaId });
 }
 
-export async function setSessionModel(sessionId: number, modelId: number): Promise<void> {
-  await request("PUT", `/sessions/${sessionId}/model`, { model_id: modelId });
+export async function setSessionModel(sessionId: number, modelId: number, reasoningEffort: ReasoningEffort | null): Promise<void> {
+  await request("PUT", `/sessions/${sessionId}/model`, { model_id: modelId, reasoning_effort: reasoningEffort });
 }
 
 export async function listEndpoints(): Promise<Endpoint[]> {

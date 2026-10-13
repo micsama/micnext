@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createSession } from "../api/client";
-  import type { InputPart } from "../api/types";
+  import type { InputPart, ReasoningEffort } from "../api/types";
   import { router } from "../state/route.svelte";
   import { webSessions } from "../state/sessions.svelte";
   import { settingsStore } from "../state/settings.svelte";
@@ -22,14 +22,19 @@
   });
 
   let pickedModel = $state<number | null>(null);
+  let reasoningEffort = $state<ReasoningEffort | null>(null);
   /** 选中的模型已被删除时回到默认模型。 */
   const modelId = $derived.by(() => {
     if (pickedModel !== null && settingsStore.model(pickedModel)) return pickedModel;
     return settingsStore.defaultModelId;
   });
+  $effect(() => {
+    void modelId;
+    reasoningEffort = null;
+  });
 
   async function send(parts: InputPart[]) {
-    const created = await createSession(parts, persona!.id, modelId!);
+    const created = await createSession(parts, persona!.id, modelId!, reasoningEffort);
     void webSessions.refresh();
     router.go(`/s/${created.session_id}`);
   }
@@ -57,7 +62,7 @@
   {/snippet}
   {#snippet trailing()}
     {#if modelId !== null}
-      <ModelPicker value={modelId} onpick={(id) => (pickedModel = id)} />
+      <ModelPicker value={modelId} onpick={(id) => { pickedModel = id; reasoningEffort = null; }} {reasoningEffort} onreasoning={(effort) => (reasoningEffort = effort)} />
     {/if}
   {/snippet}
 </Composer>

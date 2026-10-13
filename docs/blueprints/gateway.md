@@ -137,7 +137,8 @@ JSON 形状（字段名即契约，M10 照此写 TS 类型）：
 ```jsonc
 // SessionItem
 { "id": 3, "channel": "web", "created_at": 1760000000000, "last_activity_at": 1760000005000,
-  "preview": "列出当前目录", "workdir": "/Users/x", "writable": true, "persona_id": 1 }
+  "preview": "列出当前目录", "workdir": "/Users/x", "writable": true, "persona_id": 1,
+  "model_id": 2, "reasoning_effort": null }
 // SessionPage
 { "items": [SessionItem], "next": { "before_at": 1760000005000, "before_id": 3 } | null }
 // Message：mic-message `Message` 的 serde 形状原样输出（`body` 为 `MessageBody`，内部标签 `kind`）

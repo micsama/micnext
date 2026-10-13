@@ -308,3 +308,19 @@
 .hljs-strong {
   font-weight: 600;
 }
+
+/* 模型与人设浮层共用同一层次与动效。 */
+.picker-panel {
+  box-shadow: 0 12px 40px -12px rgb(0 0 0 / 16%), 0 2px 8px rgb(0 0 0 / 4%);
+  animation: picker-reveal 130ms ease-out;
+  transform-origin: var(--bits-popover-content-transform-origin, bottom center);
+}
+
+@keyframes picker-reveal {
+  from { opacity: 0; transform: translateY(4px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-panel { animation: none; }
+}

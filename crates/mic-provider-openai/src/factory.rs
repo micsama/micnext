@@ -4,8 +4,9 @@ use async_openai::traits::RequestOptionsBuilder;
 use futures_util::stream;
 use mic_core::{
     BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ProbeError, Provider,
-    ProviderError, ProviderFactory, SecretValue,
+    ProviderError, ProviderFactory, ReasoningOptions, SecretValue,
 };
+use mic_store::ReasoningEffort;
 
 use crate::client::{self, Client};
 use crate::config::{self, Backend, EndpointConfig, ModelConfig, Protocol, Resolved};
@@ -43,19 +44,28 @@ impl ProviderFactory for OpenAiFactory {
         EndpointConfig::parse(endpoint_json).ok()?.key_env()
     }
 
+    fn reasoning_options(
+        &self,
+        endpoint_json: &str,
+        _name: &str,
+    ) -> Result<Option<ReasoningOptions>, ConfigError> {
+        Ok(EndpointConfig::parse(endpoint_json)?.reasoning_options())
+    }
+
     fn build(
         &self,
         endpoint_json: &str,
         key: Option<SecretValue>,
         name: &str,
         model_json: &str,
+        reasoning_effort: Option<ReasoningEffort>,
     ) -> Result<Arc<dyn Provider>, ConfigError> {
         let endpoint = EndpointConfig::parse(endpoint_json)?;
         let model = ModelConfig::parse(model_json)?;
         let client = connect(&endpoint, key)?;
         Ok(Arc::new(OpenAiProvider {
             client,
-            cfg: config::resolve(&endpoint, model, name),
+            cfg: config::resolve(&endpoint, model, name, reasoning_effort),
         }))
     }
 

@@ -11,7 +11,6 @@
   import { settingsStore } from "../../state/settings.svelte";
   import {
     blankRow,
-    effortLabel,
     fixedUrl,
     keyHint,
     limitable,
@@ -19,7 +18,6 @@
     PRESETS,
     presetLabel,
     probe,
-    REASONING,
     saveForm,
     type EndpointForm,
   } from "./endpoint-form";
@@ -98,7 +96,6 @@
     {#if editing}
       {@const f = editing.form}
       {@const base = editing.base}
-      {@const efforts = REASONING[f.preset]}
       <form
         class="flex min-h-0 flex-1 flex-col"
         onsubmit={(ev) => {
@@ -165,21 +162,16 @@
 
           <section class="space-y-2">
             <div
-              class="grid items-center gap-2 px-1 text-xs text-muted-foreground {efforts
-                ? 'grid-cols-[1fr_6rem_6rem_7rem_2rem]'
-                : 'grid-cols-[1fr_6rem_6rem_2rem]'}"
+              class="grid grid-cols-[1fr_6rem_6rem_2rem] items-center gap-2 px-1 text-xs text-muted-foreground"
             >
               <span>模型 ID</span>
               <span>上下文</span>
               <span>最大输出</span>
-              {#if efforts}<span>推理</span>{/if}
               <span></span>
             </div>
             {#each f.models as r, i (i)}
               <div
-                class="grid items-center gap-2 {efforts
-                  ? 'grid-cols-[1fr_6rem_6rem_7rem_2rem]'
-                  : 'grid-cols-[1fr_6rem_6rem_2rem]'}"
+                class="grid grid-cols-[1fr_6rem_6rem_2rem] items-center gap-2"
               >
                 <Input bind:value={r.name} class="font-mono text-xs" placeholder="模型 ID" aria-label="模型 ID" />
                 <Input type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="100000" aria-label="上下文窗口（默认 100000）" />
@@ -192,18 +184,6 @@
                   placeholder={limitable(f.preset) ? "默认" : "不支持"}
                   aria-label="最大输出"
                 />
-                {#if efforts}
-                  <Select.Root type="single" bind:value={r.reasoning_effort}>
-                    <Select.Trigger class="w-full" aria-label="推理">
-                      {effortLabel(f.preset, r.reasoning_effort)}
-                    </Select.Trigger>
-                    <Select.Content>
-                      {#each efforts as o (o.value)}
-                        <Select.Item value={o.value} label={o.label} />
-                      {/each}
-                    </Select.Content>
-                  </Select.Root>
-                {/if}
                 <Button variant="ghost" size="icon-sm" aria-label="移除" onclick={() => f.models.splice(i, 1)}>
                   <XIcon />
                 </Button>

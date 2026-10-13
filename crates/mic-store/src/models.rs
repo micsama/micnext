@@ -6,7 +6,8 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use crate::endpoints;
 use crate::secrets::Cipher;
 use crate::{
-    ClaimedModel, EndpointId, ModelId, ModelSettingsError, ModelView, ModelWrite, Store, StoreError,
+    ClaimedModel, EndpointId, ModelId, ModelSettingsError, ModelView, ModelWrite, ReasoningEffort,
+    Store, StoreError,
 };
 
 const MODEL_COLS: &str = "id, endpoint_id, name, config_json, context_window";
@@ -66,6 +67,11 @@ impl Store {
             Ok(id)
         })
         .await
+    }
+
+    /// 选择模型时区分不存在与已删除。
+    pub async fn selectable_model(&self, id: ModelId) -> Result<ModelView, ModelSettingsError> {
+        self.call_models(move |conn| live(conn, id)).await
     }
 
     /// 只改模型名与参数，不换服务商。
@@ -135,13 +141,14 @@ impl Store {
         &self,
         session: SessionId,
         id: ModelId,
+        reasoning_effort: Option<ReasoningEffort>,
     ) -> Result<(), ModelSettingsError> {
         self.call_models(move |conn| {
             let tx = conn.transaction()?;
             live(&tx, id)?;
             tx.execute(
-                "UPDATE core_sessions SET model_id = ?1 WHERE id = ?2",
-                params![id.0, session.0],
+                "UPDATE core_sessions SET model_id = ?1, reasoning_effort = ?3 WHERE id = ?2",
+                params![id.0, session.0, reasoning_effort],
             )?;
             tx.commit()?;
             Ok(())
@@ -268,6 +275,11 @@ pub(crate) fn claim_model(
         return Ok(ClaimedModel::Deleted { id, name });
     }
     let key = blob.map(|b| cipher.decrypt(endpoint_id, &b)).transpose()?;
+    let reasoning_effort = tx.query_row(
+        "SELECT reasoning_effort FROM core_sessions WHERE id = ?1",
+        [session.0],
+        |row| row.get(0),
+    )?;
     Ok(ClaimedModel::Selected {
         context_window,
         id,
@@ -276,6 +288,7 @@ pub(crate) fn claim_model(
         endpoint_json,
         model_name,
         model_json,
+        reasoning_effort,
         key,
     })
 }

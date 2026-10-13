@@ -1,4 +1,5 @@
-use mic_core::{ConfigError, SecretValue};
+use mic_core::{ConfigError, ReasoningOptions, SecretValue};
+use mic_store::ReasoningEffort;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -23,39 +24,22 @@ pub(crate) struct EndpointConfig {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ModelConfig {
     max_tokens: Option<u32>,
-    reasoning_effort: Option<ReasoningEffort>,
 }
 
-/// 推理强度全集；各预设可用的子集见 [`ModelConfig::canonical`]。
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum ReasoningEffort {
-    /// 关闭思考。
-    None,
-    Minimal,
-    Low,
-    Medium,
-    High,
-    Xhigh,
-    Max,
-}
-
-impl ReasoningEffort {
-    pub(crate) fn sdk(self) -> async_openai::types::chat::ReasoningEffort {
-        use async_openai::types::chat::ReasoningEffort as E;
-        match self {
-            Self::None => E::None,
-            Self::Minimal => E::Minimal,
-            Self::Low => E::Low,
-            Self::Medium => E::Medium,
-            Self::High => E::High,
-            Self::Xhigh => E::Xhigh,
-            Self::Max => E::Max,
-        }
+pub(crate) fn sdk_effort(effort: ReasoningEffort) -> async_openai::types::chat::ReasoningEffort {
+    use async_openai::types::chat::ReasoningEffort as E;
+    match effort {
+        ReasoningEffort::None => E::None,
+        ReasoningEffort::Minimal => E::Minimal,
+        ReasoningEffort::Low => E::Low,
+        ReasoningEffort::Medium => E::Medium,
+        ReasoningEffort::High => E::High,
+        ReasoningEffort::Xhigh => E::Xhigh,
+        ReasoningEffort::Max => E::Max,
     }
 }
 
-/// 支持推理的预设不写 `reasoning_effort` 时的取值。
+/// 会话未选档位时，支持思考的预设使用的默认值。
 const DEFAULT_EFFORT: ReasoningEffort = ReasoningEffort::Low;
 
 #[derive(Deserialize, Serialize, Clone, Copy)]
@@ -115,6 +99,26 @@ fn err(field: &str, message: impl Into<String>) -> ConfigError {
 }
 
 impl EndpointConfig {
+    pub(crate) fn reasoning_options(&self) -> Option<ReasoningOptions> {
+        use ReasoningEffort as E;
+        let choices = match self.preset {
+            Preset::Deepseek => vec![E::None, E::Low, E::High, E::Max],
+            Preset::Openai | Preset::Chatgpt => vec![
+                E::None,
+                E::Minimal,
+                E::Low,
+                E::Medium,
+                E::High,
+                E::Xhigh,
+                E::Max,
+            ],
+            Preset::Generic | Preset::Ollama => return None,
+        };
+        Some(ReasoningOptions {
+            choices,
+            default: DEFAULT_EFFORT,
+        })
+    }
     pub(crate) fn parse(json: &str) -> Result<Self, ConfigError> {
         serde_json::from_str(json).map_err(|e| err("config", e.to_string()))
     }
@@ -215,39 +219,34 @@ impl ModelConfig {
 
     /// 校验模型名与参数，返回规范形态。
     pub(crate) fn canonical(
-        mut self,
+        self,
         endpoint: &EndpointConfig,
         name: &str,
     ) -> Result<Self, ConfigError> {
-        use ReasoningEffort as E;
         if name.trim().is_empty() {
             return Err(err("name", "模型名不能为空"));
         }
         if let (Preset::Chatgpt, Some(_)) = (endpoint.preset, self.max_tokens) {
             return Err(err("max_tokens", "ChatGPT 订阅不支持限制输出长度，请留空"));
         }
-        self.reasoning_effort = match (endpoint.preset, self.reasoning_effort) {
-            (Preset::Deepseek | Preset::Openai | Preset::Chatgpt, None) => Some(DEFAULT_EFFORT),
-            (Preset::Deepseek, Some(e @ (E::None | E::Low | E::High | E::Max))) => Some(e),
-            (Preset::Deepseek, Some(_)) => {
-                return Err(err(
-                    "reasoning_effort",
-                    "DeepSeek 只支持 none / low / high / max",
-                ))
-            }
-            (Preset::Openai | Preset::Chatgpt, effort) | (_, effort @ None) => effort,
-            (_, Some(_)) => return Err(err("reasoning_effort", "该服务商不支持推理强度，请留空")),
-        };
         Ok(self)
     }
 }
 
 /// 要求两份配置都已是规范形态（来自库内已校验的 JSON）。
-pub(crate) fn resolve(endpoint: &EndpointConfig, model: ModelConfig, name: &str) -> Resolved {
+pub(crate) fn resolve(
+    endpoint: &EndpointConfig,
+    model: ModelConfig,
+    name: &str,
+    reasoning_effort: Option<ReasoningEffort>,
+) -> Resolved {
     Resolved {
         model: name.to_owned(),
         protocol: endpoint.protocol(),
         max_tokens: model.max_tokens,
-        reasoning_effort: model.reasoning_effort,
+        reasoning_effort,
     }
 }
+
+#[cfg(test)]
+mod tests;

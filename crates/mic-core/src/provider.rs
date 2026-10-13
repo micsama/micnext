@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mic_message::{ImageData, ImageId, Message, ReplyBlock};
-use mic_store::{SecretValue, Usage};
+use mic_store::{ReasoningEffort, SecretValue, Usage};
 use mic_tool::ToolSpec;
 
 pub type BoxStream<T> = Pin<Box<dyn futures_core::Stream<Item = T> + Send>>;
@@ -32,6 +32,27 @@ pub struct ConfigError {
 
 pub type BoxFuture<T> = Pin<Box<dyn std::future::Future<Output = T> + Send>>;
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ReasoningOptions {
+    pub choices: Vec<ReasoningEffort>,
+    pub default: ReasoningEffort,
+}
+
+pub(crate) fn resolve_reasoning(
+    options: Option<ReasoningOptions>,
+    effort: Option<ReasoningEffort>,
+) -> Result<Option<ReasoningEffort>, ConfigError> {
+    match (options, effort) {
+        (Some(options), Some(effort)) if options.choices.contains(&effort) => Ok(Some(effort)),
+        (Some(options), None) => Ok(Some(options.default)),
+        (None, None) => Ok(None),
+        _ => Err(ConfigError {
+            field: "reasoning_effort".into(),
+            message: "所选模型不支持这个思考档位，请重新选择".into(),
+        }),
+    }
+}
+
 /// 测试服务商连接失败的原因；文案面向用户，不含秘密与上游响应体。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProbeError {
@@ -56,6 +77,11 @@ pub trait ProviderFactory: Send + Sync + 'static {
         name: &str,
         model_json: &str,
     ) -> Result<String, ConfigError>;
+    fn reasoning_options(
+        &self,
+        endpoint_json: &str,
+        name: &str,
+    ) -> Result<Option<ReasoningOptions>, ConfigError>;
     /// 服务商未保存 key 时读哪个环境变量；`None` = 无约定。
     fn key_env(&self, endpoint_json: &str) -> Option<&'static str>;
     /// 认领后创建本轮实例；`key` 已含环境变量回退，缺省即不发鉴权头。
@@ -65,6 +91,7 @@ pub trait ProviderFactory: Send + Sync + 'static {
         key: Option<SecretValue>,
         name: &str,
         model_json: &str,
+        reasoning_effort: Option<ReasoningEffort>,
     ) -> Result<Arc<dyn Provider>, ConfigError>;
     /// 联网请求服务商的模型列表（测试连接）。
     fn list_models(

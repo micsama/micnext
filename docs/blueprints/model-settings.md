@@ -4,6 +4,8 @@
 
 **现行扩展（2026-10-12）**：模型上下文窗口独立列与表单字段按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
 
+**现行修订（2026-10-13）**：思考强度归会话调用选择；模型 GET 下发节点，详见已批准的 [reasoning-selection](reasoning-selection.md)。
+
 **状态**：服务商/模型分层（原 A 批与 v3 修订）已实现并合并为本稿正文；图片输入（B 批）内核部分（mic-message → store → core → openai）已实现；HTTP 与 Web 部分已实现并手工验收，**CLOSED**。遗留：模型不支持图片时的上游报错呈现未处理（见 todo.md）。
 **方向记录**：[B1](../brainstorm/model-settings.md)。阶段二以本稿替代 [runtime-settings.md](runtime-settings.md) §四。
 
@@ -11,7 +13,7 @@
 
 | 项 | 决定 |
 |---|---|
-| 两层实体 | **服务商**（代码叫 `Endpoint`，避免与运行期 `Provider` trait 混淆：类型、预设、地址、key）与**模型**（挂在服务商下：模型名、max_tokens、推理强度）。会话/默认/run 快照引用模型；run 快照名为“服务商名 / 模型名” |
+| 两层实体 | **服务商**（代码叫 `Endpoint`，避免与运行期 `Provider` trait 混淆：类型、预设、地址、key）与**模型**（挂在服务商下：模型名、max_tokens、上下文窗口）。会话/默认/run 快照引用模型；思考档位是会话/run 属性；run 快照名为“服务商名 / 模型名” |
 | API key | Web 可填；AES-256-GCM 加密入 SQLite，AAD 绑定 `endpoint-key:{endpoint_id}`；主密钥为 0600 本地文件，不在 data_dir 内 |
 | key 来源 | 服务商保存了 key 用保存值，否则读环境变量（DeepSeek `DEEPSEEK_API_KEY`、OpenAI 与通用 `OPENAI_API_KEY`、Ollama 无）；两处都没有属正常，不发鉴权头，上游拒绝时才表现为鉴权失败 |
 | 固定地址 | OpenAI、DeepSeek 地址固定，接口与 UI 都不提供 `base_url`；Ollama 留空取 `http://localhost:11434/v1`，通用必填 |
@@ -63,8 +65,10 @@ pub trait ProviderFactory: Send + Sync + 'static {
     fn check_endpoint(&self, json: &str) -> Result<String, ConfigError>;      // 纯本地，返回规范 JSON
     fn check_model(&self, endpoint_json: &str, name: &str, model_json: &str)
         -> Result<String, ConfigError>;
+    fn reasoning_options(&self, endpoint_json: &str, name: &str)
+        -> Result<Option<ReasoningOptions>, ConfigError>;
     fn key_env(&self, endpoint_json: &str) -> Option<&'static str>;
-    fn build(&self, endpoint_json: &str, key: Option<SecretValue>, name: &str, model_json: &str)
+    fn build(&self, endpoint_json: &str, key: Option<SecretValue>, name: &str, model_json: &str, reasoning_effort: Option<ReasoningEffort>)
         -> Result<Arc<dyn Provider>, ConfigError>;                            // key 已含 env 回退
     fn list_models(&self, endpoint_json: &str, key: Option<SecretValue>)
         -> BoxFuture<Result<Vec<String>, ProbeError>>;                        // 唯一联网的非 run 路径
@@ -75,7 +79,7 @@ pub enum ProbeError { Network(String), Auth, Unexpected(String) }            // 
 Registry `provider_factory(impl ProviderFactory)`；重复 kind → `DuplicateProviderKind`。工厂启动登记一次。
 env 读取在 core 侧统一做（`resolve_key(stored, factory.key_env())`）。
 
-openai 配置（`deny_unknown_fields`）：服务商 `{preset, base_url?}`（OpenAI/DeepSeek 禁填地址，规范形态不存地址）；模型 `{max_tokens?, reasoning_effort?}`，模型名单列，推理强度取值按预设限定（provider-openai §2.1）。
+openai 配置（`deny_unknown_fields`）：服务商 `{preset, base_url?}`（OpenAI/DeepSeek 禁填地址，规范形态不存地址）；模型 `{max_tokens?}`，模型名单列。思考节点由 `reasoning_options` 返回，选择不存模型 JSON，按会话/run 快照传入 `build`（provider-openai §2.1）。
 `GET {base}/models` 解析 `data[].id`，其余字段不消费；401/403 → `Auth`，连接失败/超时 → `Network`。
 HTTP 边界以 RawValue 交工厂解析一次，`serde_json::Value` 不进入调度/Engine/表单。
 
@@ -89,7 +93,7 @@ pub struct EndpointView { id, name, kind, config_json, key_set }
 pub struct EndpointWrite { name, kind, config_json, credential }
 pub struct ModelView { id, endpoint_id, name, config_json, context_window: Option<NonZeroU32> }
 pub struct ModelWrite { endpoint_id, name, config_json, context_window: Option<NonZeroU32> }
-pub enum ClaimedModel { Missing, Deleted{..}, Selected { id, name /*服务商 / 模型*/, kind, endpoint_json, model_name, model_json, key, context_window } }
+pub enum ClaimedModel { Missing, Deleted{..}, Selected { id, name /*服务商 / 模型*/, kind, endpoint_json, model_name, model_json, key, context_window, reasoning_effort } }
 // Store：endpoints/endpoint/create_endpoint/update_endpoint/delete_endpoint/endpoint_key；
 //        models/model/create_model/update_model/delete_model/default_model/set_default_model/set_session_model；
 //        claim_next -> ClaimedRun { run, settings, model, input }
@@ -100,8 +104,8 @@ pub enum ClaimedModel { Missing, Deleted{..}, Selected { id, name /*服务商 / 
 | core_endpoints | id、name、kind、config_json、key_cipher（可空）、deleted_at、created_at、updated_at；活动名唯一 |
 | core_models | id、endpoint_id FK、name、config_json、context_window（空 = 100000）、deleted_at、…；同服务商活动模型名唯一 |
 | core_settings | default_model_id 可空 FK；必须活动；零活动模型恰好 NULL |
-| core_sessions | model_id 可空 FK；软删除不清引用 |
-| core_runs | model_id、model_name 快照 |
+| core_sessions | model_id 可空 FK；reasoning_effort 可空（默认），空模型不能有具体档位；软删除不清引用 |
+| core_runs | model_id、model_name、reasoning_effort 选择快照 |
 | core_images | id、session_id、format、size_bytes、bytes blob；不可变 |
 
 联动（首个/默认/最后一个删除/级联/切换与 executing 检查）各在同一事务。`claim_next` 在认领事务内解密并写 run 快照（无秘密）。
@@ -149,14 +153,14 @@ Kernel：`provider_kinds`(同步) / `endpoints` / `endpoint` / `key_env` / `crea
 `EndpointDraft { name, kind, config_json, credential }`、`ModelDraft { endpoint_id, name, config_json, context_window }`；`now` 由内核产生。
 写命令：工厂 `check` → Store 事务；失败不落部分状态。`test_endpoint(draft, existing)`：`Keep` 取库内 key，再回退 env，不写任何状态。
 
-Engine 持有工厂注册表。`claim_next` 后 `resolve_key` + 一次 `build` 创建实例，本轮重试/工具往返/absorb 复用。
+Engine 持有工厂注册表。`claim_next` 后按档位能力解析默认/验证选择，`resolve_key` + 一次 `build` 创建实例，本轮重试/工具往返/absorb/压缩复用。
 `Missing`/`Deleted`/`build` 失败：RunStarted → Notification 落盘 → ProviderFailed → RunFinished；未真正调用则不写 `core_model_calls`。
 
 | 归属 | 变体 | 结果 |
 |---|---|---|
 | ModelSettingsError | NotFound / Deleted / EndpointNotFound / EndpointDeleted / NameTaken / DefaultInUse / InvalidSecretEdit / Store | 404/409/422 |
 | InputError | Empty / TooLarge / InvalidImage / ImageLimit | 400/413/422，不落消息 |
-| ConfigError | field + 脱敏 message | 422 |
+| ConfigError | field + 脱敏 message | 思考选择错误 400，其余 422 |
 | ProbeError | Network / Auth / Unexpected | 422 |
 | StoreError 扩展 | SecretKeyIo / SecretKeyInvalid / SecretIntegrity / ImageMissing | 明确 Err |
 | AssembleError 扩展 | DuplicateProviderKind | 启动失败 |
@@ -170,13 +174,13 @@ HTTP 与日志不含 SecretValue、密文、上游原始响应体。
 | GET /model-kinds | `{ items:[{kind,display_name}] }`；`input_limits:{max_images,max_image_bytes}` |
 | GET/POST /endpoints；PUT/DELETE /endpoints/:id | 服务商 CRUD；`credential` 为 keep/clear/set；返回含 `key_set`、`key_env`；DELETE 级联 |
 | POST /endpoints/test | `{endpoint_id?, kind, config, credential}` → `{models:[string]}`；失败 422 + 中文原因 |
-| GET /models；POST /models；PUT/DELETE /models/:id | 模型 CRUD（`endpoint_id,name,config`） |
+| GET /models；POST /models；PUT/DELETE /models/:id | 模型 CRUD（`endpoint_id,name,config`）；GET 另含 reasoning 节点/default，或 null |
 | GET/PUT /models/default | `{model_id}` |
-| PUT /sessions/:id/model | `{model_id}`；Root 会话可调，执行中也可 |
-| POST /sessions；POST /sessions/:id/messages | `parts:[{kind:"text",text},{kind:"image",base64}]`；创建额外 `model_id`（可空取默认） |
+| PUT /sessions/:id/model | `{model_id,reasoning_effort}`，两字段必填，effort 可 null；Root 会话可调，执行中也可 |
+| POST /sessions；POST /sessions/:id/messages | `parts:[{kind:"text",text},{kind:"image",base64}]`；创建额外 model_id（可空取默认）、reasoning_effort（可缺省）；空模型只允许空档位 |
 | GET /sessions/:id/images/:image_id | 既有鉴权 + 会话归属；原始字节，`Cache-Control: no-store` |
 
-DTO 均 `deny_unknown_fields`；会话 DTO 含 `model_id`，Message 的 Image 只含 id。
+DTO 均 `deny_unknown_fields`；会话 DTO 含 `model_id`、`reasoning_effort`，Message 的 Image 只含 id。
 设置页：服务商卡片（名称、类型、地址、key、测试）内嵌模型行；测试成功按返回生成模型草稿行；选择框按服务商分组。执行中切换提示下一轮生效。
 **B 批 Web**：输入框支持选择/粘贴/拖入图片，本地预览可移除，成功后才清空；发送失败保留草稿。零模型时提示先去设置。
 历史图片用带 Authorization 的 fetch 取 blob 创建 object URL，切页 revoke；不把 token 拼 URL。

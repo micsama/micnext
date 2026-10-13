@@ -7,8 +7,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::{
-    DeliveryTarget, ModelId, Persona, PersonaId, Run, RunId, RunState, Session, SessionKind,
-    StoreError,
+    DeliveryTarget, ModelId, Persona, PersonaId, ReasoningEffort, Run, RunId, RunState, Session,
+    SessionKind, StoreError,
 };
 
 /// 消息读取的 FROM 子句：`Reply.model` 只存在调用行上，读出时 JOIN 还原。
@@ -21,11 +21,33 @@ pub(crate) const MESSAGE_COLS: &str =
 pub(crate) const SESSION_COLS: &str =
     "id, kind, channel, chat, parent_tool_call_id, trigger_module, \
      trigger_ref, parent_session_id, delivery_channel, delivery_version, delivery_payload, pwd, \
-     tool_scope, created_at, persona_id, model_id";
+     tool_scope, created_at, persona_id, model_id, reasoning_effort";
 
 pub(crate) const RUN_COLS: &str = "id, session_id, state, created_at, finished_at";
 
 pub(crate) const PERSONA_COLS: &str = "id, name, prompt, builtin, deleted_at IS NOT NULL";
+
+impl rusqlite::ToSql for ReasoningEffort {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        let name = match self {
+            Self::None => "none",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+        };
+        Ok(name.into())
+    }
+}
+
+impl rusqlite::types::FromSql for ReasoningEffort {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        serde_json::from_value(Value::String(value.as_str()?.to_owned()))
+            .map_err(|error| rusqlite::types::FromSqlError::Other(Box::new(error)))
+    }
+}
 
 /// 未认领输入谓词，`m` 为 core_messages 别名。
 pub(crate) const UNCLAIMED: &str =
@@ -161,6 +183,7 @@ pub(crate) fn session(row: &Row<'_>) -> rusqlite::Result<Session> {
         created_at: row.get(13)?,
         persona_id: PersonaId(row.get(14)?),
         model_id: row.get::<_, Option<i64>>(15)?.map(ModelId),
+        reasoning_effort: row.get(16)?,
     })
 }
 

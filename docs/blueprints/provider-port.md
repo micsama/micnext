@@ -223,8 +223,8 @@ impl Message {
 
 - 框架对模型的一次性请求（`HarnessRequest`，mic-message §2.2）需要进请求视图时，
   `ModelRequest` 加字段，随 M6 定。
-- 采样参数（温度、最大输出长度、推理强度）先作为各实现的配置项，出现按次调整的
-  真实需求再进 `ModelRequest`。
+- 温度、最大输出长度仍归各实现的静态配置。思考强度已按 [reasoning-selection](reasoning-selection.md)
+  移到会话选择，在建本轮 Provider 时传入；`ModelRequest` 不增加覆盖字段。
 - 模型路由（fallback、按复杂度选小模型）：一种新 `kind`，自身实现 `Provider`，按条目名
   引用其它模型；需要的"按名取 Provider"接口届时随路由 B2 定。
 - 模型能力探针（是否支持图片等多模态）：不支持时可配 OCR 类工具兜底，届时定能力

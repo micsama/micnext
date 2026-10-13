@@ -27,7 +27,7 @@ pub use types::{
     ContextView, ContextWindow, CredentialWrite, DeliveryTarget, EndpointId, EndpointView,
     EndpointWrite, Identity, InputDisposition, MessagePage, Migration, ModelCallContext,
     ModelCallId, ModelCallOutcome, ModelId, ModelView, ModelWrite, NewInputPart, NewModelCall,
-    NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId, Run, RunId, RunInput,
-    RunSettings, RunState, SecretColumn, Session, SessionCursor, SessionKind, SessionPage,
-    SessionSummary, Settings, ToolScope, Usage,
+    NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId, ReasoningEffort, Run,
+    RunId, RunInput, RunSettings, RunState, SecretColumn, Session, SessionCursor, SessionKind,
+    SessionPage, SessionSummary, Settings, ToolScope, Usage,
 };

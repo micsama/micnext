@@ -114,7 +114,7 @@ pub(crate) fn request(
             .collect(),
         max_output_tokens: cfg.max_tokens,
         reasoning: cfg.reasoning_effort.map(|e| ReasoningParam {
-            effort: Some(e.sdk()),
+            effort: Some(crate::config::sdk_effort(e)),
             summary: Some(ReasoningSummary::Auto),
             ..Default::default()
         }),

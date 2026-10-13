@@ -72,6 +72,8 @@ pub enum KernelError {
     ContextCommand(#[from] mic_store::ContextCommandError),
     #[error("会话不存在")]
     SessionNotFound,
+    #[error("只有主会话可以归档")]
+    SessionNotRoot,
     #[error(transparent)]
     Workdir(#[from] WorkdirError),
     #[error(transparent)]

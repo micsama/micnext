@@ -189,6 +189,15 @@ pub(crate) async fn generate_title(
     Ok(StatusCode::ACCEPTED)
 }
 
+pub(crate) async fn archive_session(
+    State(app): State<Arc<App>>,
+    id: Result<Path<i64>, PathRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
+    app.kernel.archive_session(SessionId(id)).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SendBody {

@@ -1,5 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { Popover } from "bits-ui";
+  import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
+  import ArchiveIcon from "@lucide/svelte/icons/archive";
+  import { archiveSession } from "../api/client";
   import type { SessionItem } from "../api/types";
   import type { Attachment } from "svelte/attachments";
   import { groupSessions } from "../lib/format";
@@ -14,6 +18,21 @@
   const groups = $derived(groupSessions(webSessions.items));
   const activeId = $derived(router.current.kind === "session" ? router.current.id : null);
   let othersOpen = $state(false);
+  let archiving = $state<number | null>(null);
+  let archiveError = $state<string | null>(null);
+
+  async function archive(id: number) {
+    archiving = id;
+    archiveError = null;
+    try {
+      await archiveSession(id);
+      if (activeId === id) router.go("/");
+      location.reload();
+    } catch (error) {
+      archiveError = (error as Error).message;
+      archiving = null;
+    }
+  }
 
   const THEME: Record<ThemeChoice, { icon: IconName; label: string }> = {
     system: { icon: "monitor", label: "跟随系统" },
@@ -62,12 +81,25 @@
 {#snippet entry(s: SessionItem)}
   {@const id = s.id}
   {@const current = activeSession?.id === id ? activeSession : s}
-  <a
-    href="/s/{id}"
-    onclick={(e) => (e.preventDefault(), go(`/s/${id}`))}
-    class="block truncate rounded-md px-3 py-1.5 text-sm hover:bg-accent"
-    class:bg-accent={activeId === id}
-    class:font-medium={activeId === id}>{current.title ?? current.preview ?? `会话 ${id}`}</a>
+  <div class="group flex items-center rounded-md hover:bg-accent" class:bg-accent={activeId === id}>
+    <a
+      href="/s/{id}"
+      onclick={(e) => (e.preventDefault(), go(`/s/${id}`))}
+      class="min-w-0 flex-1 truncate px-3 py-1.5 text-sm"
+      class:font-medium={activeId === id}>{current.title ?? current.preview ?? `会话 ${id}`}</a>
+    <Popover.Root>
+      <Popover.Trigger aria-label="会话操作" title="会话操作" class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100 data-[state=open]:opacity-100">
+        <EllipsisIcon class="size-4" />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content side="bottom" align="end" sideOffset={4} collisionPadding={8} class="z-50 w-36 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none">
+          <button type="button" disabled={archiving !== null} onclick={() => archive(id)} class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50">
+            <ArchiveIcon class="size-4" />{archiving === id ? "正在归档…" : "归档会话"}
+          </button>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  </div>
 {/snippet}
 
 {#if open}
@@ -92,6 +124,7 @@
     </button>
   </div>
   <nav class="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+    {#if archiveError}<p role="alert" class="px-3 py-2 text-xs text-destructive">归档失败：{archiveError}</p>{/if}
     {#each groups as group (group.label)}
       <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">{group.label}</p>
       {#each group.items as s (s.id)}

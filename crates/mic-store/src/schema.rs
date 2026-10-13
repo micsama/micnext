@@ -10,6 +10,12 @@ const CORE: &str = "core";
 const CORE_MIGRATIONS: &[Migration] = &[
     Migration {
         module: CORE,
+        version: 9,
+        sql: "ALTER TABLE core_sessions ADD COLUMN archived_at INTEGER;",
+        secret_columns: &[],
+    },
+    Migration {
+        module: CORE,
         version: 8,
         sql: CORE_V8,
         secret_columns: &[],

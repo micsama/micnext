@@ -109,6 +109,10 @@ export async function generateTitle(id: number): Promise<void> {
   await request("POST", `/sessions/${id}/title`);
 }
 
+export async function archiveSession(id: number): Promise<void> {
+  await request("POST", `/sessions/${id}/archive`);
+}
+
 export async function getTitleModel(): Promise<TitleModelSelection> {
   return parseTitleModel(await request("GET", "/settings/title-model"));
 }

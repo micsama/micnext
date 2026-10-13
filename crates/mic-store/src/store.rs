@@ -285,6 +285,17 @@ impl Store {
         .await
     }
 
+    pub async fn archive_session(&self, session: SessionId, at: i64) -> Result<(), StoreError> {
+        self.call(move |conn| {
+            conn.execute(
+                "UPDATE core_sessions SET archived_at = COALESCE(archived_at, ?2) WHERE id = ?1",
+                params![session.0, at],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
     /// 单个会话的摘要；没有消息时最近活跃取创建时间。
     pub async fn session_summary(
         &self,
@@ -314,7 +325,7 @@ impl Store {
                      ORDER BY act DESC, id DESC
                      LIMIT ?4",
                     summaries(
-                        "s.kind = 'root' AND s.channel = ?1
+                        "s.kind = 'root' AND s.channel = ?1 AND s.archived_at IS NULL
                          AND EXISTS (SELECT 1 FROM core_messages m
                                       WHERE m.session_id = s.id AND m.kind IN ('UserInput', 'Command'))"
                     )

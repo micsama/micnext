@@ -103,6 +103,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         )
         .route("/sessions/{id}", get(api::get_session))
         .route("/sessions/{id}/title", post(api::generate_title))
+        .route("/sessions/{id}/archive", post(api::archive_session))
         .route(
             "/sessions/{id}/messages",
             get(stream::page)

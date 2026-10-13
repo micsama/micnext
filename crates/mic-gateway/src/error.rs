@@ -65,6 +65,7 @@ impl From<KernelError> for ApiError {
                 mic_store::ContextCommandError::Store(error) => Self::Internal(error.into()),
             },
             KernelError::SessionNotFound => Self::NotFound(SESSION_NOT_FOUND),
+            KernelError::SessionNotRoot => Self::Forbidden(e.to_string()),
             KernelError::Workdir(e) => {
                 let hint = match &e {
                     WorkdirError::HomeMissing => "请在 设置 → 对话偏好 改用绝对路径",

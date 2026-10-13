@@ -258,6 +258,18 @@ impl Kernel {
         Ok(self.store.image(session_id, id).await?)
     }
 
+    pub async fn archive_session(&self, id: SessionId) -> Result<(), KernelError> {
+        let session = self
+            .store
+            .session(id)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        if !matches!(session.kind, SessionKind::Root { .. }) {
+            return Err(KernelError::SessionNotRoot);
+        }
+        Ok(self.store.archive_session(id, now_ms()).await?)
+    }
+
     /// id 可能来自外部，不存在返回 `None`。
     pub async fn session(&self, id: SessionId) -> Result<Option<Session>, KernelError> {
         Ok(self.store.session(id).await?)

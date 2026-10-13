@@ -22,3 +22,4 @@
 | 实现完成（CLOSED，2026-10-10 人工验收） | Web 开发者诊断：内存日志（项目 DEBUG/依赖 INFO，1 万条/16 MiB，筛选/正则/暂停/复制）+ 只读 SQL（mic-store 只读连接 + authorizer，凭据列由建表方声明读作 NULL，2s/200 行/1 MiB） | [B2](docs/blueprints/developer-diagnostics.md)；B1：[日志](docs/brainstorm/developer-logs.md)、[SQL](docs/brainstorm/developer-sql.md)；原日志路径/级别约定定稿后补进 `CLAUDE.md` |
 | 实现完成（CLOSED，2026-10-10 服务器验收） | Web 更新：原地 pull --ff-only（5 次，超时 20s→60s 递增，立即重试）+ 缓存构建 + exec；代理继承启动环境、记录 from 提交供人工回退、构建无超时；Linux 原地构建已实测 | [B2](docs/blueprints/self-update.md)；[B1](docs/brainstorm/self-update.md) |
 | 实现完成（CLOSED，2026-10-12） | 开发者日志留痕：INFO+ 进独立 SQLite，超限删旧，失败降级纯文本 | [B1](docs/brainstorm/developer-log-history.md) · [B2](docs/blueprints/developer-log-history.md) |
+| 实现完成（CLOSED，2026-10-13 人工验收） | 思考强度按会话选择，模型 GET 返回节点，切模型重置 null；本轮快照固定；模型与人设入口统一，emoji 与浮层比例调整完成 | [B2](docs/blueprints/reasoning-selection.md) |

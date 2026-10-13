@@ -231,6 +231,63 @@ fn chunk(delta: Value, finish: Option<&str>) -> Value {
 }
 
 #[tokio::test]
+async fn reasoning_presets_reach_both_protocols() {
+    for (preset, name, protocol, effort, field) in [
+        (
+            "deepseek",
+            "future-deepseek",
+            Protocol::Chat(Dialect::DeepSeek),
+            "low",
+            "/reasoning_effort",
+        ),
+        (
+            "chatgpt",
+            "gpt-6.1-sol",
+            Protocol::Responses(Backend::Codex),
+            "low",
+            "/reasoning/effort",
+        ),
+        (
+            "chatgpt",
+            "gpt-6-luna",
+            Protocol::Responses(Backend::Codex),
+            "medium",
+            "/reasoning/effort",
+        ),
+        (
+            "chatgpt",
+            "future-codex",
+            Protocol::Responses(Backend::Codex),
+            "low",
+            "/reasoning/effort",
+        ),
+    ] {
+        let events = match protocol {
+            Protocol::Chat(_) => vec![chunk(json!({"content": "ok"}), Some("stop"))],
+            Protocol::Responses(_) => {
+                vec![json!({"type": "response.completed", "response": {}})]
+            }
+        };
+        let (url, captured) = upstream(sse(&events, true)).await;
+        let options = OpenAiFactory
+            .reasoning_options(&json!({"preset": preset}).to_string(), name)
+            .unwrap()
+            .unwrap();
+        let mut p = provider(&url, protocol, HeaderMap::new());
+        p.cfg.model = name.into();
+        p.cfg.reasoning_effort = Some(options.default);
+        let mut request = history();
+        request.tool_choice = ToolChoice::None;
+        request.tools.clear();
+        run(&p, request).await.result.unwrap();
+        let body = captured.await.unwrap().body;
+        assert_eq!(body["model"], name);
+        assert_eq!(body.pointer(field).unwrap(), effort);
+        assert_eq!(body["tool_choice"], "none");
+    }
+}
+
+#[tokio::test]
 async fn chat_deepseek_round_trip() {
     let (url, rx) = upstream(sse(
         &[

@@ -48,9 +48,9 @@ impl ProviderFactory for OpenAiFactory {
     fn reasoning_options(
         &self,
         endpoint_json: &str,
-        _name: &str,
+        name: &str,
     ) -> Result<Option<ReasoningOptions>, ConfigError> {
-        Ok(EndpointConfig::parse(endpoint_json)?.reasoning_options())
+        Ok(EndpointConfig::parse(endpoint_json)?.reasoning_options(name))
     }
 
     fn build(

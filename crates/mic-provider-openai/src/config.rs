@@ -26,9 +26,6 @@ pub(crate) struct ModelConfig {
     max_tokens: Option<u32>,
 }
 
-/// 会话未选档位时，支持思考的预设使用的默认值。
-const DEFAULT_EFFORT: ReasoningEffort = ReasoningEffort::Low;
-
 #[derive(Deserialize, Serialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum Preset {
@@ -86,24 +83,35 @@ fn err(field: &str, message: impl Into<String>) -> ConfigError {
 }
 
 impl EndpointConfig {
-    pub(crate) fn reasoning_options(&self) -> Option<ReasoningOptions> {
+    pub(crate) fn reasoning_options(&self, model_name: &str) -> Option<ReasoningOptions> {
         use ReasoningEffort as E;
-        let choices = match self.preset {
-            Preset::Deepseek => vec![E::None, E::Low, E::High, E::Max],
-            Preset::Openai | Preset::Chatgpt => vec![
-                E::None,
-                E::Minimal,
-                E::Low,
+        let (choices, default): (&[E], E) = match (self.preset, model_name) {
+            (Preset::Chatgpt, "gpt-6-luna") => (
+                &[E::None, E::Low, E::Medium, E::High, E::Xhigh, E::Max],
                 E::Medium,
-                E::High,
-                E::Xhigh,
-                E::Max,
-            ],
-            Preset::Generic | Preset::Ollama => return None,
+            ),
+            (Preset::Chatgpt, "gpt-6.1-sol") => {
+                (&[E::Low, E::Medium, E::High, E::Xhigh, E::Max], E::Low)
+            }
+            (Preset::Chatgpt, _) => (&[E::Low, E::Medium, E::High], E::Low),
+            (Preset::Deepseek, _) => (&[E::None, E::Low, E::High, E::Max], E::Low),
+            (Preset::Openai, _) => (
+                &[
+                    E::None,
+                    E::Minimal,
+                    E::Low,
+                    E::Medium,
+                    E::High,
+                    E::Xhigh,
+                    E::Max,
+                ],
+                E::Low,
+            ),
+            (Preset::Generic | Preset::Ollama, _) => return None,
         };
         Some(ReasoningOptions {
-            choices,
-            default: DEFAULT_EFFORT,
+            choices: choices.to_vec(),
+            default,
         })
     }
     pub(crate) fn parse(json: &str) -> Result<Self, ConfigError> {

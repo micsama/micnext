@@ -45,7 +45,7 @@ fn reasoning_is_a_call_parameter_in_both_protocols() {
         .unwrap()
         .canonical()
         .unwrap();
-    assert!(endpoint.reasoning_options().is_none());
+    assert!(endpoint.reasoning_options("test").is_none());
     let cfg = resolve(&endpoint, ModelConfig::parse("{}").unwrap(), "test", None);
     let body =
         serde_json::to_value(crate::chat::request(&cfg, Dialect::Ollama, &req).unwrap()).unwrap();

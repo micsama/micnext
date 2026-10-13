@@ -31,7 +31,7 @@ Human 已确定方向：模型注册阶段不固定思考强度；聊天页通�
 
 非法/不支持档位 400，不存在模型 404，已删除模型 409，非 Root 沿用 ReadOnly。请求验证与认领建实例都结合当前 Provider 的能力；协议编辑后若旧选择失效，明确失败，不转换档位。
 
-档位来源沿用现行本地 Provider 规则：DeepSeek none/low/high/max，OpenAI/ChatGPT 现有七档，默认 low；generic/Ollama 无档位。工厂接口接收模型名以表达能力所属对象；本次不增加联网能力发现，也不声称本地枚举能保证每个上游模型都支持。上游拒绝保持明确错误。
+档位来源使用本地 Provider 的供应商默认与已知模型覆盖，现行表见 [reasoning-model-capabilities](reasoning-model-capabilities.md)：DeepSeek none/low/high/max 默认 low；Codex 默认三档、low，Luna 六档、medium，Sol 五档、low；OpenAI 公开 API 预设仍七档、low；generic/Ollama 无档位。工厂按预设与完整模型名返回能力；不增加联网能力发现，也不声称供应商默认保证所有未来模型支持。上游拒绝保持明确错误。
 
 认领事务把档位选择与模型配置、凭据一起读定，写入 run 快照。core 建本轮 Provider 时一次性把 `null` 解析为该模型默认值（不支持时仍不发）；实例持有有效值至本轮结束。`ModelRequest` 不新增覆盖字段，压缩复用本轮 Provider。
 

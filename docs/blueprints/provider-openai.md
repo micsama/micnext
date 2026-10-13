@@ -41,9 +41,14 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 
 | 预设 | `reasoning_effort` |
 |---|---|
-| `openai` / `chatgpt` | none / minimal / low / medium / high / xhigh / max，未选择档位用 low |
+| `openai` | none / minimal / low / medium / high / xhigh / max，未选择档位用 low |
+| `chatgpt` 默认 | low / medium / high，未选择档位用 low |
+| `chatgpt` 的 `gpt-6-luna` | none / low / medium / high / xhigh / max，未选择档位用 medium |
+| `chatgpt` 的 `gpt-6.1-sol` | low / medium / high / xhigh / max，未选择档位用 low |
 | `deepseek` | none / low / high / max，未选择档位用 low |
 | 其它 | 无档位，不发送参数 |
+
+供应商默认与已知模型覆盖直接维护在 Rust 代码中；先按预设与完整模型名取覆盖，否则取该预设默认。GET、选择校验与调用共用这一处来源，失效选择明确报错，不改档。详见 [reasoning-model-capabilities](reasoning-model-capabilities.md)。DeepSeek 的 low 是本项目预设，上游不传参数的默认是 high；none 沿用 reasoning_effort 关闭思考。
 
 `chatgpt` 的 `max_tokens` 必须不写（Codex 后端拒收 `max_output_tokens`）。
 

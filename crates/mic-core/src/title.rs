@@ -14,7 +14,10 @@ use crate::event::{Events, KernelEventKind};
 use crate::limits::{TITLE_CHARS, TITLE_INPUT_CHARS, TITLE_TIMEOUT};
 use crate::provider::{resolve_key, resolve_reasoning, Factories};
 use crate::run::now_ms;
-use crate::{ModelEvent, ModelRequest, ModelResponse, Provider, RunError, StopReason, ToolChoice};
+use crate::{
+    ConfigError, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, RunError,
+    StopReason, ToolChoice,
+};
 
 #[cfg(test)]
 mod tests;
@@ -176,7 +179,7 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
         Err(error) => {
             tracing::warn!(session = job.session.id.0, %error, "title model unavailable");
             return store
-                .save_title_result(job.session.id, Err(error), None)
+                .save_title_result(job.session.id, Err(error.to_string()), None)
                 .await;
         }
     };
@@ -201,20 +204,14 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
     let started_at = now_ms();
     let response = tokio::time::timeout(TITLE_TIMEOUT, invoke(provider.as_ref(), request))
         .await
-        .unwrap_or_else(|_| Err("标题生成超时，请重试".into()));
-    let (result, outcome) = match response {
-        Ok(response) => match parse_title(&response) {
-            Ok(title) => (
-                Ok(title),
-                ModelCallOutcome::Replied {
-                    usage: response.usage,
-                    blocks: Vec::new(),
-                },
-            ),
-            Err(error) => (Err(error.clone()), ModelCallOutcome::Failed { error }),
-        },
-        Err(error) => (Err(error.clone()), ModelCallOutcome::Failed { error }),
-    };
+        .unwrap_or_else(|_| {
+            Err(ProviderError::Transient {
+                message: "标题生成超时，请重试".into(),
+                retry_after: None,
+            })
+        });
+    let result =
+        response.and_then(|response| parse_title(&response).map(|title| (title, response.usage)));
     let finished_at = now_ms();
     if let Err(error) = &result {
         tracing::warn!(
@@ -225,6 +222,19 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
             "session title generation failed"
         );
     }
+    let (result, outcome) = match result {
+        Ok((title, usage)) => (
+            Ok(title),
+            ModelCallOutcome::Replied {
+                usage,
+                blocks: Vec::new(),
+            },
+        ),
+        Err(error) => {
+            let error = error.to_string();
+            (Err(error.clone()), ModelCallOutcome::Failed { error })
+        }
+    };
     store
         .save_title_result(
             job.session.id,
@@ -246,10 +256,19 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
         .await
 }
 
-fn build_provider(factories: &Factories, model: ClaimedModel) -> Result<Arc<dyn Provider>, String> {
+fn build_provider(
+    factories: &Factories,
+    model: ClaimedModel,
+) -> Result<Arc<dyn Provider>, ConfigError> {
     match model {
-        ClaimedModel::Missing => Err("没有默认标题模型，请在设置中选择模型".into()),
-        ClaimedModel::Deleted { name, .. } => Err(format!("标题模型「{name}」已删除，请重新选择")),
+        ClaimedModel::Missing => Err(ConfigError {
+            field: "model_id".into(),
+            message: "没有默认标题模型，请在设置中选择模型".into(),
+        }),
+        ClaimedModel::Deleted { name, .. } => Err(ConfigError {
+            field: "model_id".into(),
+            message: format!("标题模型「{name}」已删除，请重新选择"),
+        }),
         ClaimedModel::Selected {
             kind,
             endpoint_json,
@@ -259,47 +278,53 @@ fn build_provider(factories: &Factories, model: ClaimedModel) -> Result<Arc<dyn 
             key,
             ..
         } => {
-            let factory = factories.get(&kind).map_err(|e| e.to_string())?;
+            let factory = factories.get(&kind)?;
             let effort = resolve_reasoning(
-                factory
-                    .reasoning_options(&endpoint_json, &model_name)
-                    .map_err(|e| e.to_string())?,
+                factory.reasoning_options(&endpoint_json, &model_name)?,
                 reasoning_effort,
+            )?;
+            factory.build(
+                &endpoint_json,
+                resolve_key(key, factory.key_env(&endpoint_json)),
+                &model_name,
+                &model_json,
+                effort,
             )
-            .map_err(|e| e.to_string())?;
-            factory
-                .build(
-                    &endpoint_json,
-                    resolve_key(key, factory.key_env(&endpoint_json)),
-                    &model_name,
-                    &model_json,
-                    effort,
-                )
-                .map_err(|e| e.to_string())
         }
     }
 }
 
-async fn invoke(provider: &dyn Provider, request: ModelRequest) -> Result<ModelResponse, String> {
+async fn invoke(
+    provider: &dyn Provider,
+    request: ModelRequest,
+) -> Result<ModelResponse, ProviderError> {
     let mut stream = provider.stream(request);
     while let Some(event) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-        match event.map_err(|e| e.to_string())? {
+        match event? {
             ModelEvent::Finished(response) => return Ok(response),
             ModelEvent::TextDelta(_) | ModelEvent::ReasoningDelta(_) => {}
         }
     }
-    Err("标题模型没有返回最终结果".into())
+    Err(ProviderError::Protocol {
+        message: "标题模型没有返回最终结果".into(),
+    })
 }
 
-fn parse_title(response: &ModelResponse) -> Result<String, String> {
+fn parse_title(response: &ModelResponse) -> Result<String, ProviderError> {
     if response.stop != StopReason::EndTurn {
-        return Err("标题输出未正常完成，请重试".into());
+        return Err(ProviderError::Protocol {
+            message: "标题输出未正常完成，请重试".into(),
+        });
     }
     let mut text = String::new();
     for block in &response.blocks {
         match block {
             ReplyBlock::Text { text: part, .. } => text.push_str(part),
-            ReplyBlock::ToolCall { .. } => return Err("标题输出包含工具调用".into()),
+            ReplyBlock::ToolCall { .. } => {
+                return Err(ProviderError::Protocol {
+                    message: "标题输出包含工具调用".into(),
+                })
+            }
             ReplyBlock::Reasoning(_) => {}
         }
     }
@@ -310,9 +335,9 @@ fn parse_title(response: &ModelResponse) -> Result<String, String> {
             .any(|c| matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}'))
         || text.chars().count() > TITLE_CHARS
     {
-        return Err(format!(
-            "标题须为一行非空文本，最多 {TITLE_CHARS} 字，请重试"
-        ));
+        return Err(ProviderError::Protocol {
+            message: format!("标题须为一行非空文本，最多 {TITLE_CHARS} 字，请重试"),
+        });
     }
     Ok(text.into())
 }

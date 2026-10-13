@@ -6,6 +6,7 @@
 | 状态 | 主题 | 文档 |
 |---|---|---|
 | B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 会话归档：后端仅标记，记录保留；新消息仍隐藏，手工恢复；前端成功后整页刷新，4 组隔离整体链路通过 | [B2](docs/blueprints/session-archive.md)；[B1](docs/brainstorm/session-archive.md) |
+| B2 已实现，本地验收通过，待 human 验收（2026-10-13）；体积 21.9 → 17.3 MiB，未达 16.5 目标待定 | 模型调用改回手写，移除 async-openai（体积 15.0 → 21.6 MiB 主因）；reqwest 统一 0.13 + ring；功能不变，未知流事件改为忽略并告警 | [B2](docs/blueprints/provider-handwritten.md) |
 | human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](docs/blueprints/web-ui.md#43-设置页与人设选择) |
 | B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 首问自动标题与一键重新生成；用途模型/档位独立，生成中仅内存；11 组隔离整体链路通过；侧栏刷新边界与只 trim 已定，复用会话详情 GET | [B2](docs/blueprints/session-title.md)；[B1](docs/brainstorm/session-title.md) |
 | B2 已实现，本地验收通过，待 human 验收（2026-10-12） | Web 聊天页可切换微信会话模型，与 Web 会话同一入口；`/model` 后续另定 | [B2](docs/blueprints/wechat-session-model.md) |

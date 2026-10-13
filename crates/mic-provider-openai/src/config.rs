@@ -26,19 +26,6 @@ pub(crate) struct ModelConfig {
     max_tokens: Option<u32>,
 }
 
-pub(crate) fn sdk_effort(effort: ReasoningEffort) -> async_openai::types::chat::ReasoningEffort {
-    use async_openai::types::chat::ReasoningEffort as E;
-    match effort {
-        ReasoningEffort::None => E::None,
-        ReasoningEffort::Minimal => E::Minimal,
-        ReasoningEffort::Low => E::Low,
-        ReasoningEffort::Medium => E::Medium,
-        ReasoningEffort::High => E::High,
-        ReasoningEffort::Xhigh => E::Xhigh,
-        ReasoningEffort::Max => E::Max,
-    }
-}
-
 /// 会话未选档位时，支持思考的预设使用的默认值。
 const DEFAULT_EFFORT: ReasoningEffort = ReasoningEffort::Low;
 

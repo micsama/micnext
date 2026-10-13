@@ -1,60 +1,78 @@
-//! 两协议共用的流驱动：打开、逐事件、空闲超时、EOF；丢弃流即取消（SDK 读流任务随接收端关闭退出）。
+//! 两协议共用的流驱动：打开、SSE 分帧、逐事件、空闲超时、EOF；丢弃流即断开连接。
 
 use std::future::Future;
 use std::pin::Pin;
 
-use async_openai::error::OpenAIError;
-use async_openai::types::stream::StreamResponse;
-use futures_util::stream::{self, StreamExt};
+use eventsource_stream::{Event, EventStreamError, Eventsource};
+use futures_util::stream::{self, Stream, StreamExt};
 use mic_core::{BoxStream, ModelEvent, ModelResponse, ProviderError};
+use reqwest::Response;
+use serde::de::DeserializeOwned;
 
-use crate::error::{self, transient};
+use crate::error::{protocol, transient};
 use crate::limits::STREAM_IDLE_TIMEOUT;
 
 /// 协议侧的增量累积。
 pub(crate) trait Accumulate: Send + 'static {
-    type Event: Send + 'static;
+    type Event: DeserializeOwned;
     fn push(&mut self, event: Self::Event) -> Result<Step, ProviderError>;
-    /// 上游正常结束而 `push` 未给出终态。
+    /// 上游正常结束（EOF 或 `[DONE]`）而 `push` 未给出终态。
     fn eof(self) -> Result<ModelResponse, ProviderError>;
 }
 
 pub(crate) enum Step {
     Deltas(Vec<ModelEvent>),
+    /// 未知事件类型：忽略并告警。
+    Unknown,
     Finished(ModelResponse),
 }
 
-pub(crate) type Open<E> =
-    Pin<Box<dyn Future<Output = Result<StreamResponse<E>, OpenAIError>> + Send>>;
+pub(crate) type Open = Pin<Box<dyn Future<Output = Result<Response, ProviderError>> + Send>>;
+
+type Events = Pin<Box<dyn Stream<Item = Result<Event, EventStreamError<reqwest::Error>>> + Send>>;
 
 type Item = Result<ModelEvent, ProviderError>;
 
-enum State<A: Accumulate> {
-    Open(Open<A::Event>, A),
-    Streaming(StreamResponse<A::Event>, A),
+enum State<A> {
+    Open(Open, A),
+    Streaming(Events, A),
     Done,
 }
 
-pub(crate) fn drive<A: Accumulate>(open: Open<A::Event>, acc: A) -> BoxStream<Item> {
+pub(crate) fn drive<A: Accumulate>(open: Open, acc: A) -> BoxStream<Item> {
     Box::pin(
         stream::unfold(State::Open(open, acc), |state| async move {
             match state {
                 State::Done => None,
-                State::Open(open, acc) => Some(match idle(open).await {
-                    Ok(Ok(s)) => (Vec::new(), State::Streaming(s, acc)),
-                    Ok(Err(e)) => fail(error::provider(e)),
+                State::Open(open, acc) => Some(match idle(open).await.and_then(|r| r) {
+                    Ok(resp) => (
+                        Vec::new(),
+                        State::Streaming(Box::pin(resp.bytes_stream().eventsource()), acc),
+                    ),
                     Err(e) => fail(e),
                 }),
                 State::Streaming(mut s, mut acc) => Some(match idle(s.next()).await {
-                    Ok(Some(Ok(event))) => match acc.push(event) {
+                    Ok(Some(Ok(event))) if event.event == "keepalive" => {
+                        (Vec::new(), State::Streaming(s, acc))
+                    }
+                    Ok(Some(Ok(event))) if event.data == "[DONE]" => finish(acc.eof()),
+                    Ok(Some(Ok(event))) => match parse(&event.data).and_then(|e| acc.push(e)) {
                         Ok(Step::Deltas(events)) => (
                             events.into_iter().map(Ok).collect(),
                             State::Streaming(s, acc),
                         ),
+                        Ok(Step::Unknown) => {
+                            tracing::warn!(
+                                sse_event = event.event.as_str(),
+                                kind = event_type(&event.data),
+                                "ignored unknown upstream stream event"
+                            );
+                            (Vec::new(), State::Streaming(s, acc))
+                        }
                         Ok(Step::Finished(resp)) => finish(Ok(resp)),
                         Err(e) => fail(e),
                     },
-                    Ok(Some(Err(e))) => fail(error::provider(e)),
+                    Ok(Some(Err(e))) => fail(transient(format!("流中途断开：{e}"))),
                     Ok(None) => finish(acc.eof()),
                     Err(e) => fail(e),
                 }),
@@ -64,14 +82,27 @@ pub(crate) fn drive<A: Accumulate>(open: Open<A::Event>, acc: A) -> BoxStream<It
     )
 }
 
-fn finish<A: Accumulate>(resp: Result<ModelResponse, ProviderError>) -> (Vec<Item>, State<A>) {
+fn parse<E: DeserializeOwned>(data: &str) -> Result<E, ProviderError> {
+    serde_json::from_str(data).map_err(|e| protocol(format!("上游数据无法解析：{e}")))
+}
+
+/// 只取 `type`，不记原文。
+fn event_type(data: &str) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Tagged {
+        r#type: String,
+    }
+    serde_json::from_str::<Tagged>(data).ok().map(|t| t.r#type)
+}
+
+fn finish<A>(resp: Result<ModelResponse, ProviderError>) -> (Vec<Item>, State<A>) {
     match resp {
         Ok(resp) => (vec![Ok(ModelEvent::Finished(resp))], State::Done),
         Err(e) => fail(e),
     }
 }
 
-fn fail<A: Accumulate>(e: ProviderError) -> (Vec<Item>, State<A>) {
+fn fail<A>(e: ProviderError) -> (Vec<Item>, State<A>) {
     (vec![Err(e)], State::Done)
 }
 

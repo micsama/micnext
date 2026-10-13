@@ -18,6 +18,7 @@ mic-tool-fs = { path = "../../crates/mic-tool-fs" }
 mic-tool-shell = { path = "../../crates/mic-tool-shell" }
 mic-tool-web-fetch = { path = "../../crates/mic-tool-web-fetch" }
 anyhow = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 tokio-util = "0.7"
 toml = "0.9"

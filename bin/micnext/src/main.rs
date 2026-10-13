@@ -44,6 +44,10 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // reqwest 只开 `rustls-no-provider`，建任何客户端前须装好进程级加密实现。
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("进程启动时只安装一次");
     match run().await {
         Ok(code) => code,
         Err(e) => {
@@ -75,12 +79,7 @@ async fn run() -> Result<ExitCode> {
                 .context("环境变量 RUST_LOG 格式不对")?,
         );
     let logs = DeveloperLogs::new();
-    // async-openai 解析失败时会把上游原文打进日志，全局丢弃。
-    let sdk_quiet =
-        tracing_subscriber::filter::filter_fn(|m| !m.target().starts_with("async_openai"));
-    let registry = tracing_subscriber::registry()
-        .with(sdk_quiet)
-        .with(terminal);
+    let registry = tracing_subscriber::registry().with(terminal);
     match args.mode {
         Mode::Serve => registry.with(logs.layer()).init(),
         Mode::Once(_) => registry.init(),

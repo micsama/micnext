@@ -35,7 +35,7 @@ pub cache_key: String,
 | 预设 | 发送 |
 |---|---|
 | `openai` | 请求体 `prompt_cache_key = cache_key` |
-| `chatgpt` | 同上，并按请求加 `session_id: cache_key` 头（SDK `RequestOptionsBuilder::header`） |
+| `chatgpt` | 同上，并按请求加 `session_id: cache_key` 头（请求头值非法 → `Protocol`） |
 | Chat 系 | 不发（DeepSeek 自动缓存；通用服务不保证支持该字段） |
 
 不发 `conversation_id` / `originator` / `OpenAI-Beta` / 伪造 UA，保持 provider-chatgpt §三「不冒充」。

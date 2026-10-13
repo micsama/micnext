@@ -9,7 +9,7 @@
 1. Codex CLI 的 access_token 调 `api.openai.com/v1` 报缺 `api.model.read` / `api.responses.write` 权限，公开 API 不可用。
 2. `POST https://chatgpt.com/backend-api/codex/responses`，带 `Authorization: Bearer`、`chatgpt-account-id`、`OpenAI-Beta: responses=experimental`、`originator: codex_cli_rs` → 200，标准 Responses SSE。请求体与现有 Responses 一致（`store=false`、`stream=true`、`reasoning`、`include`）。
 3. 终态 `response.completed` 的 `output` 为 `[]`，完整条目只在 `response.output_item.done` 中；usage 五项齐全。
-4. 后端多出的字段（`access_programs`、`tool_usage`、`usage.attribution`、`reasoning.context` 等）SDK 0.42 解析通过，被忽略。
+4. 后端多出的字段（`access_programs`、`tool_usage`、`usage.attribution`、`reasoning.context` 等）解析时忽略（现为手写协议类型，见 [provider-handwritten](provider-handwritten.md)）。
 5. `GET /models?client_version=0.161.0` → `{"models":[{"slug": ...}, ...]}`（非标准 `data[].id`）；`client_version=0.1.0` 返回空列表，按版本过滤。
 6. access_token 是 JWT，`https://api.openai.com/auth.chatgpt_account_id` 存在；有效期 10 天（`exp - iat`）。
 7. `originator` 为 `codex_cli_rs` / `micnext` / 不发，`OpenAI-Beta` 发或不发，四种组合 responses 均 200。

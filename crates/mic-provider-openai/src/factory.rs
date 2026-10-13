@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
-use async_openai::traits::RequestOptionsBuilder;
 use futures_util::stream;
 use mic_core::{
     BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ProbeError, Provider,
     ProviderError, ProviderFactory, ReasoningOptions, SecretValue,
 };
 use mic_store::ReasoningEffort;
+use reqwest::header::{HeaderMap, HeaderValue};
 
-use crate::client::{self, Client};
+use crate::client::Client;
 use crate::config::{self, Backend, EndpointConfig, ModelConfig, Protocol, Resolved};
+use crate::error::{self, protocol};
 use crate::stream::{drive, Open};
 use crate::{chat, probe, responses};
 
@@ -84,7 +85,7 @@ impl ProviderFactory for OpenAiFactory {
 }
 
 fn connect(endpoint: &EndpointConfig, key: Option<SecretValue>) -> Result<Client, ConfigError> {
-    client::build(endpoint.base_url(), endpoint.headers(key)?).map_err(|e| ConfigError {
+    Client::build(endpoint.base_url(), endpoint.headers(key)?).map_err(|e| ConfigError {
         field: "config".into(),
         message: e.to_string(),
     })
@@ -107,22 +108,32 @@ impl Provider for OpenAiProvider {
         match self.cfg.protocol {
             Protocol::Chat(dialect) => match chat::request(&self.cfg, dialect, &req) {
                 Ok(body) => {
-                    let open: Open<chat::Chunk> =
-                        Box::pin(async move { client.chat().create_stream_byot(body).await });
+                    let open: Open = Box::pin(async move {
+                        client
+                            .post("/chat/completions", &body, HeaderMap::new())
+                            .await
+                            .map_err(error::provider)
+                    });
                     drive(open, chat::Accumulator::new(dialect))
                 }
                 Err(e) => failed(e),
             },
             Protocol::Responses(backend) => match responses::request(&self.cfg, &req) {
                 Ok(body) => {
-                    let key = req.cache_key;
-                    let open: Open<_> = Box::pin(async move {
-                        let api = client.responses();
-                        let api = match backend {
-                            Backend::OpenAi => api,
-                            Backend::Codex => api.header("session_id", key)?,
-                        };
-                        api.create_stream_byot(body).await
+                    let mut headers = HeaderMap::new();
+                    if backend == Backend::Codex {
+                        match HeaderValue::from_str(&req.cache_key) {
+                            Ok(v) => {
+                                headers.insert("session_id", v);
+                            }
+                            Err(_) => return failed(protocol("缓存键不能放进请求头")),
+                        }
+                    }
+                    let open: Open = Box::pin(async move {
+                        client
+                            .post("/responses", &body, headers)
+                            .await
+                            .map_err(error::provider)
                     });
                     drive(open, responses::Accumulator::default())
                 }
@@ -135,3 +146,6 @@ impl Provider for OpenAiProvider {
 fn failed(e: ProviderError) -> BoxStream<Item> {
     Box::pin(stream::once(async { Err(e) }))
 }
+
+#[cfg(test)]
+mod tests;

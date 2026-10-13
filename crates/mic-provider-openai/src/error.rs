@@ -1,12 +1,11 @@
-//! SDK 错误与上游业务错误 → 领域错误（provider-sdk-responses §六）。
+//! 发送、流与上游业务错误 → 领域错误（provider-sdk-responses §六）。
 
 use std::time::Duration;
 
-use async_openai::error::{OpenAIError, StreamError};
 use mic_core::{ProbeError, ProviderError};
 use reqwest::StatusCode;
 
-use crate::client::HttpFailure;
+use crate::client::{Failure, HttpFailure};
 
 pub(crate) fn protocol(message: impl Into<String>) -> ProviderError {
     ProviderError::Protocol {
@@ -21,19 +20,10 @@ pub(crate) fn transient(message: impl Into<String>) -> ProviderError {
     }
 }
 
-pub(crate) fn provider(e: OpenAIError) -> ProviderError {
+pub(crate) fn provider(e: Failure) -> ProviderError {
     match e {
-        OpenAIError::Boxed(b) => match b.downcast::<HttpFailure>() {
-            Ok(f) => http(*f),
-            Err(other) => protocol(other.to_string()),
-        },
-        OpenAIError::Reqwest(e) => transient(format!("请求失败：{}", e.without_url())),
-        OpenAIError::StreamError(e) => match *e {
-            StreamError::EventStream(reason) => transient(format!("流中途断开：{reason}")),
-            other => protocol(other.to_string()),
-        },
-        OpenAIError::JSONDeserialize(e, _) => protocol(format!("上游数据无法解析：{e}")),
-        other => protocol(other.to_string()),
+        Failure::Http(f) => http(f),
+        Failure::Network(e) => transient(format!("请求失败：{}", e.without_url())),
     }
 }
 
@@ -108,26 +98,23 @@ fn classify_code(code: &str) -> Option<Kind> {
     }
 }
 
-pub(crate) fn probe(e: OpenAIError) -> ProbeError {
+pub(crate) fn probe(e: Failure) -> ProbeError {
     match e {
-        OpenAIError::Boxed(b) => match b.downcast::<HttpFailure>() {
-            Ok(f) if matches!(f.status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
-                ProbeError::Auth
-            }
-            Ok(f) => ProbeError::Unexpected(match f.error {
-                Some(e) => format!("HTTP {}：{}", f.status.as_u16(), e.message),
-                None => format!("HTTP {}", f.status.as_u16()),
-            }),
-            Err(other) => ProbeError::Unexpected(other.to_string()),
-        },
-        OpenAIError::Reqwest(e) => ProbeError::Network(if e.is_timeout() {
+        Failure::Http(f)
+            if matches!(f.status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) =>
+        {
+            ProbeError::Auth
+        }
+        Failure::Http(f) => ProbeError::Unexpected(match f.error {
+            Some(e) => format!("HTTP {}：{}", f.status.as_u16(), e.message),
+            None => format!("HTTP {}", f.status.as_u16()),
+        }),
+        Failure::Network(e) => ProbeError::Network(if e.is_timeout() {
             "连接超时".to_owned()
         } else if e.is_connect() {
             "无法建立连接".to_owned()
         } else {
             e.without_url().to_string()
         }),
-        OpenAIError::JSONDeserialize(..) => ProbeError::Unexpected("返回内容不是模型列表".into()),
-        other => ProbeError::Unexpected(other.to_string()),
     }
 }

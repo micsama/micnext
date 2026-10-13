@@ -1,127 +1,108 @@
-//! SDK 装配：自写 `Config`（不读环境变量）与无重试传输层（非 2xx 自己读体分类）。
+//! HTTP 发送：地址与鉴权头来自已解析配置，不重试；非 2xx 读体分类。
 
-use std::fmt;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::sync::Arc;
 use std::time::Duration;
 
-use async_openai::config::Config;
-use async_openai::error::{ApiError, OpenAIError, WrappedError};
-use async_openai::middleware::{HttpRequestFactory, ReqwestService};
 use reqwest::header::{AsHeaderName, HeaderMap, CONTENT_TYPE, RETRY_AFTER};
-use reqwest::{Response, StatusCode};
-use secrecy::SecretString;
+use reqwest::{RequestBuilder, Response, StatusCode};
+use serde::{Deserialize, Serialize};
 
 use crate::limits::CONNECT_TIMEOUT;
 
-pub(crate) type Client = async_openai::Client<ApiConfig>;
-
-/// 地址与鉴权头全部来自已解析配置；`api_key` 不参与请求，鉴权头已在 `headers` 里。
 #[derive(Clone)]
-pub(crate) struct ApiConfig {
-    base: String,
-    headers: HeaderMap,
-    key: SecretString,
+pub(crate) struct Client {
+    http: reqwest::Client,
+    base: Arc<str>,
 }
 
-impl Config for ApiConfig {
-    fn headers(&self) -> HeaderMap {
-        self.headers.clone()
-    }
-
-    fn url(&self, path: &str) -> String {
-        format!("{}{path}", self.base)
-    }
-
-    fn query(&self) -> Vec<(&str, &str)> {
-        Vec::new()
-    }
-
-    fn api_base(&self) -> &str {
-        &self.base
-    }
-
-    fn api_key(&self) -> &SecretString {
-        &self.key
-    }
-}
-
-pub(crate) fn build(base: &str, headers: HeaderMap) -> Result<Client, reqwest::Error> {
-    let http = reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .build()?;
-    let cfg = ApiConfig {
-        base: base.to_owned(),
-        headers,
-        key: SecretString::from(String::new()),
-    };
-    Ok(async_openai::Client::build(http.clone(), cfg)
-        .with_http_service(Transport(ReqwestService::new(http))))
+/// 发送失败：网络层错误或非 2xx 响应。
+pub(crate) enum Failure {
+    Network(reqwest::Error),
+    Http(HttpFailure),
 }
 
 /// 非 2xx 响应：状态、Retry-After 与上游结构化错误，不含原始响应体。
-#[derive(Debug)]
 pub(crate) struct HttpFailure {
     pub(crate) status: StatusCode,
     pub(crate) retry_after: Option<Duration>,
     pub(crate) error: Option<ApiError>,
 }
 
-impl fmt::Display for HttpFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HTTP {}", self.status.as_u16())
+#[derive(Deserialize)]
+struct WrappedError {
+    error: ApiError,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ApiError {
+    pub(crate) code: Option<String>,
+    pub(crate) message: String,
+}
+
+impl Client {
+    pub(crate) fn build(base: &str, headers: HeaderMap) -> Result<Self, reqwest::Error> {
+        let http = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .default_headers(headers)
+            .build()?;
+        Ok(Self {
+            http,
+            base: base.into(),
+        })
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base)
+    }
+
+    pub(crate) async fn post(
+        &self,
+        path: &str,
+        body: &impl Serialize,
+        headers: HeaderMap,
+    ) -> Result<Response, Failure> {
+        send(self.http.post(self.url(path)).headers(headers).json(body)).await
+    }
+
+    pub(crate) async fn get(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<Response, Failure> {
+        send(self.http.get(self.url(path)).query(query)).await
     }
 }
 
-impl std::error::Error for HttpFailure {}
-
-#[derive(Clone)]
-struct Transport(ReqwestService);
-
-impl tower::Service<HttpRequestFactory> for Transport {
-    type Response = Response;
-    type Error = OpenAIError;
-    type Future = Pin<Box<dyn Future<Output = Result<Response, OpenAIError>> + Send>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.0.poll_ready(cx)
+async fn send(req: RequestBuilder) -> Result<Response, Failure> {
+    let resp = req.send().await.map_err(Failure::Network)?;
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(resp);
     }
-
-    fn call(&mut self, req: HttpRequestFactory) -> Self::Future {
-        let sent = self.0.call(req);
-        Box::pin(async move {
-            let resp = sent.await?;
-            let status = resp.status();
-            if status.is_success() {
-                return Ok(resp);
-            }
-            let retry_after = retry_after(resp.headers());
-            let path = resp.url().path().to_owned();
-            let content_type = header_str(resp.headers(), CONTENT_TYPE);
-            let cf_mitigated = header_str(resp.headers(), "cf-mitigated");
-            let error = resp
-                .bytes()
-                .await
-                .ok()
-                .and_then(|b| serde_json::from_slice::<WrappedError>(&b).ok())
-                .map(|w| w.error);
-            tracing::warn!(
-                status = status.as_u16(),
-                path,
-                content_type,
-                cf_mitigated,
-                code = error.as_ref().and_then(|e| e.code.as_deref()),
-                message = error.as_ref().map(|e| e.message.as_str()),
-                "upstream http failure"
-            );
-            Err(OpenAIError::Boxed(Box::new(HttpFailure {
-                status,
-                retry_after,
-                error,
-            })))
-        })
-    }
+    let retry_after = retry_after(resp.headers());
+    let path = resp.url().path().to_owned();
+    let content_type = header_str(resp.headers(), CONTENT_TYPE);
+    let cf_mitigated = header_str(resp.headers(), "cf-mitigated");
+    let error = resp
+        .bytes()
+        .await
+        .ok()
+        .and_then(|b| serde_json::from_slice::<WrappedError>(&b).ok())
+        .map(|w| w.error);
+    tracing::warn!(
+        status = status.as_u16(),
+        path,
+        content_type,
+        cf_mitigated,
+        code = error.as_ref().and_then(|e| e.code.as_deref()),
+        message = error.as_ref().map(|e| e.message.as_str()),
+        "upstream http failure"
+    );
+    Err(Failure::Http(HttpFailure {
+        status,
+        retry_after,
+        error,
+    }))
 }
 
 fn header_str(headers: &HeaderMap, name: impl AsHeaderName) -> Option<String> {

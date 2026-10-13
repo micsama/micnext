@@ -2,7 +2,7 @@
 
 **现行扩展（2026-10-12）**：Chat / Responses 的 tool_choice 映射按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
 
-**状态**: CLOSED（2026-09-23 首版）；2026-10-10 按 [`provider-sdk-responses.md`](provider-sdk-responses.md) 整体改为 async-openai 实现并接入 Responses；同日按 [`provider-chatgpt.md`](provider-chatgpt.md) 增加 ChatGPT 订阅预设、按 [`provider-cache-key.md`](provider-cache-key.md) 发送会话缓存键
+**状态**: CLOSED（2026-09-23 首版）；2026-10-10 按 [`provider-sdk-responses.md`](provider-sdk-responses.md) 整体改为 async-openai 实现并接入 Responses；同日按 [`provider-chatgpt.md`](provider-chatgpt.md) 增加 ChatGPT 订阅预设、按 [`provider-cache-key.md`](provider-cache-key.md) 发送会话缓存键；2026-10-13 按 [`provider-handwritten.md`](provider-handwritten.md) 移除 async-openai，改回手写协议（reqwest + SSE）
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M7；[`provider-port.md`](provider-port.md)（实现的契约）；配置分层与工厂契约见 [`model-settings.md`](model-settings.md) §四
 **依赖不变量**: 依赖 `mic-core`（port）+ `mic-message` + `mic-store`（`Usage`）+ `mic-tool`（`ToolSpec`）；不被任何 crate 依赖，只由二进制装配。
 
@@ -58,11 +58,10 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 
 ## 三、传输
 
-- async-openai 自定义 `Config`：地址与请求头全部来自已解析配置，不读任何环境变量。
-- 自写无重试 HTTP service：重试只在 core。非 2xx 时自己读体，解析 `error.{code,message}` 与秒数形式的 `Retry-After`。
-- 请求与分片用 BYOT 自定义类型，标准子结构 `flatten` 复用 SDK 类型；服务商扩展字段完整接收。
-- 两协议共用一个流驱动：每次等待都受空闲超时约束；丢弃流即取消（SDK 读流任务随接收端关闭退出）。
-- SDK 解析失败时会把上游原文打进 `async_openai` 日志，二进制全局丢弃该 target。
+- reqwest 直发：地址与鉴权头全部来自已解析配置，不读任何配置类环境变量（系统代理照常生效）。
+- 无重试：重试只在 core。非 2xx 时读体，解析 `error.{code,message}` 与秒数形式的 `Retry-After`。
+- 请求、分片、事件、输出项都是本地类型，只定义用到的字段，未知字段忽略；服务商扩展字段（DeepSeek / Ollama 推理、缓存统计）显式声明。
+- 两协议共用一个流驱动：`eventsource-stream` 分帧，跳过 `keepalive`；每次等待都受空闲超时约束；丢弃流即断开连接。
 
 ## 四、映射规则
 
@@ -88,7 +87,7 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 | 推理回传 | 同模型的每个 assistant 轮都原样发 `reasoning_content`（官方协议；带 tools 时历史推理计入上下文），未思考时发空串（缺失或 null 上游 400） | 不回传 | 不回传 |
 | `cache_read_tokens` | `prompt_cache_hit_tokens` | None | `prompt_tokens_details.cached_tokens` |
 
-- 结束：SDK 吞掉 `[DONE]`，完成判据为「正常 EOF + 已收到 `finish_reason`」。
+- 结束：`[DONE]` 与正常 EOF 同等对待，完成判据为「已收到 `finish_reason`」。
   `stop` → `EndTurn`，`tool_calls` → `ToolUse`，`length` → `MaxTokens`，`content_filter` → `ContentFilter`；
   `insufficient_system_resource` → `Transient`；legacy `function_call` → `Protocol`；EOF 时缺 `finish_reason` → `Transient`。
 - 只接受单候选；`finish_reason` 之后再有内容增量 → `Protocol`。块顺序：推理、正文、工具调用。
@@ -97,8 +96,8 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 
 - 无状态：`store=false`、`include=[reasoning.encrypted_content]`；`prompt_cache_key` = `cache_key`，`chatgpt` 另按请求发同值 `session_id` 头（Codex 后端缺此头不缓存，见 provider-cache-key）；有 effort 时 `reasoning={effort, summary: auto}`；`instructions` = system；工具 `strict=false`；`max_tokens` → `max_output_tokens`。
 - assistant 块按原顺序回传：正文 → assistant 消息（带 `phase`），工具调用 → `function_call`，工具结果 → `function_call_output`。
-- 推理回传：仅同模型、且有密文的推理，作为不带 id 的 reasoning item 发回（SDK 类型会把 id 序列化为 null，所以请求体自定义）。
-- 流中：正文与 refusal 增量 → `TextDelta`，推理摘要增量 → `ReasoningDelta`。
+- 推理回传：仅同模型、且有密文的推理，作为不带 id 的 reasoning item 发回。
+- 流中：正文与 refusal 增量 → `TextDelta`，推理摘要增量 → `ReasoningDelta`；已知不用的事件静默跳过，未知事件类型忽略并记 warn（只记类型名）。
 - `response.output_item.done` 的条目（按 `output_index` 排序）是唯一内容来源；终态事件只提供结束状态、`incomplete_details`、usage 与错误（Codex 后端终态 `output` 为空）：
   - message → `Text { phase }`；refusal 转为可见正文，并记为 `ContentFilter`。
   - function_call → `ToolCall`，id 取 `call_id`。
@@ -137,7 +136,7 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 ## 五、副作用与依赖
 
 - 每次 `stream` 发一个 HTTPS 请求，丢弃流即中止；无落盘。
-- 外部依赖：`async-openai`（`default-features=false`；`rustls`/`chat-completion`/`responses`/`byot`/`middleware`/`model`，不锁小版本）、`reqwest`、`tower`、`secrecy`、`base64`、`futures-util`、`serde`、`serde_json`、`tokio`。
+- 外部依赖：`reqwest` 0.13（`rustls-no-provider`/`json`/`query`/`stream`，加密实现由二进制装 ring）、`eventsource-stream`、`base64`、`futures-util`、`serde`、`serde_json`、`tokio`。
 
 ## 六、模块
 
@@ -145,11 +144,11 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 |---|---|
 | `factory` | `ProviderFactory` 实现；按协议驱动对应请求与累积 |
 | `config` | 配置解析、规范化、`Resolved` |
-| `client` | SDK `Config`、无重试 service、`HttpFailure` |
-| `error` | SDK / HTTP / 流内错误 → `ProviderError` / `ProbeError` |
-| `stream` | 共用流驱动：打开、逐事件、空闲超时、EOF |
+| `client` | reqwest 客户端、无重试发送、`HttpFailure` |
+| `error` | 网络 / HTTP / 流内错误 → `ProviderError` / `ProbeError` |
+| `stream` | 共用流驱动：打开、SSE 分帧、逐事件、空闲超时、EOF |
 | `content` | 两协议共用的内容转换：文本拼接、图片 data URL、工具参数 |
-| `chat` / `responses` | 各自的请求映射、BYOT 类型、增量累积与终态转换 |
+| `chat` / `responses` | 各自的请求映射、协议类型、增量累积与终态转换 |
 | `probe` | `/models` 探测 |
 | `token` | ChatGPT access_token 解析与过期判断 |
 | `limits` | 构建期旋钮 |
@@ -157,4 +156,4 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 ## 七、已知演进
 
 - ChatGPT 订阅：手贴 token 不够用时，改为粘贴整份 auth.json 并自动刷新（需独立登录份，见 provider-chatgpt §五）。
-- Responses 出现新流事件导致解析失败时升级 SDK，不加兜底。
+- Responses 新流事件默认忽略并告警；出现未知输出项或未知 `finish_reason` 时报 `Protocol`，再补映射。

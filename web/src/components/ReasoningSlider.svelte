@@ -32,7 +32,7 @@
 </script>
 
 {#if options || value !== null}
-  <div class="space-y-1 {disabled ? 'opacity-50' : ''}">
+  <div class="space-y-1">
     <div class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-2">
         <span class="text-[11px] text-muted-foreground">思考强度</span>
@@ -45,7 +45,7 @@
         {disabled}
         aria-label="使用模型默认思考强度"
         aria-pressed={value === null}
-        class="rounded-full px-2 py-0.5 text-[10px] transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-wait {value === null ? 'bg-muted text-muted-foreground' : 'text-muted-foreground/70'}"
+        class="rounded-full px-2 py-0.5 text-[10px] transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring {value === null ? 'bg-muted text-muted-foreground' : 'text-muted-foreground/70'}"
         onclick={() => { dragging = null; onpick(null); }}>默认</button>
     </div>
     {#if options && index >= 0 && options.choices.length > 1}
@@ -59,7 +59,7 @@
           {disabled}
           aria-label="思考强度"
           aria-valuetext={shown ? `${reasoningLabel(shown)}${dragging === null && value === null ? '（默认）' : ''}` : "档位已失效"}
-          class="absolute inset-0 h-9 w-full cursor-pointer disabled:cursor-wait"
+          class="absolute inset-0 h-9 w-full cursor-pointer"
           oninput={(e) => (dragging = Number(e.currentTarget.value))}
           onchange={commit}
           onpointercancel={() => (dragging = null)} />

@@ -13,12 +13,17 @@
 
   async function save(next: TitleModelSelection) {
     if (busy) return;
+    const before = selection;
+    settingsStore.titleModel = next;
     status = { kind: "saving" };
     try {
       await putTitleModel(next);
       settingsStore.titleModel = await getTitleModel();
       status = { kind: "saved" };
-    } catch (error) { status = { kind: "error", message: (error as Error).message }; }
+    } catch (error) {
+      settingsStore.titleModel = before;
+      status = { kind: "error", message: (error as Error).message };
+    }
   }
 </script>
 

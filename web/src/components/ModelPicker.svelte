@@ -24,10 +24,9 @@
 
 <Popover.Root bind:open>
   <Popover.Trigger
-    {disabled}
     aria-label="选择模型和思考强度"
     title={model ? `${model.name}${strength ? ` · ${strength}` : ""}` : "请选择模型"}
-    class="inline-flex h-9 min-w-0 max-w-52 items-center gap-2 rounded-full bg-muted px-3.5 text-sm text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-wait disabled:opacity-50 data-[state=open]:bg-accent sm:max-w-72">
+    class="inline-flex h-9 min-w-0 max-w-52 items-center gap-2 rounded-full bg-muted px-3.5 text-sm text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring data-[state=open]:bg-accent sm:max-w-72">
     <span class="truncate">{followingDefault ? "默认模型" : (model?.name ?? "请选择模型")}</span>
     {#if strength}
       <span class="shrink-0 text-muted-foreground/50">·</span>
@@ -59,7 +58,7 @@
                 {disabled}
                 aria-pressed={choice.id === value}
                 title={choice.name}
-                class="flex min-h-9 w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-wait disabled:opacity-50 {choice.id === value ? 'bg-muted font-medium' : ''}"
+                class="flex min-h-9 w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none {choice.id === value ? 'bg-muted font-medium' : ''}"
                 onclick={() => { if (choice.id !== value) onpick(choice.id); }}>
                 <span class="truncate">{choice.name}</span>
                 {#if choice.id === value}<Icon name="check" class="size-4 shrink-0 text-foreground" />{/if}

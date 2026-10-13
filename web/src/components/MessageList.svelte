@@ -243,9 +243,9 @@
   {#if !stuck}
     <button
       type="button"
-      class="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs shadow-sm hover:bg-muted"
+      class="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-background px-4 py-2 text-sm shadow-sm hover:bg-muted"
       onclick={toBottom}>
-      <Icon name="arrowDown" class="size-3.5" />回到底部
+      <Icon name="arrowDown" class="size-4" />回到底部
     </button>
   {/if}
 </div>

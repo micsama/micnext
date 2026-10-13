@@ -102,6 +102,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
                 .post(api::create_session.layer(DefaultBodyLimit::max(MAX_INPUT_BODY_BYTES))),
         )
         .route("/sessions/{id}", get(api::get_session))
+        .route("/sessions/{id}/title", post(api::generate_title))
         .route(
             "/sessions/{id}/messages",
             get(stream::page)
@@ -121,6 +122,10 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
             get(settings::get_settings).put(settings::put_settings),
         )
         .route("/sessions/{id}/model", put(models::set_session_model))
+        .route(
+            "/settings/title-model",
+            get(settings::get_title_model).put(settings::put_title_model),
+        )
         .route("/model-kinds", get(models::list_kinds))
         .route(
             "/models",

@@ -10,12 +10,15 @@
   import MessageList from "./MessageList.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import PersonaPicker from "./PersonaPicker.svelte";
+  import Icon from "../lib/Icon.svelte";
 
   let { view, onmenu }: { view: SessionView; onmenu: () => void } = $props();
 
   const item = $derived(view.info);
 
-  const title = $derived(item?.preview ?? `会话 ${view.id}`);
+  const title = $derived(item?.title ?? item?.preview ?? `会话 ${view.id}`);
+  const titleBusy = $derived(view.requestingTitle || !!item?.title_generating);
+  const titleError = $derived(view.titleActionError ?? view.titleSyncError ?? (titleBusy ? null : item?.title_error));
   const detail = $derived(item ? `${item.workdir} · ${item.channel}` : undefined);
   $effect(() => {
     document.title = `${title} · micnext`;
@@ -88,7 +91,14 @@
   );
 </script>
 
-<Header {title} {detail} {onmenu} />
+<Header {title} {detail} {onmenu}>
+  {#snippet actions()}
+    <button type="button" aria-label="重新生成标题" title={titleBusy ? "正在生成标题" : "重新生成标题"} disabled={titleBusy || !view.ready || !!view.fatal} onclick={() => view.regenerateTitle()} class="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">
+      <Icon name={titleBusy ? "loader" : "refresh"} class="size-3.5 {titleBusy ? 'animate-spin' : ''}" />
+    </button>
+  {/snippet}
+</Header>
+{#if titleError}<p role="alert" class="border-b border-border px-4 py-2 text-xs text-destructive">标题生成：{titleError}</p>{/if}
 {#if view.fatal}
   <div class="grid flex-1 place-items-center p-6 text-center">
     <div class="space-y-3">

@@ -202,9 +202,9 @@ pub(crate) fn insert_call(
     };
     let tokens = |f: fn(&crate::Usage) -> Option<u64>| usage.as_ref().and_then(f).map(|n| n as i64);
     conn.execute(
-        "INSERT INTO core_model_calls (session_id, run_id, model, error, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, started_at, finished_at, context_boundary_id, context_through_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        "INSERT INTO core_model_calls (session_id, run_id, model, error, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, started_at, finished_at, context_boundary_id, context_through_id, purpose) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![call.session_id.0, call.run_id.map(|r| r.0), call.model, error,
-            tokens(|u| Some(u.input_tokens)), tokens(|u| Some(u.output_tokens)), tokens(|u| u.cache_read_tokens), tokens(|u| u.cache_write_tokens), tokens(|u| u.reasoning_tokens), call.started_at, call.finished_at, call.context.boundary_id.map(|id| id.0), call.context.through.map(|id| id.0)],
+            tokens(|u| Some(u.input_tokens)), tokens(|u| Some(u.output_tokens)), tokens(|u| u.cache_read_tokens), tokens(|u| u.cache_write_tokens), tokens(|u| u.reasoning_tokens), call.started_at, call.finished_at, call.context.boundary_id.map(|id| id.0), call.context.through.map(|id| id.0), call.purpose],
     )?;
     Ok(ModelCallId(conn.last_insert_rowid()))
 }

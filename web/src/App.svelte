@@ -20,6 +20,8 @@
     if (!auth.token || route.kind !== "session") return;
     const v = new SessionView(route.id);
     view = v;
+    void webSessions.refresh();
+    for (const list of otherSessions) if (list.loaded) void list.refresh();
     return () => {
       v.close();
       view = null;
@@ -53,7 +55,7 @@
   </div>
 {:else}
   <div class="flex h-full">
-    <Sidebar open={drawer} onclose={() => (drawer = false)} />
+    <Sidebar open={drawer} onclose={() => (drawer = false)} activeSession={view?.info ?? null} />
     <main class="flex min-w-0 flex-1 flex-col">
       {#if router.current.kind === "new"}
         <NewChat onmenu={openDrawer} />

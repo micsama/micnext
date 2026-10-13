@@ -56,6 +56,8 @@ pub(crate) struct ListQuery {
 
 #[derive(Serialize)]
 pub(crate) struct SessionItem {
+    title: Option<String>,
+    title_error: Option<String>,
     id: SessionId,
     channel: String,
     created_at: i64,
@@ -134,6 +136,8 @@ fn item(s: SessionSummary) -> Option<SessionItem> {
         return None;
     };
     Some(SessionItem {
+        title: s.title,
+        title_error: s.title_error,
         id: s.session.id,
         channel,
         created_at: s.session.created_at,
@@ -155,14 +159,34 @@ pub(crate) fn writable(session: &Session) -> bool {
 pub(crate) async fn get_session(
     State(app): State<Arc<App>>,
     id: Result<Path<i64>, PathRejection>,
-) -> Result<Json<SessionItem>, ApiError> {
+) -> Result<Json<SessionDetail>, ApiError> {
     let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
-    app.kernel
+    let item = app
+        .kernel
         .session_summary(SessionId(id))
         .await?
         .and_then(item)
-        .map(Json)
-        .ok_or(ApiError::NotFound(SESSION_NOT_FOUND))
+        .ok_or(ApiError::NotFound(SESSION_NOT_FOUND))?;
+    Ok(Json(SessionDetail {
+        item,
+        title_generating: app.kernel.title_generating(SessionId(id)).await,
+    }))
+}
+
+#[derive(Serialize)]
+pub(crate) struct SessionDetail {
+    #[serde(flatten)]
+    item: SessionItem,
+    title_generating: bool,
+}
+
+pub(crate) async fn generate_title(
+    State(app): State<Arc<App>>,
+    id: Result<Path<i64>, PathRejection>,
+) -> Result<StatusCode, ApiError> {
+    let session = session(&app, id).await?;
+    app.kernel.generate_session_title(session.id).await?;
+    Ok(StatusCode::ACCEPTED)
 }
 
 #[derive(Deserialize)]

@@ -17,6 +17,7 @@ mod recovery;
 mod request;
 mod run;
 mod scheduler;
+mod title;
 
 pub use assembly::{Assembly, OnceOutcome, OneShot};
 pub use channel_setup::{
@@ -36,3 +37,4 @@ pub use provider::{
     Provider, ProviderError, ProviderFactory, ProviderKindView, ReasoningOptions, StopReason,
     ToolChoice,
 };
+pub use title::TitleError;

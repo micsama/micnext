@@ -202,6 +202,11 @@ impl Assembly {
         let services = std::mem::take(&mut self.services);
         let events = Events::new();
         let (wake_tx, wake_rx) = mpsc::channel(WAKE_CHANNEL_CAPACITY);
+        let (title_handle, titles) = crate::title::TitleRuntime::new(
+            started.store.clone(),
+            self.factories.clone(),
+            events.clone(),
+        );
         let kernel = Kernel::new(
             started.store.clone(),
             started.owner,
@@ -209,9 +214,11 @@ impl Assembly {
             wake_tx,
             self.factories.clone(),
             self.channel_setups.clone(),
+            title_handle,
         );
         let engine = Arc::new(self.engine(started.store.clone(), events));
         let mut scheduler = Box::pin(scheduler::run(engine, wake_rx));
+        let mut titles = Box::pin(titles.run());
 
         let shutdown = stop.child_token();
         let mut tasks = JoinSet::new();
@@ -230,6 +237,11 @@ impl Assembly {
                     failure = Some(error);
                     break;
                 }
+                error = &mut titles => {
+                    shutdown.cancel();
+                    failure = Some(error);
+                    break;
+                }
                 Some(joined) = tasks.join_next_with_id() => {
                     settle(joined, &owners, &shutdown, &mut failure);
                 }
@@ -237,6 +249,7 @@ impl Assembly {
         }
         // 先停执行（进行中的 run 留在 Executing，下次启动收尾），再等 Service 退出。
         drop(scheduler);
+        drop(titles);
         while let Some(joined) = tasks.join_next_with_id().await {
             settle(joined, &owners, &shutdown, &mut failure);
         }

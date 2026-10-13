@@ -1126,7 +1126,7 @@ fn assign_run(tx: &Transaction<'_>, run: RunId, ids: &[i64]) -> rusqlite::Result
 fn summaries(filter: &str) -> String {
     // NOTE: 预览依赖 ContentPart 的 serde 外部标签形状 {"Text":{"text":..}}。
     format!(
-        "SELECT {SESSION_COLS}, act, preview FROM (
+        "SELECT {SESSION_COLS}, act, preview, title, title_error FROM (
            SELECT s.*,
              COALESCE((SELECT m.created_at FROM core_messages m
                         WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1),
@@ -1144,6 +1144,8 @@ fn summaries(filter: &str) -> String {
 
 fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
     Ok(SessionSummary {
+        title: r.get(19)?,
+        title_error: r.get(20)?,
         session: row::session(r)?,
         last_activity_at: r.get(17)?,
         preview: r.get(18)?,

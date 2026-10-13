@@ -34,6 +34,12 @@ pub enum ReasoningEffort {
     Max,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TitleModelSelection {
+    pub model_id: Option<ModelId>,
+    pub reasoning_effort: Option<ReasoningEffort>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct EndpointId(pub i64);
@@ -224,6 +230,8 @@ pub struct SessionCursor {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSummary {
+    pub title: Option<String>,
+    pub title_error: Option<String>,
     pub session: Session,
     /// 最新消息的 `created_at`，没有消息时为会话的 `created_at`。
     pub last_activity_at: i64,
@@ -346,6 +354,7 @@ pub struct Usage {
 /// 一次模型调用尝试（含失败与重试）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewModelCall {
+    pub purpose: ModelCallPurpose,
     pub context: ModelCallContext,
     pub session_id: SessionId,
     pub run_id: Option<RunId>,
@@ -354,6 +363,13 @@ pub struct NewModelCall {
     pub started_at: i64,
     pub finished_at: i64,
     pub outcome: ModelCallOutcome,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelCallPurpose {
+    Conversation,
+    Compaction,
+    Title,
 }
 
 #[derive(Debug, Clone, PartialEq)]

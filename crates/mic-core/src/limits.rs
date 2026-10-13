@@ -18,3 +18,7 @@ pub(crate) const NON_ASCII_TOKENS: u64 = 2;
 pub(crate) const IMAGE_TOKENS: u64 = 4096;
 pub(crate) const SNAPSHOT_FILES: usize = 8;
 pub(crate) const SNAPSHOT_BYTES: usize = 64 * 1024;
+pub(crate) const TITLE_INPUT_CHARS: usize = 2_000;
+pub(crate) const TITLE_INPUTS: u32 = 8;
+pub(crate) const TITLE_CHARS: usize = 40;
+pub(crate) const TITLE_TIMEOUT: Duration = Duration::from_secs(60);

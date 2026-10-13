@@ -42,6 +42,17 @@ impl rusqlite::ToSql for ReasoningEffort {
     }
 }
 
+impl rusqlite::ToSql for crate::ModelCallPurpose {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(match self {
+            Self::Conversation => "conversation",
+            Self::Compaction => "compaction",
+            Self::Title => "title",
+        }
+        .into())
+    }
+}
+
 impl rusqlite::types::FromSql for ReasoningEffort {
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
         serde_json::from_value(Value::String(value.as_str()?.to_owned()))

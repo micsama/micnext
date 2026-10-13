@@ -1,6 +1,6 @@
 # B2：会话自动标题与重新生成
 
-**状态：B2 独立评审，待批准，未实施（2026-10-13）。[思考强度选择 B2](reasoning-selection.md) 已验收关闭；human 已确认侧栏刷新与标题只 trim 规则，现回到标题主题。**
+**状态：已实现，本地验收通过，待 human 验收（2026-10-13）。[思考强度选择 B2](reasoning-selection.md) 已验收关闭；侧栏刷新与标题只 trim 规则已确认。新增归档需求独立走 B1/B2，不混入标题契约。**
 
 依据：[B1](../brainstorm/session-title.md)。本 B2 只负责标题用途配置、生成与展示，不修改模型注册或会话档位契约。
 
@@ -21,6 +21,7 @@
 |---|---|---|
 | `mic-store` 类型 | `TitleModelSelection { model_id: Option<ModelId>, reasoning_effort: Option<ReasoningEffort> }`；`SessionSummary` 增加 `title`、`title_error`（均 `Option<String>`） | core 标题调用、Gateway 摘要、Web 列表使用 |
 | Store 配置方法 | `title_model() -> Result<TitleModelSelection, StoreError>`；`set_title_model(selection) -> Result<(), ModelSettingsError>` | 只由 Kernel 读写；空模型不得存具体档位 |
+| Store 调用快照 | `title_model_snapshot() -> Result<ClaimedModel, StoreError>` | core 标题 worker 在同一读事务里取得用途选择、模型配置及凭据，复用现有模型快照类型 |
 | Store 输入查询 | `first_text_input(session) -> Result<Option<Message>, StoreError>`；`recent_text_inputs(session, limit: NonZeroU32) -> Result<Vec<Message>, StoreError>` | 自动入口比较新 message id 与首条文字 id；手动取有界输入 |
 | Store 标题写入 | `save_title_result(session, result: Result<String, String>, call: Option<NewModelCall>) -> Result<(), StoreError>` | 成功改 title 并清 error；失败只改 error；调用记录存在时同事务写入 |
 | Kernel | `title_model()`、`set_title_model(selection)`；`generate_session_title(session) -> Result<(), KernelError>`；async `title_generating(session) -> bool` | Gateway 使用；手动生成返回已接受，不等待模型；生成中查询只读 core 内存 |
@@ -71,3 +72,10 @@ core_model_calls 增加 nullable purpose，旧记录留 NULL；新普通/压缩/
 本地验收：首条文字自动一次、纯图后文字、held 文字及命令边界、旧文字会话不补跑；正文并行、手动改名与重复请求；超长/多行/非 EndTurn 拒绝；失败保留旧标题和错误；默认配置、模型删除与非法档位；退出/重启无生成中遗留；当前页接入/重连/事件期间状态最终一致，当前侧栏条目更新且不改排序；未打开条目在约定刷新时更新，`-p` 无标题调用。模拟上游检查输入、工具禁用、档位和调用审计用途。
 
 完成 fmt、clippy、Web check/构建；human 验收真实模型标题质量、标题按钮与用途滑条观感，后关闭，todo 移至归档。此项独立评审和验收，不把思考选择已完成的验收重复作为其关闭条件。
+
+### 本地验收记录（2026-10-13）
+
+- `cargo fmt`、`cargo clippy --all-targets -- -D warnings`、`cargo test --workspace` 与 `web/` 下 `bun run check`、`bun run build` 均通过。
+- 按 human 的测试偏好，本项只新增一条 core/Store/runtime 联动测试，覆盖 held 首问、命令不触发、旧输入不补跑与首问失败后不自动重试；不新增纯解析或内部实现单元测试。
+- [整体功能验收脚本](../../scripts/check-session-title.py) 的 11 组隔离 HTTP/SQLite/模拟 Provider 链路通过：标题配置校验，首问自动与重复请求，正文并行，用途审计和消息/排序不变，失败保留旧标题，多行/超长/空白/非 EndTurn 拒绝及只 trim，纯图后首问，旧会话边界，手动输入有界，SSE 开始/完成通知，显式模型删除不兜底，重启无重跑，`-p` 不取标题。脚本只访问本机模拟模型，保留隔离数据目录供排查。
+- 页面观感及真实模型标题质量交给 human，暂不标 CLOSED。

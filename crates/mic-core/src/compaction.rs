@@ -236,6 +236,7 @@ impl Exec<'_> {
         outcome: ModelCallOutcome,
     ) -> NewModelCall {
         NewModelCall {
+            purpose: mic_store::ModelCallPurpose::Compaction,
             session_id: self.session.id,
             run_id: None,
             model: provider.model().into(),

@@ -19,7 +19,8 @@ import {
   parseId,
   parseInputLimits,
   parsePersonas,
-  parseSessionItem,
+  parseSessionDetail,
+  parseTitleModel,
   parseSessionPage,
   parseMessagePage,
   parseSettings,
@@ -36,7 +37,8 @@ import {
   type ModelList,
   type ReasoningEffort,
   type Persona,
-  type SessionItem,
+  type SessionDetail,
+  type TitleModelSelection,
   type SessionPage,
   type MessagePage,
   type Settings,
@@ -99,8 +101,20 @@ export async function listSessions(channel: string, before: Cursor | null): Prom
   return parseSessionPage(await request("GET", `/sessions?${q}`));
 }
 
-export async function getSession(id: number): Promise<SessionItem> {
-  return parseSessionItem(await request("GET", `/sessions/${id}`));
+export async function getSession(id: number): Promise<SessionDetail> {
+  return parseSessionDetail(await request("GET", `/sessions/${id}`));
+}
+
+export async function generateTitle(id: number): Promise<void> {
+  await request("POST", `/sessions/${id}/title`);
+}
+
+export async function getTitleModel(): Promise<TitleModelSelection> {
+  return parseTitleModel(await request("GET", "/settings/title-model"));
+}
+
+export async function putTitleModel(selection: TitleModelSelection): Promise<void> {
+  await request("PUT", "/settings/title-model", selection);
 }
 
 export async function getMessages(sessionId: number, before: number): Promise<MessagePage> {

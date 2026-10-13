@@ -6,7 +6,9 @@ use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use mic_store::{CompactionSettings, PersonaId, Settings};
+use mic_store::{
+    CompactionSettings, ModelId, PersonaId, ReasoningEffort, Settings, TitleModelSelection,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{self, json};
@@ -64,6 +66,35 @@ pub(crate) struct PersonaCreated {
 #[serde(deny_unknown_fields)]
 pub(crate) struct SessionPersonaBody {
     persona_id: PersonaId,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TitleModelBody {
+    #[serde(deserialize_with = "Deserialize::deserialize")]
+    model_id: Option<ModelId>,
+    #[serde(deserialize_with = "Deserialize::deserialize")]
+    reasoning_effort: Option<ReasoningEffort>,
+}
+
+pub(crate) async fn get_title_model(
+    State(app): State<Arc<App>>,
+) -> Result<Json<TitleModelSelection>, ApiError> {
+    Ok(Json(app.kernel.title_model().await?))
+}
+
+pub(crate) async fn put_title_model(
+    State(app): State<Arc<App>>,
+    body: Result<Json<TitleModelBody>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let body = json(body)?;
+    app.kernel
+        .set_title_model(TitleModelSelection {
+            model_id: body.model_id,
+            reasoning_effort: body.reasoning_effort,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub(crate) async fn get_settings(

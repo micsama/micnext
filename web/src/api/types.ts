@@ -66,6 +66,8 @@ export type SessionItem = {
   created_at: number;
   last_activity_at: number;
   preview: string | null;
+  title: string | null;
+  title_error: string | null;
   workdir: string;
   /** 能否从 Web 发消息。 */
   writable: boolean;
@@ -79,6 +81,8 @@ export type SessionItem = {
 export type Preset = "generic" | "deepseek" | "ollama" | "openai" | "chatgpt";
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ReasoningOptions = { choices: ReasoningEffort[]; default: ReasoningEffort };
+export type SessionDetail = SessionItem & { title_generating: boolean };
+export type TitleModelSelection = { model_id: number | null; reasoning_effort: ReasoningEffort | null };
 
 export type Endpoint = {
   id: number;
@@ -196,6 +200,7 @@ export const parseWechatView = (v: unknown): WechatView => {
 };
 
 export type StreamEvent =
+  | { event: "session_title_changed"; data: Record<string, never> }
   | { event: "message"; data: Message }
   | { event: "text_delta"; data: { text: string } }
   | { event: "reasoning_delta"; data: { text: string } }
@@ -266,18 +271,23 @@ const messagePage: Decoder<MessagePage> = obj({ messages: arr(message), has_earl
 
 const reasoningEffort = oneOf("none", "minimal", "low", "medium", "high", "xhigh", "max");
 
-const sessionItem: Decoder<SessionItem> = obj({
+const sessionFields = {
   id: num,
   channel: str,
   created_at: num,
   last_activity_at: num,
   preview: nullable(str),
+  title: nullable(str),
+  title_error: nullable(str),
   workdir: str,
   writable: bool,
   persona_id: num,
   model_id: nullable(num),
   reasoning_effort: nullable(reasoningEffort),
-});
+};
+const sessionItem: Decoder<SessionItem> = obj(sessionFields);
+const sessionDetail: Decoder<SessionDetail> = obj({ ...sessionFields, title_generating: bool });
+const titleModel: Decoder<TitleModelSelection> = obj({ model_id: nullable(num), reasoning_effort: nullable(reasoningEffort) });
 
 const preset = oneOf("generic", "deepseek", "ollama", "openai", "chatgpt");
 
@@ -344,6 +354,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   text_delta: delta,
   reasoning_delta: delta,
   draft_discarded: obj({}),
+  session_title_changed: obj({}),
   run_started: obj({ run_id: num }),
   run_finished: obj({
     run_id: num,
@@ -355,6 +366,8 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
 export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入限额").input_limits;
 
 export const parseSessionItem = (v: unknown): SessionItem => sessionItem(v, "会话");
+export const parseSessionDetail = (v: unknown): SessionDetail => sessionDetail(v, "会话详情");
+export const parseTitleModel = (v: unknown): TitleModelSelection => titleModel(v, "标题模型");
 
 export const parseSessionPage = (v: unknown): SessionPage => sessionPage(v, "会话列表");
 

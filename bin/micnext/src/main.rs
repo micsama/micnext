@@ -233,7 +233,7 @@ impl Render {
             }
             KernelEventKind::DraftDiscarded => self.end_line(),
             KernelEventKind::MessageAppended(m) => self.message(m),
-            KernelEventKind::RunFinished { .. } => {}
+            KernelEventKind::RunFinished { .. } | KernelEventKind::SessionTitleChanged => {}
         }
     }
 

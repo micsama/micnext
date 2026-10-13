@@ -6,7 +6,7 @@
 | 状态 | 主题 | 文档 |
 |---|---|---|
 | human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](docs/blueprints/web-ui.md#43-设置页与人设选择) |
-| B2 独立评审，待批准（2026-10-13），未实施 | 首问自动标题与一键重新生成；用途模型/档位独立，生成中仅内存；侧栏刷新边界与只 trim 已定，复用会话详情 GET | [B2](docs/blueprints/session-title.md)；[B1](docs/brainstorm/session-title.md) |
+| B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 首问自动标题与一键重新生成；用途模型/档位独立，生成中仅内存；11 组隔离整体链路通过；侧栏刷新边界与只 trim 已定，复用会话详情 GET | [B2](docs/blueprints/session-title.md)；[B1](docs/brainstorm/session-title.md) |
 | B2 已实现，本地验收通过，待 human 验收（2026-10-12） | Web 聊天页可切换微信会话模型，与 Web 会话同一入口；`/model` 后续另定 | [B2](docs/blueprints/wechat-session-model.md) |
 | 已知 bug，待排查；human 明确延期（2026-10-10） | Web「检查并更新」后部分消息尾部不可见，刷新无效、发新消息后恢复；IP:端口直连，根因未确认 | [排查记录](docs/brainstorm/web-message-replay.md) |
 | B2 已实现：DeepSeek、ChatGPT 订阅（2026-10-12）已验收，OpenAI（API key）与订阅缓存命中待验收 | 模型调用迁移 async-openai；新增 OpenAI（Responses）与 ChatGPT 订阅（Codex 后端，手贴 access_token）预设；Responses 发会话缓存键 | [SDK B2](docs/blueprints/provider-sdk-responses.md)；[ChatGPT B2](docs/blueprints/provider-chatgpt.md)；[缓存键 B2](docs/blueprints/provider-cache-key.md)；现行契约 [provider-openai](docs/blueprints/provider-openai.md) |

@@ -10,6 +10,12 @@ const CORE: &str = "core";
 const CORE_MIGRATIONS: &[Migration] = &[
     Migration {
         module: CORE,
+        version: 8,
+        sql: CORE_V8,
+        secret_columns: &[],
+    },
+    Migration {
+        module: CORE,
         version: 7,
         sql: CORE_V7,
         secret_columns: &[],
@@ -51,6 +57,15 @@ const CORE_MIGRATIONS: &[Migration] = &[
         secret_columns: &[],
     },
 ];
+
+const CORE_V8: &str = "
+ALTER TABLE core_sessions ADD COLUMN title TEXT;
+ALTER TABLE core_sessions ADD COLUMN title_error TEXT;
+ALTER TABLE core_settings ADD COLUMN title_model_id INTEGER REFERENCES core_models(id);
+ALTER TABLE core_settings ADD COLUMN title_reasoning_effort TEXT
+  CHECK(title_reasoning_effort IS NULL OR (title_model_id IS NOT NULL AND title_reasoning_effort IN ('none','minimal','low','medium','high','xhigh','max')));
+ALTER TABLE core_model_calls ADD COLUMN purpose TEXT;
+";
 
 const CORE_V7: &str = "
 ALTER TABLE core_sessions ADD COLUMN reasoning_effort TEXT

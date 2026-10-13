@@ -10,6 +10,7 @@
   import { settingsStore } from "../../state/settings.svelte";
   import Group from "./Group.svelte";
   import SaveStatus, { type SaveState } from "./SaveStatus.svelte";
+  import TitleModelSection from "./TitleModelSection.svelte";
 
   type Field = keyof SettingsInput;
 
@@ -149,6 +150,8 @@
       {@render error("general_prompt")}
     </div>
   </Group>
+
+  <TitleModelSection />
 
   <Collapsible.Root>
     <Collapsible.Trigger

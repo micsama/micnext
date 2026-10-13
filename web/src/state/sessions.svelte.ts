@@ -17,6 +17,11 @@ export class SessionList {
 
   constructor(readonly channel: string) {}
 
+  patchTitle(info: SessionItem): void {
+    const item = this.items.find((s) => s.id === info.id);
+    if (item) { item.title = info.title; item.title_error = info.title_error; }
+  }
+
   /** 重拉第一页，已加载的更早部分保留。 */
   async refresh(): Promise<void> {
     try {

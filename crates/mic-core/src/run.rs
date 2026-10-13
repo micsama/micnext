@@ -434,6 +434,7 @@ impl Exec<'_> {
             .engine
             .store
             .record_model_call(NewModelCall {
+                purpose: mic_store::ModelCallPurpose::Conversation,
                 context,
                 session_id: self.session.id,
                 run_id: Some(self.run.id),

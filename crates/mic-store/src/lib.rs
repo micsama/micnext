@@ -14,6 +14,7 @@ mod row;
 mod schema;
 mod secrets;
 mod store;
+mod title;
 mod types;
 
 pub use rusqlite;
@@ -26,8 +27,9 @@ pub use types::{
     ClaimedModel, ClaimedRun, CompactionSettings, CompactionState, CompactionView, ContextUsage,
     ContextView, ContextWindow, CredentialWrite, DeliveryTarget, EndpointId, EndpointView,
     EndpointWrite, Identity, InputDisposition, MessagePage, Migration, ModelCallContext,
-    ModelCallId, ModelCallOutcome, ModelId, ModelView, ModelWrite, NewInputPart, NewModelCall,
-    NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId, ReasoningEffort, Run,
-    RunId, RunInput, RunSettings, RunState, SecretColumn, Session, SessionCursor, SessionKind,
-    SessionPage, SessionSummary, Settings, ToolScope, Usage,
+    ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelView, ModelWrite, NewInputPart,
+    NewModelCall, NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId,
+    ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState, SecretColumn, Session,
+    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, TitleModelSelection,
+    ToolScope, Usage,
 };

@@ -25,6 +25,7 @@ use crate::{request, ChannelSetup, KernelError, ProviderKindView, WorkdirError};
 /// 模块拿到的内核窄接口。Clone 廉价；核心表只经这些方法写。
 #[derive(Clone)]
 pub struct Kernel {
+    titles: crate::title::TitleHandle,
     store: Store,
     owner: PersonId,
     events: Events,
@@ -104,8 +105,10 @@ impl Kernel {
         wake: mpsc::Sender<SessionId>,
         factories: Arc<Factories>,
         channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
+        titles: crate::title::TitleHandle,
     ) -> Self {
         Self {
+            titles,
             store,
             owner,
             events,
@@ -174,6 +177,7 @@ impl Kernel {
         .await?;
         // 调度循环已退出（停止中）时发送失败，按上面的约定忽略。
         let _ = self.wake.send(session_id).await;
+        self.maybe_title(&messages[0]).await?;
         Ok(messages[0].id)
     }
 
@@ -199,6 +203,7 @@ impl Kernel {
             }),
         )
         .await?;
+        self.maybe_title(&messages[0]).await?;
         Ok(messages[0].id)
     }
 
@@ -264,6 +269,80 @@ impl Kernel {
         id: SessionId,
     ) -> Result<Option<SessionSummary>, KernelError> {
         Ok(self.store.session_summary(id).await?)
+    }
+
+    pub async fn title_model(&self) -> Result<mic_store::TitleModelSelection, KernelError> {
+        Ok(self.store.title_model().await?)
+    }
+
+    pub async fn set_title_model(
+        &self,
+        selection: mic_store::TitleModelSelection,
+    ) -> Result<(), KernelError> {
+        self.check_reasoning(selection.model_id, selection.reasoning_effort)
+            .await?;
+        Ok(self.store.set_title_model(selection).await?)
+    }
+
+    pub async fn title_generating(&self, session: SessionId) -> bool {
+        self.titles.generating(session)
+    }
+
+    pub async fn generate_session_title(&self, session: SessionId) -> Result<(), KernelError> {
+        let session = self
+            .store
+            .session(session)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        if !matches!(session.kind, SessionKind::Root { .. }) {
+            return Err(crate::TitleError::NotRoot.into());
+        }
+        let inputs = self
+            .store
+            .recent_text_inputs(
+                session.id,
+                NonZeroU32::new(crate::limits::TITLE_INPUTS).unwrap(),
+            )
+            .await?;
+        if inputs.is_empty() {
+            return Err(crate::TitleError::EmptyInput.into());
+        }
+        self.titles
+            .submit(session, crate::title::input_text(&inputs))?;
+        Ok(())
+    }
+
+    async fn maybe_title(&self, input: &Message) -> Result<(), KernelError> {
+        let summary = self
+            .store
+            .session_summary(input.session_id)
+            .await?
+            .expect("input session exists");
+        if !matches!(summary.session.kind, SessionKind::Root { .. }) || summary.title.is_some() {
+            return Ok(());
+        }
+        let first = self.store.first_text_input(input.session_id).await?;
+        let Some(first) = first.filter(|first| first.id == input.id) else {
+            return Ok(());
+        };
+        let channel = session_channel(&self.store, &summary.session).await?;
+        match self
+            .titles
+            .submit(summary.session, crate::title::input_text(&[first]))
+        {
+            Ok(()) | Err(crate::TitleError::Generating) => {}
+            Err(error) => {
+                self.store
+                    .save_title_result(input.session_id, Err(error.to_string()), None)
+                    .await?;
+                self.events.emit(
+                    input.session_id,
+                    &channel,
+                    crate::KernelEventKind::SessionTitleChanged,
+                );
+            }
+        }
+        Ok(())
     }
 
     /// 列出 `channel` 下已有用户输入的 Root 会话，最近活跃在前。

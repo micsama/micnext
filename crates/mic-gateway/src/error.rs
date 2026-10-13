@@ -48,6 +48,12 @@ impl From<ChannelSetupError> for ApiError {
 impl From<KernelError> for ApiError {
     fn from(e: KernelError) -> Self {
         match e {
+            KernelError::Title(error) => match error {
+                mic_core::TitleError::NotRoot => Self::Forbidden(error.to_string()),
+                mic_core::TitleError::Generating => Self::Conflict(error.to_string()),
+                mic_core::TitleError::EmptyInput => Self::BadRequest(error.to_string()),
+                mic_core::TitleError::Stopped => Self::Unavailable(error.to_string()),
+            },
             KernelError::CommandParse(error) => Self::BadRequest(error.to_string()),
             KernelError::ContextCommand(error) => match error {
                 mic_store::ContextCommandError::BoundaryNotFound => {

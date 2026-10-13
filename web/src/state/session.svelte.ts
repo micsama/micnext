@@ -1,9 +1,9 @@
-import { ApiError, getContext, getMessages, revokeCompaction, getSession } from "../api/client";
+import { ApiError, generateTitle, getContext, getMessages, revokeCompaction, getSession } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, type ContextView, type Message, type RunState, type SessionItem, type StreamEvent } from "../api/types";
+import { ProtocolError, type ContextView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
-import { webSessions } from "./sessions.svelte";
+import { otherSessions, webSessions } from "./sessions.svelte";
 
 export type Draft = { reasoning: string; text: string };
 
@@ -19,7 +19,40 @@ const FINISH_NOTICE: Partial<Record<RunState, string>> = {
 /** 一个打开的会话：稳定消息 + 正在生成的草稿，按 web-ui §五 归约流事件并断线重连。 */
 export class SessionView {
   /** 会话本身的信息，首次连上前取得。 */
-  info = $state<SessionItem | null>(null);
+  info = $state<SessionDetail | null>(null);
+  titleSyncError = $state<string | null>(null);
+  titleActionError = $state<string | null>(null);
+  requestingTitle = $state(false);
+  #titleRefresh: Promise<void> | null = null;
+  #titleDirty = false;
+
+  async regenerateTitle(): Promise<void> {
+    if (this.requestingTitle || this.info?.title_generating) return;
+    this.requestingTitle = true;
+    this.titleActionError = null;
+    try { await generateTitle(this.id); }
+    catch (error) { this.titleActionError = (error as Error).message; }
+    finally { this.requestingTitle = false; this.#refreshTitle(); }
+  }
+
+  #refreshTitle(): void {
+    this.#titleDirty = true;
+    if (this.#titleRefresh) return;
+    this.#titleRefresh = (async () => {
+      while (this.#titleDirty && !this.#abort.signal.aborted) {
+        this.#titleDirty = false;
+        try {
+          const info = await getSession(this.id);
+          if (this.#abort.signal.aborted) return;
+          if (this.info) Object.assign(this.info, { title: info.title, title_error: info.title_error, title_generating: info.title_generating });
+          for (const list of [webSessions, ...otherSessions]) list.patchTitle(info);
+          this.titleSyncError = null;
+        } catch (error) {
+          if (!this.#abort.signal.aborted) this.titleSyncError = (error as Error).message;
+        }
+      }
+    })().finally(() => { this.#titleRefresh = null; });
+  }
   messages = $state<Message[]>([]);
   context = $state<ContextView | null>(null);
   contextError = $state<string | null>(null);
@@ -127,6 +160,7 @@ export class SessionView {
   }
 
   #apply(e: StreamEvent): void {
+    if (e.event === "ready" || e.event === "session_title_changed") this.#refreshTitle();
     if (e.event === "ready" || e.event === "run_finished" || (e.event === "message" && ["Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
     switch (e.event) {
       case "message":

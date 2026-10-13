@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import type { SessionItem } from "../api/types";
   import type { Attachment } from "svelte/attachments";
   import { groupSessions } from "../lib/format";
   import Icon, { type IconName } from "../lib/Icon.svelte";
@@ -8,7 +9,7 @@
   import { theme, type ThemeChoice } from "../state/theme.svelte";
   import { updater } from "../state/update.svelte";
 
-  let { open, onclose }: { open: boolean; onclose: () => void } = $props();
+  let { open, onclose, activeSession }: { open: boolean; onclose: () => void; activeSession: SessionItem | null } = $props();
 
   const groups = $derived(groupSessions(webSessions.items));
   const activeId = $derived(router.current.kind === "session" ? router.current.id : null);
@@ -58,13 +59,15 @@
   {/if}
 {/snippet}
 
-{#snippet entry(id: number, preview: string | null)}
+{#snippet entry(s: SessionItem)}
+  {@const id = s.id}
+  {@const current = activeSession?.id === id ? activeSession : s}
   <a
     href="/s/{id}"
     onclick={(e) => (e.preventDefault(), go(`/s/${id}`))}
     class="block truncate rounded-md px-3 py-1.5 text-sm hover:bg-accent"
     class:bg-accent={activeId === id}
-    class:font-medium={activeId === id}>{preview ?? `会话 ${id}`}</a>
+    class:font-medium={activeId === id}>{current.title ?? current.preview ?? `会话 ${id}`}</a>
 {/snippet}
 
 {#if open}
@@ -92,7 +95,7 @@
     {#each groups as group (group.label)}
       <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">{group.label}</p>
       {#each group.items as s (s.id)}
-        {@render entry(s.id, s.preview)}
+        {@render entry(s)}
       {/each}
     {/each}
     {#if webSessions.loaded && webSessions.items.length === 0}
@@ -110,7 +113,7 @@
       {#each otherSessions as other (other.channel)}
         <p class="px-3 pt-2 pb-1 text-xs text-muted-foreground">{other.channel === "wechat" ? "微信" : other.channel}</p>
         {#each other.items as s (s.id)}
-          {@render entry(s.id, s.preview)}
+          {@render entry(s)}
         {/each}
         {#if other.loaded && other.items.length === 0}
           <p class="px-3 text-xs text-muted-foreground">无</p>

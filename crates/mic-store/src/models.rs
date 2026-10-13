@@ -156,7 +156,7 @@ impl Store {
         .await
     }
 
-    async fn call_models<R, F>(&self, f: F) -> Result<R, ModelSettingsError>
+    pub(crate) async fn call_models<R, F>(&self, f: F) -> Result<R, ModelSettingsError>
     where
         R: Send + 'static,
         F: FnOnce(&mut Connection) -> Result<R, ModelSettingsError> + Send + 'static,
@@ -182,7 +182,7 @@ fn find_live(conn: &Connection, id: ModelId) -> rusqlite::Result<Option<ModelVie
     .optional()
 }
 
-fn live(conn: &Connection, id: ModelId) -> Result<ModelView, ModelSettingsError> {
+pub(crate) fn live(conn: &Connection, id: ModelId) -> Result<ModelView, ModelSettingsError> {
     let deleted: Option<bool> = conn
         .query_row(
             "SELECT deleted_at IS NOT NULL FROM core_models WHERE id = ?1",
@@ -240,6 +240,20 @@ pub(crate) fn claim_model(
             default.0
         }
     };
+    let reasoning_effort = tx.query_row(
+        "SELECT reasoning_effort FROM core_sessions WHERE id = ?1",
+        [session.0],
+        |row| row.get(0),
+    )?;
+    read_model(tx, cipher, ModelId(id), reasoning_effort)
+}
+
+pub(crate) fn read_model(
+    conn: &Connection,
+    cipher: &Cipher,
+    id: ModelId,
+    reasoning_effort: Option<ReasoningEffort>,
+) -> Result<ClaimedModel, StoreError> {
     let (
         endpoint_name,
         kind,
@@ -250,11 +264,11 @@ pub(crate) fn claim_model(
         model_json,
         deleted,
         context_window,
-    ) = tx.query_row(
+    ) = conn.query_row(
         "SELECT e.name, e.kind, e.config_json, e.key_cipher, e.id, m.name, m.config_json,
                 m.deleted_at IS NOT NULL, m.context_window
          FROM core_models m JOIN core_endpoints e ON e.id = m.endpoint_id WHERE m.id = ?1",
-        [id],
+        [id.0],
         |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -269,17 +283,11 @@ pub(crate) fn claim_model(
             ))
         },
     )?;
-    let id = ModelId(id);
     let name = format!("{endpoint_name} / {model_name}");
     if deleted {
         return Ok(ClaimedModel::Deleted { id, name });
     }
     let key = blob.map(|b| cipher.decrypt(endpoint_id, &b)).transpose()?;
-    let reasoning_effort = tx.query_row(
-        "SELECT reasoning_effort FROM core_sessions WHERE id = ?1",
-        [session.0],
-        |row| row.get(0),
-    )?;
     Ok(ClaimedModel::Selected {
         context_window,
         id,

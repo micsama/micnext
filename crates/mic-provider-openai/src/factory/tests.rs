@@ -535,6 +535,23 @@ async fn responses_terminal_states() {
             |r| matches!(r, Err(ProviderError::Rejected { .. })),
         ),
         (
+            vec![json!({"type": "error", "error": {
+                "message": "Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.",
+                "type": "invalid_request_error", "param": "reasoning.effort", "code": "unsupported_value"
+            }})],
+            |r| matches!(r, Err(ProviderError::Rejected { message }) if message.contains("unsupported_value") && message.contains("'none' is not supported")),
+        ),
+        (
+            vec![
+                json!({"type": "error", "error": {"code": "rate_limit_exceeded", "message": "retry later"}}),
+            ],
+            |r| matches!(r, Err(ProviderError::Transient { message, .. }) if message.contains("retry later")),
+        ),
+        (
+            vec![json!({"type": "error", "error": {"code": "unsupported_value"}})],
+            |r| matches!(r, Err(ProviderError::Protocol { .. })),
+        ),
+        (
             vec![
                 item_done(0, json!({"type": "web_search_call", "id": "w"})),
                 json!({"type": "response.completed", "response": {}}),

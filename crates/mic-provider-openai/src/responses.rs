@@ -268,8 +268,8 @@ pub(crate) enum Event {
     Failed { response: ResponseBody },
     #[serde(rename = "error")]
     Error {
-        code: Option<String>,
-        message: String,
+        #[serde(flatten)]
+        detail: StreamError,
     },
     #[serde(
         rename = "response.created",
@@ -293,6 +293,20 @@ pub(crate) enum Event {
     Unused,
     #[serde(other)]
     Other,
+}
+
+/// 官方 API 在顶层给错误；Codex 后端放在 `error` 对象内。
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(crate) enum StreamError {
+    Nested { error: StreamErrorDetail },
+    Flat(StreamErrorDetail),
+}
+
+#[derive(Deserialize)]
+pub(crate) struct StreamErrorDetail {
+    code: Option<String>,
+    message: String,
 }
 
 #[derive(Deserialize)]
@@ -408,7 +422,12 @@ impl Accumulate for Accumulator {
                     None => protocol("response.failed 未给出错误"),
                 })
             }
-            Event::Error { code, message } => return Err(upstream(code.as_deref(), &message)),
+            Event::Error { detail } => {
+                let detail = match detail {
+                    StreamError::Nested { error } | StreamError::Flat(error) => error,
+                };
+                return Err(upstream(detail.code.as_deref(), &detail.message));
+            }
             Event::Unused => Step::Deltas(Vec::new()),
             Event::Other => Step::Unknown,
         })

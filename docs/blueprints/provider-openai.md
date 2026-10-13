@@ -104,6 +104,7 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
   - reasoning → 有摘要：`Visible { 摘要段落以空行拼接, signature: 密文 }`；只有密文：`Redacted { data }`。
   - 其它输出项（内置工具等）→ `Protocol`。
 - 终态事件：completed → 按内容定 `EndTurn` / `ToolUse`；incomplete 为 `max_output_tokens` → `MaxTokens`、`content_filter` → `ContentFilter`，其它原因 → `Protocol`；failed / error → 按 code 分类（4.5）。EOF 前没有终态 → `Transient`。
+- `error` 事件：官方 API 的 `code/message` 在顶层，Codex 后端在嵌套 `error` 对象内；两种形状都解析成同一错误分类，保留结构化 code 与 message，不记录原始事件。2026-10-13 实测 `gpt-6.1-sol` 的 `reasoning.effort=none` 返回嵌套 `unsupported_value`，不再被 `missing field message` 遮住；档位能力调整仍按 [已确认 B1](../brainstorm/reasoning-model-capabilities.md) 延期至另起 B2。
 
 ### 4.4 公共响应规则
 

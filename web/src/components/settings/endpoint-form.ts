@@ -155,7 +155,7 @@ export function probe(f: EndpointForm): Promise<string[]> {
 
 /** 按与 `base` 的差异写回服务商及其模型；切换预设时重写全部模型以套用新的参数规则。 */
 export async function saveForm(f: EndpointForm, base: EndpointForm): Promise<void> {
-  const input: EndpointInput = { name: f.name, kind: "openai", config: configOf(f), credential: credentialOf(f) };
+  const input: EndpointInput = { name: f.name.trim() || presetLabel(f.preset), kind: "openai", config: configOf(f), credential: credentialOf(f) };
   let id = f.id;
   if (id === null) id = await createEndpoint(input);
   else await updateEndpoint(id, input);

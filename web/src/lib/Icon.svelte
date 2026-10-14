@@ -1,6 +1,7 @@
 <script lang="ts" module>
   // 路径取自 Lucide（ISC 许可），24×24、描边绘制。
   const PATHS = {
+    expand: "M15 3h6v6M21 3l-7 7M9 21H3v-6M3 21l7-7",
     plus: "M5 12h14M12 5v14",
     menu: "M4 6h16M4 12h16M4 18h16",
     x: "M18 6 6 18M6 6l12 12",

@@ -4,7 +4,7 @@
   import type { StoredLogRecord } from "../../api/developer";
   import type { Peers, TraceCall, TraceMessage, TraceRun, TraceSession } from "../../api/trace";
   import { cn } from "$lib/utils";
-  import { formatCost, formatDuration, formatTime, formatTokens } from "../../lib/format";
+  import { formatCost, formatDuration, formatTokens } from "../../lib/format";
   import Icon from "../../lib/Icon.svelte";
   import type { Message } from "../../api/types";
   import TraceContent from "./TraceContent.svelte";
@@ -78,6 +78,7 @@
     const request = ++pageRequest;
     ++detailRequest;
     session = id;
+    systemSelected = false;
     runs = [];
     titleCalls = [];
     nextBefore = null;
@@ -132,13 +133,56 @@
       ...r.messages.filter((m) => !r.calls.some((c) => c.reply_id === m.id || c.boundary_id === m.id)).map((message) => ({ at: message.created_at, message })),
     ].sort((a, b) => a.at - b.at);
 
-  /** 条形的起点与宽度占本轮跨度的百分比。 */
-  function bar(r: TraceRun, from: number, to: number): string {
-    const end = r.finished_at ?? Math.max(to, ...r.calls.map((c) => c.finished_at));
-    const span = Math.max(end - r.created_at, 1);
-    const left = ((from - r.created_at) / span) * 100;
-    const width = Math.max(((to - from) / span) * 100, 0.8);
-    return `left:${left.toFixed(2)}%;width:${Math.min(width, 100 - left).toFixed(2)}%`;
+  // 工具结果属于其前面最近的一条模型回复；下一次模型调用在工具批次结束后开始。
+  function owner(r: TraceRun, m: TraceMessage) {
+    return r.calls.filter((c) => c.reply_id !== null && c.reply_id < m.id).sort((a, b) => b.reply_id! - a.reply_id!)[0];
+  }
+  function toolsFor(r: TraceRun, c: TraceCall) {
+    return r.messages.filter((m) => m.tool && owner(r, m)?.id === c.id);
+  }
+  function stepEnd(r: TraceRun | null, c: TraceCall) {
+    return Math.max(c.finished_at, ...(r ? toolsFor(r, c).map((m) => m.created_at) : []));
+  }
+  function bar(r: TraceRun, from: number, to: number, c?: TraceCall): string {
+    const start = c?.started_at ?? from;
+    const end = c ? stepEnd(r, c) : to;
+    const span = Math.max(end - start, 1);
+    const left = Math.max(0, (from - start) / span * 100);
+    return `left:${left}%;width:${Math.min(Math.max((to - from) / span * 100, .8), 100 - left)}%`;
+  }
+  let systemSelected = $state(false);
+  let systemText = $state<string | null>(null);
+  async function chooseSystem() {
+    if (session === null) return;
+    const request = ++detailRequest;
+    systemSelected = true;
+    pick = null;
+    systemText = null;
+    detailError = null;
+    try {
+      const value = await getTraceSystem(session);
+      if (request === detailRequest) systemText = value;
+    } catch (e) { if (request === detailRequest) detailError = String(e); }
+  }
+
+  function related(p: Pick): Item[] {
+    const r = p.run;
+    if (!r) return [];
+    const c = "call" in p ? p.call : p.message.tool ? owner(r, p.message) : undefined;
+    if (!c) return [];
+    const source = r.messages.filter((m) => m.kind === "UserInput" && m.created_at <= c.started_at).at(-1);
+    const ids = new Set(toolsFor(r, c).map((m) => m.id));
+    return items(r).filter((it) => it.call ? it.call.id === c.id && !("call" in p) : (it.message!.id === source?.id || ids.has(it.message!.id)) && !("message" in p && it.message!.id === p.message.id));
+  }
+  function attempts(r: TraceRun | null, c: TraceCall) {
+    if (!r) return [c];
+    const ordered = [...r.calls].sort((a, b) => a.started_at - b.started_at || a.id - b.id);
+    const index = ordered.findIndex((a) => a.id === c.id);
+    let start = index;
+    while (start > 0 && ordered[start]!.attempt > 1) start--;
+    let end = index + 1;
+    while (end < ordered.length && ordered[end]!.attempt > 1) end++;
+    return ordered.slice(start, end);
   }
 
   const modelMedian = (c: TraceCall) =>
@@ -150,6 +194,7 @@
     pick !== null && (call ? "call" in pick && pick.call.id === call.id : "message" in pick && pick.message.id === message!.id);
 
   function choose(p: Pick) {
+    systemSelected = false;
     pick = p;
     detail = null;
     detailError = null;
@@ -209,11 +254,11 @@
 <svelte:window onkeydown={(e) => { if (e.key === "Escape") expanded = false; }} />
 
 {#snippet callRow(c: TraceCall, r: TraceRun | null)}
-  <button type="button" class={cn("trace-row call-row", c.purpose === "compaction" && "compact-row", r === null && "side-row", failed(c) && "error-row", isPicked(c) && selected)} onclick={() => choose({ run: r, call: c })}>
+  <button type="button" class={cn("trace-row call-row", r && toolsFor(r, c).length > 0 && "step-start", c.purpose === "compaction" && "compact-row", r === null && "side-row", failed(c) && "error-row", isPicked(c) && selected)} onclick={() => choose({ run: r, call: c })}>
     <span class={cn("role", c.purpose === "conversation" ? "role-ai" : "role-compact")}>{r === null ? "旁路" : c.purpose === "compaction" ? "压缩" : "AI"}</span>
     <span class="row-summary" title={callPreview(r, c)}><b>{c.purpose === "title" ? "标题生成" : c.model}</b><span>{callPreview(r, c) === c.model ? (c.reasoning_effort ? `${c.reasoning_effort} 档` : purpose(c)) : callPreview(r, c)}</span></span>
     <span class="signals">{#if failed(c)}<span class="bad" title={c.error ?? ""}><Icon name="alert" class="size-3.5" /></span>{/if}{#if c.attempt > 1}<span class="warn" title="第 {c.attempt} 次尝试"><Icon name="refresh" class="size-3" />{c.attempt - 1}</span>{/if}{#if r === null}<span class="cap">标题</span>{/if}</span>
-    <span class="track" title="{purpose(c)} · {formatDuration(c.finished_at - c.started_at)}">{#if r}<span class:bad-bar={failed(c)} style={bar(r, c.started_at, c.finished_at)}></span>{/if}</span>
+    <span class="track" title="{purpose(c)} · {formatDuration(c.finished_at - c.started_at)}">{#if r}<span class:bad-bar={failed(c)} style={bar(r, c.started_at, c.finished_at, c)}></span>{#if toolsFor(r, c).length}<span class="tool-bar" style={bar(r, c.finished_at, stepEnd(r, c), c)}></span>{/if}{/if}</span>
     <span class="token" title="输入 {c.usage?.input_tokens ?? '未知'} · 输出 {c.usage?.output_tokens ?? '未知'}">{tokens(c)}</span>
     <span class="duration" class:slow={!!modelMedian(c) && c.finished_at - c.started_at > modelMedian(c)!.median_ms * 2}>{formatDuration(c.finished_at - c.started_at)}</span>
     <time>{time(c.started_at)}</time>
@@ -244,8 +289,9 @@
 
   <section class="trace-panel stream-panel">
     <div class="panel-heading stream-heading"><div class="min-w-0"><h2 class="truncate">{currentSession?.title ?? (session === null ? "运行追踪" : `会话 ${session}`)}</h2><p>{currentSession?.channel ?? channelFilter} <span> / </span> {runs.length} 轮运行 · {runs.reduce((n, r) => n + r.calls.length, 0)} 次调用</p></div><button type="button" class="issue-toggle" class:enabled={issuesOnly} onclick={() => issuesOnly = !issuesOnly}><Icon name="alert" class="size-3" />只看异常</button></div>
-    <div class="column-legend"><span>执行记录</span><span>时间分布</span><span>Token</span><span>耗时</span><span>时间</span></div>
+    <div class="column-legend"><span>执行记录</span><span title="每次模型调用及其工具批次共用时间尺度">本步时间</span><span>Token</span><span>耗时</span><span>时间</span></div>
     <div class="panel-scroll stream-body">
+      {#if session !== null}<button type="button" class={cn("system-entry", systemSelected && selected)} onclick={chooseSystem}><span class="role role-system">SYS</span><b>System</b><span>当前系统提示</span><Icon name="chevron" class="ml-auto size-3" /></button>{/if}
       {#if error}<p class="error-banner">{error}</p>{/if}
       {#if loading}<p class="empty-state">正在加载运行记录…</p>{:else if visibleEntries.length === 0}<div class="empty-state"><Icon name="sparkles" class="mx-auto mb-3 size-6 opacity-40" /><p>{issuesOnly ? "当前已加载的运行没有异常" : "这个会话还没有已结束的运行"}</p></div>{/if}
       {#each visibleEntries as entry (entry.kind === "run" ? `r${entry.run.id}` : `s${entry.call.id}`)}
@@ -268,7 +314,7 @@
                       <span class={cn("role", m.tool ? "role-tool" : m.kind === "UserInput" ? "role-user" : "role-system")}>{m.tool ? "↳" : role(m)}</span>
                       <span class="row-summary">{#if m.tool}<b class="tool-name">{m.tool.name}</b>{/if}<span title={m.preview}>{m.preview || "（无文本内容）"}</span></span>
                       <span class="signals">{#if m.tool?.outcome === "failed"}<span class="bad"><Icon name="alert" class="size-3" /></span>{:else if m.tool?.outcome === "cancelled"}<span class="cap cap-warn">未知</span>{/if}</span>
-                      <span class="track" class:track-empty={m.tool?.started_at == null}>{#if m.tool?.started_at != null}<span class="tool-bar" class:bad-bar={m.tool.outcome === "failed"} style={bar(r, m.tool.started_at, m.created_at)}></span>{/if}</span><span class="token"></span><span class="duration" class:duration-empty={m.tool?.started_at == null}>{m.tool?.started_at != null ? formatDuration(m.created_at - m.tool.started_at) : ""}</span><time>{time(m.created_at)}</time>
+                      <span class="track" class:track-empty={m.tool?.started_at == null}>{#if m.tool?.started_at != null}<span class="tool-bar" class:bad-bar={m.tool.outcome === "failed"} style={bar(r, m.tool.started_at, m.created_at, owner(r, m))}></span>{/if}</span><span class="token"></span><span class="duration" class:duration-empty={m.tool?.started_at == null}>{m.tool?.started_at != null ? formatDuration(m.created_at - m.tool.started_at) : ""}</span><time>{time(m.created_at)}</time>
                     </button>
                   {/if}
                 {/each}
@@ -283,8 +329,10 @@
 
   <!-- 右：详情 -->
   <aside class="trace-panel inspector" class:expanded>
-    {#if pick}
-      <div class="detail-heading"><div class="min-w-0 flex-1"><div class="detail-kind"><span class="role" class:role-ai={"call" in pick} class:role-tool={"message" in pick && !!pick.message.tool}>{"call" in pick ? purpose(pick.call) : role(pick.message)}</span><time>{time("call" in pick ? pick.call.started_at : pick.message.created_at)}</time></div><h2>{"call" in pick ? pick.call.model : pick.message.tool?.name ?? role(pick.message)}{#if "call" in pick && pick.call.reasoning_effort}<small>{pick.call.reasoning_effort} 档</small>{/if}</h2></div><button type="button" class="icon-button" title={expanded ? "还原 · Esc" : "放大详情"} aria-label={expanded ? "还原详情" : "放大详情"} onclick={() => expanded = !expanded}><Icon name={expanded ? "x" : "monitor"} class="size-3.5" /></button></div>
+    {#if systemSelected}
+      <div class="detail-heading"><div><span class="role role-system">SYS</span><h2>System</h2><p class="mt-2 text-xs text-muted-foreground">当前配置 · 非历史快照</p></div></div><div class="panel-scroll detail-body">{#if detailError}<p class="text-destructive">{detailError}</p>{:else if systemText !== null}<div class="flex justify-end"><CopyButton text={systemText} /></div><Markdown source={systemText} />{:else}<p>加载中…</p>{/if}</div>
+    {:else if pick}
+      <div class="detail-heading"><div class="min-w-0 flex-1"><div class="detail-kind"><span class="role" class:role-ai={"call" in pick} class:role-tool={"message" in pick && !!pick.message.tool}>{"call" in pick ? (pick.call.purpose === "conversation" ? "AI" : purpose(pick.call)) : role(pick.message)}</span><time>{time("call" in pick ? pick.call.started_at : pick.message.created_at)}</time></div><h2>{"call" in pick ? pick.call.model : pick.message.tool?.name ?? role(pick.message)}{#if "call" in pick && pick.call.reasoning_effort}<small>{pick.call.reasoning_effort} 档</small>{/if}</h2></div><button type="button" class="icon-button" title={expanded ? "还原 · Esc" : "放大详情"} aria-label={expanded ? "还原详情" : "放大详情"} onclick={() => expanded = !expanded}><Icon name={expanded ? "x" : "expand"} class="size-3.5" /></button></div>
       <nav class="detail-tabs">
         {#each tabs as [id, label] (id)}
           {#if (id !== "input" || ("call" in pick && pick.call.purpose !== "title")) && (id !== "logs" || pick.run !== null)}
@@ -302,9 +350,17 @@
           {#if "call" in pick}
             {@const c = pick.call}
             {@const med = modelMedian(c)}
+            {@const tries = attempts(pick.run, c)}
+            {#if tries.length > 1}<div class="retry-card"><b>重试 {tries.length - 1} 次 · {tries.at(-1)!.error ? "调用失败" : "已成功"}</b>{#each tries as attempt}<button type="button" onclick={() => choose({ run: pick!.run, call: attempt })}><span>#{attempt.attempt}</span><span class:bad={!!attempt.error}>{attempt.error ?? "已完成"}</span><small>{attempt.usage ? tokens(attempt) + " tok" : "用量未知"}</small><span class="duration">{formatDuration(attempt.finished_at - attempt.started_at)}</span></button>{/each}</div>{/if}
             {#if c.error}<div class="error-banner"><Icon name="alert" class="size-4 shrink-0" /><div><b>调用失败</b><p>{c.error}</p></div></div>{/if}
-            <div class="metric-grid"><div><span>模型耗时</span><strong>{formatDuration(c.finished_at - c.started_at)}</strong><small>{c.first_output_at === null ? "未观测到首输出" : `首字 ${formatDuration(c.first_output_at - c.started_at)}`}</small></div><div><span>Token</span><strong>{tokens(c)}</strong><small>{c.usage ? `入 ${formatTokens(c.usage.input_tokens)} · 出 ${formatTokens(c.usage.output_tokens)}` : "上游未报告"}</small></div><div><span>费用</span><strong>{c.cost === null ? "未知" : formatCost(c.cost)}</strong><small>按当前单价估算</small></div><div><span>同类中位</span><strong>{med ? formatDuration(med.median_ms) : "—"}</strong><small>{med ? `${med.samples} 个成功样本` : "暂无成功样本"}</small></div></div>
-            {#if pick.run && callPreview(pick.run, c) !== c.model}<section class="detail-section"><h3>输出摘要</h3><button class="excerpt" type="button" onclick={() => setTab("preview")}>{callPreview(pick.run, c)}</button></section>{/if}
+            <div class="overview-metrics">
+              <div><span>模型耗时</span><strong>{formatDuration(c.finished_at - c.started_at)}</strong><small>{c.first_output_at === null ? "首字未知" : `首字 ${formatDuration(c.first_output_at - c.started_at)}`}</small></div>
+              <div><span>本步</span><strong>{formatDuration(stepEnd(pick.run, c) - c.started_at)}</strong><small>模型 + 工具批次</small></div>
+              <div><span>Token</span><strong>{tokens(c)}</strong><small>{c.usage ? `入 ${formatTokens(c.usage.input_tokens)} · 出 ${formatTokens(c.usage.output_tokens)}` : "用量未知"}</small></div>
+              <div><span>缓存命中</span><strong>{c.usage?.cache_read_tokens != null && c.usage.input_tokens > 0 ? `${Math.round(c.usage.cache_read_tokens / c.usage.input_tokens * 100)}%` : "—"}</strong><small>{c.usage?.cache_read_tokens != null ? formatTokens(c.usage.cache_read_tokens) + " token" : "上游未报告"}</small></div>
+              <div><span>费用</span><strong>{c.cost === null ? "未知" : `≈ ${formatCost(c.cost)}`}</strong><small>当前单价估算</small></div>
+            </div>
+            {#if pick.run && callPreview(pick.run, c) !== c.model}<details open class="detail-section"><summary>输出摘要</summary><div class="summary-content"><Markdown source={callPreview(pick.run, c)} /></div><button class="preview-link" type="button" onclick={() => setTab("preview")}>查看完整输出 →</button></details>{/if}
             <details class="detail-section"><summary>调用明细</summary><dl class="detail-facts">
               {#if pick.run === null}<dt class="text-muted-foreground">归属</dt><dd>会话旁路 · 标题生成</dd>{/if}
               <dt class="text-muted-foreground">模型</dt><dd>{c.model}{c.reasoning_effort ? ` · ${c.reasoning_effort}` : ""}</dd>
@@ -330,10 +386,9 @@
             {@const m = pick.message}
             {@const med = m.tool ? toolMedian(m.tool.name) : undefined}
             {#if m.tool?.error}<div class="error-banner"><Icon name="alert" class="size-4 shrink-0" /><div><b>工具执行失败</b><p>{m.tool.error}</p></div></div>{/if}
-            <section class="detail-section"><h3>内容摘要</h3><button type="button" class="excerpt" onclick={() => setTab("preview")}>{m.preview || "无文本内容，点击查看完整记录"}</button></section>
+            <details open class="detail-section"><summary>输出摘要</summary><div class="summary-content"><Markdown source={m.preview || "（无文本内容）"} /></div><button type="button" class="preview-link" onclick={() => setTab("preview")}>查看完整记录 →</button></details>
             <dl class="detail-facts">
-              <dt class="text-muted-foreground">类型</dt><dd>{m.kind}</dd>
-              <dt class="text-muted-foreground">时间</dt><dd>{formatTime(m.created_at)}</dd>
+
               {#if m.tool}
                 <dt class="text-muted-foreground">工具</dt><dd>{m.tool.name}</dd>
                 {#if m.tool.started_at !== null}
@@ -349,7 +404,13 @@
           {/if}
           {#if pick.run}
             {@const r = pick.run}
-            <section class="detail-section"><h3>本轮关联 <span>#{r.id}</span></h3>{#each r.calls as c (c.id)}<button type="button" class="related-row" onclick={() => choose({ run: r, call: c })}><span class="role role-ai">AI</span><span class="truncate">{c.model}</span><small>{formatDuration(c.finished_at - c.started_at)}</small></button>{/each}{#each r.messages.filter((m) => m.tool) as m (m.id)}<button type="button" class="related-row" onclick={() => choose({ run: r, message: m })}><span class="role role-tool">工具</span><span class="truncate">{m.tool!.name}</span>{#if m.tool!.outcome === "failed"}<small class="bad">报错</small>{/if}</button>{/each}</section>
+            <details open class="detail-section"><summary>关联 · 按执行顺序</summary>
+              {#each related(pick) as it}
+                {#if it.call}{@const c = it.call}<button type="button" class="related-row" onclick={() => choose({ run: r, call: c })}><span class="role role-ai">{c.purpose === "compaction" ? "压缩" : "AI"}</span><span class="truncate">{c.model}</span><small>{time(c.started_at)}</small></button>
+                {:else}{@const m = it.message!}<button type="button" class="related-row" onclick={() => choose({ run: r, message: m })}><span class={cn("role", m.tool ? "role-tool" : "role-user")}>{role(m)}</span><span class="truncate">{m.tool?.name ?? m.preview}</span><small>{time(m.created_at)}</small></button>{/if}
+              {/each}
+              <div class="related-row"><span class="role role-system">轮次</span><span>#{r.id}</span><small>{r.finished_at === null ? "未知" : formatDuration(r.finished_at - r.created_at)}</small></div>
+            </details>
           {/if}
         {:else if detail === null}
           <p class="text-muted-foreground">加载中…</p>

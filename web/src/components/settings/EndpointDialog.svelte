@@ -92,7 +92,7 @@
 </script>
 
 <Dialog.Root bind:open={() => editing !== null, (o) => !o && void close()}>
-  <Dialog.Content class="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-2xl">
+  <Dialog.Content class="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-xl">
     {#if editing}
       {@const f = editing.form}
       {@const base = editing.base}
@@ -107,7 +107,7 @@
           <Dialog.Title>{f.id === null ? "添加服务商" : f.name.trim() || presetLabel(f.preset)}</Dialog.Title>
         </Dialog.Header>
 
-        <div class="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-4">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
           <section class="space-y-3">
             <h3 class="text-xs font-medium text-muted-foreground">服务连接</h3>
             <div class="grid grid-cols-[1fr_auto] gap-3">
@@ -161,25 +161,23 @@
             </div>
           </section>
 
-          <section class="space-y-3 border-t pt-5">
+          <section class="space-y-2 border-t pt-3">
             <div class="flex items-center justify-between"><h3 class="text-sm font-medium">模型 <span class="ml-2 text-xs text-muted-foreground">{f.models.length}</span></h3><Button variant="ghost" size="sm" onclick={() => f.models.push(blankRow())}><PlusIcon />添加模型</Button></div>
-            {#if f.models.length === 0}<div class="rounded-xl border border-dashed px-4 py-6 text-center text-xs leading-6 text-muted-foreground">还没有模型<br />测试连接可以发现模型，也可以手动添加。</div>{/if}
+            {#if f.models.length === 0}<div class="rounded-lg border border-dashed px-3 py-3 text-center text-xs leading-6 text-muted-foreground">还没有模型<br />测试连接可以发现模型，也可以手动添加。</div>{/if}
             {#each f.models as r, i (r)}
-              <div class="rounded-xl border bg-muted/20 p-4 space-y-4 model-card">
-                <div class="flex items-end gap-2">
-                  <label class="min-w-0 flex-1 space-y-2 text-xs text-muted-foreground">模型 ID<Input bind:value={r.name} class="font-mono text-sm bg-background" placeholder="例如 deepseek-flash" /></label>
+              <div class="border-b last:border-b-0 py-3 space-y-2 model-row">
+                <div class="model-fields">
+                  <label class="min-w-0 space-y-1 text-xs text-muted-foreground">模型 ID<Input bind:value={r.name} class="h-8 font-mono text-xs text-foreground" placeholder="例如 deepseek-flash" /></label>
+                  <label class="space-y-1 text-xs text-muted-foreground">上下文 · token<Input class="h-8 text-xs text-foreground" type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="100000" /></label>
+                  <label class="space-y-1 text-xs text-muted-foreground">最大输出<Input class="h-8 text-xs text-foreground" type="number" min="1" value={limitable(f.preset) ? r.max_tokens : ""} oninput={(e) => (r.max_tokens = e.currentTarget.value)} disabled={!limitable(f.preset)} placeholder={limitable(f.preset) ? "默认" : "不支持"} /></label>
                   <Button variant="ghost" size="icon-sm" aria-label="移除模型 {r.name}" onclick={() => f.models.splice(i, 1)}><XIcon /></Button>
                 </div>
-                <div class="grid grid-cols-2 gap-4">
-                  <label class="space-y-2 text-xs text-muted-foreground">上下文窗口 · token<Input class="bg-background" type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="默认 100000" /></label>
-                  <label class="space-y-2 text-xs text-muted-foreground">最大输出 · token<Input class="bg-background" type="number" min="1" value={limitable(f.preset) ? r.max_tokens : ""} oninput={(e) => (r.max_tokens = e.currentTarget.value)} disabled={!limitable(f.preset)} placeholder={limitable(f.preset) ? "使用默认值" : "不支持"} /></label>
-                </div>
-                <details class="border-t pt-3">
+                <details>
                   <summary class="cursor-pointer text-xs text-muted-foreground">计费设置 <span class="ml-2 opacity-70">{[r.price_input, r.price_cache_read, r.price_cache_write, r.price_output].filter((v) => v !== "").length ? "已填写单价" : "未设置"}</span></summary>
-                  <p class="mt-3 text-xs text-muted-foreground">美元 / 百万 token · 留空表示未知，免费请填 0。</p>
-                  <div class="mt-3 grid grid-cols-2 gap-3">
+                  <p class="mt-2 text-xs text-muted-foreground">美元 / 百万 token · 留空表示未知，免费请填 0。</p>
+                  <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {#each [["price_input", "输入"], ["price_output", "输出"], ["price_cache_read", "缓存读取"], ["price_cache_write", "缓存写入"]] as const as [key, label]}
-                      <label class="space-y-2 text-xs text-muted-foreground">{label}<Input class="bg-background" type="number" min="0" step="any" value={r[key]} oninput={(e) => (r[key] = e.currentTarget.value)} placeholder="未设置" /></label>
+                      <label class="space-y-1 text-xs text-muted-foreground">{label}<Input class="h-8 text-xs text-foreground" type="number" min="0" step="any" value={r[key]} oninput={(e) => (r[key] = e.currentTarget.value)} placeholder="未设置" /></label>
                     {/each}
                   </div>
                 </details>
@@ -209,7 +207,13 @@
 </Dialog.Root>
 
 <style>
-  .model-card :global(input[type="number"]) { appearance: textfield; }
-  .model-card :global(input::-webkit-inner-spin-button),
-  .model-card :global(input::-webkit-outer-spin-button) { -webkit-appearance: none; margin: 0; }
+  .model-fields { display: grid; grid-template-columns: minmax(0, 1fr) 96px 88px 28px; align-items: end; gap: 8px; }
+  @media (max-width: 480px) {
+    .model-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 28px; }
+    .model-fields>label:first-child { grid-column: 1 / -1; }
+  }
+
+  .model-row :global(input[type="number"]) { appearance: textfield; }
+  .model-row :global(input::-webkit-inner-spin-button),
+  .model-row :global(input::-webkit-outer-spin-button) { -webkit-appearance: none; margin: 0; }
 </style>

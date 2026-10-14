@@ -58,7 +58,7 @@ Provider 与工厂类型不公开；工厂方法（`check_endpoint` / `check_mod
 |---|---|---|
 | `CONNECT_TIMEOUT` | 30 s | 建连超时 |
 | `STREAM_IDLE_TIMEOUT` | 300 s | 两次收到数据之间的最长间隔（含等待首字节） |
-| `PROBE_TIMEOUT` | 15 s | 测试连接整体超时 |
+| `PROBE_TIMEOUT` | 30 s | 测试连接整体超时 |
 | `CODEX_CLIENT_VERSION` | `"0.161.0"` | 向 Codex 后端声明的客户端版本；过旧时模型列表为空 |
 
 ## 三、传输

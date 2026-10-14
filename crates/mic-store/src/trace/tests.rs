@@ -14,7 +14,7 @@ async fn empty_database() {
     let store = Store::open_in_memory(&[]).await.unwrap();
     assert!(store.trace_sessions().await.unwrap().is_empty());
     let page = store.trace_runs(SessionId(1), None, 5).await.unwrap();
-    assert!(page.runs.is_empty() && page.next_before.is_none());
+    assert!(page.runs.is_empty() && page.next_after.is_none());
     let peers = store.call_peers().await.unwrap();
     assert!(peers.models.is_empty() && peers.tools.is_empty());
     let board = store.dashboard(7).await.unwrap();

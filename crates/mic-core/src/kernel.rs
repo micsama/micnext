@@ -468,10 +468,10 @@ impl Kernel {
     pub async fn trace_runs(
         &self,
         session: SessionId,
-        before: Option<RunId>,
+        after: Option<RunId>,
         limit: u32,
     ) -> Result<TraceRunPage, KernelError> {
-        Ok(self.store.trace_runs(session, before, limit).await?)
+        Ok(self.store.trace_runs(session, after, limit).await?)
     }
 
     pub async fn message(&self, id: MessageId) -> Result<Option<Message>, KernelError> {

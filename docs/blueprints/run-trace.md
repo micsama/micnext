@@ -80,7 +80,7 @@ Store 函数经 Kernel 同名转发。未知值一律 `null`（不用 0）；时
 | 接口 | Store / Kernel | 返回 |
 |---|---|---|
 | `GET /trace/sessions` | `trace_sessions()` | `[{ session, channel, title, last_run_at, failed_runs, interrupted_runs, tool_errors }]`，Root 会话 |
-| `GET /trace/sessions/{id}?before=<run_id>&limit=` | `trace_runs(session, before, limit)` | `{ runs, title_calls, next_before }`。run：`{ id, state, created_at, finished_at, calls, messages }`；call：`{ id, purpose, model_id, model, reasoning_effort, started_at, first_output_at, finished_at, stop, error, usage, reply_id, boundary_id }`；message：`{ id, kind, created_at, preview（≤200 字）, tool?: { name, call_id, started_at, outcome, error } }`。按完整 run 新到旧，`next_before` 为 `null` 即到底；`title_calls` 只在首页 |
+| `GET /trace/sessions/{id}?after=<run_id>&limit=` | `trace_runs(session, after, limit)` | `{ runs, title_calls, next_after }`。run：`{ id, state, created_at, finished_at, calls, messages }`；call：`{ id, purpose, model_id, model, reasoning_effort, started_at, first_output_at, finished_at, stop, error, usage, reply_id, boundary_id }`；message：`{ id, kind, created_at, preview（≤200 字）, tool?: { name, call_id, started_at, outcome, error } }`。按完整 run 旧到新，`next_after` 为 `null` 即到底；`title_calls` 只在首页 |
 | `GET /trace/sessions/{id}/system` | `system_prompt(session)` | 当前配置下的系统提示 |
 | `GET /trace/messages/{id}` | `message(id)` | 完整消息（现有消息 DTO） |
 | `GET /trace/calls/{id}/input` | `call_input(call)` | 重建的输入消息；标题调用返回 404 |
@@ -148,3 +148,12 @@ Store 函数经 Kernel 同名转发。未知值一律 `null`（不用 0）；时
 - 概览采用紧凑指标、重试明细、Markdown 摘要；关联仅展示来源用户、所属调用及工具批次，按执行顺序排列，附轮次信息。
 - 模型设置使用紧凑行（模型 ID、上下文、最大输出），计费设置折叠，明确美元 / 百万 token 单位；服务商名称留空时保存预设类型名称。输入值使用正文色，与灰色占位提示区分。
 - 以上均复用既有 HTTP 契约。页面观感仍待 human 验收。
+
+### 升序列表与概览调整（用户确认实施）
+
+- 分页契约改为 `after` / `next_after`，Store、Kernel、HTTP、Web 同步切换；首屏最早执行，后续向下追加。不保留旧倒序参数。
+- 轮次是当前会话内已结束执行的顺序编号，从 1 开始；数据库 run ID 仍用于请求和日志定位，不用作显示序号。
+- 标题旁路按开始时间升序混排。分页未加载到的时间范围不提前展示旁路，避免跨过尚未加载的轮次。
+- 概览突出状态、耗时与用量，工具状态及耗时置于摘要前；摘要和关联分区，次要调用参数默认折叠。
+
+- 本轮验收：Core 9 项、Store 12 项既有测试通过；升序混排、旁路分页范围、会话编号模块场景通过；完整 HTTP 验收 7 组通过（含升序分页），结果 `/var/folders/83/sxqmj_fx5csf5v3229nc99y80000gn/T/micnext-trace-accept-9su1eg18/result.json`。`cargo fmt`、Clippy、Web check/build 均通过；未使用电脑控制，页面观感仍待 human 验收。

@@ -285,8 +285,8 @@ export async function getTraceSessions(): Promise<TraceSession[]> {
   return parseTraceSessions(await request("GET", "/trace/sessions"));
 }
 
-export async function getTraceRuns(session: number, before: number | null): Promise<TraceRunPage> {
-  const q = before === null ? "" : `?before=${before}`;
+export async function getTraceRuns(session: number, after: number | null): Promise<TraceRunPage> {
+  const q = after === null ? "" : `?after=${after}`;
   return parseTraceRunPage(await request("GET", `/trace/sessions/${session}${q}`));
 }
 

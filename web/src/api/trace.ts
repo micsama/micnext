@@ -68,7 +68,7 @@ export type TraceRun = {
   messages: TraceMessage[];
 };
 
-export type TraceRunPage = { runs: TraceRun[]; title_calls: TraceCall[]; next_before: number | null };
+export type TraceRunPage = { runs: TraceRun[]; title_calls: TraceCall[]; next_after: number | null };
 
 export type Peers = {
   models: { purpose: Purpose; model_id: number; median_ms: number; samples: number }[];
@@ -159,7 +159,7 @@ const traceRun: Decoder<TraceRun> = obj({
 const runPage: Decoder<TraceRunPage> = obj({
   runs: arr(traceRun),
   title_calls: arr(traceCall),
-  next_before: nullable(num),
+  next_after: nullable(num),
 });
 
 const peers: Decoder<Peers> = obj({

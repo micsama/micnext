@@ -96,7 +96,7 @@ pub struct TraceRun {
 pub struct TraceRunPage {
     pub runs: Vec<TraceRun>,
     pub title_calls: Vec<TraceCall>,
-    pub next_before: Option<RunId>,
+    pub next_after: Option<RunId>,
 }
 
 /// 重建输入所需的调用事实。
@@ -424,24 +424,24 @@ impl Store {
     pub async fn trace_runs(
         &self,
         session: SessionId,
-        before: Option<RunId>,
+        after: Option<RunId>,
         limit: u32,
     ) -> Result<TraceRunPage, StoreError> {
         self.call(move |conn| {
             let mut runs = conn
                 .prepare(&format!(
                     "SELECT {RUN_COLS} FROM core_runs
-                     WHERE session_id = ?1 AND state <> 'executing' AND (?2 IS NULL OR id < ?2)
-                     ORDER BY id DESC LIMIT ?3"
+                     WHERE session_id = ?1 AND state <> 'executing' AND (?2 IS NULL OR id > ?2)
+                     ORDER BY id ASC LIMIT ?3"
                 ))?
                 .query_map(
-                    params![session.0, before.map(|r| r.0), limit as i64 + 1],
+                    params![session.0, after.map(|r| r.0), limit as i64 + 1],
                     row::run,
                 )?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let more = runs.len() > limit as usize;
             runs.truncate(limit as usize);
-            let next_before = more.then(|| runs.last().expect("limit ≥ 1").id);
+            let next_after = more.then(|| runs.last().expect("limit ≥ 1").id);
             let mut out = Vec::with_capacity(runs.len());
             for run in runs {
                 let messages = conn
@@ -460,7 +460,7 @@ impl Store {
                     messages,
                 });
             }
-            let title_calls = if before.is_none() {
+            let title_calls = if after.is_none() {
                 load_calls(conn, "c.session_id = ?1 AND c.purpose = 'title'", session.0)?
             } else {
                 Vec::new()
@@ -468,7 +468,7 @@ impl Store {
             Ok(TraceRunPage {
                 runs: out,
                 title_calls,
-                next_before,
+                next_after,
             })
         })
         .await

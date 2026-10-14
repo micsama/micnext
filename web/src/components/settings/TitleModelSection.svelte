@@ -11,6 +11,12 @@
   const busy = $derived(status?.kind === "saving");
   const deleted = $derived(selection?.model_id != null && !settingsStore.model(selection.model_id));
 
+  function pick(id: number) {
+    const kept = selection?.reasoning_effort ?? null;
+    const supported = kept !== null && settingsStore.model(id)?.reasoning?.choices.includes(kept);
+    save({ model_id: id, reasoning_effort: supported ? kept : null });
+  }
+
   async function save(next: TitleModelSelection) {
     if (busy) return;
     const before = selection;
@@ -32,7 +38,7 @@
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-2"><span class="text-sm">生成模型</span><SaveStatus state={status} /></div>
       {#if selection}
-        <ModelPicker value={selection.model_id} reasoningEffort={selection.reasoning_effort} disabled={busy} ondefault={() => save({ model_id: null, reasoning_effort: null })} onpick={(id) => save({ model_id: id, reasoning_effort: null })} onreasoning={(effort) => save({ model_id: selection.model_id, reasoning_effort: effort })} />
+        <ModelPicker value={selection.model_id} reasoningEffort={selection.reasoning_effort} disabled={busy} ondefault={() => save({ model_id: null, reasoning_effort: null })} onpick={pick} onreasoning={(effort) => save({ model_id: selection.model_id, reasoning_effort: effort })} />
       {/if}
     </div>
     {#if status?.kind === "error"}<p role="alert" class="text-xs text-destructive">{status.message}</p>{/if}

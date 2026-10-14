@@ -1,6 +1,5 @@
-//! 内核事实的持久化：core_sessions / core_messages / core_runs / core_model_calls /
-//! core_persons / core_person_identities / core_personas / core_settings，外加模块私有表的迁移与事务入口。
-//! 契约：docs/blueprints/mic-store.md。
+//! 内核事实持久化与模块迁移事务入口。
+//! 契约：docs/blueprints/mic-store.md；表目录：schema.rs 的 TABLE_CATALOG。
 
 mod context;
 mod diagnostic;
@@ -8,13 +7,19 @@ mod endpoints;
 mod error;
 mod images;
 mod limits;
+mod messages;
 mod models;
+mod people;
 mod personas;
 mod row;
+mod scheduling;
 mod schema;
 mod secrets;
+mod sessions;
+mod settings;
 mod store;
 mod title;
+mod trace;
 mod types;
 
 pub use rusqlite;
@@ -23,13 +28,18 @@ pub use diagnostic::{Cell, ColumnSchema, DiagnosticError, QueryResult, TableSche
 pub use error::{ContextCommandError, ModelSettingsError, SettingsError, StoreError};
 pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
+pub use trace::{
+    call_cost, CallRecord, CallStat, Dashboard, DayStat, ModelPeers, ModelStat, Peers, ToolPeers,
+    ToolStat, ToolTraceOutcome, TraceCall, TraceMessage, TraceRun, TraceRunPage, TraceSession,
+    TraceTool,
+};
 pub use types::{
     ClaimedModel, ClaimedRun, CompactionSettings, CompactionState, CompactionView, ContextUsage,
     ContextView, ContextWindow, CredentialWrite, DeliveryTarget, EndpointId, EndpointView,
     EndpointWrite, Identity, InputDisposition, MessagePage, Migration, ModelCallContext,
-    ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelView, ModelWrite, NewInputPart,
-    NewModelCall, NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId,
+    ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelPrice, ModelView, ModelWrite,
+    NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId,
     ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState, SecretColumn, Session,
-    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, TitleModelSelection,
-    ToolScope, Usage,
+    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, StopReason,
+    TitleModelSelection, ToolScope, Usage,
 };

@@ -35,7 +35,7 @@ export type ReplyBlock =
   | { ToolCall: { id: string; name: string; args: unknown } };
 
 export type FileSnapshot = { path: string; outcome: { Read: { text: string; extent: "Complete" | "Truncated" } } | { Unavailable: { reason: string } } };
-export type Compaction = { summary: string; keep_from: number | null; files: FileSnapshot[]; extra: string | null };
+export type Compaction = { summary: string; keep_from: number | null; files: FileSnapshot[] };
 export type ContextBoundary = { Compaction: Compaction } | "UserClear";
 export type SessionCommand = { Compact: { text: string | null } } | "Clear" | { RevokeCompaction: { boundary_id: number } };
 export type CompactionView = { boundary_id: number; result: Compaction; state: { kind: "applied" } | { kind: "revoked"; at: number } };
@@ -46,7 +46,7 @@ export type MessageBody =
   | { kind: "Command"; person: number; command: SessionCommand }
   | { kind: "UserInput"; person: number; parts: ContentPart[] }
   | { kind: "Reply"; model: string; blocks: ReplyBlock[] }
-  | { kind: "ToolResult"; tool_name: string; tool_call_id: string; outcome: ToolResultOutcome }
+  | { kind: "ToolResult"; tool_name: string; tool_call_id: string; outcome: ToolResultOutcome; started_at: number | null }
   | { kind: "Completion"; person: number; tool_name: string; exec_id: string; outcome: ExecOutcome }
   | { kind: "HarnessNote"; text: string }
   | { kind: "Notification"; source: string; text: string }
@@ -95,8 +95,12 @@ export type Endpoint = {
   key_env: string | null;
 };
 
+/** 单价，美元 / 百万 token；`null` = 未填。 */
+export type ModelPrice = { input: number | null; cache_read: number | null; cache_write: number | null; output: number | null };
+
 export type Model = {
   context_window: number | null;
+  price: ModelPrice;
   id: number;
   endpoint_id: number;
   name: string;
@@ -120,6 +124,7 @@ export type EndpointTestInput = Omit<EndpointInput, "name"> & { endpoint_id?: nu
 
 export type ModelInput = {
   context_window: number | null;
+  price: ModelPrice;
   endpoint_id: number;
   name: string;
   config: { max_tokens?: number };
@@ -235,7 +240,7 @@ const replyBlock: Decoder<ReplyBlock> = tagged({
 });
 
 const fileSnapshot: Decoder<FileSnapshot> = obj({ path: str, outcome: tagged({ Read: obj({ text: str, extent: oneOf("Complete", "Truncated") }), Unavailable: obj({ reason: str }) }) });
-const compactionResult: Decoder<Compaction> = obj({ summary: str, keep_from: nullable(num), files: arr(fileSnapshot), extra: nullable(str) });
+const compactionResult: Decoder<Compaction> = obj({ summary: str, keep_from: nullable(num), files: arr(fileSnapshot) });
 const compaction = tagged({ Compaction: compactionResult });
 const command: Decoder<SessionCommand> = (v, at) => v === "Clear" ? v : tagged({ Compact: obj({ text: nullable(str) }), RevokeCompaction: obj({ boundary_id: num }) })(v, at);
 const compactionState: Decoder<CompactionView["state"]> = kinded<{ applied: Record<string, never>; revoked: { at: number } }>({ applied: {}, revoked: { at: num } });
@@ -252,6 +257,7 @@ const messageBody: Decoder<MessageBody> = kinded({
     tool_name: str,
     tool_call_id: str,
     outcome: tagged({ Terminal: execOutcome, Dispatched: obj({ exec_id: str }) }),
+    started_at: nullable(num),
   },
   Completion: { person: num, tool_name: str, exec_id: str, outcome: execOutcome },
   HarnessNote: { text: str },
@@ -311,6 +317,7 @@ const modelList: Decoder<ModelList> = obj({
       endpoint_id: num,
       name: str,
       context_window: nullable(num),
+      price: obj({ input: nullable(num), cache_read: nullable(num), cache_write: nullable(num), output: nullable(num) }),
       config: obj({
         max_tokens: nullable(num),
       }),
@@ -371,6 +378,8 @@ export const parseTitleModel = (v: unknown): TitleModelSelection => titleModel(v
 
 export const parseSessionPage = (v: unknown): SessionPage => sessionPage(v, "会话列表");
 
+export const parseMessage = (v: unknown): Message => message(v, "消息");
+export const parseMessages = (v: unknown): Message[] => arr(message)(v, "消息列表");
 export const parseMessagePage = (v: unknown): MessagePage => messagePage(v, "历史消息");
 
 export const parseCreated = (v: unknown): Created => created(v, "新建会话");

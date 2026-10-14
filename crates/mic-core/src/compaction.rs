@@ -1,28 +1,26 @@
-use std::future::poll_fn;
 use std::path::PathBuf;
 
 use mic_message::{
-    Compaction, ContentPart, FileSnapshot, FileSnapshotOutcome, Message, MessageBody, ReplyBlock,
-    SnapshotExtent,
+    Compaction, ContentPart, FileSnapshot, FileSnapshotOutcome, Message, MessageBody, MessageId,
+    ModelView, ReplyBlock, SessionCommand, SessionId, SnapshotExtent,
 };
 use mic_store::{
-    ContextUsage, ModelCallContext, ModelCallOutcome, NewModelCall, RunState, SessionKind,
+    ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, SessionKind,
     StoreError,
 };
 use mic_tool::ToolContext;
 use serde::Serialize;
 
+use crate::attempt::{stream_attempt, Facts};
 use crate::context_usage::request_tokens;
 use crate::limits::{COMPACTION_BUDGET_PERCENT, SNAPSHOT_BYTES, SNAPSHOT_FILES};
 use crate::run::{now_ms, Exec};
-use crate::{
-    request, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, StopReason,
-    ToolChoice,
-};
+use crate::{request, ModelRequest, ModelResponse, Provider, StopReason, ToolChoice};
 
 const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Incorporate the earlier summary cumulatively. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to continuing the current task. The additional user input is for focus; it will be processed after compaction.";
 
 impl Exec<'_> {
+    /// 压缩（含历史用量估算）用的窗口请求：本步待处理输入排除在外。
     async fn history_request(
         &self,
     ) -> Result<(ModelRequest, ModelCallContext, Option<ContextUsage>), StoreError> {
@@ -30,9 +28,22 @@ impl Exec<'_> {
         window
             .messages
             .retain(|m| !self.pending_inputs.contains(&m.id));
+        let through = window.messages.last().map(|m| m.id);
         let context = ModelCallContext {
             boundary_id: window.boundary_id,
-            through: window.messages.last().map(|m| m.id),
+            through,
+            excluded: window
+                .filtered
+                .iter()
+                .copied()
+                .chain(
+                    self.pending_inputs
+                        .iter()
+                        .copied()
+                        .filter(|id| through.is_some_and(|t| *id < t)),
+                )
+                .collect(),
+            ..Default::default()
         };
         let usage = window.usage.clone();
         let images = self
@@ -47,13 +58,13 @@ impl Exec<'_> {
             _ => None,
         };
         let req = request::build(
-            self.session.id,
+            self.session,
             window,
             images,
-            &self.session.pwd,
             channel_prompt,
             &self.tools,
             self.settings,
+            &[],
         );
         Ok((req, context, usage))
     }
@@ -65,32 +76,14 @@ impl Exec<'_> {
                 / 100)
     }
 
-    pub(crate) async fn pending_text(&self) -> Result<Option<String>, StoreError> {
-        let window = self.engine.store.context_window(self.session.id).await?;
-        let parts: Vec<String> = window
-            .messages
-            .iter()
-            .filter(|m| self.pending_inputs.contains(&m.id))
-            .filter_map(|m| m.model_view())
-            .flat_map(|v| match v {
-                mic_message::ModelView::User(parts) => parts,
-                _ => Vec::new(),
-            })
-            .filter_map(|p| match p {
-                ContentPart::Text { text } => Some(text),
-                _ => None,
-            })
-            .collect();
-        Ok((!parts.is_empty()).then(|| parts.join("\n\n")))
-    }
-
+    /// 自动压缩与 `/compact` 共用：附加文字取本步待处理输入。
     pub(crate) async fn compact(
         &self,
         provider: &dyn Provider,
-        extra: Option<String>,
     ) -> Result<Result<(), RunState>, StoreError> {
-        let (mut req, context, _) = self.history_request().await?;
+        let (mut req, mut context, _) = self.history_request().await?;
         let budget = u64::from(self.context_window) * COMPACTION_BUDGET_PERCENT / 100;
+        let before = req.messages.len();
         while request_tokens(&req, None, self.model_id) > budget && !req.messages.is_empty() {
             let first_reply = req
                 .messages
@@ -108,6 +101,7 @@ impl Exec<'_> {
                 .unwrap_or(req.messages.len());
             req.messages.drain(..cut);
         }
+        context.skip = (before - req.messages.len()) as u32;
         let steps: Vec<_> = req
             .messages
             .iter()
@@ -120,35 +114,31 @@ impl Exec<'_> {
         } else {
             steps.get(steps.len().saturating_sub(n)).copied()
         };
-        let instruction = match &extra {
-            Some(text) => format!("{SUMMARY_PROMPT}\n\nAdditional user input:\n{text}"),
-            None => SUMMARY_PROMPT.into(),
-        };
-        req.messages.push(Message {
-            id: mic_message::MessageId(0),
-            session_id: self.session.id,
-            body: MessageBody::HarnessNote { text: instruction },
-            created_at: now_ms(),
-            delivered_at: None,
-        });
+        let pending = self
+            .engine
+            .store
+            .messages_by_ids(self.pending_inputs.clone())
+            .await?;
+        context.instruction = pending.iter().map(|m| m.id).collect();
+        req.messages
+            .push(instruction_note(self.session.id, extra_text(&pending)));
         req.tool_choice = ToolChoice::None;
+        let caller = self.caller(provider);
         let mut attempt = 1;
         loop {
-            let started_at = now_ms();
-            match summarize(provider, req.clone()).await {
+            let mut facts = Facts::start();
+            match stream_attempt(provider, req.clone(), &mut facts, |_| {}).await {
                 Ok(response) => {
-                    let parsed = parse_summary(&response);
-                    match parsed {
+                    let stop = Some(response.stop);
+                    match parse_summary(&response) {
                         Ok((summary, paths)) => {
                             let files = self.read_snapshots(paths).await;
-                            let call = self.compaction_call(
-                                provider,
-                                started_at,
+                            let call = facts.row(
+                                &caller,
+                                ModelCallPurpose::Compaction,
                                 context,
-                                ModelCallOutcome::Replied {
-                                    usage: response.usage,
-                                    blocks: Vec::new(),
-                                },
+                                stop,
+                                ModelCallOutcome::Replied { blocks: Vec::new() },
                             );
                             let publish = self.engine.events.publisher().await;
                             let messages = self
@@ -161,7 +151,6 @@ impl Exec<'_> {
                                         summary,
                                         keep_from,
                                         files,
-                                        extra,
                                     },
                                     self.pending_inputs.clone(),
                                     call,
@@ -185,13 +174,12 @@ impl Exec<'_> {
                             );
                             self.engine
                                 .store
-                                .record_model_call(self.compaction_call(
-                                    provider,
-                                    started_at,
+                                .record_model_call(facts.row(
+                                    &caller,
+                                    ModelCallPurpose::Compaction,
                                     context,
-                                    ModelCallOutcome::Failed {
-                                        error: reason.clone(),
-                                    },
+                                    stop,
+                                    ModelCallOutcome::Replied { blocks: Vec::new() },
                                 ))
                                 .await?;
                             self.notify(format!("上下文压缩失败：{reason}。可查看历史，调整输入或清空上下文后重试。" )).await?;
@@ -202,10 +190,11 @@ impl Exec<'_> {
                 Err(error) => {
                     self.engine
                         .store
-                        .record_model_call(self.compaction_call(
-                            provider,
-                            started_at,
-                            context,
+                        .record_model_call(facts.row(
+                            &caller,
+                            ModelCallPurpose::Compaction,
+                            context.clone(),
+                            None,
                             ModelCallOutcome::Failed {
                                 error: error.to_string(),
                             },
@@ -226,25 +215,6 @@ impl Exec<'_> {
                     }
                 }
             }
-        }
-    }
-
-    fn compaction_call(
-        &self,
-        provider: &dyn Provider,
-        started_at: i64,
-        context: ModelCallContext,
-        outcome: ModelCallOutcome,
-    ) -> NewModelCall {
-        NewModelCall {
-            purpose: mic_store::ModelCallPurpose::Compaction,
-            session_id: self.session.id,
-            run_id: None,
-            model: provider.model().into(),
-            started_at,
-            finished_at: now_ms(),
-            context,
-            outcome,
         }
     }
 
@@ -303,22 +273,42 @@ impl Exec<'_> {
     }
 }
 
-async fn summarize(
-    provider: &dyn Provider,
-    req: ModelRequest,
-) -> Result<ModelResponse, ProviderError> {
-    let mut stream = provider.stream(req);
-    loop {
-        match poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-            Some(Ok(ModelEvent::Finished(response))) => return Ok(response),
-            Some(Ok(_)) => {}
-            Some(Err(error)) => return Err(error),
-            None => {
-                return Err(ProviderError::Protocol {
-                    message: "stream ended without Finished".into(),
-                })
-            }
-        }
+/// 压缩指令的附加文字：`/compact <text>` 取命令文字，自动压缩取待处理用户输入的文字。
+pub(crate) fn extra_text(messages: &[Message]) -> Option<String> {
+    let parts: Vec<String> = messages
+        .iter()
+        .flat_map(|m| match &m.body {
+            MessageBody::Command {
+                command: SessionCommand::Compact { text: Some(text) },
+                ..
+            } => vec![text.clone()],
+            _ => match m.model_view() {
+                Some(ModelView::User(parts)) => parts
+                    .into_iter()
+                    .filter_map(|p| match p {
+                        ContentPart::Text { text } => Some(text),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            },
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
+}
+
+/// 压缩请求末尾的指令消息。
+pub(crate) fn instruction_note(session: SessionId, extra: Option<String>) -> Message {
+    let text = match extra {
+        Some(text) => format!("{SUMMARY_PROMPT}\n\nAdditional user input:\n{text}"),
+        None => SUMMARY_PROMPT.into(),
+    };
+    Message {
+        id: MessageId(0),
+        session_id: session,
+        body: MessageBody::HarnessNote { text },
+        created_at: now_ms(),
+        delivered_at: None,
     }
 }
 

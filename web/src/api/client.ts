@@ -1,4 +1,16 @@
 import { auth } from "../state/auth.svelte";
+import { parseStoredLogs, type StoredLogRecord } from "./developer";
+import {
+  parseDashboard,
+  parsePeers,
+  parseSystemPrompt,
+  parseTraceRunPage,
+  parseTraceSessions,
+  type Dashboard,
+  type Peers,
+  type TraceRunPage,
+  type TraceSession,
+} from "./trace";
 import {
   parseLogHistory,
   parseQueryResult,
@@ -9,6 +21,7 @@ import {
   type TableSchema,
   type UpdateStatus,
 } from "./developer";
+import { parseMessage, parseMessages, type Message } from "./types";
 import {
   parseContextView, parseCommands,
   type ContextView, type CommandSpec,
@@ -266,4 +279,37 @@ export async function listCommands(): Promise<CommandSpec[]> {
 }
 export async function revokeCompaction(sessionId: number, boundaryId: number): Promise<void> {
   await request("POST", `/sessions/${sessionId}/compactions/${boundaryId}/revoke`);
+}
+
+export async function getTraceSessions(): Promise<TraceSession[]> {
+  return parseTraceSessions(await request("GET", "/trace/sessions"));
+}
+
+export async function getTraceRuns(session: number, before: number | null): Promise<TraceRunPage> {
+  const q = before === null ? "" : `?before=${before}`;
+  return parseTraceRunPage(await request("GET", `/trace/sessions/${session}${q}`));
+}
+
+export async function getTraceSystem(session: number): Promise<string> {
+  return parseSystemPrompt(await request("GET", `/trace/sessions/${session}/system`));
+}
+
+export async function getTraceMessage(id: number): Promise<Message> {
+  return parseMessage(await request("GET", `/trace/messages/${id}`));
+}
+
+export async function getTraceCallInput(id: number): Promise<Message[]> {
+  return parseMessages(await request("GET", `/trace/calls/${id}/input`));
+}
+
+export async function getTraceRunLogs(run: number): Promise<StoredLogRecord[]> {
+  return parseStoredLogs(await request("GET", `/trace/runs/${run}/logs`));
+}
+
+export async function getTracePeers(): Promise<Peers> {
+  return parsePeers(await request("GET", "/trace/peers"));
+}
+
+export async function getDashboard(days: number): Promise<Dashboard> {
+  return parseDashboard(await request("GET", `/trace/dashboard?days=${days}`));
 }

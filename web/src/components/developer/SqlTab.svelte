@@ -12,6 +12,7 @@
   let result = $state.raw<QueryResult | null>(null);
   let error = $state<string | null>(null);
   let tables = $state.raw<TableSchema[] | null>(null);
+  const groups = $derived([...new Set(tables?.map((t) => t.group))]);
   let schemaError = $state<string | null>(null);
   let copyNote = $state<string | null>(null);
 
@@ -147,9 +148,13 @@
     {:else if !tables}
       <p class="text-muted-foreground">加载中…</p>
     {:else}
-      {#each tables as t (t.name)}
+      {#each groups as group (group)}
+        <details open class="mb-2">
+          <summary class="cursor-pointer font-medium">{group}</summary>
+      {#each tables.filter((t) => t.group === group) as t (t.name)}
         <details class="py-0.5">
-          <summary class="cursor-pointer font-mono">{t.name}</summary>
+          <summary class="cursor-pointer font-mono" title={t.description}>{t.name}</summary>
+          <p class="pl-4 text-muted-foreground">{t.description}</p>
           <ul class="pb-1 pl-4">
             {#each t.columns as c (c.name)}
               <li class="font-mono">
@@ -158,6 +163,8 @@
               </li>
             {/each}
           </ul>
+        </details>
+      {/each}
         </details>
       {/each}
     {/if}

@@ -49,6 +49,11 @@ export type ModelRow = {
   name: string;
   max_tokens: string;
   context_window: string;
+  /** 单价，空串 = 未填。 */
+  price_input: string;
+  price_cache_read: string;
+  price_cache_write: string;
+  price_output: string;
 };
 
 export type EndpointForm = {
@@ -74,7 +79,19 @@ export const blankEndpoint = (): EndpointForm => ({
   models: [],
 });
 
-export const blankRow = (name = ""): ModelRow => ({ id: null, name, max_tokens: "", context_window: "" });
+export const blankRow = (name = ""): ModelRow => ({
+  id: null,
+  name,
+  max_tokens: "",
+  context_window: "",
+  price_input: "",
+  price_cache_read: "",
+  price_cache_write: "",
+  price_output: "",
+});
+
+const priceText = (v: number | null): string => (v === null ? "" : String(v));
+const priceValue = (s: string): number | null => (s.trim() ? Number(s) : null);
 
 export const toForm = (e: Endpoint, models: Model[]): EndpointForm => ({
   id: e.id,
@@ -91,6 +108,10 @@ export const toForm = (e: Endpoint, models: Model[]): EndpointForm => ({
       name: m.name,
       context_window: m.context_window === null ? "" : String(m.context_window),
       max_tokens: m.config.max_tokens === null ? "" : String(m.config.max_tokens),
+      price_input: priceText(m.price.input),
+      price_cache_read: priceText(m.price.cache_read),
+      price_cache_write: priceText(m.price.cache_write),
+      price_output: priceText(m.price.output),
     })),
 });
 
@@ -110,6 +131,12 @@ function modelInput(endpoint_id: number, r: ModelRow, preset: Preset): ModelInpu
     endpoint_id,
     name: r.name.trim(),
     context_window: r.context_window.trim() ? Number(r.context_window) : null,
+    price: {
+      input: priceValue(r.price_input),
+      cache_read: priceValue(r.price_cache_read),
+      cache_write: priceValue(r.price_cache_write),
+      output: priceValue(r.price_output),
+    },
     config: {
       ...(max && { max_tokens: Number(max) }),
     },

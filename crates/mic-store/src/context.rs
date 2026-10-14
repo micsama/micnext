@@ -1,11 +1,11 @@
 use mic_message::{
-    Compaction, ContextBoundary, Message, MessageBody, MessageId, PersonId, SessionCommand,
-    SessionId,
+    Compaction, ContextBoundary, FileSnapshot, Message, MessageBody, MessageId, PersonId,
+    SessionCommand, SessionId,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::messages::insert_message;
 use crate::row::{self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, UNCLAIMED};
-use crate::store::insert_message;
 use crate::{
     CompactionState, CompactionView, ContextCommandError, ContextUsage, ContextView, ContextWindow,
     ModelCallId, ModelCallOutcome, ModelId, NewModelCall, RunId, Store, StoreError,
@@ -44,30 +44,77 @@ impl Store {
         self.call(move |conn| {
             let boundary = active_boundary(conn, session)?;
             let boundary_id = boundary.as_ref().map(|m| m.id);
-            let (start, summary, files) = match boundary {
-                Some(Message { id, body: MessageBody::Boundary { boundary: ContextBoundary::Compaction(result) }, .. }) => (
-                    result.keep_from.map_or(id.0 + 1, |m| m.0), Some(result.summary), result.files,
-                ),
-                Some(message) => (message.id.0 + 1, None, Vec::new()),
-                None => (0, None, Vec::new()),
-            };
-            let messages = conn.prepare(&format!(
-                "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM}
-                 WHERE m.session_id = ?1
-                   AND (m.id >= ?2 OR EXISTS (SELECT 1 FROM core_boundary_inputs b WHERE b.boundary_id = ?3 AND b.message_id = m.id))
-                   AND (NOT ({UNCLAIMED}) OR {HELD_INPUT}) ORDER BY m.id"
-            ))?.query_map(params![session.0, start, boundary_id.map(|id| id.0)], row::message)?.collect::<rusqlite::Result<Vec<_>>>()?;
-            let usage = conn.query_row(
-                "SELECT r.model_id, c.input_tokens, c.context_through_id
-                 FROM core_model_calls c JOIN core_runs r ON r.id = c.run_id
-                 WHERE c.session_id = ?1 AND c.error IS NULL AND c.input_tokens IS NOT NULL
-                   AND c.context_boundary_id IS ?2 AND c.context_through_id IS NOT NULL AND r.model_id IS NOT NULL
+            let (start, summary, files) = window_start(boundary);
+            let mut messages = Vec::new();
+            let mut skipped = Vec::new();
+            for (message, filtered) in read_range(conn, session, start, boundary_id, None)? {
+                if filtered {
+                    skipped.push(message.id);
+                } else {
+                    messages.push(message);
+                }
+            }
+            let through = messages.last().map(|m| m.id);
+            let filtered = skipped
+                .into_iter()
+                .filter(|id| through.is_some_and(|t| *id < t))
+                .collect();
+            let usage = conn
+                .query_row(
+                    "SELECT c.model_id, c.input_tokens, c.context_through_id
+                 FROM core_model_calls c
+                 WHERE c.session_id = ?1 AND c.purpose = 'conversation' AND c.error IS NULL
+                   AND c.input_tokens IS NOT NULL AND c.model_id IS NOT NULL
+                   AND c.context_boundary_id IS ?2 AND c.context_through_id IS NOT NULL
                  ORDER BY c.id DESC LIMIT 1",
-                params![session.0, boundary_id.map(|id| id.0)],
-                |r| Ok(ContextUsage { model_id: ModelId(r.get(0)?), input_tokens: r.get::<_, i64>(1)? as u64, through: r.get::<_, Option<i64>>(2)?.map(MessageId) }),
-            ).optional()?;
-            Ok(ContextWindow { boundary_id, summary, files, messages, usage })
-        }).await
+                    params![session.0, boundary_id.map(|id| id.0)],
+                    |r| {
+                        Ok(ContextUsage {
+                            model_id: ModelId(r.get(0)?),
+                            input_tokens: r.get::<_, i64>(1)? as u64,
+                            through: r.get::<_, Option<i64>>(2)?.map(MessageId),
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(ContextWindow {
+                boundary_id,
+                summary,
+                files,
+                messages,
+                filtered,
+                usage,
+            })
+        })
+        .await
+    }
+
+    /// 某次调用当时的窗口：按其边界读到 `through`，不看认领状态，排除项由调用方按记录剔除。
+    pub async fn window_at(
+        &self,
+        session: SessionId,
+        boundary: Option<MessageId>,
+        through: Option<MessageId>,
+    ) -> Result<Vec<Message>, StoreError> {
+        let Some(through) = through else {
+            return Ok(Vec::new());
+        };
+        self.call(move |conn| {
+            let boundary_message = match boundary {
+                Some(id) => Some(conn.query_row(
+                    &format!("SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.id = ?1"),
+                    [id.0],
+                    row::message,
+                )?),
+                None => None,
+            };
+            let (start, ..) = window_start(boundary_message);
+            Ok(read_range(conn, session, start, boundary, Some(through))?
+                .into_iter()
+                .map(|(message, _)| message)
+                .collect())
+        })
+        .await
     }
 
     pub async fn commit_compaction(
@@ -81,12 +128,13 @@ impl Store {
     ) -> Result<Vec<Message>, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
-            insert_call(&tx, &call)?;
+            let call_id = insert_call(&tx, &call)?;
             let kept: u32 = match result.keep_from {
                 Some(start) => tx.query_row("SELECT count(*) FROM core_messages WHERE session_id = ?1 AND kind = 'Reply' AND id >= ?2", params![session.0, start.0], |r| r.get(0))?,
                 None => 0,
             };
             let boundary = append(&tx, session, run, MessageBody::Boundary { boundary: ContextBoundary::Compaction(result) }, now)?;
+            tx.execute("UPDATE core_messages SET model_call_id = ?2 WHERE id = ?1", params![boundary.id.0, call_id.0])?;
             preserve_pending(&tx, session, boundary.id, None)?;
             for input in unanswered {
                 tx.execute("INSERT OR IGNORE INTO core_boundary_inputs VALUES (?1, ?2)", params![boundary.id.0, input.0])?;
@@ -192,19 +240,78 @@ fn notice(text: String) -> MessageBody {
     }
 }
 
+/// 起点（含）、摘要与文件快照：压缩边界按 `keep_from`，其余边界之后全部。
+fn window_start(boundary: Option<Message>) -> (i64, Option<String>, Vec<FileSnapshot>) {
+    match boundary {
+        Some(Message {
+            id,
+            body:
+                MessageBody::Boundary {
+                    boundary: ContextBoundary::Compaction(result),
+                },
+            ..
+        }) => (
+            result.keep_from.map_or(id.0 + 1, |m| m.0),
+            Some(result.summary),
+            result.files,
+        ),
+        Some(message) => (message.id.0 + 1, None, Vec::new()),
+        None => (0, None, Vec::new()),
+    }
+}
+
+/// 窗口范围内的全部消息（按 id，至多到 `through`）；布尔值 = 未认领且非 held，对话窗口不可见。
+fn read_range(
+    conn: &Connection,
+    session: SessionId,
+    start: i64,
+    boundary: Option<MessageId>,
+    through: Option<MessageId>,
+) -> Result<Vec<(Message, bool)>, StoreError> {
+    Ok(conn.prepare(&format!(
+        "SELECT {MESSAGE_COLS}, ({UNCLAIMED}) AND NOT ({HELD_INPUT}) FROM {MESSAGE_FROM}
+         WHERE m.session_id = ?1
+           AND (m.id >= ?2 OR EXISTS (SELECT 1 FROM core_boundary_inputs b WHERE b.boundary_id = ?3 AND b.message_id = m.id))
+           AND m.id <= ?4 ORDER BY m.id"
+    ))?.query_map(
+        params![session.0, start, boundary.map(|id| id.0), through.map_or(i64::MAX, |id| id.0)],
+        |r| Ok((row::message(r)?, r.get(6)?)),
+    )?.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 pub(crate) fn insert_call(
     conn: &Connection,
     call: &NewModelCall,
 ) -> Result<ModelCallId, StoreError> {
-    let (error, usage) = match &call.outcome {
-        ModelCallOutcome::Replied { usage, .. } => (None, *usage),
-        ModelCallOutcome::Failed { error } => (Some(error.as_str()), None),
+    let error = match &call.outcome {
+        ModelCallOutcome::Replied { .. } => None,
+        ModelCallOutcome::Failed { error } => Some(error.as_str()),
     };
-    let tokens = |f: fn(&crate::Usage) -> Option<u64>| usage.as_ref().and_then(f).map(|n| n as i64);
+    let tokens =
+        |f: fn(&crate::Usage) -> Option<u64>| call.usage.as_ref().and_then(f).map(|n| n as i64);
+    let context = &call.context;
     conn.execute(
-        "INSERT INTO core_model_calls (session_id, run_id, model, error, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, started_at, finished_at, context_boundary_id, context_through_id, purpose) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-        params![call.session_id.0, call.run_id.map(|r| r.0), call.model, error,
-            tokens(|u| Some(u.input_tokens)), tokens(|u| Some(u.output_tokens)), tokens(|u| u.cache_read_tokens), tokens(|u| u.cache_write_tokens), tokens(|u| u.reasoning_tokens), call.started_at, call.finished_at, call.context.boundary_id.map(|id| id.0), call.context.through.map(|id| id.0), call.purpose],
+        "INSERT INTO core_model_calls
+           (session_id, run_id, purpose, model, model_id, reasoning_effort, error, stop,
+            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+            started_at, first_output_at, finished_at, context_boundary_id, context_through_id, context_skip)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+        params![call.session_id.0, call.run_id.map(|r| r.0), call.purpose, call.model, call.model_id.map(|id| id.0), call.reasoning_effort, error, call.stop,
+            tokens(|u| Some(u.input_tokens)), tokens(|u| Some(u.output_tokens)), tokens(|u| u.cache_read_tokens), tokens(|u| u.cache_write_tokens), tokens(|u| u.reasoning_tokens),
+            call.started_at, call.first_output_at, call.finished_at, context.boundary_id.map(|id| id.0), context.through.map(|id| id.0), context.skip],
     )?;
-    Ok(ModelCallId(conn.last_insert_rowid()))
+    let id = ModelCallId(conn.last_insert_rowid());
+    for (role, ids) in [
+        ("excluded", &context.excluded),
+        ("tail", &context.tail),
+        ("instruction", &context.instruction),
+    ] {
+        for message in ids {
+            conn.execute(
+                "INSERT OR IGNORE INTO core_model_call_inputs (call_id, message_id, role) VALUES (?1, ?2, ?3)",
+                params![id.0, message.0, role],
+            )?;
+        }
+    }
+    Ok(id)
 }

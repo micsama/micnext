@@ -7,8 +7,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::{
-    DeliveryTarget, ModelId, Persona, PersonaId, ReasoningEffort, Run, RunId, RunState, Session,
-    SessionKind, StoreError,
+    DeliveryTarget, ModelCallPurpose, ModelId, Persona, PersonaId, ReasoningEffort, Run, RunId,
+    RunState, Session, SessionKind, StopReason, StoreError,
 };
 
 /// 消息读取的 FROM 子句：`Reply.model` 只存在调用行上，读出时 JOIN 还原。
@@ -20,7 +20,7 @@ pub(crate) const MESSAGE_COLS: &str =
 
 pub(crate) const SESSION_COLS: &str =
     "id, kind, channel, chat, parent_tool_call_id, trigger_module, \
-     trigger_ref, parent_session_id, delivery_channel, delivery_version, delivery_payload, pwd, \
+     trigger_ref, parent_session_id, delivery_channel, delivery_payload, pwd, \
      tool_scope, created_at, persona_id, model_id, reasoning_effort";
 
 pub(crate) const RUN_COLS: &str = "id, session_id, state, created_at, finished_at";
@@ -42,14 +42,67 @@ impl rusqlite::ToSql for ReasoningEffort {
     }
 }
 
-impl rusqlite::ToSql for crate::ModelCallPurpose {
+impl rusqlite::ToSql for ModelCallPurpose {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(match self {
+        Ok(self.as_str().into())
+    }
+}
+
+impl ModelCallPurpose {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
             Self::Conversation => "conversation",
             Self::Compaction => "compaction",
             Self::Title => "title",
         }
-        .into())
+    }
+}
+
+impl StopReason {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::EndTurn => "end_turn",
+            Self::ToolUse => "tool_use",
+            Self::MaxTokens => "max_tokens",
+            Self::ContentFilter => "content_filter",
+        }
+    }
+}
+
+impl rusqlite::ToSql for StopReason {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(self.as_str().into())
+    }
+}
+
+impl rusqlite::types::FromSql for StopReason {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        Ok(match value.as_str()? {
+            "end_turn" => Self::EndTurn,
+            "tool_use" => Self::ToolUse,
+            "max_tokens" => Self::MaxTokens,
+            "content_filter" => Self::ContentFilter,
+            other => {
+                return Err(rusqlite::types::FromSqlError::Other(
+                    format!("未知 stop: {other}").into(),
+                ))
+            }
+        })
+    }
+}
+
+impl rusqlite::types::FromSql for ModelCallPurpose {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        Ok(match value.as_str()? {
+            "conversation" => Self::Conversation,
+            "compaction" => Self::Compaction,
+            "title" => Self::Title,
+            other => {
+                return Err(rusqlite::types::FromSqlError::Other(
+                    format!("未知 purpose: {other}").into(),
+                ))
+            }
+        })
     }
 }
 
@@ -134,7 +187,8 @@ fn json_col<T: DeserializeOwned>(row: &Row<'_>, idx: usize) -> rusqlite::Result<
 /// 列序同 `MESSAGE_COLS`。
 pub(crate) fn message(row: &Row<'_>) -> rusqlite::Result<Message> {
     let mut payload: Value = json_col(row, 2)?;
-    if let Some(model) = row.get::<_, Option<String>>(5)? {
+    let is_reply = payload.get("kind").and_then(Value::as_str) == Some("Reply");
+    if let Some(model) = row.get::<_, Option<String>>(5)?.filter(|_| is_reply) {
         payload
             .as_object_mut()
             .ok_or_else(|| corrupt(2, "payload 不是对象".to_owned()))?
@@ -151,7 +205,7 @@ pub(crate) fn message(row: &Row<'_>) -> rusqlite::Result<Message> {
     })
 }
 
-/// 从 `idx` 起连续三列 channel/version/payload；三列同为 NULL 表示无目标。
+/// 从 `idx` 起连续两列 channel/payload；同为 NULL 表示无目标。
 pub(crate) fn delivery_target(
     row: &Row<'_>,
     idx: usize,
@@ -162,8 +216,7 @@ pub(crate) fn delivery_target(
     };
     Ok(Some(DeliveryTarget {
         channel,
-        version: row.get(idx + 1)?,
-        payload: row.get(idx + 2)?,
+        payload: row.get(idx + 1)?,
     }))
 }
 
@@ -189,12 +242,12 @@ pub(crate) fn session(row: &Row<'_>) -> rusqlite::Result<Session> {
         kind,
         parent_session_id: row.get::<_, Option<i64>>(7)?.map(SessionId),
         delivery_target: delivery_target(row, 8)?,
-        pwd: row.get(11)?,
-        tool_scope: json_col(row, 12)?,
-        created_at: row.get(13)?,
-        persona_id: PersonaId(row.get(14)?),
-        model_id: row.get::<_, Option<i64>>(15)?.map(ModelId),
-        reasoning_effort: row.get(16)?,
+        pwd: row.get(10)?,
+        tool_scope: json_col(row, 11)?,
+        created_at: row.get(12)?,
+        persona_id: PersonaId(row.get(13)?),
+        model_id: row.get::<_, Option<i64>>(14)?.map(ModelId),
+        reasoning_effort: row.get(15)?,
     })
 }
 

@@ -24,7 +24,7 @@ use crate::logs::{LogLevel, LogRecord};
 
 const DB_FILE: &str = "logs.db";
 const TEXT_FILE: &str = "micnext.log";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 type Failure = Box<dyn std::error::Error + Send + Sync>;
 
@@ -256,9 +256,12 @@ impl SqliteLog {
                 fields       TEXT    NOT NULL,
                 file         TEXT,
                 line         INTEGER,
-                truncated    INTEGER NOT NULL
+                truncated    INTEGER NOT NULL,
+                session_id   INTEGER,
+                run_id       INTEGER
             );
-            CREATE INDEX IF NOT EXISTS log_boot ON log (boot_id, id);",
+            CREATE INDEX IF NOT EXISTS log_boot ON log (boot_id, id);
+            CREATE INDEX IF NOT EXISTS log_run ON log (run_id) WHERE run_id IS NOT NULL;",
         )?;
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(Self { conn, batches: 0 })
@@ -268,8 +271,8 @@ impl SqliteLog {
         let tx = self.conn.transaction()?;
         {
             let mut insert = tx.prepare_cached(
-                "INSERT INTO log (boot_id, timestamp_ms, level, target, message, fields, file, line, truncated)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO log (boot_id, timestamp_ms, level, target, message, fields, file, line, truncated, session_id, run_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             )?;
             for record in batch {
                 insert.execute(params![
@@ -282,6 +285,8 @@ impl SqliteLog {
                     record.file,
                     record.line,
                     record.truncated,
+                    record.id_field("session"),
+                    record.id_field("run"),
                 ])?;
             }
         }
@@ -379,7 +384,7 @@ pub(crate) struct History {
 }
 
 #[derive(Serialize)]
-struct StoredRecord {
+pub(crate) struct StoredRecord {
     boot_id: u64,
     timestamp_ms: u64,
     level: LogLevel,
@@ -424,30 +429,49 @@ fn read(path: &Path, boot_id: u64) -> rusqlite::Result<Vec<StoredRecord>> {
          LIMIT ?2",
     )?;
     let mut records = stmt
-        .query_map(params![boot_id as i64, LOG_HISTORY_RECORDS as i64], |row| {
-            let level: String = row.get(2)?;
-            let fields: String = row.get(5)?;
-            Ok(StoredRecord {
-                boot_id: row.get::<_, i64>(0)? as u64,
-                timestamp_ms: row.get::<_, i64>(1)? as u64,
-                level: LogLevel::parse(&level).ok_or_else(|| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        2,
-                        Type::Text,
-                        format!("未知日志级别 {level}").into(),
-                    )
-                })?,
-                target: row.get(3)?,
-                message: row.get(4)?,
-                fields: serde_json::from_str(&fields).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(e))
-                })?,
-                file: row.get(6)?,
-                line: row.get(7)?,
-                truncated: row.get(8)?,
-            })
-        })?
+        .query_map(params![boot_id as i64, LOG_HISTORY_RECORDS as i64], stored)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     records.reverse();
+    Ok(records)
+}
+
+const STORED_COLS: &str =
+    "boot_id, timestamp_ms, level, target, message, fields, file, line, truncated";
+
+fn stored(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredRecord> {
+    let level: String = row.get(2)?;
+    let fields: String = row.get(5)?;
+    Ok(StoredRecord {
+        boot_id: row.get::<_, i64>(0)? as u64,
+        timestamp_ms: row.get::<_, i64>(1)? as u64,
+        level: LogLevel::parse(&level).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                2,
+                Type::Text,
+                format!("未知日志级别 {level}").into(),
+            )
+        })?,
+        target: row.get(3)?,
+        message: row.get(4)?,
+        fields: serde_json::from_str(&fields)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(e)))?,
+        file: row.get(6)?,
+        line: row.get(7)?,
+        truncated: row.get(8)?,
+    })
+}
+
+/// 某个 run 的 WARN / ERROR，按写入顺序；未落 SQLite 时为空。
+pub(crate) fn by_run(storage: &Storage, run: i64) -> rusqlite::Result<Vec<StoredRecord>> {
+    let Storage::Sqlite { path } = storage else {
+        return Ok(Vec::new());
+    };
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {STORED_COLS} FROM log WHERE run_id = ?1 AND level IN ('warn', 'error') ORDER BY id"
+    ))?;
+    let records = stmt
+        .query_map([run], stored)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(records)
 }

@@ -85,7 +85,9 @@ impl From<KernelError> for ApiError {
             KernelError::ModelSettings(e) => match e {
                 ModelSettingsError::NotFound => Self::NotFound(MODEL_NOT_FOUND),
                 ModelSettingsError::EndpointNotFound => Self::NotFound(ENDPOINT_NOT_FOUND),
-                ModelSettingsError::InvalidSecretEdit => Self::Unprocessable(e.to_string()),
+                ModelSettingsError::InvalidSecretEdit | ModelSettingsError::InvalidPrice => {
+                    Self::Unprocessable(e.to_string())
+                }
                 ModelSettingsError::Deleted
                 | ModelSettingsError::EndpointDeleted
                 | ModelSettingsError::NameTaken(_)

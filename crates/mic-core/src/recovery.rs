@@ -42,6 +42,7 @@ pub(crate) async fn recover(store: &Store) -> Result<usize, StoreError> {
                 outcome: ToolResultOutcome::Terminal(ExecOutcome::Cancelled {
                     message: UNKNOWN_RESULT.into(),
                 }),
+                started_at: None,
             })
             .chain([MessageBody::Notification {
                 source: NOTIFICATION_SOURCE.into(),

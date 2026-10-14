@@ -1,7 +1,6 @@
 //! 一个 run 的执行。契约：docs/blueprints/run-execution.md §4.3～4.5、§4.7、§4.8。
 
 use std::collections::HashMap;
-use std::future::poll_fn;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,19 +10,18 @@ use mic_message::{
     ToolResultOutcome,
 };
 use mic_store::{
-    ClaimedModel, ClaimedRun, ContextCommandError, ModelCallContext, ModelCallOutcome, ModelId,
-    NewModelCall, Run, RunInput, RunSettings, RunState, Session, SessionKind, Store, StoreError,
-    ToolScope,
+    ClaimedModel, ClaimedRun, ContextCommandError, ModelCallContext, ModelCallOutcome,
+    ModelCallPurpose, ModelId, ReasoningEffort, Run, RunInput, RunSettings, RunState, Session,
+    SessionKind, Store, StoreError, ToolScope,
 };
 use mic_tool::{ToolContext, ToolHandle};
 use tokio::task::JoinSet;
 
+use crate::attempt::{stream_attempt, Caller, Facts};
 use crate::event::{Events, KernelEventKind};
 use crate::limits::{MAX_MODEL_ATTEMPTS, MAX_RETRY_WAIT, MAX_TURNS_WARN_PERCENT, RETRY_BASE};
-use crate::provider::Factories;
-use crate::{
-    request, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, StopReason,
-};
+use crate::provider::{BuiltProvider, Factories};
+use crate::{request, ModelEvent, ModelResponse, Provider, ProviderError, StopReason};
 
 /// 框架通知的 `source`。
 pub(crate) const NOTIFICATION_SOURCE: &str = "micnext";
@@ -39,6 +37,18 @@ pub(crate) struct Engine {
 }
 
 impl Engine {
+    pub(crate) fn scoped_tools(&self, scope: &ToolScope) -> Vec<ToolHandle> {
+        match scope {
+            ToolScope::All => self.tools.clone(),
+            ToolScope::Only(names) => self
+                .tools
+                .iter()
+                .filter(|t| names.contains(t.name()))
+                .cloned()
+                .collect(),
+        }
+    }
+
     /// 以认领时定下的设置与模型执行一个 run 并落盘终态；模型不可用时以 ProviderFailed 收尾。
     pub(crate) async fn run(
         &self,
@@ -58,15 +68,7 @@ impl Engine {
             KernelEventKind::RunStarted { run_id: run.id },
         );
         tracing::info!(session = session.id.0, run = run.id.0, "run started");
-        let tools = match &session.tool_scope {
-            ToolScope::All => self.tools.clone(),
-            ToolScope::Only(names) => self
-                .tools
-                .iter()
-                .filter(|t| names.contains(t.name()))
-                .cloned()
-                .collect(),
-        };
+        let tools = self.scoped_tools(&session.tool_scope);
         let (model_id, context_window) = match &model {
             ClaimedModel::Selected {
                 id, context_window, ..
@@ -95,6 +97,7 @@ impl Engine {
             tools,
             pending_inputs,
             model_id,
+            effort: None,
             context_window,
         };
         let state = match input {
@@ -136,18 +139,21 @@ impl Engine {
                 RunState::Completed
             }
             input => match self.provider(model) {
-                Ok(provider) => match input {
-                    RunInput::Command {
-                        command: SessionCommand::Compact { text },
-                        ..
-                    } => match exec.compact(provider.as_ref(), text.clone()).await? {
-                        Err(failed) => failed,
-                        Ok(()) if text.is_some() => exec.execute(provider.as_ref()).await?,
-                        Ok(()) => RunState::Completed,
-                    },
-                    RunInput::Conversation { .. } => exec.execute(provider.as_ref()).await?,
-                    _ => unreachable!("非模型指令已处理"),
-                },
+                Ok(BuiltProvider { provider, effort }) => {
+                    exec.effort = effort;
+                    match input {
+                        RunInput::Command {
+                            command: SessionCommand::Compact { text },
+                            ..
+                        } => match exec.compact(provider.as_ref()).await? {
+                            Err(failed) => failed,
+                            Ok(()) if text.is_some() => exec.execute(provider.as_ref()).await?,
+                            Ok(()) => RunState::Completed,
+                        },
+                        RunInput::Conversation { .. } => exec.execute(provider.as_ref()).await?,
+                        _ => unreachable!("非模型指令已处理"),
+                    }
+                }
                 Err(text) => {
                     tracing::warn!(session = session.id.0, run = run.id.0, %text, "model unavailable");
                     exec.notify(text).await?;
@@ -176,7 +182,7 @@ impl Engine {
 
 impl Engine {
     /// 本轮 Provider 实例；失败文案面向用户，说明怎么修。
-    fn provider(&self, model: ClaimedModel) -> Result<Arc<dyn Provider>, String> {
+    fn provider(&self, model: ClaimedModel) -> Result<BuiltProvider, String> {
         match model {
             ClaimedModel::Missing => {
                 Err("还没有可用的模型。请在网页 设置 → 模型 添加一个，然后重新发送。".into())
@@ -219,6 +225,8 @@ pub(crate) struct Exec<'a> {
     pub(crate) tools: Vec<ToolHandle>,
     pub(crate) pending_inputs: Vec<MessageId>,
     pub(crate) model_id: Option<ModelId>,
+    /// 实际生效的思考档位（已解析默认值）；Provider 建好后才有。
+    pub(crate) effort: Option<ReasoningEffort>,
     pub(crate) context_window: u32,
 }
 
@@ -284,15 +292,23 @@ impl Exec<'_> {
         tools: &[ToolHandle],
     ) -> Result<Result<Vec<Call>, RunState>, StoreError> {
         if self.needs_compaction().await? {
-            let extra = self.pending_text().await?;
-            if let Err(failed) = self.compact(provider, extra).await? {
+            if let Err(failed) = self.compact(provider).await? {
                 return Ok(Err(failed));
             }
         }
         let window = self.engine.store.context_window(self.session.id).await?;
+        let tail: Vec<MessageId> = window
+            .messages
+            .iter()
+            .map(|m| m.id)
+            .filter(|id| self.pending_inputs.contains(id))
+            .collect();
         let context = ModelCallContext {
             boundary_id: window.boundary_id,
             through: window.messages.last().map(|m| m.id),
+            excluded: window.filtered.clone(),
+            tail: tail.clone(),
+            ..Default::default()
         };
         let images = self
             .engine
@@ -305,37 +321,41 @@ impl Exec<'_> {
             }
             SessionKind::Task { .. } | SessionKind::Triggered { .. } => None,
         };
-        let mut req = request::build(
-            self.session.id,
+        let req = request::build(
+            self.session,
             window,
             images,
-            &self.session.pwd,
             channel_prompt,
             tools,
             self.settings,
+            &tail,
         );
-        req.messages
-            .sort_by_key(|message| self.pending_inputs.contains(&message.id));
+        let caller = self.caller(provider);
         let mut attempt = 1;
         loop {
-            let started_at = now_ms();
-            let error = match self.stream(provider, req.clone()).await {
+            let mut facts = Facts::start();
+            let error = match stream_attempt(provider, req.clone(), &mut facts, |event| {
+                self.forward(event)
+            })
+            .await
+            {
                 Ok(reply) => {
                     self.pending_inputs.clear();
                     return self
-                        .persist_reply(provider, started_at, reply, context)
+                        .persist_reply(&caller, &facts, reply, context)
                         .await
                         .map(Ok);
                 }
                 Err(e) => e,
             };
             self.record(
-                provider,
-                started_at,
+                &caller,
+                &facts,
+                None,
                 ModelCallOutcome::Failed {
                     error: error.to_string(),
                 },
-                context,
+                context.clone(),
             )
             .await?;
             match self.retry_wait("conversation", provider, &error, attempt) {
@@ -351,37 +371,32 @@ impl Exec<'_> {
         }
     }
 
-    /// 一次尝试：转发增量，返回 `Finished` 的结果。
-    async fn stream(
-        &self,
-        provider: &dyn Provider,
-        req: ModelRequest,
-    ) -> Result<ModelResponse, ProviderError> {
-        let mut stream = provider.stream(req);
-        loop {
-            match poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-                Some(Ok(ModelEvent::TextDelta(text))) => {
-                    self.emit(KernelEventKind::TextDelta(text))
-                }
-                Some(Ok(ModelEvent::ReasoningDelta(text))) => {
-                    self.emit(KernelEventKind::ReasoningDelta(text))
-                }
-                Some(Ok(ModelEvent::Finished(reply))) => return Ok(reply),
-                Some(Err(e)) => return Err(e),
-                None => {
-                    return Err(ProviderError::Protocol {
-                        message: "stream ended without Finished".into(),
-                    })
-                }
+    pub(crate) fn caller(&self, provider: &dyn Provider) -> Caller {
+        Caller::new(
+            self.session.id,
+            Some(self.run.id),
+            provider,
+            self.model_id,
+            self.effort,
+        )
+    }
+
+    /// 把流上的正文与推理增量转成内核事件。
+    fn forward(&self, event: &ModelEvent) {
+        match event {
+            ModelEvent::TextDelta(text) => self.emit(KernelEventKind::TextDelta(text.clone())),
+            ModelEvent::ReasoningDelta(text) => {
+                self.emit(KernelEventKind::ReasoningDelta(text.clone()))
             }
+            _ => {}
         }
     }
 
     /// 落盘调用行与 `Reply`，结束草稿，截断时通知；返回其中的工具调用。
     async fn persist_reply(
         &self,
-        provider: &dyn Provider,
-        started_at: i64,
+        caller: &Caller,
+        facts: &Facts,
         reply: ModelResponse,
         context: ModelCallContext,
     ) -> Result<Vec<Call>, StoreError> {
@@ -398,10 +413,10 @@ impl Exec<'_> {
             })
             .collect();
         let outcome = ModelCallOutcome::Replied {
-            usage: reply.usage,
             blocks: reply.blocks,
         };
-        self.record(provider, started_at, outcome, context).await?;
+        self.record(caller, facts, Some(reply.stop), outcome, context)
+            .await?;
         match reply.stop {
             StopReason::MaxTokens => {
                 self.notify("回复达到输出长度上限，内容不完整。".into())
@@ -419,26 +434,21 @@ impl Exec<'_> {
     /// 落盘调用行并结束草稿：有 `Reply` 即发布它，否则作废。
     async fn record(
         &self,
-        provider: &dyn Provider,
-        started_at: i64,
+        caller: &Caller,
+        facts: &Facts,
+        stop: Option<StopReason>,
         outcome: ModelCallOutcome,
         context: ModelCallContext,
     ) -> Result<(), StoreError> {
+        let call = facts.row(
+            caller,
+            ModelCallPurpose::Conversation,
+            context,
+            stop,
+            outcome,
+        );
         let publish = self.engine.events.publisher().await;
-        let (_, reply) = self
-            .engine
-            .store
-            .record_model_call(NewModelCall {
-                purpose: mic_store::ModelCallPurpose::Conversation,
-                context,
-                session_id: self.session.id,
-                run_id: Some(self.run.id),
-                model: provider.model().to_owned(),
-                started_at,
-                finished_at: now_ms(),
-                outcome,
-            })
-            .await?;
+        let (_, reply) = self.engine.store.record_model_call(call).await?;
         match reply {
             Some(message) => publish.appended(self.session.id, self.channel, message),
             None => self.emit(KernelEventKind::DraftDiscarded),
@@ -446,13 +456,18 @@ impl Exec<'_> {
         Ok(())
     }
 
-    /// 本批调用并行执行，结果按完成先后落盘。
+    /// 本批调用并行执行；每个任务自己取起止时刻并落盘结果，故消息 id 只表示落盘顺序。
     async fn run_tools(&self, calls: Vec<Call>) -> Result<(), StoreError> {
         let mut running = JoinSet::new();
         for call in calls {
             let handle = self.tools.iter().find(|t| t.name() == call.name).cloned();
             let ctx = ToolContext::new(PathBuf::from(&self.session.pwd));
+            let store = self.engine.store.clone();
+            let events = self.engine.events.clone();
+            let (session, run) = (self.session.id, self.run.id);
+            let channel = self.channel.to_owned();
             running.spawn(async move {
+                let started_at = now_ms();
                 let outcome = match handle {
                     None => ExecOutcome::Failed {
                         kind: ExecFailureKind::Input,
@@ -466,34 +481,44 @@ impl Exec<'_> {
                         },
                     },
                 };
-                (call.id, call.name, outcome)
+                let returned_at = now_ms();
+                if let ExecOutcome::Failed {
+                    kind: ExecFailureKind::Dependency,
+                    message,
+                } = &outcome
+                {
+                    tracing::warn!(
+                        session = session.0,
+                        run = run.0,
+                        tool = call.name,
+                        error = message,
+                        "tool dependency failed"
+                    );
+                }
+                let publish = events.publisher().await;
+                let message = store
+                    .append(
+                        session,
+                        Some(run),
+                        MessageBody::ToolResult {
+                            tool_name: call.name,
+                            tool_call_id: call.id,
+                            outcome: ToolResultOutcome::Terminal(outcome),
+                            started_at: Some(started_at),
+                        },
+                        returned_at,
+                    )
+                    .await?;
+                publish.appended(session, &channel, message);
+                Ok::<(), StoreError>(())
             });
         }
         while let Some(joined) = running.join_next().await {
-            let (tool_call_id, tool_name, outcome) = match joined {
-                Ok(done) => done,
+            match joined {
+                Ok(done) => done?,
                 Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
                 Err(e) => unreachable!("工具任务不会被单独取消：{e}"),
-            };
-            if let ExecOutcome::Failed {
-                kind: ExecFailureKind::Dependency,
-                message,
-            } = &outcome
-            {
-                tracing::warn!(
-                    session = self.session.id.0,
-                    run = self.run.id.0,
-                    tool = tool_name,
-                    error = message,
-                    "tool dependency failed"
-                );
             }
-            self.append(MessageBody::ToolResult {
-                tool_name,
-                tool_call_id,
-                outcome: ToolResultOutcome::Terminal(outcome),
-            })
-            .await?;
         }
         Ok(())
     }

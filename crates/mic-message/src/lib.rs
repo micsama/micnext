@@ -140,7 +140,6 @@ pub struct Compaction {
     pub summary: String,
     pub keep_from: Option<MessageId>,
     pub files: Vec<FileSnapshot>,
-    pub extra: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +187,8 @@ pub enum MessageBody {
         tool_name: String,
         tool_call_id: String,
         outcome: ToolResultOutcome,
+        /// 工具开始执行的时刻（Unix 毫秒）；恢复补的 `Cancelled` 无。
+        started_at: Option<i64>,
     },
     /// `wait=false` 任务的终态回报，靠 `exec_id` 关联闭合原 tool call 的 `Dispatched`。
     Completion {

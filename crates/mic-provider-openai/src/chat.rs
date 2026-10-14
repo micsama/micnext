@@ -305,7 +305,6 @@ pub(crate) struct Accumulator {
     /// 按上游 `index` 排序。
     tool_calls: BTreeMap<u32, PendingCall>,
     finish_reason: Option<FinishReason>,
-    usage: Option<ChatUsage>,
 }
 
 #[derive(Default)]
@@ -323,7 +322,6 @@ impl Accumulator {
             text: String::new(),
             tool_calls: BTreeMap::new(),
             finish_reason: None,
-            usage: None,
         }
     }
 }
@@ -332,10 +330,10 @@ impl Accumulate for Accumulator {
     type Event = Chunk;
 
     fn push(&mut self, chunk: Chunk) -> Result<Step, ProviderError> {
-        if let Some(usage) = chunk.usage {
-            self.usage = Some(usage);
-        }
         let mut events = Vec::new();
+        if let Some(u) = chunk.usage {
+            events.push(ModelEvent::Usage(usage(self.dialect, u)));
+        }
         for choice in chunk.choices {
             if choice.index != 0 {
                 return Err(protocol(format!("收到多个候选（index {}）", choice.index)));
@@ -366,6 +364,9 @@ impl Accumulate for Accumulator {
             if let Some(t) = content {
                 self.text.push_str(&t);
                 events.push(ModelEvent::TextDelta(t));
+            }
+            if !tool_calls.is_empty() {
+                events.push(ModelEvent::ToolCallDelta);
             }
             for call in tool_calls {
                 let pending = self.tool_calls.entry(call.index).or_default();
@@ -423,11 +424,7 @@ impl Accumulate for Accumulator {
                 args: parse_arguments(call.arguments),
             });
         }
-        Ok(ModelResponse {
-            blocks,
-            stop,
-            usage: self.usage.map(|u| usage(self.dialect, u)),
-        })
+        Ok(ModelResponse { blocks, stop })
     }
 }
 
@@ -444,7 +441,8 @@ fn usage(dialect: Dialect, u: ChatUsage) -> Usage {
         input_tokens: u.prompt_tokens.into(),
         output_tokens: u.completion_tokens.into(),
         cache_read_tokens,
-        cache_write_tokens: None,
+        // Chat 协议没有缓存写入计费：确认为零。
+        cache_write_tokens: Some(0),
         reasoning_tokens: u
             .completion_tokens_details
             .and_then(|d| d.reasoning_tokens)

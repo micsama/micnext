@@ -2,6 +2,7 @@
 //! 不依赖具体 Channel。契约：docs/blueprints/mic-core-module.md。
 
 mod assembly;
+mod attempt;
 mod channel_setup;
 mod command;
 mod compaction;

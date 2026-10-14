@@ -207,16 +207,14 @@ impl Assembly {
             self.factories.clone(),
             events.clone(),
         );
+        let engine = Arc::new(self.engine(started.store.clone(), events.clone()));
         let kernel = Kernel::new(
-            started.store.clone(),
             started.owner,
-            events.clone(),
             wake_tx,
-            self.factories.clone(),
             self.channel_setups.clone(),
             title_handle,
+            engine.clone(),
         );
-        let engine = Arc::new(self.engine(started.store.clone(), events));
         let mut scheduler = Box::pin(scheduler::run(engine, wake_rx));
         let mut titles = Box::pin(titles.run());
 

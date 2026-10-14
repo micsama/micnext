@@ -6,6 +6,12 @@ pub enum StoreError {
     Payload(#[from] serde_json::Error),
     #[error("模块 {module} 库版本 v{db} 高于二进制已知 v{known}")]
     SchemaAhead { module: String, db: u32, known: u32 },
+    #[error("模块 {module} 库格式 v{version} 低于当前最低支持的 v{baseline}，需重建数据库")]
+    SchemaRebuild {
+        module: String,
+        version: u32,
+        baseline: u32,
+    },
     #[error("主密钥文件读写失败: {0}")]
     SecretKeyIo(#[from] std::io::Error),
     #[error("主密钥文件不可用: {0}")]
@@ -56,6 +62,8 @@ pub enum ModelSettingsError {
     NameTaken(String),
     #[error("默认模型在这里：先把默认换到别处，再删除")]
     DefaultInUse,
+    #[error("单价必须是不小于 0 的数字")]
+    InvalidPrice,
     #[error("新建模型没有可沿用的 API key")]
     InvalidSecretEdit,
     #[error(transparent)]

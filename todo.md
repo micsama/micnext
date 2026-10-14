@@ -6,7 +6,7 @@
 | 状态 | 主题 | 文档 |
 |---|---|---|
 | B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 错误保留现有类型至处置边界记一次，级别与字段名固定；正文/标题共用 Provider 构建，正文/压缩共用重试日志；补压缩、工具依赖、服务致命退出与 panic 日志，Provider 上游失败降 DEBUG；为 Langfuse 留接缝，不接入 | [B2](docs/blueprints/error-logging.md) |
-| B1 方向讨论，未实施（2026-10-13） | 用现有 SQLite 还原 run trace（run 为 trace，模型/工具/压缩为 span）；主干数据已够，缺工具起止与首 token；倾向先只读 SQL 视图 | [B1](docs/brainstorm/run-trace.md) |
+| 实现及本地验收完成，待页面/真实环境验收（2026-10-14） | SQLite 整理 + 轻量 trace：core/wechat 新基线、删 run 配置副本与格式版本字段、调用行补事实、trace 页与看板 | [B2](docs/blueprints/run-trace.md)；[存储 B1](docs/brainstorm/sqlite-organization.md)；[trace B1](docs/brainstorm/run-trace.md) |
 | B2 已实现，本地验收通过，待服务器人工验收（2026-10-13） | 思考档位按供应商保守默认 + 已知模型覆盖；DeepSeek/Sol 默认 low、Luna 默认 medium，未知 Codex 默认三档、low；11 项测试与 11 组隔离验收通过 | [B2](docs/blueprints/reasoning-model-capabilities.md)；[B1](docs/brainstorm/reasoning-model-capabilities.md) |
 | B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 会话归档：后端仅标记，记录保留；新消息仍隐藏，手工恢复；前端成功后整页刷新，4 组隔离整体链路通过 | [B2](docs/blueprints/session-archive.md)；[B1](docs/brainstorm/session-archive.md) |
 | B2 已实现，本地验收通过，待 human 验收（2026-10-13）；体积 21.9 → 17.3 MiB，未达 16.5 目标待定 | 模型调用改回手写，移除 async-openai（体积 15.0 → 21.6 MiB 主因）；reqwest 统一 0.13 + ring；功能不变，未知流事件改为忽略并告警 | [B2](docs/blueprints/provider-handwritten.md) |
@@ -24,7 +24,7 @@
 | B2 CLOSED（2026-10-12）；fmt/clippy、Web 检查/构建与 12 项隔离链路验收通过；human 接手真实使用验收，OpenAI key 401 待补 | 上下文压缩与 `/compact`、`/clear`：先压历史再执行新输入；上游用量优先、缺失估算，默认 80% 触发；只读最新有效 Boundary，clear 后排队输入正常执行；快照走 read；Web 展示结果并可将当前压缩边界置为失效撤回，保留审计记录 | [B1](docs/brainstorm/context-compaction.md)；[B2](docs/blueprints/context-compaction.md) |
 | B1 待核对，再起 B2 | 定时任务看板事实来源与异步 shell/子 agent 生命周期 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-4～5 |
 | B2 CLOSED：服务商/模型分层与图片输入均已实现并验收；遗留：模型不支持图片时的上游报错呈现、只发图时会话预览为空 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/model-settings.md`](docs/blueprints/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
-| 想法，待起 B1 | 会话/轮次基本属性随 session、turn 下发：输入框下统计行（轮·步·LLM/工具耗时·首 token·tok/s·缓存命中·token）与上下文占用圆环（悬停看用量）。现状：用量与调用起止已落库；工具耗时、首 token 未记录；模型无上下文窗口大小配置 | — |
+| 数据缺口已并入 B1，展示待定（2026-10-14） | 聊天统计行（轮·步·模型/工具耗时·首次输出·速率·缓存·token）与上下文占用：共用本地监控事实；context_window 已支持，精确耗时与首输出待统一采集 | [监控 B1](docs/brainstorm/run-trace.md)；[上下文 B2](docs/blueprints/context-compaction.md) |
 | 待起 B1（2026-10-09 服务器实测触发） | 工具执行隔离：模型以 root 经 bash 读了 micnext.db 与 `master.key` 所在目录。分两层：① 部署改用专用用户 `micnext`（human 进行中）；② bash 子进程套 bwrap，不挂 micnext 数据目录、私有 /tmp、按需 `--unshare-pid`；fs 工具在进程内，须另设路径边界；数据目录清单由 micnext 启动侧下发，不在两工具各写一份。待定：模型对服务器的权限定位（运维助手 vs 受限）、是否断网。环境事实：Ubuntu 24.04 `apparmor_restrict_unprivileged_userns=1`，已加 `/etc/apparmor.d/bwrap` 单程序放行并以 micnext 用户验证隔离生效 | 与「工具授权」缺口（cross-check §四-8～9）合并讨论 |
 | 引用 CLOSED（2026-10-10 服务器验收）；入站图片 CLOSED（2026-10-10 服务器验收，[B2](docs/blueprints/wechat-inbound-images.md)）；入站文件/视频已实现待验收（[B2](docs/blueprints/wechat-inbound-files.md)） | 微信 V2：引用关联归微信，不新增核心来源登记接口；随后入站图片/文件/视频、出站媒体；斜杠指令跨 Channel 统一另起 B1 | [引用 B2](docs/blueprints/wechat-quotes.md)；[V2 B1](docs/brainstorm/wechat-v2.md) §二 |
 | 已知 bug，低优先级；human 明确延期（2026-10-10） | 微信 Markdown/表格部分引用无法精确定位时提供完整被引消息并注明；显示文字的精确还原后续再处理，不阻塞本轮引用验收 | [引用 B2](docs/blueprints/wechat-quotes.md)；[样本事实](docs/brainstorm/wechat-v2.md) §三 |

@@ -1,22 +1,20 @@
 use std::collections::{HashMap, HashSet};
-use std::future::poll_fn;
 use std::sync::{Arc, Mutex};
 
 use mic_message::{ContentPart, Message, MessageBody, ReplyBlock, SessionId};
 use mic_store::{
-    ClaimedModel, ModelCallContext, ModelCallOutcome, ModelCallPurpose, NewModelCall, Session,
-    Store, StoreError,
+    ClaimedModel, ModelCallContext, ModelCallOutcome, ModelCallPurpose, Session, Store, StoreError,
 };
 use tokio::sync::mpsc;
 use tokio::task::{Id, JoinSet};
 
+use crate::attempt::{stream_attempt, Caller, Facts};
 use crate::event::{Events, KernelEventKind};
 use crate::limits::{TITLE_CHARS, TITLE_INPUT_CHARS, TITLE_TIMEOUT};
-use crate::provider::Factories;
+use crate::provider::{BuiltProvider, Factories};
 use crate::run::now_ms;
 use crate::{
-    ConfigError, ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError, RunError,
-    StopReason, ToolChoice,
+    ConfigError, ModelRequest, ModelResponse, ProviderError, RunError, StopReason, ToolChoice,
 };
 
 #[cfg(test)]
@@ -173,9 +171,13 @@ pub(crate) fn input_text(messages: &[Message]) -> String {
 
 async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(), StoreError> {
     let snapshot = store.title_model_snapshot().await?;
-    let provider = build_provider(factories, snapshot);
-    let provider = match provider {
-        Ok(provider) => provider,
+    let model_id = match &snapshot {
+        ClaimedModel::Selected { id, .. } => Some(*id),
+        _ => None,
+    };
+    let built = build_provider(factories, snapshot);
+    let BuiltProvider { provider, effort } = match built {
+        Ok(built) => built,
         Err(error) => {
             tracing::warn!(session = job.session.id.0, purpose = "title", %error, "title model unavailable");
             return store
@@ -201,58 +203,50 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
         images: Default::default(),
         cache_key: format!("title-{}", job.session.id.0),
     };
-    let started_at = now_ms();
-    let response = tokio::time::timeout(TITLE_TIMEOUT, invoke(provider.as_ref(), request))
-        .await
-        .unwrap_or_else(|_| {
-            Err(ProviderError::Transient {
-                message: "标题生成超时，请重试".into(),
-                retry_after: None,
-            })
-        });
-    let result =
-        response.and_then(|response| parse_title(&response).map(|title| (title, response.usage)));
-    let finished_at = now_ms();
+    let mut facts = Facts::start();
+    let response = tokio::time::timeout(
+        TITLE_TIMEOUT,
+        stream_attempt(provider.as_ref(), request, &mut facts, |_| {}),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        facts.finished_at = now_ms();
+        Err(ProviderError::Transient {
+            message: "标题生成超时，请重试".into(),
+            retry_after: None,
+        })
+    });
+    let stop = response.as_ref().ok().map(|r| r.stop);
+    let result = response.and_then(|response| parse_title(&response));
     if let Err(error) = &result {
         tracing::warn!(
             session = job.session.id.0,
             purpose = "title",
             model = provider.model(),
-            elapsed_ms = finished_at - started_at,
+            elapsed_ms = facts.finished_at - facts.started_at,
             %error,
             "session title generation failed"
         );
     }
     let (result, outcome) = match result {
-        Ok((title, usage)) => (
-            Ok(title),
-            ModelCallOutcome::Replied {
-                usage,
-                blocks: Vec::new(),
-            },
-        ),
+        Ok(title) => (Ok(title), ModelCallOutcome::Replied { blocks: Vec::new() }),
         Err(error) => {
             let error = error.to_string();
             (Err(error.clone()), ModelCallOutcome::Failed { error })
         }
     };
+    let caller = Caller::new(job.session.id, None, provider.as_ref(), model_id, effort);
     store
         .save_title_result(
             job.session.id,
             result,
-            Some(NewModelCall {
-                purpose: ModelCallPurpose::Title,
-                session_id: job.session.id,
-                run_id: None,
-                model: provider.model().into(),
-                started_at,
-                finished_at,
-                context: ModelCallContext {
-                    boundary_id: None,
-                    through: None,
-                },
+            Some(facts.row(
+                &caller,
+                ModelCallPurpose::Title,
+                ModelCallContext::default(),
+                stop,
                 outcome,
-            }),
+            )),
         )
         .await
 }
@@ -260,7 +254,7 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
 fn build_provider(
     factories: &Factories,
     model: ClaimedModel,
-) -> Result<Arc<dyn Provider>, ConfigError> {
+) -> Result<BuiltProvider, ConfigError> {
     match model {
         ClaimedModel::Missing => Err(ConfigError {
             field: "model_id".into(),
@@ -287,22 +281,6 @@ fn build_provider(
             key,
         ),
     }
-}
-
-async fn invoke(
-    provider: &dyn Provider,
-    request: ModelRequest,
-) -> Result<ModelResponse, ProviderError> {
-    let mut stream = provider.stream(request);
-    while let Some(event) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-        match event? {
-            ModelEvent::Finished(response) => return Ok(response),
-            ModelEvent::TextDelta(_) | ModelEvent::ReasoningDelta(_) => {}
-        }
-    }
-    Err(ProviderError::Protocol {
-        message: "标题模型没有返回最终结果".into(),
-    })
 }
 
 fn parse_title(response: &ModelResponse) -> Result<String, ProviderError> {

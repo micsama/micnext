@@ -82,6 +82,10 @@ pub enum ModelEvent {
     TextDelta(String),
     /// 可见推理增量，仅供实时显示。
     ReasoningDelta(String),
+    /// 非空工具参数增量，只作首输出时点。
+    ToolCallDelta,
+    /// 上游报告的用量，后到覆盖先到，失败也保留。
+    Usage(mic_store::Usage),
     /// 最终结果；增量的累积以此为准（一处真相）。
     Finished(ModelResponse),
 }
@@ -90,10 +94,9 @@ pub struct ModelResponse {
     /// 按生成顺序：推理、正文、工具调用。
     pub blocks: Vec<mic_message::ReplyBlock>,
     pub stop: StopReason,
-    /// 上游没报为 `None`。
-    pub usage: Option<mic_store::Usage>,
 }
 
+// StopReason 定义于 mic-store，由 mic-core 重导出。
 pub enum StopReason {
     /// 正常说完。
     EndTurn,
@@ -194,10 +197,10 @@ impl Message {
 - **内容支持**：视图里含实现不支持的片段（v0a 为 `File`）→ `Rejected`，不静默丢弃。
 - **推理回传**：是否把 `Reasoning` 回传给上游由实现按 `ModelView::Assistant.model == self.model()`
   判断（换模型后不回传）；两端都是请求模型名，不受上游回报名的版本后缀干扰。
-- **用量**：`usage` 只在 `Finished` 里给；整个没报为 `None`，报了时输入输出必有，其余上游不报即
-  `None`，不编造 0。`input_tokens` 是本次全部输入
+- **用量**：独立 `Usage` 事件可在结束前任意时刻到达，后到覆盖先到；整个没报为 `None`，报了时输入输出必有，其余上游不报即
+  `None`，协议确认不适用或为零记 `Some(0)`（Chat 缓存写为 0）。`input_tokens` 是本次全部输入
   （含缓存命中），`cache_read_tokens`/`cache_write_tokens` 是其中的缓存部分；`output_tokens`
-  含推理，`reasoning_tokens` 是其中的推理部分。各实现在边界换算成这一口径。失败调用的用量全空。
+  含推理，`reasoning_tokens` 是其中的推理部分。各实现在边界换算成这一口径。失败调用保留已经报告的用量。
 - **超时**：连接与流空闲超时由实现在自己的配置里定，超时归 `Transient`。
 
 ## 五、副作用与依赖

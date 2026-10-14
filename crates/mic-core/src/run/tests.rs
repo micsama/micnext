@@ -12,7 +12,8 @@ use tokio::sync::Notify;
 
 use super::*;
 use crate::{
-    BoxFuture, BoxStream, ConfigError, ProbeError, ProviderFactory, ReasoningOptions, SecretValue,
+    BoxFuture, BoxStream, ConfigError, ModelRequest, ProbeError, ProviderFactory, ReasoningOptions,
+    SecretValue,
 };
 
 #[derive(Default)]
@@ -104,7 +105,6 @@ impl Provider for Mock {
                     phase: None,
                 }],
                 stop: StopReason::EndTurn,
-                usage: None,
             }))
         };
         Box::pin(OneEvent(Some(result)))
@@ -134,6 +134,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
                 name: "test".into(),
                 config_json: "{}".into(),
                 context_window: None,
+                price: Default::default(),
             },
             0,
         )
@@ -227,4 +228,599 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         [Some(E::High), Some(E::High), Some(E::None), Some(E::Low)]
     );
     assert_eq!(capture.builds.load(Ordering::Relaxed), 3);
+}
+
+// 每次实际请求与公开重建入口逐条比较，忽略临时指令的 id / 时间。
+struct Scripted {
+    requests: Mutex<Vec<ModelRequest>>,
+    replies: Mutex<std::collections::VecDeque<Vec<Result<ModelEvent, ProviderError>>>>,
+}
+struct ScriptEvents(std::collections::VecDeque<Result<ModelEvent, ProviderError>>);
+impl futures_core::Stream for ScriptEvents {
+    type Item = Result<ModelEvent, ProviderError>;
+    fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Ready(self.0.pop_front())
+    }
+}
+impl Provider for Scripted {
+    fn model(&self) -> &str {
+        "test"
+    }
+    fn stream(&self, req: ModelRequest) -> BoxStream<Result<ModelEvent, ProviderError>> {
+        self.requests.lock().unwrap().push(req);
+        Box::pin(ScriptEvents(
+            self.replies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("unexpected call")
+                .into(),
+        ))
+    }
+}
+fn scripted(replies: Vec<Vec<Result<ModelEvent, ProviderError>>>) -> Scripted {
+    Scripted {
+        requests: Mutex::default(),
+        replies: Mutex::new(replies.into()),
+    }
+}
+fn reply(text: &str) -> Vec<Result<ModelEvent, ProviderError>> {
+    vec![Ok(ModelEvent::Finished(ModelResponse {
+        blocks: vec![ReplyBlock::Text {
+            text: text.into(),
+            phase: None,
+        }],
+        stop: StopReason::EndTurn,
+    }))]
+}
+fn failed() -> Vec<Result<ModelEvent, ProviderError>> {
+    vec![
+        Ok(ModelEvent::TextDelta(String::new())),
+        Ok(ModelEvent::ToolCallDelta),
+        Ok(ModelEvent::Usage(mic_store::Usage {
+            input_tokens: 12,
+            output_tokens: 2,
+            cache_read_tokens: Some(0),
+            cache_write_tokens: Some(0),
+            reasoning_tokens: None,
+        })),
+        Err(ProviderError::Transient {
+            message: "try again".into(),
+            retry_after: Some(Duration::ZERO),
+        }),
+    ]
+}
+struct Fixture {
+    store: Store,
+    engine: Arc<Engine>,
+    kernel: crate::Kernel,
+    session: Session,
+    claimed: ClaimedRun,
+    owner: mic_message::PersonId,
+}
+impl Fixture {
+    async fn new() -> Self {
+        let store = Store::open_in_memory(&[]).await.unwrap();
+        let owner = store.ensure_person("test", now_ms()).await.unwrap();
+        let endpoint = store
+            .create_endpoint(
+                EndpointWrite {
+                    name: "test".into(),
+                    kind: "test".into(),
+                    config_json: "{}".into(),
+                    credential: CredentialWrite::Clear,
+                },
+                now_ms(),
+            )
+            .await
+            .unwrap();
+        let model = store
+            .create_model(
+                ModelWrite {
+                    endpoint_id: endpoint,
+                    name: "test".into(),
+                    config_json: "{}".into(),
+                    context_window: None,
+                    price: mic_store::ModelPrice {
+                        input: Some(1.0),
+                        output: Some(2.0),
+                        ..Default::default()
+                    },
+                },
+                now_ms(),
+            )
+            .await
+            .unwrap();
+        let session = store
+            .create_session(NewSession {
+                kind: SessionKind::Root {
+                    channel: "web".into(),
+                    chat: "trace".into(),
+                },
+                parent_session_id: None,
+                delivery_target: None,
+                pwd: "/tmp".into(),
+                tool_scope: ToolScope::All,
+                created_at: now_ms(),
+                persona: None,
+                model: Some(model),
+                reasoning_effort: None,
+            })
+            .await
+            .unwrap();
+        store
+            .append_input(
+                session.id,
+                owner,
+                vec![NewInputPart::Text("first".into())],
+                InputDisposition::Pending,
+                None,
+                now_ms(),
+            )
+            .await
+            .unwrap();
+        let claimed = store
+            .claim_next(session.id, now_ms())
+            .await
+            .unwrap()
+            .unwrap();
+        let engine = Arc::new(Engine {
+            store: store.clone(),
+            events: Events::new(),
+            factories: Arc::new(Factories::default()),
+            tools: vec![],
+            channel_prompts: Arc::default(),
+        });
+        let (titles, _worker) = crate::title::TitleRuntime::new(
+            store.clone(),
+            engine.factories.clone(),
+            engine.events.clone(),
+        );
+        let kernel = crate::Kernel::new(
+            owner,
+            tokio::sync::mpsc::channel(1).0,
+            Arc::default(),
+            titles,
+            engine.clone(),
+        );
+        Self {
+            store,
+            engine,
+            kernel,
+            session,
+            claimed,
+            owner,
+        }
+    }
+    fn exec(&self) -> Exec<'_> {
+        Exec {
+            engine: &self.engine,
+            session: &self.session,
+            channel: "web",
+            run: &self.claimed.run,
+            settings: &self.claimed.settings,
+            tools: vec![],
+            pending_inputs: match &self.claimed.input {
+                RunInput::Conversation { message_ids } => message_ids.clone(),
+                _ => unreachable!(),
+            },
+            model_id: match self.claimed.model {
+                ClaimedModel::Selected { id, .. } => Some(id),
+                _ => None,
+            },
+            effort: None,
+            context_window: 100_000,
+        }
+    }
+    async fn verify(&self, provider: &Scripted) -> Vec<mic_store::TraceCall> {
+        self.store
+            .finish_run(self.claimed.run.id, RunState::Completed, now_ms())
+            .await
+            .unwrap();
+        let page = self
+            .store
+            .trace_runs(self.session.id, None, 10)
+            .await
+            .unwrap();
+        let calls = &page.runs[0].calls;
+        let requests = provider.requests.lock().unwrap().clone();
+        assert_eq!(calls.len(), requests.len());
+        for (call, actual) in calls.iter().zip(requests) {
+            let rebuilt = self.kernel.call_input(call.id).await.unwrap().unwrap();
+            let bodies = |messages: Vec<mic_message::Message>| {
+                messages
+                    .into_iter()
+                    .map(|m| serde_json::to_value(m.body).unwrap())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                bodies(rebuilt),
+                bodies(actual.messages),
+                "call {}",
+                call.id.0
+            );
+        }
+        calls.clone()
+    }
+}
+
+#[tokio::test]
+async fn trace_rebuild_survives_later_holds_absorption_and_retries() {
+    let f = Fixture::new().await;
+    let excluded = f
+        .store
+        .append_input(
+            f.session.id,
+            f.owner,
+            vec![NewInputPart::Text("later".into())],
+            InputDisposition::Pending,
+            None,
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    f.store
+        .append(
+            f.session.id,
+            Some(f.claimed.run.id),
+            MessageBody::HarnessNote {
+                text: "after pending".into(),
+            },
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let provider = scripted(vec![failed(), reply("ok"), reply("after absorb")]);
+    let mut exec = f.exec();
+    assert!(exec.call_model(&provider, &[]).await.unwrap().is_ok());
+    f.store.hold_unclaimed_inputs(now_ms()).await.unwrap();
+    // held 改变之后重建第一次请求，仍不能混入该输入。
+    let record_id = f
+        .store
+        .with_module_tx(|tx| {
+            tx.query_row("SELECT min(id) FROM core_model_calls", [], |r| {
+                r.get::<_, i64>(0)
+            })
+        })
+        .await
+        .unwrap();
+    let rebuilt = f
+        .kernel
+        .call_input(mic_store::ModelCallId(record_id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!rebuilt.iter().any(|m| m.id == excluded[0].id));
+    // 新输入在同 run 后续吸收，不能反向改变前一次调用。
+    let next = f
+        .store
+        .append_input(
+            f.session.id,
+            f.owner,
+            vec![NewInputPart::Text("absorbed".into())],
+            InputDisposition::Pending,
+            None,
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    assert!(exec.absorb().await.unwrap());
+    assert!(exec.pending_inputs.contains(&next[0].id));
+    assert!(exec.call_model(&provider, &[]).await.unwrap().is_ok());
+    let calls = f.verify(&provider).await;
+    assert_eq!(
+        calls.iter().map(|c| c.attempt).collect::<Vec<_>>(),
+        [1, 2, 1]
+    );
+    assert_eq!(calls[0].usage.unwrap().input_tokens, 12);
+    assert!(calls[0].first_output_at.is_some());
+    assert!(calls[0].reply_id.is_none());
+    let board = f.store.dashboard(1).await.unwrap();
+    assert_eq!(board.models[0].calls.calls, 3);
+    assert_eq!(board.models[0].calls.failed_calls, 1);
+    assert_eq!(board.models[0].calls.unknown_usage, 2);
+    assert_eq!(board.models[0].calls.unknown_cost, 2);
+    assert_eq!(board.models[0].calls.cost, 0.000016);
+}
+
+#[tokio::test]
+async fn all_failed_attempts_keep_usage_without_reply() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![failed(), failed(), failed()]);
+    assert!(matches!(
+        f.exec().call_model(&provider, &[]).await.unwrap(),
+        Err(RunState::ProviderFailed)
+    ));
+    let calls = f.verify(&provider).await;
+    assert_eq!(calls.len(), 3);
+    assert!(calls
+        .iter()
+        .all(|c| c.reply_id.is_none() && c.usage.is_some()));
+}
+
+#[tokio::test]
+async fn compaction_links_boundary_and_parse_failure_keeps_provider_success() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![reply("reply"), reply("summary"), reply("")]);
+    let mut exec = f.exec();
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    let command = f
+        .store
+        .append_command(
+            f.session.id,
+            f.owner,
+            SessionCommand::Compact {
+                text: Some("focus".into()),
+            },
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    exec.pending_inputs = vec![command.id];
+    exec.compact(&provider).await.unwrap().unwrap();
+    exec.pending_inputs.clear();
+    assert!(exec.compact(&provider).await.unwrap().is_err());
+    let calls = f.verify(&provider).await;
+    assert!(calls[1].boundary_id.is_some());
+    assert!(calls[2].boundary_id.is_none());
+    assert!(calls[2].error.is_none());
+    assert_eq!(calls[2].stop, Some(StopReason::EndTurn));
+}
+
+#[tokio::test]
+async fn compaction_can_trim_every_message_and_rebuild_instruction_only() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![reply("history"), reply("summary")]);
+    let mut exec = f.exec();
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    exec.context_window = 1;
+    exec.compact(&provider).await.unwrap().unwrap();
+    let calls = f.verify(&provider).await;
+    let record = f.store.call_record(calls[1].id).await.unwrap().unwrap();
+    assert!(record.context.skip > 0);
+    assert_eq!(provider.requests.lock().unwrap()[1].messages.len(), 1);
+}
+
+struct TimedTool;
+impl mic_tool::Tool for TimedTool {
+    type Args = HashMap<String, u64>;
+    fn name(&self) -> &str {
+        "timed"
+    }
+    fn description(&self) -> &str {
+        "test timing"
+    }
+    fn prompt_hint(&self) -> Option<&str> {
+        None
+    }
+    async fn execute(
+        &self,
+        args: Self::Args,
+        _: &ToolContext,
+    ) -> Result<Vec<mic_message::ContentPart>, mic_tool::ToolError> {
+        let delay = args["delay"];
+        tokio::time::sleep(Duration::from_millis(delay)).await;
+        Ok(vec![mic_message::ContentPart::Text {
+            text: delay.to_string(),
+        }])
+    }
+}
+
+#[tokio::test]
+async fn parallel_tools_publish_in_persisted_order_and_recovery_has_no_start_time() {
+    let f = Fixture::new().await;
+    let tool_block = |id: &str, delay| ReplyBlock::ToolCall {
+        id: id.into(),
+        name: "timed".into(),
+        args: serde_json::json!({ "delay": delay }),
+    };
+    let provider = scripted(vec![
+        vec![Ok(ModelEvent::Finished(ModelResponse {
+            blocks: vec![tool_block("slow", 30), tool_block("fast", 1)],
+            stop: StopReason::ToolUse,
+        }))],
+        reply("done"),
+    ]);
+    let mut exec = f.exec();
+    exec.tools = vec![ToolHandle::new(TimedTool)];
+    let mut receiver = f.engine.events.subscribe();
+    let calls = exec
+        .call_model(&provider, &exec.tools.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    f.store
+        .append_input(
+            f.session.id,
+            f.owner,
+            vec![NewInputPart::Text("interleaved held input".into())],
+            InputDisposition::Held,
+            None,
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    exec.run_tools(calls).await.unwrap();
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    let mut published = vec![];
+    while let Some(event) = receiver.try_recv() {
+        if let KernelEventKind::MessageAppended(m) = event.unwrap().kind {
+            published.push(m.id);
+        }
+    }
+    assert!(published.windows(2).all(|w| w[0] < w[1]));
+    let messages = f.store.run_messages(f.claimed.run.id).await.unwrap();
+    let results: Vec<_> = messages
+        .iter()
+        .filter_map(|m| match &m.body {
+            MessageBody::ToolResult {
+                tool_call_id,
+                started_at,
+                ..
+            } => Some((tool_call_id.as_str(), started_at.unwrap(), m.created_at)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        results.iter().map(|r| r.0).collect::<Vec<_>>(),
+        ["fast", "slow"]
+    );
+    assert!(results.iter().all(|r| r.1 <= r.2));
+    f.verify(&provider).await;
+    let peers = f.store.call_peers().await.unwrap();
+    assert_eq!(peers.tools[0].samples, 2);
+    let board = f.store.dashboard(1).await.unwrap();
+    assert_eq!(board.tools[0].calls, 2);
+    let recovery = Fixture::new().await;
+    let provider = scripted(vec![vec![Ok(ModelEvent::Finished(ModelResponse {
+        blocks: vec![tool_block("stale", 0)],
+        stop: StopReason::ToolUse,
+    }))]]);
+    recovery
+        .exec()
+        .call_model(&provider, &[])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(crate::recovery::recover(&recovery.store).await.unwrap(), 1);
+    let messages = recovery
+        .store
+        .run_messages(recovery.claimed.run.id)
+        .await
+        .unwrap();
+    assert!(messages.iter().any(|m| matches!(
+        &m.body,
+        MessageBody::ToolResult {
+            started_at: None,
+            outcome: ToolResultOutcome::Terminal(ExecOutcome::Cancelled { .. }),
+            ..
+        }
+    )));
+}
+
+#[tokio::test]
+async fn trace_paging_keeps_session_side_calls_out_of_runs() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![reply("first reply")]);
+    f.exec().call_model(&provider, &[]).await.unwrap().unwrap();
+    let calls = f.verify(&provider).await;
+    let model = calls[0].model_id;
+    let now = now_ms();
+    f.store
+        .record_model_call(mic_store::NewModelCall {
+            session_id: f.session.id,
+            run_id: None,
+            purpose: ModelCallPurpose::Title,
+            model: "test".into(),
+            model_id: model,
+            reasoning_effort: None,
+            context: Default::default(),
+            started_at: now,
+            first_output_at: None,
+            finished_at: now + 100,
+            stop: Some(StopReason::EndTurn),
+            usage: None,
+            outcome: ModelCallOutcome::Replied { blocks: vec![] },
+        })
+        .await
+        .unwrap();
+    f.store
+        .append_input(
+            f.session.id,
+            f.owner,
+            vec![NewInputPart::Text("next".into())],
+            InputDisposition::Pending,
+            None,
+            now,
+        )
+        .await
+        .unwrap();
+    let next = f
+        .store
+        .claim_next(f.session.id, now)
+        .await
+        .unwrap()
+        .unwrap();
+    let page = f.store.trace_runs(f.session.id, None, 1).await.unwrap();
+    assert_eq!(page.runs[0].id, f.claimed.run.id); // 执行中的 next 不显示
+    assert!(page.next_before.is_none());
+    assert_eq!(page.title_calls.len(), 1);
+    assert!(f
+        .kernel
+        .call_input(page.title_calls[0].id)
+        .await
+        .unwrap()
+        .is_none());
+    f.store
+        .finish_run(next.run.id, RunState::Interrupted, now + 1)
+        .await
+        .unwrap();
+    let page = f.store.trace_runs(f.session.id, None, 1).await.unwrap();
+    assert_eq!(page.runs[0].id, next.run.id);
+    assert!(page.runs[0].calls.is_empty());
+    let older = f
+        .store
+        .trace_runs(f.session.id, page.next_before, 1)
+        .await
+        .unwrap();
+    assert_eq!(older.runs[0].id, f.claimed.run.id);
+    assert_eq!(older.runs[0].calls.len(), 1);
+    assert!(older.title_calls.is_empty() && older.next_before.is_none());
+    let sessions = f.store.trace_sessions().await.unwrap();
+    assert_eq!(sessions[0].interrupted_runs, 1);
+    let board = f.store.dashboard(1).await.unwrap();
+    assert_eq!(board.days[0].runs, 2);
+    assert_eq!(board.days[0].completed_runs, 1);
+    assert_eq!(board.days[0].calls.calls, 2);
+    assert_eq!(board.models.len(), 2); // 旁路按 purpose 独立聚合
+    let peers = f.store.call_peers().await.unwrap();
+    assert_eq!(peers.models.len(), 2);
+    assert!(peers
+        .models
+        .iter()
+        .any(|p| p.purpose == ModelCallPurpose::Title && p.median_ms == 100));
+}
+
+#[tokio::test]
+async fn explicit_then_automatic_compaction_in_one_run_reconstructs_each_instruction() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![
+        reply("history"),
+        reply("manual summary"),
+        reply("automatic summary"),
+        reply("answer"),
+    ]);
+    let mut exec = f.exec();
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    let command = f
+        .store
+        .append_command(
+            f.session.id,
+            f.owner,
+            SessionCommand::Compact {
+                text: Some("focus next".into()),
+            },
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    exec.pending_inputs = vec![command.id];
+    exec.compact(&provider).await.unwrap().unwrap();
+    exec.context_window = 1;
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    let calls = f.verify(&provider).await;
+    assert_eq!(
+        calls.iter().map(|c| c.purpose).collect::<Vec<_>>(),
+        [
+            ModelCallPurpose::Conversation,
+            ModelCallPurpose::Compaction,
+            ModelCallPurpose::Compaction,
+            ModelCallPurpose::Conversation
+        ]
+    );
+    for call in &calls[1..3] {
+        let record = f.store.call_record(call.id).await.unwrap().unwrap();
+        assert_eq!(record.context.instruction, [command.id]);
+    }
+    assert_ne!(calls[1].boundary_id, calls[2].boundary_id);
 }

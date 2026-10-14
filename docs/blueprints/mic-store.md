@@ -55,10 +55,9 @@ pub struct Person {
 }
 
 /// 发送目标：`channel` 决定由哪个 Channel 投递；`payload` 是该 Channel 自己
-/// 编解码的版本化不透明数据。
+/// 编解码的不透明数据。
 pub struct DeliveryTarget {
     pub channel: String,
-    pub version: u32,
     pub payload: String,
 }
 
@@ -114,6 +113,8 @@ pub struct ContextWindow {
     pub summary: Option<String>,
     /// 当前有效历史与边界保留的输入，按 id；包含 held 输入，排除仍待调度的输入。
     pub messages: Vec<Message>,
+    /// 当时被排除、位于 through 之前的待调度输入。
+    pub filtered: Vec<MessageId>,
 }
 
 pub struct PendingDelivery {
@@ -132,12 +133,12 @@ pub struct Usage {
 }
 
 pub enum ModelCallOutcome {
-    /// `usage` 为 `None` = 上游没报。`blocks` 非空时写成一条 `Reply`。
-    Replied { usage: Option<Usage>, blocks: Vec<ReplyBlock> },
+    /// `blocks` 非空时写成一条 `Reply`；usage 是 NewModelCall 独立字段。
+    Replied { blocks: Vec<ReplyBlock> },
     Failed { error: String },
 }
 
-/// 模块迁移。`module` 不得为 `"core"`（内核保留）；同一模块 `version` 从 1 连续递增。
+/// 模块迁移。`module` 不得为 `"core"`（内核保留）；同一模块 `version` 从基线起连续递增。
 pub struct Migration {
     pub module: &'static str,
     pub version: u32,
@@ -159,13 +160,21 @@ pub struct NewSession {
 
 /// 一次模型调用尝试（含失败与重试）。
 pub struct NewModelCall {
+    pub purpose: ModelCallPurpose,
     pub context: ModelCallContext,
     pub session_id: SessionId,
     pub run_id: Option<RunId>,
-    /// 请求模型名（`Provider::model()`）。
+    /// 请求模型名。
     pub model: String,
+    pub model_id: Option<ModelId>,
+    pub reasoning_effort: Option<ReasoningEffort>,
     pub started_at: i64,
+    /// 首个非空正文、推理或工具参数增量的时刻。
+    pub first_output_at: Option<i64>,
     pub finished_at: i64,
+    pub stop: Option<StopReason>,
+    /// 成败独立：失败的调用也可能带已收到的用量。
+    pub usage: Option<Usage>,
     pub outcome: ModelCallOutcome,
 }
 
@@ -246,13 +255,12 @@ Channel 决定（通常只发 `Text`）。Root session 的 `channel`（入站来
 
 `schema_migrations(module, version)` 记录每个模块已应用的最高版本。`open` 时：
 
-1. 应用内核迁移（`module = "core"`），再按传入顺序应用各模块迁移；每个版本单独
-   事务，成功后更新记录。
+1. 内核 core v10、wechat v3 为各自基线。模块没有版本记录则直接建基线；低于基线报 `SchemaRebuild` 并提示删库重建。基线以上依次应用增量，每个版本单独事务。
 2. 库中版本高于二进制已知最高版本 → `SchemaAhead`（库文件来自更新的二进制，Fail Fast）。
 3. 库里有、但本次未传入的模块（功能被删）→ 不动，其表保留休眠，重新启用即恢复。
 
 模块表名必须以 `{module}_` 开头，只能经 `with_module_tx` 访问；内核表只由 `Store`
-方法写。运行时不设限制，由各模块的单元测试（`tests.rs`）把关：用
+方法写。运行时不设限制，由各模块的功能测试（`tests.rs`）把关：用
 `open_in_memory(&该模块迁移)` 建库，跑一遍该模块的读写操作，断言
 ① `sqlite_master` 里除内核表外只有 `{module}_` 前缀的表；② 内核表行数不变。
 
@@ -360,56 +368,24 @@ pub enum StoreError {
 }
 ```
 
-## 六、schema（core v2）
+## 六、schema（core v10 基线）
 
-内核表统一 `core_` 前缀；`schema_migrations` 是所有模块共用的迁移登记表，不属于内核事实，保持原名。
-实际 SQL 见 `crates/mic-store/src/schema.rs`，列如下：
+表名、分组与说明以 `crates/mic-store/src/schema.rs` 的 `TABLE_CATALOG` 为唯一目录；建表 SQL 也在该文件。微信建表在 `crates/mic-channel-wechat/src/schema.rs`。
 
-```
-core_persons            id, name UNIQUE, created_at
-core_person_identities  (channel, external_id) PK, person_id, display_name, created_at
-core_sessions           id, kind('root'|'task'|'triggered'), channel?, chat?, parent_tool_call_id?,
-                        trigger_module?, trigger_ref?, parent_session_id?,
-                        delivery_channel?, delivery_version?, delivery_payload?（三列同空同非空）,
-                        pwd, tool_scope(JSON), created_at
-core_runs               id, session_id, state, created_at, finished_at?
-core_model_calls        id, session_id, run_id?, model, error?,
-                        input_tokens?, output_tokens?, cache_read_tokens?, cache_write_tokens?,
-                        reasoning_tokens?, started_at, finished_at
-core_messages           id, session_id, run_id?, model_call_id?, payload, created_at, delivered_at?,
-                        kind       VIRTUAL 生成列 ← json_extract(payload, '$.kind')
-                        person_id  VIRTUAL 生成列 ← json_extract(payload, '$.person')
-core_input_holds        message_id PK REFERENCES core_messages(id), held_at（core v5）
-```
-
-- `payload` 是 `MessageBody` 的 serde（内部标签 `kind`），唯一真相；生成列写入方不填。
-  例外：`Reply` 的 `model` 不进 payload，读出时按 `model_call_id` JOIN `core_model_calls.model` 还原。
-- `core_model_calls`：每次调用尝试一行（含失败与重试），`run_id` 为空表示压缩调用；
-  `error IS NULL` ⇔ 成功；失败行用量全空；成功行 `input_tokens`、`output_tokens` 同空同非空。
-- 外键：`run_id` → `core_runs`，`model_call_id` → `core_model_calls`，`person_id` → `core_persons`，
-  `parent_session_id` → `core_sessions`。
-- 索引：`idx_root_chat`（root 的 `(channel, chat)` 唯一）；`idx_sessions_delivery`；
-  `core_messages(session_id, id)`；未认领 `(session_id, id) WHERE run_id IS NULL AND kind IN
-  ('UserInput','Completion')`；待投递 `(session_id) WHERE delivered_at IS NULL AND kind IN
-  ('Reply','Notification')`；`core_messages(run_id)`；`core_runs(session_id) WHERE state = 'executing'`；
-  `core_model_calls(session_id)`。
+`payload` 是 MessageBody 的 serde；Reply 的模型名由关联调用行还原。每次模型尝试一行，purpose 区分对话、压缩与标题，失败仍可有 usage。调用的 model_id 与当前单价用于看板估算；run 仅保存执行状态与起止，不存配置快照。调用输入关联与压缩 Boundary 关联见 [run-trace](run-trace.md)。
 
 ### 不变量
 
 1. 每个会话至多一个 `executing` run。
 2. 输入的 `run_id` 只由认领/并入从空填成非空，之后不变；同一 run 的输入属于同一 person。
 3. 仍待调度的输入不进模型上下文；held 输入保留在上下文。稳定回放返回两者。
-4. `model_call_id` 只出现在 `Reply` 上，指向一次成功调用，二者 `run_id`、`session_id` 相同。
+4. `model_call_id` 出现在 `Reply` 与压缩 `Boundary` 上，指向一次成功调用，二者 `run_id`、`session_id` 相同。
 5. run 进入终态时，其每个 `ToolCall` 块恰有一条同 run 的 `ToolResult`（启动收尾负责补齐，run-execution §4.6）。
 6. `run_id` 非空的消息与调用，`session_id` 等于该 run 的 `session_id`。
 
 ### 6.1 设置与人设（core v2）
 
-表：`core_personas`（`id, name, prompt, builtin, created_at, updated_at, deleted_at`，未删除名字唯一）、
-`core_settings`（单行：`default_persona_id, general_prompt, default_workdir, max_turns`）；
-`core_sessions.persona_id`（不加外键：SQLite 开着外键时不允许带非 NULL 默认值的 `ADD COLUMN … REFERENCES`，
-引用由写入方法校验）；`core_runs` 加 `persona_id/persona_name/persona_prompt/general_prompt/max_turns`
-快照列（迁移前的历史 run 为 NULL）。`default_workdir` 存用户写法（绝对路径或 `~/` 开头），由使用方展开。
+设置、人设与会话选择的列定义见 schema.rs；run 不持久化配置快照。`default_workdir` 存用户写法（绝对路径或 `~/` 开头），由使用方展开。
 
 内置人设不在迁移里写（仅占位 id 1 以满足外键）。`personas::sync` 在每次打开库时单事务执行：源码
 （`src/personas/*.md` + 显式 `id + name`）为唯一真相，按 id upsert 覆盖名字与提示词并恢复未删除；同名的未删除

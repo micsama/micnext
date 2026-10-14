@@ -172,6 +172,7 @@ fn history() -> ModelRequest {
                             output: vec![ContentPart::Text { text: "out".into() }],
                         },
                     ),
+                    started_at: None,
                 },
             ),
         ],
@@ -197,20 +198,29 @@ type ErrorCheck = fn(&ProviderError) -> bool;
 
 struct Outcome {
     deltas: Vec<String>,
+    /// 最后一次 `Usage` 事件。
+    usage: Option<Usage>,
+    tool_deltas: usize,
     result: Result<ModelResponse, ProviderError>,
 }
 
 async fn run(p: &OpenAiProvider, req: ModelRequest) -> Outcome {
     let mut s = p.stream(req);
     let mut deltas = Vec::new();
+    let mut usage = None;
+    let mut tool_deltas = 0;
     while let Some(item) = s.next().await {
         match item {
+            Ok(ModelEvent::Usage(u)) => usage = Some(u),
+            Ok(ModelEvent::ToolCallDelta) => tool_deltas += 1,
             Ok(ModelEvent::TextDelta(t)) => deltas.push(format!("T:{t}")),
             Ok(ModelEvent::ReasoningDelta(r)) => deltas.push(format!("R:{r}")),
             Ok(ModelEvent::Finished(resp)) => {
                 assert!(s.next().await.is_none(), "终态后仍有事件");
                 return Outcome {
                     deltas,
+                    usage,
+                    tool_deltas,
                     result: Ok(resp),
                 };
             }
@@ -218,6 +228,8 @@ async fn run(p: &OpenAiProvider, req: ModelRequest) -> Outcome {
                 assert!(s.next().await.is_none(), "错误后仍有事件");
                 return Outcome {
                     deltas,
+                    usage,
+                    tool_deltas,
                     result: Err(e),
                 };
             }
@@ -331,15 +343,16 @@ async fn chat_deepseek_round_trip() {
         ]
     );
     assert_eq!(
-        resp.usage,
+        out.usage,
         Some(Usage {
             input_tokens: 10,
             output_tokens: 5,
             cache_read_tokens: Some(8),
-            cache_write_tokens: None,
+            cache_write_tokens: Some(0),
             reasoning_tokens: Some(2),
         })
     );
+    assert!(out.tool_deltas > 0, "工具参数增量应作为时点事件交出");
 
     let req = rx.await.unwrap();
     assert!(req.head.starts_with("POST /chat/completions "));
@@ -397,7 +410,7 @@ async fn chat_dialects_and_termination() {
     assert_eq!(out.deltas, ["R:r", "T:t"]);
     let resp = out.result.unwrap();
     assert_eq!(resp.stop, StopReason::EndTurn);
-    assert!(resp.usage.is_none());
+    assert!(out.usage.is_none());
 
     // Generic 缓存统计；不回传推理。
     let (url, rx) = upstream(sse(
@@ -413,7 +426,7 @@ async fn chat_dialects_and_termination() {
     assert_eq!(out.deltas, ["T:t"]);
     let resp = out.result.unwrap();
     assert_eq!(resp.stop, StopReason::MaxTokens);
-    assert_eq!(resp.usage.unwrap().cache_read_tokens, Some(2));
+    assert_eq!(out.usage.unwrap().cache_read_tokens, Some(2));
     assert!(rx.await.unwrap().body["messages"][3]
         .get("reasoning_content")
         .is_none());
@@ -497,7 +510,7 @@ async fn responses_codex_round_trip() {
         ]
     );
     assert_eq!(
-        resp.usage,
+        out.usage,
         Some(Usage {
             input_tokens: 9,
             output_tokens: 3,
@@ -569,7 +582,7 @@ async fn responses_terminal_states() {
                 refusal,
                 json!({"type": "response.incomplete", "response": {"incomplete_details": {"reason": "max_output_tokens"}, "usage": usage()}}),
             ],
-            |r| matches!(r, Ok(resp) if resp.stop == StopReason::MaxTokens && resp.usage.is_some()),
+            |r| matches!(r, Ok(resp) if resp.stop == StopReason::MaxTokens),
         ),
         (
             vec![

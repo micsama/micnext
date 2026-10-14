@@ -8,18 +8,18 @@ use mic_message::{
 };
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
-    CredentialWrite, EndpointId, EndpointView, EndpointWrite, Identity, InputDisposition,
-    MessagePage, ModelId, ModelView, ModelWrite, NewInputPart, NewNotice, NewSession,
-    PendingDelivery, Persona, PersonaId, QueryResult, ReasoningEffort, RunId, Session,
-    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, Store, StoreError,
-    TableSchema,
+    CredentialWrite, Dashboard, EndpointId, EndpointView, EndpointWrite, Identity,
+    InputDisposition, MessagePage, ModelCallId, ModelCallPurpose, ModelId, ModelView, ModelWrite,
+    NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId, QueryResult,
+    ReasoningEffort, RunId, Session, SessionCursor, SessionKind, SessionPage, SessionSummary,
+    Settings, Store, StoreError, TableSchema, TraceRunPage, TraceSession,
 };
 use tokio::sync::mpsc;
 
 use crate::event::{EventReceiver, Events};
 use crate::input::{validate, IncomingPart};
 use crate::provider::{resolve_key, resolve_reasoning, Factories};
-use crate::run::now_ms;
+use crate::run::{now_ms, Engine};
 use crate::{request, ChannelSetup, KernelError, ProviderKindView, WorkdirError};
 
 /// 模块拿到的内核窄接口。Clone 廉价；核心表只经这些方法写。
@@ -32,6 +32,7 @@ pub struct Kernel {
     wake: mpsc::Sender<SessionId>,
     factories: Arc<Factories>,
     channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
+    engine: Arc<Engine>,
 }
 
 /// 创建/修改服务商的输入；`config_json` 由对应 kind 的工厂解析。
@@ -48,6 +49,7 @@ pub struct ModelDraft {
     pub endpoint_id: EndpointId,
     pub name: String,
     pub config_json: String,
+    pub price: mic_store::ModelPrice,
 }
 
 impl Kernel {
@@ -99,22 +101,21 @@ impl Kernel {
         Ok(id)
     }
     pub(crate) fn new(
-        store: Store,
         owner: PersonId,
-        events: Events,
         wake: mpsc::Sender<SessionId>,
-        factories: Arc<Factories>,
         channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
         titles: crate::title::TitleHandle,
+        engine: Arc<Engine>,
     ) -> Self {
         Self {
             titles,
-            store,
+            store: engine.store.clone(),
             owner,
-            events,
+            events: engine.events.clone(),
             wake,
-            factories,
+            factories: engine.factories.clone(),
             channel_setups,
+            engine,
         }
     }
 
@@ -398,9 +399,91 @@ impl Kernel {
         Ok(self.store.executing_run(session_id).await?)
     }
 
-    /// 系统提示词（不可改），供设置页只读展示。
-    pub fn system_prompt(&self) -> &'static str {
+    /// 内置 instructions 块（不可改），供设置页只读展示。
+    pub fn base_prompt(&self) -> &'static str {
         request::base_prompt()
+    }
+
+    /// 该会话按当前配置下一次调用会用的系统提示。
+    pub async fn system_prompt(&self, session: SessionId) -> Result<String, KernelError> {
+        let s = self
+            .store
+            .session(session)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        let settings = self.store.run_settings(session).await?;
+        let window = self.store.context_window(session).await?;
+        let channel_prompt = match &s.kind {
+            SessionKind::Root { channel, .. } => {
+                self.engine.channel_prompts.get(channel.as_str()).copied()
+            }
+            _ => None,
+        };
+        Ok(request::system_prompt(
+            &settings,
+            &s.pwd,
+            channel_prompt,
+            &self.engine.scoped_tools(&s.tool_scope),
+            window.summary.as_deref(),
+            &window.files,
+        ))
+    }
+
+    /// 重建某次调用当时的输入消息；标题调用没有会话输入，返回 `None`。
+    pub async fn call_input(&self, call: ModelCallId) -> Result<Option<Vec<Message>>, KernelError> {
+        let Some(record) = self.store.call_record(call).await? else {
+            return Ok(None);
+        };
+        if record.purpose == ModelCallPurpose::Title {
+            return Ok(None);
+        }
+        let context = record.context;
+        let window = self
+            .store
+            .window_at(record.session_id, context.boundary_id, context.through)
+            .await?
+            .into_iter()
+            .filter(|m| !context.excluded.contains(&m.id))
+            .collect();
+        let messages = match record.purpose {
+            ModelCallPurpose::Compaction => {
+                let mut messages = request::arrange(window, &[]);
+                messages.drain(..context.skip as usize);
+                let instruction = self.store.messages_by_ids(context.instruction).await?;
+                messages.push(crate::compaction::instruction_note(
+                    record.session_id,
+                    crate::compaction::extra_text(&instruction),
+                ));
+                messages
+            }
+            _ => request::arrange(window, &context.tail),
+        };
+        Ok(Some(messages))
+    }
+
+    pub async fn trace_sessions(&self) -> Result<Vec<TraceSession>, KernelError> {
+        Ok(self.store.trace_sessions().await?)
+    }
+
+    pub async fn trace_runs(
+        &self,
+        session: SessionId,
+        before: Option<RunId>,
+        limit: u32,
+    ) -> Result<TraceRunPage, KernelError> {
+        Ok(self.store.trace_runs(session, before, limit).await?)
+    }
+
+    pub async fn message(&self, id: MessageId) -> Result<Option<Message>, KernelError> {
+        Ok(self.store.message(id).await?)
+    }
+
+    pub async fn call_peers(&self) -> Result<Peers, KernelError> {
+        Ok(self.store.call_peers().await?)
+    }
+
+    pub async fn dashboard(&self, days: u32) -> Result<Dashboard, KernelError> {
+        Ok(self.store.dashboard(days).await?)
     }
 
     pub async fn settings(&self) -> Result<Settings, KernelError> {
@@ -653,6 +736,7 @@ impl Kernel {
             endpoint_id: draft.endpoint_id,
             name: draft.name,
             config_json,
+            price: draft.price,
         })
     }
 

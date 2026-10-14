@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TraceView from "./components/developer/TraceView.svelte";
   import ChatView from "./components/ChatView.svelte";
   import NewChat from "./components/NewChat.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
@@ -55,9 +56,11 @@
   </div>
 {:else}
   <div class="flex h-full">
-    <Sidebar open={drawer} onclose={() => (drawer = false)} activeSession={view?.info ?? null} />
+    {#if router.current.kind !== "trace"}<Sidebar open={drawer} onclose={() => (drawer = false)} activeSession={view?.info ?? null} />{/if}
     <main class="flex min-w-0 flex-1 flex-col">
-      {#if router.current.kind === "new"}
+      {#if router.current.kind === "trace"}
+        {#key router.current.id}<TraceView initialSession={router.current.id} />{/key}
+      {:else if router.current.kind === "new"}
         <NewChat onmenu={openDrawer} />
       {:else if router.current.kind === "settings"}
         <SettingsView onmenu={openDrawer} />

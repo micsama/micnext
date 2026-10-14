@@ -52,3 +52,17 @@ function oneLine(s: string): string {
 export function prettyArgs(args: unknown): string {
   return typeof args === "string" ? args : JSON.stringify(args, null, 2);
 }
+
+/** 耗时：<1 秒用毫秒，其余用秒。 */
+export function formatDuration(ms: number): string {
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)} s`;
+}
+
+export function formatTokens(n: number): string {
+  return n < 10_000 ? String(n) : n < 1_000_000 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+/** 美元，小额保留足够有效位。 */
+export function formatCost(usd: number): string {
+  return `$${usd < 0.01 ? usd.toFixed(5) : usd.toFixed(usd < 1 ? 4 : 2)}`;
+}

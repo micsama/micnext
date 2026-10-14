@@ -258,6 +258,8 @@ pub(crate) enum Event {
     RefusalDelta { delta: String },
     #[serde(rename = "response.reasoning_summary_text.delta")]
     ReasoningSummaryTextDelta { delta: String },
+    #[serde(rename = "response.function_call_arguments.delta")]
+    FunctionCallArgumentsDelta {},
     #[serde(rename = "response.output_item.done")]
     OutputItemDone { output_index: u32, item: OutputItem },
     #[serde(rename = "response.completed")]
@@ -281,7 +283,6 @@ pub(crate) enum Event {
         alias = "response.output_text.done",
         alias = "response.output_text.annotation.added",
         alias = "response.refusal.done",
-        alias = "response.function_call_arguments.delta",
         alias = "response.function_call_arguments.done",
         alias = "response.reasoning_summary_part.added",
         alias = "response.reasoning_summary_part.done",
@@ -392,12 +393,14 @@ impl Accumulate for Accumulator {
             Event::ReasoningSummaryTextDelta { delta } => {
                 Step::Deltas(vec![ModelEvent::ReasoningDelta(delta)])
             }
+            Event::FunctionCallArgumentsDelta {} => Step::Deltas(vec![ModelEvent::ToolCallDelta]),
             Event::OutputItemDone { output_index, item } => {
                 self.items.push((output_index, item));
                 Step::Deltas(Vec::new())
             }
             Event::Completed { response } => {
-                Step::Finished(finish(take(&mut self.items), response.usage, None)?)
+                let usage = response.usage.map(convert_usage).transpose()?;
+                Step::Finished(finish(take(&mut self.items), None)?, usage)
             }
             Event::Incomplete { response } => {
                 let stop = match response
@@ -414,13 +417,16 @@ impl Accumulate for Accumulator {
                         )))
                     }
                 };
-                Step::Finished(finish(take(&mut self.items), response.usage, Some(stop))?)
+                let usage = response.usage.map(convert_usage).transpose()?;
+                Step::Finished(finish(take(&mut self.items), Some(stop))?, usage)
             }
             Event::Failed { response } => {
-                return Err(match response.error {
+                let error = match response.error {
                     Some(err) => upstream(Some(&err.code), &err.message),
                     None => protocol("response.failed 未给出错误"),
-                })
+                };
+                let usage = response.usage.and_then(|u| convert_usage(u).ok());
+                Step::Failed(error, usage)
             }
             Event::Error { detail } => {
                 let detail = match detail {
@@ -441,7 +447,6 @@ impl Accumulate for Accumulator {
 /// `stop` 为 `None` 时由输出推断：有工具调用即 ToolUse，有拒答即 ContentFilter。
 fn finish(
     mut items: Vec<(u32, OutputItem)>,
-    usage: Option<ResponseUsage>,
     stop: Option<StopReason>,
 ) -> Result<ModelResponse, ProviderError> {
     items.sort_by_key(|(index, _)| *index);
@@ -502,11 +507,7 @@ fn finish(
             StopReason::EndTurn
         }
     });
-    Ok(ModelResponse {
-        blocks,
-        stop,
-        usage: usage.map(convert_usage).transpose()?,
-    })
+    Ok(ModelResponse { blocks, stop })
 }
 
 fn reasoning(summary: Vec<SummaryPart>, encrypted: Option<String>) -> Option<Reasoning> {

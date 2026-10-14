@@ -40,6 +40,8 @@ pub enum Cell {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableSchema {
     pub name: String,
+    pub group: String,
+    pub description: String,
     pub columns: Vec<ColumnSchema>,
 }
 
@@ -177,6 +179,16 @@ impl Store {
             match tables.last_mut() {
                 Some(last) if last.name == table => last.columns.push(column),
                 _ => tables.push(TableSchema {
+                    group: crate::schema::TABLE_CATALOG
+                        .iter()
+                        .find(|entry| entry.0 == table)
+                        .map_or("其他", |entry| entry.1)
+                        .into(),
+                    description: crate::schema::TABLE_CATALOG
+                        .iter()
+                        .find(|entry| entry.0 == table)
+                        .map_or("未登记的表或视图", |entry| entry.2)
+                        .into(),
                     name: table,
                     columns: vec![column],
                 }),

@@ -15,7 +15,8 @@ use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
 use crate::update::{RestartRequest, Updater};
 use crate::{
-    api, channels, context, log_stream, models, settings, sql, stream, update, web, DeveloperLogs,
+    api, channels, context, log_stream, models, settings, sql, stream, trace, update, web,
+    DeveloperLogs,
 };
 
 pub(crate) struct Gateway {
@@ -157,6 +158,14 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
             "/personas/{id}",
             put(settings::update_persona).delete(settings::delete_persona),
         )
+        .route("/trace/sessions", get(trace::sessions))
+        .route("/trace/sessions/{id}", get(trace::runs))
+        .route("/trace/sessions/{id}/system", get(trace::system))
+        .route("/trace/messages/{id}", get(trace::message))
+        .route("/trace/calls/{id}/input", get(trace::call_input))
+        .route("/trace/runs/{id}/logs", get(trace::run_logs))
+        .route("/trace/peers", get(trace::peers))
+        .route("/trace/dashboard", get(trace::dashboard))
         .route("/developer/logs/history", get(log_stream::history))
         .route("/developer/logs/stream", get(log_stream::stream))
         .route("/developer/sql", post(sql::query))

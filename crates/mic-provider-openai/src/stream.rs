@@ -6,6 +6,7 @@ use std::pin::Pin;
 use eventsource_stream::{Event, EventStreamError, Eventsource};
 use futures_util::stream::{self, Stream, StreamExt};
 use mic_core::{BoxStream, ModelEvent, ModelResponse, ProviderError};
+use mic_store::Usage;
 use reqwest::Response;
 use serde::de::DeserializeOwned;
 
@@ -24,7 +25,10 @@ pub(crate) enum Step {
     Deltas(Vec<ModelEvent>),
     /// 未知事件类型：忽略并告警。
     Unknown,
-    Finished(ModelResponse),
+    /// 终态；用量先于 `Finished` 作为 `Usage` 事件交出。
+    Finished(ModelResponse, Option<Usage>),
+    /// 上游报告失败；已收到的用量照常交出。
+    Failed(ProviderError, Option<Usage>),
 }
 
 pub(crate) type Open = Pin<Box<dyn Future<Output = Result<Response, ProviderError>> + Send>>;
@@ -55,7 +59,7 @@ pub(crate) fn drive<A: Accumulate>(open: Open, acc: A) -> BoxStream<Item> {
                     Ok(Some(Ok(event))) if event.event == "keepalive" => {
                         (Vec::new(), State::Streaming(s, acc))
                     }
-                    Ok(Some(Ok(event))) if event.data == "[DONE]" => finish(acc.eof()),
+                    Ok(Some(Ok(event))) if event.data == "[DONE]" => finish(acc.eof(), None),
                     Ok(Some(Ok(event))) => match parse(&event.data).and_then(|e| acc.push(e)) {
                         Ok(Step::Deltas(events)) => (
                             events.into_iter().map(Ok).collect(),
@@ -69,11 +73,12 @@ pub(crate) fn drive<A: Accumulate>(open: Open, acc: A) -> BoxStream<Item> {
                             );
                             (Vec::new(), State::Streaming(s, acc))
                         }
-                        Ok(Step::Finished(resp)) => finish(Ok(resp)),
+                        Ok(Step::Finished(resp, usage)) => finish(Ok(resp), usage),
+                        Ok(Step::Failed(e, usage)) => fail_with(e, usage),
                         Err(e) => fail(e),
                     },
                     Ok(Some(Err(e))) => fail(transient(format!("流中途断开：{e}"))),
-                    Ok(None) => finish(acc.eof()),
+                    Ok(None) => finish(acc.eof(), None),
                     Err(e) => fail(e),
                 }),
             }
@@ -95,11 +100,32 @@ fn event_type(data: &str) -> Option<String> {
     serde_json::from_str::<Tagged>(data).ok().map(|t| t.r#type)
 }
 
-fn finish<A>(resp: Result<ModelResponse, ProviderError>) -> (Vec<Item>, State<A>) {
+fn finish<A>(
+    resp: Result<ModelResponse, ProviderError>,
+    usage: Option<Usage>,
+) -> (Vec<Item>, State<A>) {
     match resp {
-        Ok(resp) => (vec![Ok(ModelEvent::Finished(resp))], State::Done),
-        Err(e) => fail(e),
+        Ok(resp) => (
+            usage
+                .map(|u| Ok(ModelEvent::Usage(u)))
+                .into_iter()
+                .chain([Ok(ModelEvent::Finished(resp))])
+                .collect(),
+            State::Done,
+        ),
+        Err(e) => fail_with(e, usage),
     }
+}
+
+fn fail_with<A>(e: ProviderError, usage: Option<Usage>) -> (Vec<Item>, State<A>) {
+    (
+        usage
+            .map(|u| Ok(ModelEvent::Usage(u)))
+            .into_iter()
+            .chain([Err(e)])
+            .collect(),
+        State::Done,
+    )
 }
 
 fn fail<A>(e: ProviderError) -> (Vec<Item>, State<A>) {

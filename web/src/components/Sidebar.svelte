@@ -155,7 +155,12 @@
       {/each}
     {/if}
   </nav>
-  <div class="flex items-center gap-1 border-t border-border p-2">
+  <div class="border-t px-2 py-1">
+    <button type="button" class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => go("/trace")}>
+      <Icon name="sparkles" />运行追踪
+    </button>
+  </div>
+  <div class="flex items-center gap-1 border-border p-2">
     <button
       type="button"
       onclick={() => go("/settings")}

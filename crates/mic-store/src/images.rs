@@ -8,7 +8,7 @@ use mic_message::{
 };
 use rusqlite::{params, OptionalExtension};
 
-use crate::store::insert_message;
+use crate::messages::insert_message;
 use crate::{InputDisposition, NewInputPart, NewNotice, Store, StoreError};
 
 fn format_str(f: ImageFormat) -> &'static str {

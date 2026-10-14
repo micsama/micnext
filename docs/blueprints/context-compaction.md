@@ -39,7 +39,6 @@ pub struct Compaction {
     pub summary: String,
     pub keep_from: Option<MessageId>,
     pub files: Vec<FileSnapshot>,
-    pub extra: Option<String>,
 }
 
 pub struct FileSnapshot {
@@ -64,7 +63,7 @@ pub enum ContextBoundary {
 
 `keep_from=None` 表示不保留旧 step 原文；非空切点必须是当前有效窗口中的 Reply 起点。若历史不足 N 个 step，全部保留已有 step；N=0 可用。摘要描述较早历史，保留原文覆盖近期细节。失效状态不塞进摘要，也不改写模型调用成败。
 
-旧磁盘 Compaction payload 在 schema 迁移中补齐 `keep_from=null`、`files=[]`、`extra=null`，与旧版“只取边界之后”的行为等价。迁移后按完整强类型解析，不靠读取时静默默认修补缺字段。
+当前 schema 基线为 core v10；旧库拒绝打开并提示重建，见 run-trace.md。Compaction 不存附加文字副本，调用输入由 `ModelCallContext.instruction` 指向原消息。
 
 ## 四、入站与队列（mic-core / mic-store）
 
@@ -199,7 +198,7 @@ schema core v6：
 
 `ModelRequest` 新增 `pub tool_choice: ToolChoice`；公共 enum `ToolChoice { Auto, None }`。正常请求用 Auto（wire 可省略默认值）；总结请求保留原 tools，显式发 `"none"`。不以工具数组是否为空承载选择策略。此次不顺手改变 max_turns 末次请求的既有行为，审计 D2 另行处理。
 
-ModelCallContext 由请求组装侧生成：读到的有效 Boundary 和历史最大消息 id；失败重试复用相同请求事实。ContextWindow.usage 只取该 Boundary 下最近成功普通调用的已报告 input_tokens，并带 run 的 model_id。core 比对当前认领模型后使用；换模型或无对应用量则估算当前窗口。压缩调用用量测量的是旧历史，不作新窗口基线。
+ModelCallContext 由请求组装侧生成：读到的有效 Boundary 和历史最大消息 id；失败重试复用相同请求事实。ContextWindow.usage 只取该 Boundary 下最近成功普通调用的已报告 input_tokens，并带调用行的 model_id。core 比对当前认领模型后使用；换模型或无对应用量则估算当前窗口。压缩调用用量测量的是旧历史，不作新窗口基线。
 
 估算口径在 core 一处：对应窗口的上游 input_tokens 加上 through 之后新增历史估算；待回答输入不作为被压历史计入。无上游基线时估算 system、tools 和全部有效历史。拟定固定系数：ASCII 文本每 3 字节向上取整，非 ASCII 每字符 2 token，图片每张 4096 token；只作保守近似，不声称硬上界。参数集中 `core/limits.rs`，Web 圆环未来复用该计算，不另写公式。
 
@@ -213,7 +212,7 @@ ModelCallContext 由请求组装侧生成：读到的有效 Boundary 和历史�
 
 core 从当前会话开放的 ToolHandle 中选择 read，按已有 `file_path` 参数调用，ToolContext 使用会话 pwd，工具侧负责参数和路径权限。core 不调用 std::fs 自动读取。没有 read、路径不可读或工具报错，保存 FileSnapshotOutcome::Unavailable 原因，压缩仍可成功；read 成功文本存快照。最多 8 个文件、总文本 64 KiB，超限按 UTF-8 边界截断并保存 Truncated，未读取项记录超限原因。快照通过 request 的 context 块注入，明确为压缩时的文件内容，后续每次请求稳定复用。
 
-`NewModelCall` 继续使用现有 ModelCallOutcome；总结成功以 `Replied { usage, blocks: [] }` 存无 Reply 调用行，结果只在 Boundary。撤回绝不修改这行的成败与用量。没有新增通用模型调用目的枚举或模型请求 action 字符串。
+`NewModelCall` 继续使用现有 ModelCallOutcome；总结成功以 `Replied { blocks: [] }` 存无 Reply 调用行，usage 独立记录，结果只在 Boundary。撤回绝不修改这行的成败与用量。调用目的使用 `ModelCallPurpose::Compaction`。解析失败仍记上游成功，失败由通知与 run 状态表达。
 
 ## 七、设置、HTTP 与 Web
 

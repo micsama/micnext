@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mic_message::{ImageData, ImageId, Message, ReplyBlock};
+pub use mic_store::StopReason;
 use mic_store::{ReasoningEffort, SecretValue, Usage};
 use mic_tool::ToolSpec;
 
@@ -112,6 +113,12 @@ pub(crate) fn resolve_key(
     })
 }
 
+/// 本轮 Provider 实例与实际生效的思考档位（已解析默认值）。
+pub(crate) struct BuiltProvider {
+    pub(crate) provider: Arc<dyn Provider>,
+    pub(crate) effort: Option<ReasoningEffort>,
+}
+
 /// 启动时装配好的工厂表，按 `kind` 查找。
 #[derive(Default)]
 pub(crate) struct Factories(BTreeMap<&'static str, Box<dyn ProviderFactory>>);
@@ -145,19 +152,20 @@ impl Factories {
         model_json: &str,
         reasoning_effort: Option<ReasoningEffort>,
         key: Option<SecretValue>,
-    ) -> Result<Arc<dyn Provider>, ConfigError> {
+    ) -> Result<BuiltProvider, ConfigError> {
         let factory = self.get(kind)?;
         let effort = resolve_reasoning(
             factory.reasoning_options(endpoint_json, model_name)?,
             reasoning_effort,
         )?;
-        factory.build(
+        let provider = factory.build(
             endpoint_json,
             resolve_key(key, factory.key_env(endpoint_json)),
             model_name,
             model_json,
             effort,
-        )
+        )?;
+        Ok(BuiltProvider { provider, effort })
     }
 
     pub(crate) fn kinds(&self) -> Vec<ProviderKindView> {
@@ -205,6 +213,10 @@ pub enum ModelEvent {
     TextDelta(String),
     /// 可见推理增量，仅供实时显示。
     ReasoningDelta(String),
+    /// 工具参数增量出现的时点标记，不带内容；只用于记录首次输出时刻。
+    ToolCallDelta,
+    /// 累计用量，可多次；后到的覆盖先到的。流失败时已收到的用量照常保留。
+    Usage(Usage),
     /// 最终结果；增量的累积以此为准。
     Finished(ModelResponse),
 }
@@ -214,20 +226,6 @@ pub struct ModelResponse {
     /// 按生成顺序：推理、正文、工具调用。
     pub blocks: Vec<ReplyBlock>,
     pub stop: StopReason,
-    /// 上游没报为 `None`。
-    pub usage: Option<Usage>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StopReason {
-    /// 正常说完。
-    EndTurn,
-    /// 要调用工具（`blocks` 含 `ToolCall`）。
-    ToolUse,
-    /// 撞到输出长度上限，回复不完整。
-    MaxTokens,
-    /// 被上游内容审核截断。
-    ContentFilter,
 }
 
 /// 只按"重试有没有用、该谁去修"一个轴划分；状态码到四类的映射由各实现在边界完成。

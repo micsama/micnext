@@ -41,6 +41,8 @@ enum CellView {
 #[derive(Serialize)]
 struct TableView {
     name: String,
+    group: String,
+    description: String,
     columns: Vec<ColumnView>,
 }
 
@@ -108,6 +110,8 @@ fn cell_view(cell: Cell) -> CellView {
 fn table_view(table: TableSchema) -> TableView {
     TableView {
         name: table.name,
+        group: table.group,
+        description: table.description,
         columns: table
             .columns
             .into_iter()

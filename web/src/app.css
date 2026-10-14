@@ -324,3 +324,9 @@
 @media (prefers-reduced-motion: reduce) {
   .picker-panel { animation: none; }
 }
+
+@utility selection-active {
+  background-color: var(--accent);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
+}

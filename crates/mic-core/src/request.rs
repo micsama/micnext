@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use mic_message::{
-    header_legend, ContentPart, ImageData, ImageId, Message, MessageBody, ModelView, ReplyBlock,
-    SessionId,
+    header_legend, ContentPart, ImageData, ImageId, Message, MessageBody, MessageId, ModelView,
+    ReplyBlock,
 };
 use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
@@ -48,34 +48,34 @@ pub(crate) fn image_ids(window: &ContextWindow) -> Vec<ImageId> {
 }
 
 pub(crate) fn build(
-    session: SessionId,
+    session: &mic_store::Session,
     window: ContextWindow,
     images: HashMap<ImageId, ImageData>,
-    pwd: &str,
     channel_prompt: Option<&str>,
     tools: &[ToolHandle],
     settings: &RunSettings,
+    tail: &[MessageId],
 ) -> ModelRequest {
     ModelRequest {
         tool_choice: ToolChoice::Auto,
         system: system_prompt(
             settings,
-            pwd,
+            &session.pwd,
             channel_prompt,
             tools,
             window.summary.as_deref(),
             &window.files,
         ),
-        messages: order(window.messages),
+        messages: arrange(window.messages, tail),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
-        cache_key: format!("micnext-s{}", session.0),
+        cache_key: format!("micnext-s{}", session.id.0),
     }
 }
 
 /// 三块顺序固定：instructions → persona → context，保证同一会话前缀稳定。
 /// 契约：docs/blueprints/system-prompt-layout.md §三。
-fn system_prompt(
+pub(crate) fn system_prompt(
     settings: &RunSettings,
     pwd: &str,
     channel_prompt: Option<&str>,
@@ -118,6 +118,14 @@ fn system_prompt(
         block("context", &context.join("\n\n")),
     ]
     .join("\n\n")
+}
+
+/// 请求里的消息顺序：先 `order`，再把本步待处理输入（`tail`）按原相对顺序挪到末尾。
+/// 重建输入走同一函数。
+pub(crate) fn arrange(messages: Vec<Message>, tail: &[MessageId]) -> Vec<Message> {
+    let mut messages = order(messages);
+    messages.sort_by_key(|m| tail.contains(&m.id));
+    messages
 }
 
 /// 有工具调用未结时，user 视图消息待其结果全部到齐后按原顺序放回，保证调用与结果相邻。

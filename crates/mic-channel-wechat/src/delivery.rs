@@ -112,8 +112,8 @@ async fn deliver(
     pending: PendingDelivery,
     stop: &CancellationToken,
 ) -> Result<DeliveryResult, BoxError> {
-    if pending.target.channel != "wechat" || pending.target.version != 1 {
-        return Err(AccountError::Invalid("投递目标版本或渠道不匹配").into());
+    if pending.target.channel != "wechat" {
+        return Err(AccountError::Invalid("投递目标渠道不匹配").into());
     }
     let target: WechatTarget = serde_json::from_str(&pending.target.payload)
         .map_err(|_| AccountError::Invalid("投递目标字段不匹配"))?;
@@ -214,10 +214,7 @@ fn plan(text: String) -> Plan {
     Plan { chunks }
 }
 
-fn disk_plan(version: u32, raw: &str) -> Result<Plan, AccountError> {
-    if version != 1 {
-        return Err(AccountError::Invalid("投递计划版本不匹配"));
-    }
+fn disk_plan(raw: &str) -> Result<Plan, AccountError> {
     let plan: Plan =
         serde_json::from_str(raw).map_err(|_| AccountError::Invalid("投递计划字段不匹配"))?;
     if plan
@@ -244,21 +241,15 @@ async fn stored(kernel: &Kernel, id: MessageId) -> Result<Option<Outcome>, Accou
     let raw = kernel
         .with_module_tx(move |tx| {
             tx.query_row(
-                "SELECT outcome, plan_version, plan FROM wechat_delivery WHERE message_id = ?1",
+                "SELECT outcome, plan FROM wechat_delivery WHERE message_id = ?1",
                 [id.0],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, u32>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()
         })
         .await?;
-    raw.map(|(raw, version, plan)| {
-        disk_plan(version, &plan)?;
+    raw.map(|(raw, plan)| {
+        disk_plan(&plan)?;
         outcome(&raw)
     })
     .transpose()
@@ -274,25 +265,19 @@ pub(crate) async fn quoted_text(
     let raw = kernel
         .with_module_tx(move |tx| {
             tx.query_row(
-                "SELECT d.plan_version, d.plan, a.chunk_index
+                "SELECT d.plan, a.chunk_index
                  FROM wechat_delivery_attempt a
                  JOIN wechat_delivery d ON d.message_id = a.message_id
                  WHERE d.user_id = ?1 AND a.external_message_id = ?2
                  ORDER BY a.message_id, a.chunk_index, a.attempt_no LIMIT 1",
                 params![user, external_id],
-                |row| {
-                    Ok((
-                        row.get::<_, u32>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )
             .optional()
         })
         .await?;
-    raw.map(|(version, raw, chunk)| {
-        let plan = disk_plan(version, &raw)?;
+    raw.map(|(raw, chunk)| {
+        let plan = disk_plan(&raw)?;
         let chunk =
             usize::try_from(chunk).map_err(|_| AccountError::Invalid("引用发送段位置不合法"))?;
         plan.chunks
@@ -312,7 +297,7 @@ async fn begin(
     let plan = serde_json::to_string(plan).expect("分段计划可序列化");
     let user = user.to_owned();
     kernel.with_module_tx(move |tx| {
-        tx.execute("INSERT INTO wechat_delivery(message_id, user_id, plan_version, plan, outcome) VALUES (?1, ?2, 1, ?3, 'sending')", params![id.0, user, plan])?;
+        tx.execute("INSERT INTO wechat_delivery(message_id, user_id, plan, outcome) VALUES (?1, ?2, ?3, 'sending')", params![id.0, user, plan])?;
         Ok(())
     }).await?;
     Ok(())
@@ -385,15 +370,13 @@ fn client_id() -> Result<String, ClientError> {
 pub(crate) async fn recover(kernel: &Kernel) -> Result<(), AccountError> {
     let plans = kernel
         .with_module_tx(|tx| {
-            tx.prepare("SELECT plan_version, plan FROM wechat_delivery WHERE outcome = 'sending'")?
-                .query_map([], |row| {
-                    Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
-                })?
+            tx.prepare("SELECT plan FROM wechat_delivery WHERE outcome = 'sending'")?
+                .query_map([], |row| row.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()
         })
         .await?;
-    for (version, plan) in plans {
-        disk_plan(version, &plan)?;
+    for plan in plans {
+        disk_plan(&plan)?;
     }
     kernel.with_module_tx(|tx| {
         tx.execute("UPDATE wechat_delivery_attempt SET finished_at = ?1, failure = 'interrupted' WHERE finished_at IS NULL", [now_ms()])?;

@@ -10,14 +10,19 @@ async fn held_first_text_is_eligible_but_commands_old_text_and_failed_first_are_
     let events = Events::new();
     let (handle, runtime) = TitleRuntime::new(store.clone(), factories.clone(), events.clone());
     let (wake, _receiver) = mpsc::channel(16);
+    let engine = Arc::new(crate::run::Engine {
+        store: store.clone(),
+        events: events.clone(),
+        factories: factories.clone(),
+        tools: vec![],
+        channel_prompts: Arc::default(),
+    });
     let kernel = Kernel::new(
-        store.clone(),
         owner,
-        events,
         wake,
-        factories,
         Arc::new(HashMap::new()),
         handle.clone(),
+        engine,
     );
     let make = |chat: &str| NewSession {
         kind: SessionKind::Root {

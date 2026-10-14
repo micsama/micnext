@@ -4,97 +4,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mic_core::{ChannelConnection, Kernel, LinkedChannel};
 use mic_message::{PersonId, SessionId};
 use mic_store::rusqlite::{params, OptionalExtension};
-use mic_store::{
-    DeliveryTarget, Identity, Migration, NewSession, SecretColumn, SessionKind, ToolScope,
-};
+use mic_store::{DeliveryTarget, Identity, NewSession, SessionKind, ToolScope};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
 use crate::client::{https_base, required, ClientError};
 use crate::limits::{LOCAL_TOKEN_LIMIT, LONGPOLL_TIMEOUT_MS};
-
-pub(crate) const MIGRATIONS: &[Migration] = &[
-    Migration {
-        module: "wechat",
-        version: 1,
-        sql: "
-CREATE TABLE wechat_account (
-  user_id TEXT PRIMARY KEY,
-  bot_id TEXT NOT NULL,
-  bot_token TEXT NOT NULL,
-  base_url TEXT NOT NULL,
-  person_id INTEGER NOT NULL REFERENCES core_persons(id),
-  session_id INTEGER NOT NULL REFERENCES core_sessions(id),
-  connection TEXT NOT NULL CHECK(connection IN ('connected', 'needs_login', 'faulted')),
-  updated_at INTEGER NOT NULL
-);
-CREATE TABLE wechat_settings (
-  id INTEGER PRIMARY KEY CHECK(id = 1),
-  active_user_id TEXT REFERENCES wechat_account(user_id)
-);
-INSERT INTO wechat_settings(id) VALUES (1);
-CREATE TABLE wechat_state (
-  user_id TEXT PRIMARY KEY REFERENCES wechat_account(user_id),
-  get_updates_buf TEXT NOT NULL,
-  context_token TEXT,
-  longpoll_timeout_ms INTEGER NOT NULL
-);
-CREATE TABLE wechat_inbound_batch (
-  id INTEGER PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES wechat_account(user_id),
-  snapshot_version INTEGER NOT NULL,
-  snapshot TEXT NOT NULL,
-  phase TEXT NOT NULL CHECK(phase IN ('importing', 'completed', 'interrupted')),
-  created_at INTEGER NOT NULL,
-  finished_at INTEGER
-);
-CREATE TABLE wechat_delivery (
-  message_id INTEGER PRIMARY KEY REFERENCES core_messages(id),
-  user_id TEXT NOT NULL REFERENCES wechat_account(user_id),
-  plan_version INTEGER NOT NULL,
-  plan TEXT NOT NULL,
-  outcome TEXT NOT NULL CHECK(outcome IN ('sending', 'sent', 'skipped', 'interrupted')),
-  finished_at INTEGER
-);
-CREATE TABLE wechat_delivery_attempt (
-  message_id INTEGER NOT NULL REFERENCES wechat_delivery(message_id),
-  chunk_index INTEGER NOT NULL CHECK(chunk_index >= 0),
-  attempt_no INTEGER NOT NULL CHECK(attempt_no IN (1, 2)),
-  client_id TEXT NOT NULL,
-  started_at INTEGER NOT NULL,
-  finished_at INTEGER,
-  external_message_id TEXT,
-  failure TEXT,
-  PRIMARY KEY (message_id, chunk_index, attempt_no)
-);
-",
-        secret_columns: &[
-            SecretColumn {
-                table: "wechat_account",
-                column: "bot_token",
-            },
-            SecretColumn {
-                table: "wechat_state",
-                column: "context_token",
-            },
-        ],
-    },
-    Migration {
-        module: "wechat",
-        version: 2,
-        sql: "
-CREATE TABLE wechat_inbound_message (
-  message_id INTEGER PRIMARY KEY REFERENCES core_messages(id),
-  user_id TEXT NOT NULL REFERENCES wechat_account(user_id),
-  external_message_id TEXT NOT NULL,
-  source_start INTEGER NOT NULL CHECK(source_start >= 0)
-);
-CREATE INDEX wechat_inbound_message_external
-  ON wechat_inbound_message(user_id, external_message_id, message_id);
-",
-        secret_columns: &[],
-    },
-];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -224,8 +139,8 @@ async fn find(kernel: &Kernel, user: &str) -> Result<Option<Account>, AccountErr
     let target = session
         .delivery_target
         .ok_or(AccountError::Invalid("缺少投递目标"))?;
-    if target.channel != "wechat" || target.version != 1 {
-        return Err(AccountError::Invalid("投递目标版本或渠道不匹配"));
+    if target.channel != "wechat" {
+        return Err(AccountError::Invalid("投递目标渠道不匹配"));
     }
     let target: WechatTarget = serde_json::from_str(&target.payload)
         .map_err(|_| AccountError::Invalid("投递目标字段不匹配"))?;
@@ -297,7 +212,6 @@ pub(crate) async fn save(
                         parent_session_id: None,
                         delivery_target: Some(DeliveryTarget {
                             channel: "wechat".into(),
-                            version: 1,
                             payload,
                         }),
                         pwd: kernel.default_workdir().await?,
@@ -401,7 +315,7 @@ pub(crate) async fn persist_batch(
     Ok(kernel.with_module_tx(move |tx| {
         let batch = match snapshot {
             Some(snapshot) => {
-                tx.execute("INSERT INTO wechat_inbound_batch(user_id, snapshot_version, snapshot, phase, created_at) VALUES (?1, 1, ?2, 'importing', ?3)", params![user, snapshot, now_ms()])?;
+                tx.execute("INSERT INTO wechat_inbound_batch(user_id, snapshot, phase, created_at) VALUES (?1, ?2, 'importing', ?3)", params![user, snapshot, now_ms()])?;
                 Some(tx.last_insert_rowid())
             }
             None => None,
@@ -440,15 +354,18 @@ pub(crate) async fn finish_batch(kernel: &Kernel, id: i64) -> Result<(), Account
 }
 
 pub(crate) async fn recover_batches(kernel: &Kernel) -> Result<(), AccountError> {
-    let batches = kernel.with_module_tx(|tx| {
-        tx.prepare("SELECT user_id, snapshot_version, snapshot FROM wechat_inbound_batch WHERE phase = 'importing'")?
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?, row.get::<_, String>(2)?)))?
+    let batches = kernel
+        .with_module_tx(|tx| {
+            tx.prepare(
+                "SELECT user_id, snapshot FROM wechat_inbound_batch WHERE phase = 'importing'",
+            )?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()
-    }).await?;
-    for (user, version, snapshot) in batches {
-        if version != 1 {
-            return Err(AccountError::Invalid("入站 snapshot 版本不匹配"));
-        }
+        })
+        .await?;
+    for (user, snapshot) in batches {
         let snapshot = serde_json::from_str(&snapshot)
             .map_err(|_| AccountError::Invalid("入站 snapshot 字段不匹配"))?;
         crate::client::parse_updates(snapshot, &WechatUserId(user))?;

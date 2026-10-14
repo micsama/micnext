@@ -6,11 +6,11 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use crate::endpoints;
 use crate::secrets::Cipher;
 use crate::{
-    ClaimedModel, EndpointId, ModelId, ModelSettingsError, ModelView, ModelWrite, ReasoningEffort,
-    Store, StoreError,
+    ClaimedModel, EndpointId, ModelId, ModelPrice, ModelSettingsError, ModelView, ModelWrite,
+    ReasoningEffort, Store, StoreError,
 };
 
-const MODEL_COLS: &str = "id, endpoint_id, name, config_json, context_window";
+const MODEL_COLS: &str = "id, endpoint_id, name, config_json, context_window, price_input, price_cache_read, price_cache_write, price_output";
 
 fn view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelView> {
     Ok(ModelView {
@@ -19,6 +19,12 @@ fn view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelView> {
         name: row.get(2)?,
         config_json: row.get(3)?,
         context_window: row.get(4)?,
+        price: ModelPrice {
+            input: row.get(5)?,
+            cache_read: row.get(6)?,
+            cache_write: row.get(7)?,
+            output: row.get(8)?,
+        },
     })
 }
 
@@ -51,13 +57,28 @@ impl Store {
         now: i64,
     ) -> Result<ModelId, ModelSettingsError> {
         self.call_models(move |conn| {
+            if !m.price.is_valid() {
+                return Err(ModelSettingsError::InvalidPrice);
+            }
             let tx = conn.transaction()?;
             endpoints::live(&tx, m.endpoint_id)?;
             ensure_name_free(&tx, m.endpoint_id, &m.name, None)?;
             tx.execute(
-                "INSERT INTO core_models (endpoint_id, name, config_json, created_at, updated_at, context_window)
-                 VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
-                params![m.endpoint_id.0, m.name, m.config_json, now, m.context_window],
+                "INSERT INTO core_models
+                   (endpoint_id, name, config_json, created_at, updated_at, context_window,
+                    price_input, price_cache_read, price_cache_write, price_output)
+                 VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    m.endpoint_id.0,
+                    m.name,
+                    m.config_json,
+                    now,
+                    m.context_window,
+                    m.price.input,
+                    m.price.cache_read,
+                    m.price.cache_write,
+                    m.price.output
+                ],
             )?;
             let id = ModelId(tx.last_insert_rowid());
             if read_default(&tx)?.is_none() {
@@ -82,6 +103,9 @@ impl Store {
         now: i64,
     ) -> Result<(), ModelSettingsError> {
         self.call_models(move |conn| {
+            if !m.price.is_valid() {
+                return Err(ModelSettingsError::InvalidPrice);
+            }
             let tx = conn.transaction()?;
             let current = live(&tx, id)?;
             if current.endpoint_id != m.endpoint_id {
@@ -89,9 +113,11 @@ impl Store {
             }
             ensure_name_free(&tx, m.endpoint_id, &m.name, Some(id))?;
             tx.execute(
-                "UPDATE core_models SET name = ?1, config_json = ?2, updated_at = ?3, context_window = ?5
+                "UPDATE core_models SET name = ?1, config_json = ?2, updated_at = ?3, context_window = ?5,
+                    price_input = ?6, price_cache_read = ?7, price_cache_write = ?8, price_output = ?9
                  WHERE id = ?4",
-                params![m.name, m.config_json, now, id.0, m.context_window],
+                params![m.name, m.config_json, now, id.0, m.context_window,
+                    m.price.input, m.price.cache_read, m.price.cache_write, m.price.output],
             )?;
             tx.commit()?;
             Ok(())
@@ -99,7 +125,7 @@ impl Store {
         .await
     }
 
-    /// 软删除；会话与 run 快照仍引用原行。默认须先换，最后一条删除后默认回到空。
+    /// 软删除；会话与调用记录仍引用原行。默认须先换，最后一条删除后默认回到空。
     pub async fn delete_model(&self, id: ModelId, now: i64) -> Result<(), ModelSettingsError> {
         self.call_models(move |conn| {
             let tx = conn.transaction()?;

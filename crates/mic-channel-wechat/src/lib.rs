@@ -7,6 +7,7 @@ mod limits;
 mod login;
 mod media;
 mod quote;
+mod schema;
 mod service;
 mod typing;
 mod wire;

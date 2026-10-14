@@ -16,7 +16,7 @@ use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::registry::LookupSpan;
 
 use crate::limits::{LOG_FIELDS, LOG_RECORDS, LOG_RECORD_BYTES, LOG_TOTAL_BYTES};
-use crate::log_store::{self, History, Sink, Storage};
+use crate::log_store::{self, History, Sink, Storage, StoredRecord};
 
 /// 进程内存日志；clone 共享同一缓冲。
 #[derive(Clone)]
@@ -88,6 +88,16 @@ impl LogLevel {
             "error" => Self::Error,
             _ => return None,
         })
+    }
+}
+
+impl LogRecord {
+    /// 约定字段 `session` / `run` 的整数值，供落盘建索引。
+    pub(crate) fn id_field(&self, name: &str) -> Option<i64> {
+        self.fields
+            .iter()
+            .find(|f| f.name == name)
+            .and_then(|f| f.value.parse().ok())
     }
 }
 
@@ -170,6 +180,18 @@ impl DeveloperLogs {
             .expect("日志存储状态锁中毒")
             .clone();
         log_store::history(storage, self.inner.boot_id)
+    }
+
+    /// 某个 run 的 WARN / ERROR；先等已排队的记录落盘。阻塞读库。
+    pub(crate) fn by_run(&self, run: i64) -> Result<Vec<StoredRecord>, rusqlite::Error> {
+        self.flush();
+        let storage = self
+            .inner
+            .storage
+            .lock()
+            .expect("日志存储状态锁中毒")
+            .clone();
+        log_store::by_run(&storage, run)
     }
 
     pub(crate) fn subscribe(&self) -> watch::Receiver<u64> {

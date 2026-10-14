@@ -188,6 +188,19 @@
                   <XIcon />
                 </Button>
               </div>
+              <div class="grid grid-cols-4 items-center gap-2 pl-4">
+                {#each [["price_input", "输入价"], ["price_cache_read", "缓存读"], ["price_cache_write", "缓存写"], ["price_output", "输出价"]] as const as [key, label]}
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={r[key]}
+                    oninput={(e) => (r[key] = e.currentTarget.value)}
+                    placeholder={label}
+                    aria-label="{label}（美元 / 百万 token，留空 = 未填）"
+                  />
+                {/each}
+              </div>
             {/each}
             <Button variant="ghost" size="sm" onclick={() => f.models.push(blankRow())}><PlusIcon />添加模型</Button>
           </section>

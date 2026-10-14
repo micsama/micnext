@@ -1,47 +1,96 @@
 use super::*;
 
-#[test]
-fn reasoning_migration_removes_model_choice_without_copying_it() {
-    let mut conn = Connection::open_in_memory().unwrap();
-    for (_, migrations) in group(CORE_MIGRATIONS.iter().filter(|m| m.version <= 6)) {
-        for migration in migrations {
-            conn.execute_batch(migration.sql).unwrap();
-        }
-    }
-    conn.execute_batch(
-        r#"
-        CREATE TABLE schema_migrations (module TEXT PRIMARY KEY, version INTEGER NOT NULL);
-        INSERT INTO schema_migrations VALUES ('core', 6);
-        INSERT INTO core_endpoints (id, name, kind, config_json, created_at, updated_at)
-          VALUES (1, 'test', 'openai', '{}', 0, 0);
-        INSERT INTO core_models (id, endpoint_id, name, config_json, created_at, updated_at)
-          VALUES (1, 1, 'test', '{"max_tokens":128,"reasoning_effort":"high"}', 0, 0);
-        INSERT INTO core_sessions (id, kind, channel, chat, pwd, tool_scope, created_at, model_id)
-          VALUES (1, 'root', 'web', 'test', '/tmp', '"All"', 0, 1);
-        INSERT INTO core_runs (id, session_id, state, created_at) VALUES (1, 1, 'completed', 0);
-    "#,
+const NEXT: Migration = Migration {
+    module: "demo",
+    version: 3,
+    sql: "CREATE TABLE demo_t (id INTEGER PRIMARY KEY);",
+    secret_columns: &[],
+};
+
+fn tables(conn: &Connection) -> Vec<String> {
+    conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+fn set_version(conn: &Connection, module: &str, version: u32) {
+    conn.execute(
+        "INSERT INTO schema_migrations (module, version) VALUES (?1, ?2)",
+        params![module, version],
     )
     .unwrap();
-    init(&mut conn, &[]).unwrap();
-    let model: String = conn
-        .query_row("SELECT config_json FROM core_models", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&model).unwrap(),
-        serde_json::json!({"max_tokens": 128})
-    );
-    for table in ["core_sessions", "core_runs"] {
-        let effort: Option<String> = conn
-            .query_row(&format!("SELECT reasoning_effort FROM {table}"), [], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        assert_eq!(effort, None);
+}
+
+#[test]
+fn empty_database_builds_every_baseline() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    init(&mut conn, &[NEXT]).unwrap();
+    let tables = tables(&conn);
+    for expected in [
+        "core_sessions",
+        "core_model_calls",
+        "core_model_call_inputs",
+        "demo_t",
+    ] {
+        assert!(tables.contains(&expected.to_owned()), "缺少 {expected}");
     }
-    assert!(conn
-        .execute(
-            "UPDATE core_sessions SET model_id = NULL, reasoning_effort = 'high'",
-            []
-        )
-        .is_err());
+    assert_eq!(applied_version(&conn, "core").unwrap(), Some(10));
+    assert_eq!(applied_version(&conn, "demo").unwrap(), Some(3));
+}
+
+#[test]
+fn module_enabled_later_builds_its_baseline() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    init(&mut conn, &[]).unwrap();
+    assert!(!tables(&conn).contains(&"demo_t".to_owned()));
+    init(&mut conn, &[NEXT]).unwrap();
+    assert!(tables(&conn).contains(&"demo_t".to_owned()));
+}
+
+#[test]
+fn older_format_asks_for_rebuild_instead_of_migrating() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE schema_migrations (module TEXT PRIMARY KEY, version INTEGER NOT NULL);",
+    )
+    .unwrap();
+    set_version(&conn, "core", 9);
+    match init(&mut conn, &[]) {
+        Err(StoreError::SchemaRebuild {
+            module,
+            version: 9,
+            baseline: 10,
+        }) => assert_eq!(module, "core"),
+        other => panic!("{other:?}"),
+    }
+
+    let mut conn = Connection::open_in_memory().unwrap();
+    init(&mut conn, &[]).unwrap();
+    set_version(&conn, "demo", 2);
+    assert!(matches!(
+        init(&mut conn, &[NEXT]),
+        Err(StoreError::SchemaRebuild { baseline: 3, .. })
+    ));
+}
+
+#[test]
+fn newer_format_is_rejected() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    init(&mut conn, &[]).unwrap();
+    conn.execute(
+        "UPDATE schema_migrations SET version = 11 WHERE module = 'core'",
+        [],
+    )
+    .unwrap();
+    assert!(matches!(
+        init(&mut conn, &[]),
+        Err(StoreError::SchemaAhead {
+            db: 11,
+            known: 10,
+            ..
+        })
+    ));
 }

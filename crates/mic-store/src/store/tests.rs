@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 
 use mic_message::{Message, MessageBody, MessageId, PersonId, SessionId};
 
-use super::cut_page;
+use crate::messages::cut_page;
 
 /// `u` = UserInput，`.` = 其它；按 id 升序，返回倒序的末尾 `cap + 1` 条。
 fn newest_first(shape: &str, cap: u32) -> Vec<Message> {
@@ -98,6 +98,7 @@ fn reasoning_is_per_session_and_fixed_when_claimed() {
                         name: "test".into(),
                         config_json: "{}".into(),
                         context_window: None,
+                        price: Default::default(),
                     },
                     1,
                 )
@@ -157,17 +158,6 @@ fn reasoning_is_per_session_and_fixed_when_claimed() {
                 }
             ));
             let run_id = claimed.run.id;
-            let persisted = store
-                .call(move |conn| {
-                    Ok(conn.query_row(
-                        "SELECT reasoning_effort FROM core_runs WHERE id = ?1",
-                        [run_id.0],
-                        |row| row.get::<_, Option<E>>(0),
-                    )?)
-                })
-                .await
-                .unwrap();
-            assert_eq!(persisted, Some(E::High));
             assert_eq!(
                 store
                     .session(sessions[1].id)

@@ -8,10 +8,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::SecretValue;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
 pub struct RunId(pub i64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
 pub struct ModelCallId(pub i64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -69,10 +71,29 @@ pub struct EndpointWrite {
     pub credential: CredentialWrite,
 }
 
+/// 单价，美元 / 百万 token；`None` = 未填，`Some(0.0)` = 免费。
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct ModelPrice {
+    pub input: Option<f64>,
+    pub cache_read: Option<f64>,
+    pub cache_write: Option<f64>,
+    pub output: Option<f64>,
+}
+
+impl ModelPrice {
+    pub(crate) fn is_valid(&self) -> bool {
+        [self.input, self.cache_read, self.cache_write, self.output]
+            .into_iter()
+            .flatten()
+            .all(|v| v.is_finite() && v >= 0.0)
+    }
+}
+
 /// 服务商下的一个模型：模型名 + 该 kind 自己解析的参数。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ModelView {
     pub context_window: Option<NonZeroU32>,
+    pub price: ModelPrice,
     pub id: ModelId,
     pub endpoint_id: EndpointId,
     pub name: String,
@@ -81,6 +102,7 @@ pub struct ModelView {
 
 pub struct ModelWrite {
     pub context_window: Option<NonZeroU32>,
+    pub price: ModelPrice,
     pub endpoint_id: EndpointId,
     pub name: String,
     pub config_json: String,
@@ -154,7 +176,7 @@ pub struct Settings {
     pub max_turns: u32,
 }
 
-/// 认领时定下的本轮设置，执行期间不变；同时落为 run 快照。
+/// 认领时定下的本轮设置，执行期间不变。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunSettings {
     pub reasoning_effort: Option<ReasoningEffort>,
@@ -179,12 +201,10 @@ pub struct Person {
     pub created_at: i64,
 }
 
-/// 发送目标：`channel` 决定由哪个 Channel 投递；`payload` 是该 Channel 自己
-/// 编解码的版本化不透明数据。
+/// 发送目标：`channel` 决定由哪个 Channel 投递；`payload` 是该 Channel 自己编解码的不透明数据。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryTarget {
     pub channel: String,
-    pub version: u32,
     pub payload: String,
 }
 
@@ -295,6 +315,8 @@ pub struct ContextWindow {
     pub boundary_id: Option<MessageId>,
     pub files: Vec<FileSnapshot>,
     pub usage: Option<ContextUsage>,
+    /// 范围内、`messages` 末条之前因未认领且非 held 而排除的输入（held 输入留在 `messages`）。
+    pub filtered: Vec<MessageId>,
     /// 当前有效压缩边界的摘要。
     pub summary: Option<String>,
     /// 当前有效历史与边界保留的输入，按 id；包含 held 输入，排除仍待调度的输入。
@@ -321,10 +343,19 @@ pub struct ContextView {
     pub compactions: Vec<CompactionView>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 调用时模型输入的描述；重建只靠这些事实，见 docs/blueprints/run-trace.md §五。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ModelCallContext {
     pub boundary_id: Option<MessageId>,
     pub through: Option<MessageId>,
+    /// 预算裁剪丢掉的窗口前段条数。
+    pub skip: u32,
+    /// 调用时被排除出窗口的输入（未认领且非 held；压缩另含本步待处理输入）。
+    pub excluded: Vec<MessageId>,
+    /// 请求组装后挪到末尾的本步待处理输入。
+    pub tail: Vec<MessageId>,
+    /// 压缩附加文字的来源消息。
+    pub instruction: Vec<MessageId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -340,9 +371,9 @@ pub struct PendingDelivery {
     pub target: DeliveryTarget,
 }
 
-/// 一次模型调用的 token 用量；上游没报的项为 `None`。输入含缓存命中，输出含推理。
-/// 费用不落盘：展示时按当前价格配置换算。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 一次模型调用的 token 用量。`Some(0)` = Provider 确认不适用或为零，`None` = 上游没报。
+/// 输入含缓存命中，输出含推理。费用不落盘：展示时按当前价格配置换算。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -360,12 +391,33 @@ pub struct NewModelCall {
     pub run_id: Option<RunId>,
     /// 请求模型名。
     pub model: String,
+    pub model_id: Option<ModelId>,
+    pub reasoning_effort: Option<ReasoningEffort>,
     pub started_at: i64,
+    /// 首个非空正文、推理或工具参数增量的时刻。
+    pub first_output_at: Option<i64>,
     pub finished_at: i64,
+    pub stop: Option<StopReason>,
+    /// 成败独立：失败的调用也可能带已收到的用量。
+    pub usage: Option<Usage>,
     pub outcome: ModelCallOutcome,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopReason {
+    /// 正常说完。
+    EndTurn,
+    /// 要调用工具（`blocks` 含 `ToolCall`）。
+    ToolUse,
+    /// 撞到输出长度上限，回复不完整。
+    MaxTokens,
+    /// 被上游内容审核截断。
+    ContentFilter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ModelCallPurpose {
     Conversation,
     Compaction,
@@ -374,9 +426,8 @@ pub enum ModelCallPurpose {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModelCallOutcome {
-    /// `usage` 为 `None` = 上游没报。`blocks` 非空时写成一条 `Reply`。
+    /// `blocks` 非空时写成一条 `Reply`。
     Replied {
-        usage: Option<Usage>,
         blocks: Vec<ReplyBlock>,
     },
     Failed {
@@ -384,7 +435,7 @@ pub enum ModelCallOutcome {
     },
 }
 
-/// 模块迁移。`module` 不得为 `"core"`（内核保留）；同一模块 `version` 从 1 连续递增。
+/// 模块迁移。`module` 不得为 `"core"`（内核保留）；同一模块 `version` 从基线起连续递增，首条即基线。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Migration {
     pub module: &'static str,

@@ -107,7 +107,7 @@ pub(crate) async fn get_settings(
         general_prompt: s.general_prompt,
         default_workdir: s.default_workdir,
         max_turns: s.max_turns,
-        system_prompt: app.kernel.system_prompt(),
+        system_prompt: app.kernel.base_prompt(),
     }))
 }
 

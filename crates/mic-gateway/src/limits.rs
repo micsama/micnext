@@ -18,6 +18,8 @@ pub(crate) const MAX_INPUT_BODY_BYTES: usize = 24 * 1024 * 1024;
 /// 会话列表每页条数：缺省与上限。
 pub(crate) const PAGE_DEFAULT: u32 = 30;
 pub(crate) const PAGE_MAX: u32 = 100;
+/// trace 页默认一次取的完整 run 数。
+pub(crate) const TRACE_RUNS_DEFAULT: u32 = 20;
 /// 会话消息一页：最近轮数与条数上限。
 pub(crate) const PAGE_ROUNDS: NonZeroU32 = NonZeroU32::new(20).unwrap();
 pub(crate) const PAGE_MESSAGES: NonZeroU32 = NonZeroU32::new(300).unwrap();

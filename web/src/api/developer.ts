@@ -39,7 +39,7 @@ export type Cell =
 
 export type QueryResult = { columns: string[]; rows: Cell[][]; truncated: boolean; elapsed_ms: number };
 
-export type TableSchema = { name: string; columns: { name: string; decl_type: string; secret: boolean }[] };
+export type TableSchema = { name: string; group: string; description: string; columns: { name: string; decl_type: string; secret: boolean }[] };
 
 const logRecordFields = {
   timestamp_ms: num,
@@ -69,6 +69,8 @@ const logHistory: Decoder<LogHistory> = obj({
   boot_id: num,
   records: arr(obj<StoredLogRecord>({ ...logRecordFields, boot_id: num })),
 });
+
+export const parseStoredLogs = (v: unknown): StoredLogRecord[] => arr(obj<StoredLogRecord>({ ...logRecordFields, boot_id: num }))(v, "运行日志");
 
 export const parseLogHistory = (v: unknown): LogHistory => logHistory(v, "日志历史");
 
@@ -100,7 +102,7 @@ const queryResult: Decoder<QueryResult> = obj({
 });
 
 const tables: Decoder<TableSchema[]> = arr(
-  obj({ name: str, columns: arr(obj({ name: str, decl_type: str, secret: bool })) }),
+  obj({ name: str, group: str, description: str, columns: arr(obj({ name: str, decl_type: str, secret: bool })) }),
 );
 
 export const parseQueryResult = (v: unknown): QueryResult => queryResult(v, "查询结果");

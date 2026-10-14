@@ -9,8 +9,8 @@ use axum::Json;
 use mic_core::{EndpointDraft, ModelDraft, ReasoningOptions};
 use mic_message::limits::{MAX_IMAGES_PER_INPUT, MAX_IMAGE_BYTES};
 use mic_store::{
-    CredentialWrite, EndpointId, EndpointView, ModelId, ModelView, ReasoningEffort, SecretValue,
-    SessionKind,
+    CredentialWrite, EndpointId, EndpointView, ModelId, ModelPrice, ModelView, ReasoningEffort,
+    SecretValue, SessionKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -64,6 +64,7 @@ pub(crate) struct ModelItem {
     endpoint_id: EndpointId,
     name: String,
     context_window: Option<std::num::NonZeroU32>,
+    price: ModelPrice,
     /// 该 kind 的模型参数。
     config: Box<RawValue>,
 }
@@ -110,6 +111,8 @@ pub(crate) struct TestResult {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ModelBody {
     context_window: Option<u32>,
+    #[serde(default)]
+    price: ModelPrice,
     endpoint_id: EndpointId,
     name: String,
     config: Box<RawValue>,
@@ -323,6 +326,7 @@ fn item(v: ModelView, reasoning: Option<ReasoningOptions>) -> ModelItem {
     ModelItem {
         reasoning,
         context_window: v.context_window,
+        price: v.price,
         id: v.id,
         endpoint_id: v.endpoint_id,
         name: v.name,
@@ -379,5 +383,6 @@ fn draft(b: ModelBody) -> Result<ModelDraft, ApiError> {
         endpoint_id: b.endpoint_id,
         name,
         config_json: b.config.get().to_owned(),
+        price: b.price,
     })
 }

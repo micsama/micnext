@@ -173,8 +173,7 @@
                   <Button variant="ghost" size="icon-sm" aria-label="移除模型 {r.name}" onclick={() => f.models.splice(i, 1)}><XIcon /></Button>
                 </div>
                 <details>
-                  <summary class="cursor-pointer text-xs text-muted-foreground">计费设置 <span class="ml-2 opacity-70">{[r.price_input, r.price_cache_read, r.price_cache_write, r.price_output].filter((v) => v !== "").length ? "已填写单价" : "未设置"}</span></summary>
-                  <p class="mt-2 text-xs text-muted-foreground">美元 / 百万 token · 留空表示未知，免费请填 0。</p>
+                  <summary class="cursor-pointer text-xs text-muted-foreground">计费设置 <span class="ml-2 opacity-70">{[r.price_input, r.price_cache_read, r.price_cache_write, r.price_output].filter((v) => v !== "").length ? "已填写单价" : "未设置"}</span><span class="float-right" title="美元 / 百万 token" aria-label="美元 / 百万 token">$ / 百万 token</span></summary>
                   <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {#each [["price_input", "输入"], ["price_output", "输出"], ["price_cache_read", "缓存读取"], ["price_cache_write", "缓存写入"]] as const as [key, label]}
                       <label class="space-y-1 text-xs text-muted-foreground">{label}<Input class="h-8 text-xs text-foreground" type="number" min="0" step="any" value={r[key]} oninput={(e) => (r[key] = e.currentTarget.value)} placeholder="未设置" /></label>

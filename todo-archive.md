@@ -34,3 +34,6 @@
 | 实现完成（CLOSED，2026-10-14 人工验收） | Web 聊天页可切换微信会话模型，与 Web 会话同一入口；`/model` 后续另定 | [B2](docs/blueprints/wechat-session-model.md) |
 | 实现完成（CLOSED，2026-10-15 人工验收） | SQLite 整理 + 轻量 trace：core/wechat 新基线、删 run 配置副本与格式版本字段、调用行补事实、trace 页与看板 | [B2](docs/blueprints/run-trace.md)；[存储 B1](docs/brainstorm/sqlite-organization.md)；[trace B1](docs/brainstorm/run-trace.md) |
 | 实现完成（CLOSED，2026-10-15 人工验收） | 聊天统计行（每轮一行：步数、模型/工具耗时、首字、速率、token、缓存、费用）与输入框上下文占用；后端一处计算，trace 运行概览共用 | [B2](docs/blueprints/chat-run-stats.md)；[B1](docs/brainstorm/chat-run-stats.md) |
+| 实现完成（CLOSED，2026-10-15 人工验收） | 旁路调用记录输入与产出：手动标题另带最近 2 条 AI 回复（截断）；标题调用的输入指向原消息，产出存为不进上下文的 `SideOutput` 消息；以后新旁路沿用 | [B2](docs/blueprints/side-call-output.md) |
+| 实现完成（CLOSED，2026-10-15 人工验收） | 流式调用长时间无数据即判挂起、直接失败不重试（起因：DeepSeek 思考模式 + `tool_choice: none` 卡死，已在 provider 规避） | [B2](docs/blueprints/model-stall.md) |
+| 实现完成（CLOSED，2026-10-15 人工验收） | 运行中停止：Web 停止键与 Web/微信 `/stop`；半截回复保留并通知「已停止」，工具记已取消，未并入的消息照常开新一轮；run 新增「用户停止」终态 | [B2](docs/blueprints/run-stop.md)；[B1](docs/brainstorm/run-stop.md) |

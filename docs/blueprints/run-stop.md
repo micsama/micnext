@@ -1,6 +1,6 @@
 # B2：运行中停止
 
-**状态：已批准并实现（2026-10-15）；Web 与微信真机待 human 验收。**
+**状态：CLOSED（2026-10-15，Web 人工验收通过；微信 `/stop` 走同一停止路径，human 认为无需单独真机验收）。**
 
 依据：[B1](../brainstorm/run-stop.md)。本文修订 [run-execution](run-execution.md) 的 run 终态与工具批执行方式、[gateway](gateway.md) 接口表、[context-compaction](context-compaction.md) 指令表。
 

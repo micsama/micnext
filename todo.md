@@ -6,9 +6,6 @@
 | 状态 | 主题 | 文档 |
 |---|---|---|
 | 以后做（2026-10-15 human 定） | 服务商分时段计价：空闲时段挂服务商，模型另填空闲价，费用按调用开始时间取价；币种保持美元。现按高峰价计，DeepSeek 已按高峰价填库 | [B2](docs/blueprints/offpeak-pricing.md) |
-| 已实现，待验收（2026-10-15） | 旁路调用记录输入与产出：手动标题另带最近 2 条 AI 回复（截断）；标题调用的输入指向原消息，产出存为不进上下文的 `SideOutput` 消息；以后新旁路沿用 | [B2](docs/blueprints/side-call-output.md) |
-| 已实现，待验收（2026-10-15） | 流式调用长时间无数据即判挂起、直接失败不重试（起因：DeepSeek 思考模式 + `tool_choice: none` 卡死，已在 provider 规避） | [B2](docs/blueprints/model-stall.md) |
-| 已实现，待真机验收（2026-10-15） | 运行中停止：Web 停止键与 Web/微信 `/stop`；半截回复保留并通知「已停止」，工具记已取消，未并入的消息照常开新一轮；run 新增「用户停止」终态 | [B2](docs/blueprints/run-stop.md)；[B1](docs/brainstorm/run-stop.md) |
 | 想法，以后做（2026-10-15） | trace「复制为 curl / 重新推理」：消息按记录还原，系统提示与工具清单用当前配置；工具清单视为固定，与历史工具调用对不上则拒绝重放 | [trace B1](docs/brainstorm/run-trace.md#未来重放与复制为-curl) |
 | human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](docs/blueprints/web-ui.md#43-设置页与人设选择) |
 | B2 已实现：DeepSeek、ChatGPT 订阅（2026-10-12）已验收，OpenAI（API key）与订阅缓存命中待验收 | 模型调用迁移 async-openai；新增 OpenAI（Responses）与 ChatGPT 订阅（Codex 后端，手贴 access_token）预设；Responses 发会话缓存键 | [SDK B2](docs/blueprints/provider-sdk-responses.md)；[ChatGPT B2](docs/blueprints/provider-chatgpt.md)；[缓存键 B2](docs/blueprints/provider-cache-key.md)；现行契约 [provider-openai](docs/blueprints/provider-openai.md) |

@@ -274,10 +274,15 @@
 .trace-layout .t-bad { --c: var(--t-bad); --c-bg: var(--t-bad-bg); }
 .trace-layout .thumbs { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-top: 6px; }
 .trace-layout .thumbs img { max-height: 96px; max-width: 160px; width: auto; border-radius: 6px; border: 1px solid var(--t-line2); object-fit: cover; }
-.trace-layout .logs { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 2px 10px; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
-.trace-layout .lv-warn { color: var(--t-warn); }
-.trace-layout .lv-error { color: var(--t-bad); }
-.trace-layout .lv-info, .trace-layout .lv-debug { color: var(--t-muted); }
+.trace-layout .logs { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; line-height: 1.6; }
+.trace-layout .logs p { display: flex; align-items: baseline; gap: 8px; margin: 0; overflow-wrap: anywhere; }
+.trace-layout .logs time { flex: none; padding: 0 7px; border-radius: 999px; font: 11px/18px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; background: var(--t-chip); color: var(--t-muted); }
+.trace-layout .logs time.lv-warn { background: color-mix(in srgb, var(--t-warn) 16%, transparent); color: var(--t-warn); }
+.trace-layout .logs time.lv-error { background: var(--t-bad-bg); color: var(--t-bad); }
+.trace-layout .logs dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1px 10px; margin: 4px 0 0; padding-left: 10px; border-left: 2px solid var(--t-line2); font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.trace-layout .logs dl div { display: contents; }
+.trace-layout .logs dt { color: var(--t-faint); }
+.trace-layout .logs dd { margin: 0; color: var(--t-muted); overflow-wrap: anywhere; }
 .trace-layout .blank { padding: 32px 16px; color: var(--t-muted); text-align: center; font-size: 13px; line-height: 2; }
 .trace-layout .blank small { color: var(--t-faint); font-size: 12px; }
 .trace-layout .inspector > .blank { margin: auto 0; }

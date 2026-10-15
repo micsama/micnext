@@ -545,7 +545,7 @@ impl Exec<'_> {
             purpose,
             model = provider.model(),
             attempt,
-            ?wait,
+            wait = wait.map(|w| format!("{}s", w.as_secs())),
             %error,
             "model call failed"
         );

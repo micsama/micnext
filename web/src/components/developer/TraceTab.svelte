@@ -27,6 +27,8 @@
   let stream: HTMLDivElement;
   const revealSelection = () => void tick().then(() => stream?.querySelector(".selection-active")?.scrollIntoView({ block: "nearest" }));
   const time = (at: number) => new Date(at).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  // 运行日志里这两个字段与所在运行重复，不再显示。
+  const LOG_CONTEXT = new Set(["session", "run"]);
   const hm = (at: number) => new Date(at).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
   const role = (m: TraceMessage) => m.tool ? "工具" : ({ UserInput: "用户", Reply: "AI", Command: "指令", Boundary: "压缩", Notification: "通知", HarnessNote: "系统", Completion: "完成" }[m.kind] ?? m.kind);
   const purpose = (c: TraceCall) => ({ conversation: "模型调用", compaction: "压缩调用", title: "旁路 · 标题" }[c.purpose]);
@@ -443,7 +445,14 @@
 
 {#snippet logList(logs: StoredLogRecord[])}
   {#if logs.length === 0}<p class="hint">本轮没有警告或错误日志。</p>
-  {:else}<div class="logs">{#each logs as l, i (i)}<span>{time(l.timestamp_ms)}</span><span class="lv-{l.level}">{l.level.toUpperCase()}</span><span>{l.message}{#each l.fields as f (f.name)}<span class="muted"> {f.name}={f.value}</span>{/each}</span>{/each}</div>{/if}
+  {:else}<ul class="logs">
+    {#each logs as l, i (i)}
+      <li>
+        <p><time class="lv-{l.level}" title={l.level.toUpperCase()}>{time(l.timestamp_ms)}</time>{l.message}</p>
+        {#if l.fields.some((f) => !LOG_CONTEXT.has(f.name))}<dl>{#each l.fields.filter((f) => !LOG_CONTEXT.has(f.name)) as f (f.name)}<div><dt>{f.name}</dt><dd>{f.value}</dd></div>{/each}</dl>{/if}
+      </li>
+    {/each}
+  </ul>{/if}
 {/snippet}
 
 {#snippet callRel(r: TraceRun, c: TraceCall)}

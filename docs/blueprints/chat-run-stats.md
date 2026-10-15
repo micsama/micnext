@@ -1,6 +1,6 @@
 # B2：聊天统计行与上下文占用
 
-**状态：已实现（2026-10-15）；fmt/clippy、store 测试、Web 检查与隔离实例 curl 验收通过，页面观感待 human。**
+**状态：CLOSED（2026-10-15，human 页面验收通过；fmt/clippy、store 测试、Web 检查与隔离实例 curl 验收通过）。**
 
 依据：[B1](../brainstorm/chat-run-stats.md)。只用 [run-trace](run-trace.md) 已落盘的事实，不改 schema。修订 [gateway](gateway.md) 接口表与 [context-compaction](context-compaction.md) 的上下文接口。
 

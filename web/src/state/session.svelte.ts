@@ -1,6 +1,6 @@
-import { ApiError, generateTitle, getContext, getMessages, revokeCompaction, getSession, stopRun } from "../api/client";
+import { ApiError, generateTitle, getContext, getMessages, getRunStats, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, type ContextView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
+import { ProtocolError, type ChatRunStats, type ContextView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
 import { otherSessions, webSessions } from "./sessions.svelte";
@@ -82,6 +82,22 @@ export class SessionView {
       }
     })().finally(() => { this.#contextRefresh = null; });
   }
+  /** 已结束轮次的统计，按挂载的消息 id。 */
+  readonly runStats = new SvelteMap<number, ChatRunStats>();
+  statsError = $state<string | null>(null);
+
+  async #loadStats(from: number | undefined, to?: number): Promise<void> {
+    if (from === undefined) return;
+    try {
+      const runs = await getRunStats(this.id, from, to);
+      if (this.#abort.signal.aborted) return;
+      for (const r of runs) this.runStats.set(r.anchor_id, r);
+      this.statsError = null;
+    } catch (error) {
+      if (!this.#abort.signal.aborted) this.statsError = (error as Error).message;
+    }
+  }
+
   draft = $state<Draft | null>(null);
   executingRun = $state<number | null>(null);
   /** 已对这一轮发出停止，等它收尾。 */
@@ -134,6 +150,7 @@ export class SessionView {
       const page = await getMessages(this.id, first.id);
       if (this.#abort.signal.aborted) return;
       this.messages.unshift(...page.messages);
+      void this.#loadStats(page.messages[0]?.id, first.id - 1);
       const shown = page.messages.filter((m) => m.body.kind !== "HarnessNote").length;
       if (shown > 0) this.loadedAt.set(first.id, shown);
       this.lastLoaded = { count: shown, reachedStart: !page.has_earlier };
@@ -186,7 +203,7 @@ export class SessionView {
 
   #apply(e: StreamEvent): void {
     if (e.event === "ready" || e.event === "session_title_changed") this.#refreshTitle();
-    if (e.event === "ready" || e.event === "run_finished" || (e.event === "message" && ["Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
+    if (e.event === "ready" || e.event === "run_finished" || (e.event === "message" && ["Reply", "Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
     switch (e.event) {
       case "message":
         this.messages.push(e.data);
@@ -207,6 +224,7 @@ export class SessionView {
         this.reconnecting = false;
         if (e.data.has_earlier !== null) this.earlier = e.data.has_earlier ? "idle" : "none";
         this.executingRun = e.data.executing_run;
+        void this.#loadStats(this.messages[0]?.id);
         break;
       case "run_started":
         this.executingRun = e.data.run_id;
@@ -217,6 +235,7 @@ export class SessionView {
         this.stopping = null;
         this.notice = FINISH_NOTICE[e.data.state] ?? null;
         void webSessions.refresh();
+        void this.#loadStats(Math.max(0, ...this.runStats.keys()) + 1);
         break;
     }
   }

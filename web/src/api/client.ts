@@ -24,8 +24,8 @@ import {
 } from "./developer";
 import { parseMessage, parseMessages, type Message } from "./types";
 import {
-  parseContextView, parseCommands,
-  type ContextView, type CommandSpec,
+  parseContextView, parseCommands, parseRunStats,
+  type ContextView, type CommandSpec, type ChatRunStats,
   parseCreated,
   parseEndpoints,
   parseModels,
@@ -279,6 +279,11 @@ export async function startUpdate(): Promise<void> {
 
 export async function getContext(sessionId: number): Promise<ContextView> {
   return parseContextView(await request("GET", `/sessions/${sessionId}/context`));
+}
+/** 最后一条消息落在 [from, to] 内的已结束轮次统计。 */
+export async function getRunStats(sessionId: number, from: number, to?: number): Promise<ChatRunStats[]> {
+  const q = new URLSearchParams({ from: String(from), ...(to === undefined ? {} : { to: String(to) }) });
+  return parseRunStats(await request("GET", `/sessions/${sessionId}/run-stats?${q}`));
 }
 export async function listCommands(): Promise<CommandSpec[]> {
   return parseCommands(await request("GET", "/commands"));

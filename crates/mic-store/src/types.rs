@@ -324,7 +324,6 @@ pub struct Run {
 pub struct ContextWindow {
     pub boundary_id: Option<MessageId>,
     pub files: Vec<FileSnapshot>,
-    pub usage: Option<ContextUsage>,
     /// 范围内、`messages` 末条之前因未认领且非 held 而排除的输入（held 输入留在 `messages`）。
     pub filtered: Vec<MessageId>,
     /// 当前有效压缩边界的摘要。
@@ -368,11 +367,11 @@ pub struct ModelCallContext {
     pub instruction: Vec<MessageId>,
 }
 
+/// 当前有效边界下最近一次成功对话调用的上游用量。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextUsage {
-    pub model_id: ModelId,
     pub input_tokens: u64,
-    pub through: Option<MessageId>,
+    pub output_tokens: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

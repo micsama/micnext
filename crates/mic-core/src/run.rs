@@ -304,8 +304,11 @@ impl Exec<'_> {
                     "You have used all {max_turns} model calls allowed for this request, and tools are no longer available. Summarize what you have done and what remains unfinished, and tell the user they can reply to continue."
                 ))
                 .await?;
-                return Ok(match self.call_model(provider, &[]).await? {
-                    Ok(_) => RunState::MaxTurns,
+                if let Err(failed) = self.call_model(provider, &[]).await? {
+                    return Ok(failed);
+                }
+                return Ok(match self.compact_if_full(provider).await? {
+                    Ok(()) => RunState::MaxTurns,
                     Err(failed) => failed,
                 });
             }
@@ -320,6 +323,9 @@ impl Exec<'_> {
                 Ok(tool_calls) => tool_calls,
                 Err(failed) => return Ok(failed),
             };
+            if let Err(failed) = self.compact_if_full(provider).await? {
+                return Ok(failed);
+            }
             if !tool_calls.is_empty() {
                 self.run_tools(tool_calls).await?;
                 continue;
@@ -353,11 +359,6 @@ impl Exec<'_> {
         provider: &dyn Provider,
         tools: &[ToolHandle],
     ) -> Result<Result<Vec<Call>, RunState>, StoreError> {
-        if self.needs_compaction().await? {
-            if let Err(failed) = self.compact(provider).await? {
-                return Ok(Err(failed));
-            }
-        }
         let window = self.engine.store.context_window(self.session.id).await?;
         let tail: Vec<MessageId> = window
             .messages

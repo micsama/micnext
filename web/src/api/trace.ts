@@ -1,5 +1,5 @@
 import { arr, nullable, num, obj, oneOf, str, type Decoder } from "./decode";
-import type { ReasoningEffort } from "./types";
+import { runStats, type ReasoningEffort, type RunStats } from "./types";
 
 // 与 docs/blueprints/run-trace.md §六 及 mic-store `trace` 的 serde 形状一一对应。
 
@@ -68,6 +68,7 @@ export type TraceRun = {
   finished_at: number | null;
   calls: TraceCall[];
   messages: TraceMessage[];
+  stats: RunStats;
 };
 
 export type TraceRunPage = { runs: TraceRun[]; title_calls: TraceCall[]; next_after: number | null };
@@ -157,6 +158,7 @@ const traceRun: Decoder<TraceRun> = obj({
   finished_at: nullable(num),
   calls: arr(traceCall),
   messages: arr(traceMessage),
+  stats: runStats,
 });
 
 const runPage: Decoder<TraceRunPage> = obj({

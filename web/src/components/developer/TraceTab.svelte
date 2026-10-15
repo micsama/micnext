@@ -208,7 +208,7 @@
   const modelMedian = (c: TraceCall) =>
     c.model_id === null ? undefined : peers.models.find((p) => p.purpose === c.purpose && p.model_id === c.model_id);
   const toolPeer = (name: string) => peers.tools.find((p) => p.name === name);
-  const runMs = (r: TraceRun) => r.finished_at === null ? null : r.finished_at - r.created_at;
+  const runMs = (r: TraceRun) => r.stats.total_ms;
   const tokensOf = (calls: TraceCall[]) => { const u = usageOf(calls); return u.known ? `${formatTokens(u.input + u.output)}${u.unknown ? "+?" : ""}` : "—"; };
   const stopName = (c: TraceCall) => c.stop === null ? "—" : { end_turn: "正常结束", tool_use: "发起工具调用", max_tokens: "达到输出上限", content_filter: "被内容过滤", stopped: "用户停止" }[c.stop];
   const speed = (c: TraceCall) => c.usage && c.first_output_at !== null && c.finished_at > c.first_output_at ? c.usage.output_tokens / ((c.finished_at - c.first_output_at) / 1000) : null;
@@ -385,14 +385,13 @@
 
 {#snippet runTime(r: TraceRun)}
   {@const total = runMs(r)}
-  {@const model = r.calls.reduce((n, c) => n + c.finished_at - c.started_at, 0)}
-  {@const tool = steps(r).reduce((n, c) => { const s = stepOf(r, c); return n + s.end - s.modelEnd; }, 0)}
+  {@const { model_ms: model, tool_ms: tool } = r.stats}
   {@const rest = total === null ? 0 : Math.max(0, total - model - tool)}
   <div class="metric">
     <div class="m-head"><span class="m-label"><Icon name="clock" class="size-3.5" />总耗时</span><span class="m-val">{@render durCap(total, "run")}</span></div>
     <div class="m-bar"><i class="s-gen" style="flex:{model}"></i><i class="s-tool" style="flex:{tool}"></i><i class="s-wait" style="flex:{rest}"></i></div>
-    <div class="m-row"><i class="dot s-gen"></i><span>模型<small>{steps(r).length} 步 · {r.calls.length} 次请求</small></span><b>{formatDuration(model)}</b></div>
-    <div class="m-row"><i class="dot s-tool"></i><span>工具<small>{r.messages.filter((m) => m.tool).length} 个</small></span><b>{formatDuration(tool)}</b></div>
+    <div class="m-row"><i class="dot s-gen"></i><span>模型<small>{r.stats.steps} 步 · {r.stats.requests} 次请求</small></span><b>{formatDuration(model)}</b></div>
+    <div class="m-row"><i class="dot s-tool"></i><span>工具<small>{r.stats.tools} 个</small></span><b>{formatDuration(tool)}</b></div>
     {#if total !== null}<div class="m-row" title="排队、重试等待与框架处理"><i class="dot s-wait"></i><span>其他</span><b>{formatDuration(rest)}</b></div>{/if}
   </div>
 {/snippet}
@@ -487,7 +486,7 @@
                   {#if runBad(r)}<span class={cn("signal", r.state === "interrupted" ? "c-warn" : "c-bad")} title={r.state === "interrupted" ? "已中断 · 恢复只补记未知结果，不重跑工具" : stateName(r)}><Icon name={r.state === "interrupted" ? "pause" : "error"} class="size-[13px]" />{stateName(r)}</span>{:else if r.state === "stopped"}<span class="signal c-ghost" title="用户停止"><Icon name="stop" class="size-[13px]" />{stateName(r)}</span>{/if}
                 </span>
                 <span class="track track-empty"></span>
-                <span class="cap c-ghost tk">{tokensOf(r.calls)} tok</span>
+                <span class="cap c-ghost tk">{r.stats.requests ? `${r.stats.usage_complete ? "" : "≥"}${formatTokens(r.stats.input_tokens + r.stats.output_tokens)}` : "—"} tok</span>
                 {@render durCap(runMs(r), "run")}
                 <time title={time(r.created_at)}>{hm(r.created_at)}</time>
               </button>

@@ -9,6 +9,7 @@
   import Header from "./Header.svelte";
   import MessageList from "./MessageList.svelte";
   import ModelPicker from "./ModelPicker.svelte";
+  import ContextMeter from "./ContextMeter.svelte";
   import PersonaPicker from "./PersonaPicker.svelte";
   import Icon from "../lib/Icon.svelte";
 
@@ -120,6 +121,7 @@
         <PersonaPicker value={persona!.id} onpick={pick} />
       {/snippet}
       {#snippet trailing()}
+        {#if view.context?.occupancy}<ContextMeter occupancy={view.context.occupancy} />{/if}
         <ModelPicker value={modelValue} onpick={(id) => pickModel(id)} reasoningEffort={item.reasoning_effort} onreasoning={(effort) => pickModel(modelValue!, effort)} disabled={modelSaving} />
       {/snippet}
     </Composer>
@@ -128,7 +130,10 @@
       {#if readonlyNotice}<p class="text-sm text-warning">{readonlyNotice}</p>{/if}
       <div class="flex items-center justify-between gap-3">
         <p class="text-sm text-muted-foreground">消息请在{channelName(item.channel)}发送，这里可切换模型与思考强度</p>
-        <ModelPicker value={modelValue} onpick={(id) => pickModel(id)} reasoningEffort={item.reasoning_effort} onreasoning={(effort) => pickModel(modelValue!, effort)} disabled={modelSaving} />
+        <div class="flex shrink-0 items-center">
+          {#if view.context?.occupancy}<ContextMeter occupancy={view.context.occupancy} />{/if}
+          <ModelPicker value={modelValue} onpick={(id) => pickModel(id)} reasoningEffort={item.reasoning_effort} onreasoning={(effort) => pickModel(modelValue!, effort)} disabled={modelSaving} />
+        </div>
       </div>
     </div>
   {/if}

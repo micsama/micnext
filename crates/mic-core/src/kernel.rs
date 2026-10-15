@@ -16,6 +16,7 @@ use mic_store::{
 };
 use tokio::sync::mpsc;
 
+use crate::compaction::Occupancy;
 use crate::event::{EventReceiver, Events};
 use crate::input::{validate, IncomingPart};
 use crate::provider::{resolve_key, resolve_reasoning, Factories};
@@ -50,6 +51,14 @@ pub struct ModelDraft {
     pub name: String,
     pub config_json: String,
     pub price: mic_store::ModelPrice,
+}
+
+/// 上下文接口的响应：压缩视图加当前占用。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ContextOverview {
+    #[serde(flatten)]
+    pub view: mic_store::ContextView,
+    pub occupancy: Option<Occupancy>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,15 +99,26 @@ impl Kernel {
         Ok(())
     }
 
-    pub async fn context_view(
-        &self,
-        session: SessionId,
-    ) -> Result<mic_store::ContextView, KernelError> {
-        self.store
+    pub async fn context_view(&self, session: SessionId) -> Result<ContextOverview, KernelError> {
+        let session = self
+            .store
             .session(session)
             .await?
             .ok_or(KernelError::SessionNotFound)?;
-        Ok(self.store.context_view(session).await?)
+        Ok(ContextOverview {
+            view: self.store.context_view(session.id).await?,
+            occupancy: crate::compaction::occupancy(&self.engine, &session).await?,
+        })
+    }
+
+    /// 最后一条消息落在 `[from, to]` 内的已结束 run 的统计。
+    pub async fn run_stats(
+        &self,
+        session: SessionId,
+        from: MessageId,
+        to: Option<MessageId>,
+    ) -> Result<Vec<mic_store::ChatRunStats>, KernelError> {
+        Ok(self.store.run_stats(session, from, to).await?)
     }
 
     pub async fn append_session_command(

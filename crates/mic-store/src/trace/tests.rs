@@ -53,3 +53,169 @@ fn cost_is_unknown_without_a_basis() {
     };
     assert_eq!(call_cost(Some(&unreported), &price), Some(3.0));
 }
+
+#[test]
+fn run_stats_follow_the_trace_rules() {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(run_stats_fixture());
+}
+
+async fn run_stats_fixture() {
+    use crate::{CredentialWrite, EndpointWrite, ModelWrite, NewSession, SessionKind, ToolScope};
+    use mic_message::{ContentPart, ReplyBlock};
+
+    let store = Store::open_in_memory(&[]).await.unwrap();
+    let person = store.ensure_person("test", 1).await.unwrap();
+    let endpoint = store
+        .create_endpoint(
+            EndpointWrite {
+                name: "e".into(),
+                kind: "openai".into(),
+                config_json: "{}".into(),
+                credential: CredentialWrite::Clear,
+            },
+            1,
+        )
+        .await
+        .unwrap();
+    let model = store
+        .create_model(
+            ModelWrite {
+                endpoint_id: endpoint,
+                name: "m".into(),
+                config_json: "{}".into(),
+                context_window: None,
+                price: ModelPrice {
+                    input: Some(1.0),
+                    cache_read: Some(0.5),
+                    cache_write: None,
+                    output: Some(2.0),
+                },
+            },
+            1,
+        )
+        .await
+        .unwrap();
+    let session = store
+        .create_session(NewSession {
+            kind: SessionKind::Root {
+                channel: "web".into(),
+                chat: "c".into(),
+            },
+            parent_session_id: None,
+            delivery_target: None,
+            pwd: "/tmp".into(),
+            tool_scope: ToolScope::All,
+            created_at: 0,
+            persona: None,
+            model: None,
+            reasoning_effort: None,
+        })
+        .await
+        .unwrap()
+        .id;
+    let reply = MessageBody::Reply {
+        model: "m".into(),
+        blocks: vec![ReplyBlock::Text {
+            text: "ok".into(),
+            phase: None,
+        }],
+    };
+    let tool = |started_at| MessageBody::ToolResult {
+        tool_name: "shell".into(),
+        tool_call_id: "t".into(),
+        outcome: ToolResultOutcome::Terminal(ExecOutcome::Completed { output: vec![] }),
+        started_at: Some(started_at),
+    };
+    let input = MessageBody::UserInput {
+        person,
+        parts: vec![ContentPart::Text { text: "hi".into() }],
+    };
+    let model_id = model.0;
+    store
+        .call(move |conn| {
+            let run = |id: i64, state: &str, finished: Option<i64>| {
+                conn.execute(
+                    "INSERT INTO core_runs (id, session_id, state, created_at, finished_at) VALUES (?1, ?2, ?3, 0, ?4)",
+                    params![id, session.0, state, finished],
+                )
+            };
+            run(1, "completed", Some(10_000))?;
+            run(2, "completed", Some(1_000))?;
+            run(3, "executing", None)?;
+            // (id, run, model_id, error, started, first, finished, input, output, cache)
+            let calls = [
+                (1, 1, None, Some("boom"), 0, None, 100, None, None, None),
+                (2, 1, None, None, 1_100, Some(1_300), 2_100, Some(100), Some(40), Some(50)),
+                (3, 1, None, None, 4_200, Some(4_400), 5_200, Some(200), Some(60), None),
+                (4, 2, Some(model_id), None, 0, Some(100), 500, Some(1_000_000), Some(1_000_000), Some(0)),
+            ];
+            for (id, run, model, error, started, first, finished, i, o, c) in calls {
+                conn.execute(
+                    "INSERT INTO core_model_calls (id, session_id, run_id, purpose, model, model_id, error,
+                       input_tokens, output_tokens, cache_read_tokens, started_at, first_output_at, finished_at)
+                     VALUES (?1, ?2, ?3, 'conversation', 'm', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    params![id, session.0, run, model, error, i, o, c, started, first, finished],
+                )?;
+            }
+            // (id, run, call, body, created_at)
+            let messages = [
+                (1, 1, None, &input, 0),
+                (2, 1, Some(2), &reply, 2_100),
+                (3, 1, None, &tool(2_100), 3_100),
+                (4, 1, None, &tool(2_100), 4_100),
+                (5, 1, Some(3), &reply, 5_200),
+                (6, 2, None, &input, 0),
+                (7, 2, Some(4), &reply, 500),
+                (8, 3, None, &input, 0),
+            ];
+            for (id, run, call, body, at) in messages {
+                conn.execute(
+                    "INSERT INTO core_messages (id, session_id, run_id, model_call_id, payload, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![id, session.0, run, call, row::payload(body).unwrap(), at],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    let all = store.run_stats(session, MessageId(1), None).await.unwrap();
+    assert_eq!(
+        all.iter()
+            .map(|r| (r.run_id.0, r.anchor_id.0))
+            .collect::<Vec<_>>(),
+        [(1, 5), (2, 7)],
+        "执行中的 run 不返回"
+    );
+    let s = &all[0].stats;
+    assert_eq!((s.steps, s.requests, s.tools), (2, 3, 2), "重试合并为一步");
+    assert_eq!(s.model_ms, 2_100);
+    assert_eq!(s.tool_ms, 2_000, "并行工具取墙钟");
+    assert_eq!(s.first_output_ms, Some(200));
+    assert_eq!(s.output_tps, Some(62.5));
+    assert_eq!(
+        (s.input_tokens, s.output_tokens, s.cache_read_tokens),
+        (300, 100, 50)
+    );
+    assert!(!s.usage_complete && !s.cache_complete);
+    assert_eq!(s.cost, None, "无价即未知");
+    let s = &all[1].stats;
+    assert!(s.usage_complete && s.cache_complete);
+    assert_eq!(s.cost, Some(3.0));
+    assert_eq!(s.total_ms, Some(1_000));
+
+    let only_first = store
+        .run_stats(session, MessageId(2), Some(MessageId(6)))
+        .await
+        .unwrap();
+    assert_eq!(
+        only_first.iter().map(|r| r.run_id.0).collect::<Vec<_>>(),
+        [1]
+    );
+    let trace = store.trace_runs(session, None, 5).await.unwrap();
+    assert_eq!(trace.runs[0].stats, all[0].stats, "trace 与聊天同一结构");
+}

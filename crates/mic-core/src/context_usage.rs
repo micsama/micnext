@@ -1,7 +1,6 @@
 use crate::limits::{ASCII_BYTES_PER_TOKEN, IMAGE_TOKENS, NON_ASCII_TOKENS};
 use crate::ModelRequest;
 use mic_message::{ContentPart, Message, ModelView, Reasoning, ReplyBlock};
-use mic_store::{ContextUsage, ModelId};
 
 pub(crate) fn text_tokens(text: &str) -> u64 {
     let ascii = text.chars().filter(char::is_ascii).count() as u64;
@@ -42,30 +41,17 @@ pub(crate) fn message_tokens(message: &Message) -> u64 {
     }
 }
 
-pub(crate) fn request_tokens(
-    req: &ModelRequest,
-    usage: Option<&ContextUsage>,
-    model: Option<ModelId>,
-) -> u64 {
-    if let Some(usage) = usage.filter(|u| Some(u.model_id) == model) {
-        usage.input_tokens
-            + req
-                .messages
-                .iter()
-                .filter(|m| usage.through.is_none_or(|id| m.id > id))
-                .map(message_tokens)
-                .sum::<u64>()
-    } else {
-        text_tokens(&req.system)
-            + req
-                .tools
-                .iter()
-                .map(|t| {
-                    text_tokens(&t.name)
-                        + text_tokens(&t.description)
-                        + text_tokens(&t.parameters.to_string())
-                })
-                .sum::<u64>()
-            + req.messages.iter().map(message_tokens).sum::<u64>()
-    }
+/// 按字数粗估整个请求，只供压缩前裁剪历史；占用与触发都用上游用量。
+pub(crate) fn estimate_tokens(req: &ModelRequest) -> u64 {
+    text_tokens(&req.system)
+        + req
+            .tools
+            .iter()
+            .map(|t| {
+                text_tokens(&t.name)
+                    + text_tokens(&t.description)
+                    + text_tokens(&t.parameters.to_string())
+            })
+            .sum::<u64>()
+        + req.messages.iter().map(message_tokens).sum::<u64>()
 }

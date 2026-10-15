@@ -39,7 +39,27 @@ export type Compaction = { summary: string; keep_from: number | null; files: Fil
 export type ContextBoundary = { Compaction: Compaction } | "UserClear";
 export type SessionCommand = { Compact: { text: string | null } } | "Clear" | { RevokeCompaction: { boundary_id: number } };
 export type CompactionView = { boundary_id: number; result: Compaction; state: { kind: "applied" } | { kind: "revoked"; at: number } };
-export type ContextView = { active_boundary: number | null; compactions: CompactionView[] };
+/** 上下文占用，口径同自动压缩判定，总含估算。 */
+export type Occupancy = { used_tokens: number; window: number; trigger_percent: number };
+export type ContextView = { active_boundary: number | null; compactions: CompactionView[]; occupancy: Occupancy | null };
+/** 一轮的统计；聊天统计行与 trace 运行概览共用（chat-run-stats §1.1）。 */
+export type RunStats = {
+  total_ms: number | null;
+  model_ms: number;
+  tool_ms: number;
+  steps: number;
+  requests: number;
+  tools: number;
+  first_output_ms: number | null;
+  output_tps: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  usage_complete: boolean;
+  cache_read_tokens: number;
+  cache_complete: boolean;
+  cost: number | null;
+};
+export type ChatRunStats = RunStats & { run_id: number; state: RunState; anchor_id: number };
 export type CommandSpec = { name: string; usage: string; description: string };
 
 export type MessageBody =
@@ -246,7 +266,17 @@ const compactionResult: Decoder<Compaction> = obj({ summary: str, keep_from: nul
 const compaction = tagged({ Compaction: compactionResult });
 const command: Decoder<SessionCommand> = (v, at) => v === "Clear" ? v : tagged({ Compact: obj({ text: nullable(str) }), RevokeCompaction: obj({ boundary_id: num }) })(v, at);
 const compactionState: Decoder<CompactionView["state"]> = kinded<{ applied: Record<string, never>; revoked: { at: number } }>({ applied: {}, revoked: { at: num } });
-const contextView: Decoder<ContextView> = obj({ active_boundary: nullable(num), compactions: arr(obj({ boundary_id: num, result: compactionResult, state: compactionState })) });
+const runState: Decoder<RunState> = oneOf("executing", "completed", "provider_failed", "max_turns", "interrupted", "stopped");
+const occupancy: Decoder<Occupancy> = obj({ used_tokens: num, window: num, trigger_percent: num });
+const contextView: Decoder<ContextView> = obj({ active_boundary: nullable(num), compactions: arr(obj({ boundary_id: num, result: compactionResult, state: compactionState })), occupancy: nullable(occupancy) });
+const runStatsFields = {
+  total_ms: nullable(num), model_ms: num, tool_ms: num, steps: num, requests: num, tools: num,
+  first_output_ms: nullable(num), output_tps: nullable(num), input_tokens: num, output_tokens: num,
+  usage_complete: bool, cache_read_tokens: num, cache_complete: bool, cost: nullable(num),
+};
+export const runStats: Decoder<RunStats> = obj(runStatsFields);
+const chatRunStats: Decoder<ChatRunStats> = obj({ ...runStatsFields, run_id: num, state: runState, anchor_id: num });
+export const parseRunStats = (v: unknown): ChatRunStats[] => obj({ runs: arr(chatRunStats) })(v, "统计").runs;
 export const parseContextView = (v: unknown): ContextView => contextView(v, "上下文");
 export const parseCommands = (v: unknown): CommandSpec[] => obj({ items: arr(obj({ name: str, usage: str, description: str })) })(v, "指令列表").items;
 const boundary: Decoder<ContextBoundary> = (v, at) => (v === "UserClear" ? v : compaction(v, at));
@@ -368,7 +398,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   run_started: obj({ run_id: num }),
   run_finished: obj({
     run_id: num,
-    state: oneOf("executing", "completed", "provider_failed", "max_turns", "interrupted", "stopped"),
+    state: runState,
   }),
   ready: obj({ executing_run: nullable(num), has_earlier: nullable(bool) }),
 };

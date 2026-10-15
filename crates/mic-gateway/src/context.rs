@@ -24,7 +24,7 @@ pub(crate) async fn commands() -> Json<Commands> {
 pub(crate) async fn get_context(
     State(app): State<Arc<App>>,
     id: Result<Path<i64>, PathRejection>,
-) -> Result<Json<mic_store::ContextView>, ApiError> {
+) -> Result<Json<mic_core::ContextOverview>, ApiError> {
     let session = api::session(&app, id).await?;
     Ok(Json(app.kernel.context_view(session.id).await?))
 }

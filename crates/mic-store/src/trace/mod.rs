@@ -91,6 +91,39 @@ pub struct TraceRun {
     pub finished_at: Option<i64>,
     pub calls: Vec<TraceCall>,
     pub messages: Vec<TraceMessage>,
+    pub stats: RunStats,
+}
+
+/// 一个已结束 run 的统计；聊天统计行与 trace 运行概览共用。契约：docs/blueprints/chat-run-stats.md §1.1。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RunStats {
+    pub total_ms: Option<i64>,
+    pub model_ms: i64,
+    /// 各步「最后一个已知工具结束 − 该步模型结束」之和。
+    pub tool_ms: i64,
+    pub steps: u32,
+    pub requests: u32,
+    pub tools: u32,
+    pub first_output_ms: Option<i64>,
+    pub output_tps: Option<f64>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// 有调用缺用量时为 false，token 合计只含已知部分。
+    pub usage_complete: bool,
+    pub cache_read_tokens: u64,
+    /// 有调用缺用量或未报缓存读取时为 false。
+    pub cache_complete: bool,
+    pub cost: Option<f64>,
+}
+
+/// 聊天统计行：`anchor_id` 是该 run 最后一条消息。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ChatRunStats {
+    pub run_id: RunId,
+    pub state: &'static str,
+    pub anchor_id: MessageId,
+    #[serde(flatten)]
+    pub stats: RunStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -285,6 +318,99 @@ fn load_calls(conn: &Connection, filter: &str, arg: i64) -> Result<Vec<TraceCall
     Ok(calls)
 }
 
+/// 已知终点的工具结果：取消与派发的没有可靠终点。
+fn tool_end(m: &TraceMessage) -> Option<i64> {
+    let t = m.tool.as_ref()?;
+    t.started_at?;
+    matches!(
+        t.outcome,
+        ToolTraceOutcome::Completed | ToolTraceOutcome::Failed
+    )
+    .then_some(m.created_at)
+}
+
+fn run_stats(
+    created_at: i64,
+    finished_at: Option<i64>,
+    calls: &[TraceCall],
+    messages: &[TraceMessage],
+) -> RunStats {
+    // 每步以其最后一次尝试为准；工具结果归属它之前最近的回复。
+    let step_ends: Vec<&TraceCall> = calls
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| calls.get(i + 1).is_none_or(|next| next.attempt == 1))
+        .map(|(_, c)| c)
+        .collect();
+    let tool_ms = step_ends
+        .iter()
+        .map(|step| {
+            let owned = messages.iter().filter(|m| {
+                m.tool.is_some()
+                    && step.reply_id.is_some_and(|r| r < m.id)
+                    && !step_ends.iter().any(|o| {
+                        o.reply_id
+                            .is_some_and(|r| step.reply_id < Some(r) && r < m.id)
+                    })
+            });
+            owned
+                .filter_map(tool_end)
+                .max()
+                .map_or(0, |end| (end - step.finished_at).max(0))
+        })
+        .sum();
+    let known: Vec<&Usage> = calls.iter().filter_map(|c| c.usage.as_ref()).collect();
+    let usage_complete = known.len() == calls.len();
+    let (speed_tokens, speed_ms) = calls
+        .iter()
+        .filter_map(|c| match (c.usage.as_ref(), c.first_output_at) {
+            (Some(u), Some(first)) if c.finished_at > first => {
+                Some((u.output_tokens, c.finished_at - first))
+            }
+            _ => None,
+        })
+        .fold((0, 0), |(t, ms), (dt, dms)| (t + dt, ms + dms));
+    RunStats {
+        total_ms: finished_at.map(|f| f - created_at),
+        model_ms: calls.iter().map(|c| c.finished_at - c.started_at).sum(),
+        tool_ms,
+        steps: step_ends.len() as u32,
+        requests: calls.len() as u32,
+        tools: messages.iter().filter(|m| m.tool.is_some()).count() as u32,
+        first_output_ms: calls
+            .iter()
+            .filter(|c| c.purpose == ModelCallPurpose::Conversation)
+            .find_map(|c| Some(c.first_output_at? - c.started_at)),
+        output_tps: (speed_ms > 0).then(|| speed_tokens as f64 * 1000.0 / speed_ms as f64),
+        input_tokens: known.iter().map(|u| u.input_tokens).sum(),
+        output_tokens: known.iter().map(|u| u.output_tokens).sum(),
+        usage_complete,
+        cache_read_tokens: known.iter().filter_map(|u| u.cache_read_tokens).sum(),
+        cache_complete: usage_complete && known.iter().all(|u| u.cache_read_tokens.is_some()),
+        cost: calls.iter().try_fold(0.0, |n, c| Some(n + c.cost?)),
+    }
+}
+
+fn load_run(conn: &Connection, run: crate::Run) -> Result<TraceRun, StoreError> {
+    let messages = conn
+        .prepare(&format!(
+            "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.run_id = ?1 ORDER BY m.id"
+        ))?
+        .query_map([run.id.0], row::message)?
+        .map(|m| m.map(trace_message))
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let calls = load_calls(conn, "c.run_id = ?1", run.id.0)?;
+    Ok(TraceRun {
+        id: run.id,
+        state: run.state.as_str(),
+        created_at: run.created_at,
+        finished_at: run.finished_at,
+        stats: run_stats(run.created_at, run.finished_at, &calls, &messages),
+        calls,
+        messages,
+    })
+}
+
 fn clip(text: &str) -> String {
     let flat: String = text.chars().take(PREVIEW_CHARS).collect();
     flat
@@ -448,24 +574,10 @@ impl Store {
             let more = runs.len() > limit as usize;
             runs.truncate(limit as usize);
             let next_after = more.then(|| runs.last().expect("limit ≥ 1").id);
-            let mut out = Vec::with_capacity(runs.len());
-            for run in runs {
-                let messages = conn
-                    .prepare(&format!(
-                        "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.run_id = ?1 ORDER BY m.id"
-                    ))?
-                    .query_map([run.id.0], row::message)?
-                    .map(|m| m.map(trace_message))
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                out.push(TraceRun {
-                    id: run.id,
-                    state: run.state.as_str(),
-                    created_at: run.created_at,
-                    finished_at: run.finished_at,
-                    calls: load_calls(conn, "c.run_id = ?1", run.id.0)?,
-                    messages,
-                });
-            }
+            let out = runs
+                .into_iter()
+                .map(|run| load_run(conn, run))
+                .collect::<Result<Vec<_>, _>>()?;
             let title_calls = if after.is_none() {
                 load_calls(conn, "c.session_id = ?1 AND c.purpose = 'title'", session.0)?
             } else {
@@ -476,6 +588,44 @@ impl Store {
                 title_calls,
                 next_after,
             })
+        })
+        .await
+    }
+
+    /// 最后一条消息落在 `[from, to]` 内的已结束 run，按该消息升序。
+    pub async fn run_stats(
+        &self,
+        session: SessionId,
+        from: MessageId,
+        to: Option<MessageId>,
+    ) -> Result<Vec<ChatRunStats>, StoreError> {
+        let to = to.map_or(i64::MAX, |m| m.0);
+        self.call(move |conn| {
+            let runs = conn
+                .prepare(&format!(
+                    "SELECT {RUN_COLS}, anchor FROM (
+                       SELECT r.*, (SELECT max(id) FROM core_messages WHERE run_id = r.id) AS anchor
+                       FROM core_runs r
+                       WHERE r.id IN (SELECT run_id FROM core_messages
+                                      WHERE session_id = ?1 AND id BETWEEN ?2 AND ?3)
+                         AND r.state <> 'executing')
+                     WHERE anchor BETWEEN ?2 AND ?3 ORDER BY anchor"
+                ))?
+                .query_map(params![session.0, from.0, to], |r| {
+                    Ok((row::run(r)?, MessageId(r.get(5)?)))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            runs.into_iter()
+                .map(|(run, anchor_id)| {
+                    let trace = load_run(conn, run)?;
+                    Ok(ChatRunStats {
+                        run_id: trace.id,
+                        state: trace.state,
+                        anchor_id,
+                        stats: trace.stats,
+                    })
+                })
+                .collect()
         })
         .await
     }

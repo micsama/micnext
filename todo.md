@@ -18,10 +18,10 @@
 | B1 余项：B（模型输入呈现）、F（工具参数）、E 余项（会话身份）待定；A 并入阶段二 | 最小正交审查余项 | [`docs/brainstorm/orthogonality-review-2026-09-24.md`](docs/brainstorm/orthogonality-review-2026-09-24.md) |
 | B1 第二轮收敛中 | 产品定位、Web + 微信、定时看板、同步/异步与 v0–v3 路线；全项目待决策项见 §四 | [`docs/brainstorm/product-roadmap.md`](docs/brainstorm/product-roadmap.md) |
 | 进行中（步 1～6 与存储重整完成，v0a Web 闭环打通） | v0a 模块地图：Web 闭环的模块划分、对接方式、实现顺序（v0a 总索引） | [`docs/blueprints/v0a-module-map.md`](docs/blueprints/v0a-module-map.md) |
-| B2 CLOSED（2026-10-12）；fmt/clippy、Web 检查/构建与 12 项隔离链路验收通过；human 接手真实使用验收，OpenAI key 401 待补 | 上下文压缩与 `/compact`、`/clear`：先压历史再执行新输入；上游用量优先、缺失估算，默认 80% 触发；只读最新有效 Boundary，clear 后排队输入正常执行；快照走 read；Web 展示结果并可将当前压缩边界置为失效撤回，保留审计记录 | [B1](docs/brainstorm/context-compaction.md)；[B2](docs/blueprints/context-compaction.md) |
+| B2 CLOSED（2026-10-12）；fmt/clippy、Web 检查/构建与 12 项隔离链路验收通过；human 接手真实使用验收，OpenAI key 401 待补 | 上下文压缩与 `/compact`、`/clear`：每次模型返回后按其上游用量判定，默认 80% 触发，压完再接上工具结果或新输入；只读最新有效 Boundary，clear 后排队输入正常执行；快照走 read；Web 展示结果并可将当前压缩边界置为失效撤回，保留审计记录 | [B1](docs/brainstorm/context-compaction.md)；[B2](docs/blueprints/context-compaction.md) |
 | B1 待核对，再起 B2 | 定时任务看板事实来源与异步 shell/子 agent 生命周期 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-4～5 |
 | B2 CLOSED：服务商/模型分层与图片输入均已实现并验收；遗留：模型不支持图片时的上游报错呈现、只发图时会话预览为空 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/model-settings.md`](docs/blueprints/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
-| B2 已批准（2026-10-15） | 聊天统计行（每轮一行：步数、模型/工具耗时、首字、速率、token、缓存、费用）与输入框上下文占用；后端一处计算，trace 运行概览共用 | [B2](docs/blueprints/chat-run-stats.md)；[B1](docs/brainstorm/chat-run-stats.md) |
+| 已实现，本地验收通过；页面观感待 human（2026-10-15） | 聊天统计行（每轮一行：步数、模型/工具耗时、首字、速率、token、缓存、费用）与输入框上下文占用；后端一处计算，trace 运行概览共用 | [B2](docs/blueprints/chat-run-stats.md)；[B1](docs/brainstorm/chat-run-stats.md) |
 | B1 已记录；脱敏明确延期（2026-10-10） | 模型出站脱敏、工具隔离与授权：脱敏只求减少部分意外披露，当前不实施；工具隔离既有缺口仍待定。专用用户部署 human 进行中，服务器 bwrap 已验证可运行；访问与披露各自控制，候选未批准 | [B1](docs/brainstorm/privacy-permissions.md)；合并「工具授权」缺口（cross-check §四-8～9） |
 | 引用 CLOSED（2026-10-10 服务器验收）；入站图片 CLOSED（2026-10-10 服务器验收，[B2](docs/blueprints/wechat-inbound-images.md)）；入站文件/视频已实现待验收（[B2](docs/blueprints/wechat-inbound-files.md)） | 微信 V2：引用关联归微信，不新增核心来源登记接口；随后入站图片/文件/视频、出站媒体；斜杠指令跨 Channel 统一另起 B1 | [引用 B2](docs/blueprints/wechat-quotes.md)；[V2 B1](docs/brainstorm/wechat-v2.md) §二 |
 | 已知 bug，低优先级；human 明确延期（2026-10-10） | 微信 Markdown/表格部分引用无法精确定位时提供完整被引消息并注明；显示文字的精确还原后续再处理，不阻塞本轮引用验收 | [引用 B2](docs/blueprints/wechat-quotes.md)；[样本事实](docs/brainstorm/wechat-v2.md) §三 |

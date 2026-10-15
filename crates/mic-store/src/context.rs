@@ -8,7 +8,7 @@ use crate::messages::insert_message;
 use crate::row::{self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, UNCLAIMED};
 use crate::{
     CompactionState, CompactionView, ContextCommandError, ContextUsage, ContextView, ContextWindow,
-    ModelCallId, ModelCallOutcome, ModelId, NewModelCall, RunId, Store, StoreError,
+    ModelCallId, ModelCallOutcome, NewModelCall, RunId, Store, StoreError,
 };
 
 impl Store {
@@ -59,32 +59,39 @@ impl Store {
                 .into_iter()
                 .filter(|id| through.is_some_and(|t| *id < t))
                 .collect();
-            let usage = conn
-                .query_row(
-                    "SELECT c.model_id, c.input_tokens, c.context_through_id
-                 FROM core_model_calls c
-                 WHERE c.session_id = ?1 AND c.purpose = 'conversation' AND c.error IS NULL
-                   AND c.input_tokens IS NOT NULL AND c.model_id IS NOT NULL
-                   AND c.context_boundary_id IS ?2 AND c.context_through_id IS NOT NULL
-                 ORDER BY c.id DESC LIMIT 1",
-                    params![session.0, boundary_id.map(|id| id.0)],
-                    |r| {
-                        Ok(ContextUsage {
-                            model_id: ModelId(r.get(0)?),
-                            input_tokens: r.get::<_, i64>(1)? as u64,
-                            through: r.get::<_, Option<i64>>(2)?.map(MessageId),
-                        })
-                    },
-                )
-                .optional()?;
             Ok(ContextWindow {
                 boundary_id,
                 summary,
                 files,
                 messages,
                 filtered,
-                usage,
             })
+        })
+        .await
+    }
+
+    pub async fn context_usage(
+        &self,
+        session: SessionId,
+    ) -> Result<Option<ContextUsage>, StoreError> {
+        self.call(move |conn| {
+            let boundary_id = active_boundary(conn, session)?.map(|m| m.id.0);
+            Ok(conn
+                .query_row(
+                    "SELECT input_tokens, output_tokens FROM core_model_calls
+                     WHERE session_id = ?1 AND purpose = 'conversation' AND error IS NULL
+                       AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL
+                       AND context_boundary_id IS ?2
+                     ORDER BY id DESC LIMIT 1",
+                    params![session.0, boundary_id],
+                    |r| {
+                        Ok(ContextUsage {
+                            input_tokens: r.get::<_, i64>(0)? as u64,
+                            output_tokens: r.get::<_, i64>(1)? as u64,
+                        })
+                    },
+                )
+                .optional()?)
         })
         .await
     }

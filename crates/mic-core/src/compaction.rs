@@ -5,25 +5,56 @@ use mic_message::{
     ModelView, ReplyBlock, SessionCommand, SessionId, SnapshotExtent,
 };
 use mic_store::{
-    ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, SessionKind,
+    ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session, SessionKind,
     StoreError,
 };
 use mic_tool::ToolContext;
 use serde::Serialize;
 
 use crate::attempt::{stream_attempt, Facts};
-use crate::context_usage::request_tokens;
-use crate::limits::{COMPACTION_BUDGET_PERCENT, SNAPSHOT_BYTES, SNAPSHOT_FILES};
-use crate::run::{now_ms, Exec};
+use crate::context_usage::estimate_tokens;
+use crate::limits::{
+    COMPACTION_BUDGET_PERCENT, DEFAULT_CONTEXT_WINDOW, SNAPSHOT_BYTES, SNAPSHOT_FILES,
+};
+use crate::run::{now_ms, Engine, Exec};
 use crate::{request, ModelRequest, ModelResponse, Provider, StopReason, ToolChoice};
 
 const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Incorporate the earlier summary cumulatively. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to continuing the current task. The additional user input is for focus; it will be processed after compaction.";
 
+/// 当前上下文占用，口径同自动压缩判定。契约：docs/blueprints/chat-run-stats.md §二。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Occupancy {
+    pub used_tokens: u64,
+    pub window: u32,
+    pub trigger_percent: u8,
+}
+
+/// 会话未选模型、所选模型已删除或当前边界后尚无调用时为 `None`。
+pub(crate) async fn occupancy(
+    engine: &Engine,
+    session: &Session,
+) -> Result<Option<Occupancy>, StoreError> {
+    let Some(model_id) = session.model_id else {
+        return Ok(None);
+    };
+    let Some(model) = engine.store.model(model_id).await? else {
+        return Ok(None);
+    };
+    let Some(usage) = engine.store.context_usage(session.id).await? else {
+        return Ok(None);
+    };
+    let settings = engine.store.run_settings(session.id).await?;
+    Ok(Some(Occupancy {
+        used_tokens: usage.input_tokens + usage.output_tokens,
+        window: model
+            .context_window
+            .map_or(DEFAULT_CONTEXT_WINDOW, |w| w.get()),
+        trigger_percent: settings.compaction.trigger_percent,
+    }))
+}
+
 impl Exec<'_> {
-    /// 压缩（含历史用量估算）用的窗口请求：本步待处理输入排除在外。
-    async fn history_request(
-        &self,
-    ) -> Result<(ModelRequest, ModelCallContext, Option<ContextUsage>), StoreError> {
+    async fn history_request(&self) -> Result<(ModelRequest, ModelCallContext), StoreError> {
         let mut window = self.engine.store.context_window(self.session.id).await?;
         window
             .messages
@@ -45,7 +76,6 @@ impl Exec<'_> {
                 .collect(),
             ..Default::default()
         };
-        let usage = window.usage.clone();
         let images = self
             .engine
             .store
@@ -66,14 +96,24 @@ impl Exec<'_> {
             self.settings,
             &[],
         );
-        Ok((req, context, usage))
+        Ok((req, context))
     }
 
-    pub(crate) async fn needs_compaction(&self) -> Result<bool, StoreError> {
-        let (req, _, usage) = self.history_request().await?;
-        Ok(request_tokens(&req, usage.as_ref(), self.model_id)
-            >= u64::from(self.context_window) * u64::from(self.settings.compaction.trigger_percent)
-                / 100)
+    /// 每次模型返回后判定：这次的上游用量达到触发比例即压缩；之后的工具结果与新输入压完再接上。
+    pub(crate) async fn compact_if_full(
+        &self,
+        provider: &dyn Provider,
+    ) -> Result<Result<(), RunState>, StoreError> {
+        let Some(usage) = self.engine.store.context_usage(self.session.id).await? else {
+            return Ok(Ok(()));
+        };
+        let trigger = u64::from(self.context_window)
+            * u64::from(self.settings.compaction.trigger_percent)
+            / 100;
+        if usage.input_tokens + usage.output_tokens < trigger {
+            return Ok(Ok(()));
+        }
+        self.compact(provider).await
     }
 
     /// 自动压缩与 `/compact` 共用：附加文字取本步待处理输入。
@@ -81,10 +121,21 @@ impl Exec<'_> {
         &self,
         provider: &dyn Provider,
     ) -> Result<Result<(), RunState>, StoreError> {
-        let (mut req, mut context, _) = self.history_request().await?;
+        let (mut req, mut context) = self.history_request().await?;
         let budget = u64::from(self.context_window) * COMPACTION_BUDGET_PERCENT / 100;
         let before = req.messages.len();
-        while request_tokens(&req, None, self.model_id) > budget && !req.messages.is_empty() {
+        // 刚返回、工具结果尚未到的回复原样保留，结果接上时调用仍在窗口内；裁剪前认定。
+        let open = req
+            .messages
+            .last()
+            .filter(|m| match &m.body {
+                MessageBody::Reply { blocks, .. } => blocks
+                    .iter()
+                    .any(|b| matches!(b, ReplyBlock::ToolCall { .. })),
+                _ => false,
+            })
+            .map(|m| m.id);
+        while estimate_tokens(&req) > budget && !req.messages.is_empty() {
             let first_reply = req
                 .messages
                 .iter()
@@ -114,6 +165,7 @@ impl Exec<'_> {
         } else {
             steps.get(steps.len().saturating_sub(n)).copied()
         };
+        let keep_from = [keep_from, open].into_iter().flatten().min();
         let pending = self
             .engine
             .store

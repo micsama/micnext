@@ -138,13 +138,12 @@ pub struct ModelCallContext {
     pub through: Option<MessageId>,
 }
 pub struct ContextUsage {
-    pub model_id: ModelId,
     pub input_tokens: u64,
-    pub through: Option<MessageId>,
+    pub output_tokens: u64,
 }
 // NewModelCall 新增 pub context: ModelCallContext。
-// ContextWindow 新增 boundary_id: Option<MessageId>、files: Vec<FileSnapshot>、
-// usage: Option<ContextUsage>；summary/messages 保持。
+// ContextWindow 新增 boundary_id: Option<MessageId>、files: Vec<FileSnapshot>；summary/messages 保持。
+// Store::context_usage(session) -> Option<ContextUsage>（修订 2026-10-15，见下文触发口径）。
 
 pub enum ContextCommandError {
     BoundaryNotFound,
@@ -198,11 +197,11 @@ schema core v6：
 
 `ModelRequest` 新增 `pub tool_choice: ToolChoice`；公共 enum `ToolChoice { Auto, None }`。正常请求用 Auto（wire 可省略默认值）；总结请求保留原 tools，显式发 `"none"`。不以工具数组是否为空承载选择策略。此次不顺手改变 max_turns 末次请求的既有行为，审计 D2 另行处理。
 
-ModelCallContext 由请求组装侧生成：读到的有效 Boundary 和历史最大消息 id；失败重试复用相同请求事实。ContextWindow.usage 只取该 Boundary 下最近成功普通调用的已报告 input_tokens，并带调用行的 model_id。core 比对当前认领模型后使用；换模型或无对应用量则估算当前窗口。压缩调用用量测量的是旧历史，不作新窗口基线。
+ModelCallContext 由请求组装侧生成：读到的有效 Boundary 和历史最大消息 id；失败重试复用相同请求事实。`Store::context_usage` 只取当前有效 Boundary 下最近一次成功普通调用的上游 input_tokens + output_tokens；压缩调用用量测量的是旧历史，不算。
 
-估算口径在 core 一处：对应窗口的上游 input_tokens 加上 through 之后新增历史估算；待回答输入不作为被压历史计入。无上游基线时估算 system、tools 和全部有效历史。拟定固定系数：ASCII 文本每 3 字节向上取整，非 ASCII 每字符 2 token，图片每张 4096 token；只作保守近似，不声称硬上界。参数集中 `core/limits.rs`，Web 圆环未来复用该计算，不另写公式。
+**触发口径（修订 2026-10-15）**：每次对话调用返回后立即判定，这次返回的 input + output 达到窗口 × 触发比例即压缩，只压到这次回复为止；之后的工具结果或新输入压完再接上发出，调用前不再判定。回复带工具调用时它原样保留（`keep_from` 不晚于它），保证结果接上时调用仍在窗口内；不估算新增内容，余量由触发比例（默认 80%）留出。边界后尚无调用（`/clear`、压缩后）不触发。Web 占用显示同一个数（[chat-run-stats](chat-run-stats.md) §二）。按字数的估算只留给下文的裁剪：ASCII 文本每 3 字节向上取整，非 ASCII 每字符 2 token，图片每张 4096 token，参数在 `core/limits.rs`。
 
-默认窗口 100000，触发 80%，保留 15 step；设置页触发比例接受 1..=80，保留数 0..=100。触发后总结当前有效历史，新输入只作为 extra。历史超过窗口 80% 时从最早完整 step 裁剪到估算满足预算；不按历史调用的 token 差值估算 step 大小，也不引入大文件专项算法。保留 N 是原文保留策略，不以假想的大文件情况增加动态 N 机制；裁剪不改变真相层原始历史。
+默认窗口 100000，触发 80%，保留 15 step；设置页触发比例接受 1..=80，保留数 0..=100。触发后总结当前有效历史；自动压缩发生在返回之后，没有附加文字，只有 `/compact <文字>` 带 extra。历史超过窗口 80% 时从最早完整 step 裁剪到估算满足预算；不按历史调用的 token 差值估算 step 大小，也不引入大文件专项算法。保留 N 是原文保留策略，不以假想的大文件情况增加动态 N 机制；裁剪不改变真相层原始历史。
 
 总结复用 request::build 的 system/tools/images/cache_key，末尾追加临时 HarnessNote。该 note 和原始模型输出都不存为消息，增量不向 Channel/Web 发布。正常请求事件、落盘、取消路径不变；总结消费相同 Provider stream，但只消费 Finished/Err，不让摘要成为用户回复草稿。请求失败沿用既有 Provider 错误/重试分类与次数。
 
@@ -225,7 +224,7 @@ core 新增 `KernelError::CommandParse(CommandParseError)`、`KernelError::Conte
 ```rust
 impl Kernel {
     pub async fn context_view(&self, session: SessionId)
-        -> Result<ContextView, KernelError>;
+        -> Result<ContextOverview, KernelError>; // ContextView + occupancy，见 chat-run-stats §二
 }
 ```
 
@@ -236,7 +235,7 @@ HTTP（保持现有 token 与会话 writable 边界）：
 | 接口 | 请求 / 响应 | 错误 |
 |---|---|---|
 | GET `/commands` | `{items:[{name,usage,description}]}`，compact/clear/stop | 现有鉴权错误 |
-| GET `/sessions/{id}/context` | `{active_boundary:number|null, compactions:[{boundary_id,result,state}]}` | 会话不存在 404 |
+| GET `/sessions/{id}/context` | `{active_boundary:number|null, compactions:[{boundary_id,result,state}], occupancy}`（occupancy 见 [chat-run-stats](chat-run-stats.md) §二） | 会话不存在 404 |
 | POST `/sessions/{id}/compactions/{boundary_id}/revoke` | 无 body；202 无响应体 | 非 Web 会话 403；目标不存在/不属于会话 404；目标不是当前生效压缩 409 |
 
 CompactionState JSON 用内部 tag：`{kind:"applied"}` / `{kind:"revoked",at:number}`。其他新增消息类型和 boundary 按 mic-message 既有 serde 方式完整接收；Gateway 不只挑几个摘要字段省略其余。

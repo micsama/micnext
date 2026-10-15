@@ -1,6 +1,6 @@
 # B2: 网关（mic-gateway，M9）
 
-**现行扩展（2026-10-12）**：命令清单、上下文结果与撤回接口按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
+**现行扩展（2026-10-12）**：命令清单、上下文结果与撤回接口按已批准的 [context-compaction](context-compaction.md) 联合契约实施；上下文响应的 `occupancy` 与每轮统计见 [chat-run-stats](chat-run-stats.md)。
 
 **状态**: CLOSED（2026-09-24 批准并实现于 `crates/mic-gateway`；§八 1～9 用 curl/脚本与 DeepSeek 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加设置与人设接口（§4.4）、会话人设，`workdir` 移到网页设置
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M9、§二 对接方式与 v0a 简化；
@@ -121,6 +121,7 @@ impl Store {
 | `GET /api/sessions/{id}` | — | 200 `SessionItem`；不存在或非 Root → 404 |
 | `POST /api/sessions` | `{"text": "…"}` | 201 `{"session_id": 3}` |
 | `POST /api/sessions/{id}/messages` | `{"text": "…"}` | 202 无响应体 |
+| `GET /api/sessions/{id}/run-stats?from=<message_id>[&to=<message_id>]` | — | 200 `{"runs": [RunStats]}`（[chat-run-stats](chat-run-stats.md) §1.2） |
 | `POST /api/sessions/{id}/runs/{run_id}/stop` | — | 202；run 不在执行 409（[run-stop](run-stop.md) §2.4） |
 | `POST /api/sessions/{id}/stream-ticket` | — | 200 `{"ticket"}`（[web-sse-eventsource](web-sse-eventsource.md) §2.1） |
 | `GET /api/sessions/{id}/stream?ticket=<t>[&after=<message_id>]` | — | 200 `text/event-stream`（§五）；票据鉴权 |

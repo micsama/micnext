@@ -801,13 +801,21 @@ async fn trace_paging_keeps_session_side_calls_out_of_runs() {
 }
 
 #[tokio::test]
-async fn explicit_then_automatic_compaction_in_one_run_reconstructs_each_instruction() {
+async fn automatic_compaction_follows_the_reply_that_fills_the_window() {
     let f = Fixture::new().await;
+    let mut answer = vec![Ok(ModelEvent::Usage(mic_store::Usage {
+        input_tokens: 12,
+        output_tokens: 2,
+        cache_read_tokens: Some(0),
+        cache_write_tokens: Some(0),
+        reasoning_tokens: None,
+    }))];
+    answer.extend(reply("answer"));
     let provider = scripted(vec![
         reply("history"),
         reply("manual summary"),
+        answer,
         reply("automatic summary"),
-        reply("answer"),
     ]);
     let mut exec = f.exec();
     exec.call_model(&provider, &[]).await.unwrap().unwrap();
@@ -825,23 +833,78 @@ async fn explicit_then_automatic_compaction_in_one_run_reconstructs_each_instruc
         .unwrap();
     exec.pending_inputs = vec![command.id];
     exec.compact(&provider).await.unwrap().unwrap();
-    exec.context_window = 1;
-    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    // 压缩后尚无调用，不触发；回复用量 14 ≥ 15 × 默认 80% 后触发。
+    exec.context_window = 15;
+    assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Completed);
     let calls = f.verify(&provider).await;
     assert_eq!(
         calls.iter().map(|c| c.purpose).collect::<Vec<_>>(),
         [
             ModelCallPurpose::Conversation,
             ModelCallPurpose::Compaction,
+            ModelCallPurpose::Conversation,
+            ModelCallPurpose::Compaction
+        ]
+    );
+    let manual = f.store.call_record(calls[1].id).await.unwrap().unwrap();
+    assert_eq!(manual.context.instruction, [command.id]);
+    let automatic = f.store.call_record(calls[3].id).await.unwrap().unwrap();
+    assert!(automatic.context.instruction.is_empty());
+    assert_ne!(calls[1].boundary_id, calls[3].boundary_id);
+    assert_eq!(f.store.context_usage(f.session.id).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn compaction_right_after_tool_call_keeps_the_call_for_its_result() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![
+        vec![
+            Ok(ModelEvent::Usage(mic_store::Usage {
+                input_tokens: 12,
+                output_tokens: 2,
+                cache_read_tokens: Some(0),
+                cache_write_tokens: Some(0),
+                reasoning_tokens: None,
+            })),
+            Ok(ModelEvent::Finished(ModelResponse {
+                blocks: vec![ReplyBlock::ToolCall {
+                    id: "t".into(),
+                    name: "timed".into(),
+                    args: serde_json::json!({ "delay": 0 }),
+                }],
+                stop: StopReason::ToolUse,
+            })),
+        ],
+        reply("summary"),
+        reply("done"),
+    ]);
+    let mut settings = f.claimed.settings.clone();
+    settings.compaction.keep_steps = 0;
+    let mut exec = f.exec();
+    exec.settings = &settings;
+    exec.tools = vec![ToolHandle::new(TimedTool)];
+    exec.context_window = 15;
+    assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Completed);
+    let calls = f.verify(&provider).await;
+    assert_eq!(
+        calls.iter().map(|c| c.purpose).collect::<Vec<_>>(),
+        [
+            ModelCallPurpose::Conversation,
             ModelCallPurpose::Compaction,
             ModelCallPurpose::Conversation
         ]
     );
-    for call in &calls[1..3] {
-        let record = f.store.call_record(call.id).await.unwrap().unwrap();
-        assert_eq!(record.context.instruction, [command.id]);
-    }
-    assert_ne!(calls[1].boundary_id, calls[2].boundary_id);
+    let last = provider.requests.lock().unwrap().last().unwrap().clone();
+    let kinds: Vec<_> = last
+        .messages
+        .iter()
+        .filter_map(|m| match &m.body {
+            MessageBody::Reply { .. } => Some("reply"),
+            MessageBody::ToolResult { .. } => Some("result"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kinds, ["reply", "result"]);
 }
 
 // 先吐出给定事件，之后一直挂起，模拟卡住的上游。

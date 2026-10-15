@@ -113,6 +113,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
                 .post(api::send_message.layer(DefaultBodyLimit::max(MAX_INPUT_BODY_BYTES))),
         )
         .route("/sessions/{id}/images/{image_id}", get(api::get_image))
+        .route("/sessions/{id}/run-stats", get(api::run_stats))
         .route("/sessions/{id}/runs/{run_id}/stop", post(api::stop_run))
         .route("/sessions/{id}/stream-ticket", post(ticket::session_ticket))
         .route("/commands", get(context::commands))

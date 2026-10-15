@@ -9,6 +9,8 @@ export type Draft = { reasoning: string; text: string };
 
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 10_000;
+/** 连续这么多次取票成功却没等到 `ready`，判为连接失败、停止自动重连。 */
+const STREAM_FAILURE_LIMIT = 5;
 
 const FINISH_NOTICE: Partial<Record<RunState, string>> = {
   provider_failed: "模型调用失败，详情见服务日志",
@@ -131,15 +133,25 @@ export class SessionView {
   async #run(): Promise<void> {
     const signal = this.#abort.signal;
     let delay = RETRY_MIN_MS;
+    let failures = 0;
     while (!signal.aborted) {
       // 接入后只收到剩余增量，保留旧半截会拼出缺段的文字。
       this.draft = null;
+      let ready = false;
       try {
         this.info ??= await getSession(this.id);
         await readStream(this.id, this.lastId, signal, (e) => {
           this.#apply(e);
-          if (e.event === "ready") delay = RETRY_MIN_MS;
+          if (e.event === "ready") {
+            ready = true;
+            failures = 0;
+            delay = RETRY_MIN_MS;
+          }
         });
+        if (!ready && !signal.aborted && ++failures >= STREAM_FAILURE_LIMIT) {
+          this.fatal = "实时连接反复失败，请刷新页面重试";
+          return;
+        }
       } catch (e) {
         if (signal.aborted) return;
         if (e instanceof ApiError && e.status === 401) return;

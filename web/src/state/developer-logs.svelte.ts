@@ -6,6 +6,8 @@ import { sleep } from "../lib/sleep";
 
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 10_000;
+/** 连续这么多次取票成功却没等到 `ready`，判为连接失败、停止自动重连。 */
+const STREAM_FAILURE_LIMIT = 5;
 /** 与服务端保留窗口同量级。 */
 const MAX_RECORDS = 10_000;
 const MAX_BYTES = 16 * 1024 * 1024;
@@ -62,10 +64,14 @@ export class LogFeed {
   async #run(): Promise<void> {
     const signal = this.#abort.signal;
     let delay = RETRY_MIN_MS;
+    let failures = 0;
     while (!signal.aborted) {
+      let ready = false;
       try {
         await readLogStream(signal, (e) => {
           if (e.event === "ready") {
+            ready = true;
+            failures = 0;
             this.#clear();
             void this.#loadHistory(signal);
             this.historyTrimmed = e.data.history_trimmed;
@@ -75,6 +81,10 @@ export class LogFeed {
             this.#push(e.data);
           }
         });
+        if (!ready && !signal.aborted && ++failures >= STREAM_FAILURE_LIMIT) {
+          this.fatal = "实时连接反复失败，请点「重新连接」";
+          return;
+        }
       } catch (e) {
         if (signal.aborted) return;
         if (e instanceof ApiError && e.status === 401) return;

@@ -61,7 +61,7 @@ main：Serve 创建缓冲、安装内存层并传给 GatewayModule；Once 同样
 
 ### 2.4 HTTP/SSE
 
-GET `/api/developer/logs/stream`，无 query，Bearer 鉴权，`Cache-Control: no-store`；未知 query 400。复用既有 15s 心跳与 shutdown grace。
+GET `/api/developer/logs/stream?ticket=<t>`，票据鉴权（先 Bearer `POST …/stream-ticket` 取票，见 [web-sse-eventsource](web-sse-eventsource.md)），`Cache-Control: no-store`；未知 query 400。复用既有 15s 心跳与 shutdown grace。
 
 ```json
 // event: ready

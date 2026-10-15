@@ -51,7 +51,7 @@
 | Markdown | markdown-it（`html: false`） | 原始 HTML 一律转义：模型输出不可信，页面里存着 token，杜绝 XSS，也就不需要 DOMPurify；未闭合的代码块按代码显示，流式中不闪 |
 | 公式 | KaTeX + markdown-it-texmath | 支持 `$…$`、`$$…$$`、`\(…\)`、`\[…\]`（DeepSeek 常用后两种）；texmath 的块级 `\[…\]` 不能打断段落，另补一条行内显示公式规则，接住写在句中或紧跟正文行的 `\[…\]`（内容不含反引号，不跨进行内代码）；`throwOnError: false`、`trust: false`，写错或流式中未闭合的公式按原文显示，不开放 `\href` 等可执行扩展 |
 | 代码高亮 | highlight.js 官方常用语言包（`highlight.js/lib/common`，约 40 种）；另注册 `dockerfile`、`nginx`、`powershell`（toml 由包内 `ini` 覆盖） | 覆盖日常所见；Shiki 更精细但需 WASM 与大体积语法包 |
-| SSE 解析 | 手写（约 40 行） | 协议简单（gateway §5.1 只用 `event`/`id`/`data`），不值一个依赖 |
+| SSE 接收 | 原生 `EventSource` + 一次性票据 | Safari 的 fetch 读流会滞留尾段（[web-sse-eventsource](web-sse-eventsource.md)） |
 | 包管理 | pnpm | 本机已有；`pnpm-lock.yaml` 入库 |
 
 运行时依赖：`markdown-it`、`markdown-it-texmath`、`katex`、`highlight.js`；其余全是构建期依赖。
@@ -82,7 +82,7 @@ web/
     main.ts  App.svelte
     api/types.ts       # 与 gateway §4.2、§5.1 及 mic-message serde 一一对应的 TS 类型
     api/client.ts      # fetch 封装：带 token、解析 {error}、401 → 清 token
-    api/stream.ts      # fetch 读流 + SSE 解析 → 强类型事件；按 §五 重连
+    api/stream.ts      # 取票 + EventSource → 强类型事件；按 §五 重连
     state/session.svelte.ts  # 单个会话的状态与事件归约（§五）
     lib/markdown.ts    # markdown-it + KaTeX + highlight.js 配置
     components/…       # 侧栏、消息列表、各类消息、工具行、输入框、主题切换
@@ -159,7 +159,7 @@ type SessionView = {
 
 重连：流结束或出错 → 按 1、2、4、8 秒（上限 10 秒）退避，带 `after = 最大消息 id` 重连；重连时先
 `draft = null`（接入后只收到剩余增量，保留旧半截会拼出缺段的文字），其余状态保留。
-401 → 清 token，显示第 1 条的提示页，不重连。切换会话时中止旧流。
+401 → 清 token，显示第 1 条的提示页，不重连。切换会话时中止旧流。每次重连重新取票；连续 5 次取到票却没等到 `ready` 即停止重连并报错（[web-sse-eventsource](web-sse-eventsource.md) §三）。
 
 发送：`POST` 期间输入框禁用；成功后清空输入框。消息本身等流里的 `message` 事件出现，
 不做乐观插入（一处真相）。新会话：`POST /api/sessions` → 跳到 `/s/<session_id>` → 开流（不带 `after`）。

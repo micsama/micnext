@@ -109,6 +109,8 @@ export const parseQueryResult = (v: unknown): QueryResult => queryResult(v, "查
 
 export const parseTables = (v: unknown): TableSchema[] => tables(v, "表结构");
 
+export const logEvents = Object.keys(logData) as readonly LogEvent["event"][];
+
 export function parseLogEvent(event: string, data: string): LogEvent {
   if (!Object.hasOwn(logData, event)) throw new ProtocolError(`事件 ${event}`);
   let parsed: unknown;

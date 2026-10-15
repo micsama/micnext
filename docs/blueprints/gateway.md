@@ -110,7 +110,7 @@ impl Store {
 
 - 每个请求带 `Authorization: Bearer <token>`，常数时间比较；缺失或不符 → 401。
 - 固定 token 即 owner（模块地图 §二），可操作范围 = 本文全部接口。
-- 不设 cookie、不做 CORS（同源页面）。前端用 `fetch` 读流（`EventSource` 不能带请求头），故 SSE 同样走 Bearer。
+- 不设 cookie、不做 CORS（同源页面）。两条 SSE 流例外：前端用 `EventSource`（不能带请求头），先用 Bearer 换一次性票据，流只认 `?ticket=`，见 [web-sse-eventsource](web-sse-eventsource.md)。
 - 日志不记 token、消息正文。
 
 ### 4.2 接口表
@@ -121,7 +121,8 @@ impl Store {
 | `GET /api/sessions/{id}` | — | 200 `SessionItem`；不存在或非 Root → 404 |
 | `POST /api/sessions` | `{"text": "…"}` | 201 `{"session_id": 3, "message_id": 12}` |
 | `POST /api/sessions/{id}/messages` | `{"text": "…"}` | 202 `{"message_id": 13}` |
-| `GET /api/sessions/{id}/stream[?after=<message_id>]` | — | 200 `text/event-stream`（§五） |
+| `POST /api/sessions/{id}/stream-ticket` | — | 200 `{"ticket"}`（[web-sse-eventsource](web-sse-eventsource.md) §2.1） |
+| `GET /api/sessions/{id}/stream?ticket=<t>[&after=<message_id>]` | — | 200 `text/event-stream`（§五）；票据鉴权 |
 | `GET /api/sessions/{id}/messages?before=<message_id>` | — | 200 `{"messages", "has_earlier"}`，往前取一页（[web-message-paging](web-message-paging.md) §4.2） |
 
 - `POST /api/sessions`：生成随机 `chat`，以设置里的默认工作目录（展开 `~/`，不存在则创建）、`ToolScope::All`、无投递目标调

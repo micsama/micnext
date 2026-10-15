@@ -1,4 +1,5 @@
 import { auth } from "../state/auth.svelte";
+import { obj, str } from "./decode";
 import { parseStoredLogs, type StoredLogRecord } from "./developer";
 import {
   parseDashboard,
@@ -70,12 +71,12 @@ export class ApiError extends Error {
   }
 }
 
-export function authHeaders(): HeadersInit {
+function authHeaders(): HeadersInit {
   return { Authorization: `Bearer ${auth.token}` };
 }
 
 /** 非 2xx 转成 `ApiError`；401 同时让 token 失效。 */
-export async function ensureOk(res: Response): Promise<Response> {
+async function ensureOk(res: Response): Promise<Response> {
   if (res.ok) return res;
   if (res.status === 401) auth.expire();
   let message = `请求失败（${res.status}）`;
@@ -103,6 +104,11 @@ async function request(method: string, path: string, body?: unknown): Promise<un
   }
   await ensureOk(res);
   return res.status === 204 || res.status === 202 ? undefined : res.json();
+}
+
+/** 换一张实时流的一次性票据，`path` 为流路径。 */
+export async function getStreamTicket(path: string): Promise<string> {
+  return obj({ ticket: str })(await request("POST", `${path}-ticket`), "票据").ticket;
 }
 
 export async function listSessions(channel: string, before: Cursor | null): Promise<SessionPage> {

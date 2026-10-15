@@ -14,6 +14,7 @@ use crate::limits::LOG_BATCH;
 use crate::logs::{After, LogRecord};
 use crate::service::App;
 use crate::sse;
+use crate::ticket::StreamTarget;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,12 +26,20 @@ struct Ready {
     history_trimmed: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StreamQuery {
+    ticket: Option<String>,
+}
+
 /// 回放当前保留窗口再跟随；没有续传，重连即整窗重放。
 pub(crate) async fn stream(
     State(app): State<Arc<App>>,
-    query: Result<Query<NoQuery>, QueryRejection>,
+    query: Result<Query<StreamQuery>, QueryRejection>,
 ) -> Result<impl IntoResponse, ApiError> {
-    query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
+    let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
+    app.tickets
+        .redeem(q.ticket.as_deref(), StreamTarget::Logs)?;
     let (tx, rx) = mpsc::channel(LOG_BATCH);
     tokio::spawn(feed(app, tx));
     Ok(([(header::CACHE_CONTROL, "no-store")], sse::respond(rx)))

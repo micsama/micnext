@@ -15,7 +15,7 @@ use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
 use crate::update::{RestartRequest, Updater};
 use crate::{
-    api, channels, context, log_stream, models, settings, sql, stream, trace, update, web,
+    api, channels, context, log_stream, models, settings, sql, stream, ticket, trace, update, web,
     DeveloperLogs,
 };
 
@@ -32,6 +32,7 @@ pub(crate) struct App {
     pub(crate) logs: DeveloperLogs,
     /// `None` = 未配置 `update_repo`。
     pub(crate) updater: Option<Arc<Updater>>,
+    pub(crate) tickets: ticket::Tickets,
     /// 进程停止时结束所有 SSE 流。
     pub(crate) stop: CancellationToken,
 }
@@ -87,6 +88,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         token,
         logs,
         updater,
+        tickets: ticket::Tickets::default(),
         stop: stop.clone(),
     });
     let api = Router::new()
@@ -111,7 +113,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
                 .post(api::send_message.layer(DefaultBodyLimit::max(MAX_INPUT_BODY_BYTES))),
         )
         .route("/sessions/{id}/images/{image_id}", get(api::get_image))
-        .route("/sessions/{id}/stream", get(stream::stream))
+        .route("/sessions/{id}/stream-ticket", post(ticket::session_ticket))
         .route("/commands", get(context::commands))
         .route("/sessions/{id}/context", get(context::get_context))
         .route(
@@ -167,12 +169,15 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/trace/peers", get(trace::peers))
         .route("/trace/dashboard", get(trace::dashboard))
         .route("/developer/logs/history", get(log_stream::history))
-        .route("/developer/logs/stream", get(log_stream::stream))
+        .route("/developer/logs/stream-ticket", post(ticket::logs_ticket))
         .route("/developer/sql", post(sql::query))
         .route("/developer/sql/schema", get(sql::schema))
         .route("/developer/update", get(update::status).post(update::start))
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(middleware::from_fn_with_state(app.clone(), api::authorize))
+        // 实时流由 EventSource 打开，带不了 Bearer，改认取票接口发的一次性票据。
+        .route("/sessions/{id}/stream", get(stream::stream))
+        .route("/developer/logs/stream", get(log_stream::stream))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));
     let router = Router::new()
         .nest("/api", api)

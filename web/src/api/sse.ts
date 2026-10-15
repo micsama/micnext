@@ -1,40 +1,36 @@
-import { authHeaders, ensureOk } from "./client";
+import { getStreamTicket } from "./client";
 
 /**
- * 带 Bearer 头打开 SSE 流，逐帧回调 `event`/`data`，流结束时返回。
- * `EventSource` 不能带 Bearer 头，故用 fetch 读流并自行分帧（只用到 `event`/`data`）。
+ * 用原生 EventSource 打开实时流（docs/blueprints/web-sse-eventsource.md）：先用 Bearer 换一次性票据再建流。
+ * 不用 fetch 读流：Safari 会压住页面忙时到达的尾段（WebKit 322545）。
+ * 浏览器自带重连会拿已作废的票据，出错即关，由调用方重新取票。
+ * 取票失败抛 `ApiError`；回调抛错（如 `ProtocolError`）原样抛出；连接中断或被取消时正常返回。
  */
 export async function readSse(
   path: string,
+  query: URLSearchParams,
+  events: readonly string[],
   signal: AbortSignal,
   onFrame: (event: string, data: string) => void,
 ): Promise<void> {
-  const res = await ensureOk(await fetch(`/api${path}`, { headers: authHeaders(), signal }));
-  const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
-  let buf = "";
-  let event = "";
-  let data: string[] = [];
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) return;
-    buf += value;
-    let nl: number;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl).replace(/\r$/, "");
-      buf = buf.slice(nl + 1);
-      if (line === "") {
-        if (event) onFrame(event, data.join("\n"));
-        event = "";
-        data = [];
-      } else if (line.startsWith(":")) {
-        // 心跳注释
-      } else {
-        const colon = line.indexOf(":");
-        const field = colon < 0 ? line : line.slice(0, colon);
-        const val = colon < 0 ? "" : line.slice(colon + 1).replace(/^ /, "");
-        if (field === "event") event = val;
-        else if (field === "data") data.push(val);
-      }
-    }
+  const ticket = await getStreamTicket(path);
+  if (signal.aborted) return;
+  query.set("ticket", ticket);
+  const source = new EventSource(`/api${path}?${query}`);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      signal.addEventListener("abort", () => resolve(), { once: true });
+      source.onerror = () => resolve();
+      for (const event of events)
+        source.addEventListener(event, (e) => {
+          try {
+            onFrame(event, (e as MessageEvent<string>).data);
+          } catch (err) {
+            reject(err);
+          }
+        });
+    });
+  } finally {
+    source.close();
   }
 }

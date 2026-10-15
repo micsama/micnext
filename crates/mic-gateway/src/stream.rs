@@ -12,14 +12,16 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::api::session;
-use crate::error::ApiError;
+use crate::error::{ApiError, SESSION_NOT_FOUND};
 use crate::limits::{PAGE_MESSAGES, PAGE_ROUNDS, STREAM_BUFFER};
 use crate::service::App;
 use crate::sse;
+use crate::ticket::StreamTarget;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StreamQuery {
+    ticket: Option<String>,
     after: Option<i64>,
 }
 
@@ -28,8 +30,11 @@ pub(crate) async fn stream(
     id: Result<Path<i64>, PathRejection>,
     query: Result<Query<StreamQuery>, QueryRejection>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let session = session(&app, id).await?;
+    let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
     let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
+    app.tickets
+        .redeem(q.ticket.as_deref(), StreamTarget::Session(id))?;
+    let session = session(&app, Ok(Path(id))).await?;
     // 先订阅再回放：回放期间发生的事件留在订阅里，交接时按 id 去重。
     let events = app.kernel.subscribe();
     let (tx, rx) = mpsc::channel(STREAM_BUFFER);

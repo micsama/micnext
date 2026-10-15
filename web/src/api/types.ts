@@ -397,6 +397,8 @@ export const parseModels = (v: unknown): ModelList => modelList(v, "模型列表
 
 export const parseId = (v: unknown): number => idOnly(v, "新建条目").id;
 
+export const streamEvents = Object.keys(streamData) as readonly StreamEvent["event"][];
+
 export function parseStreamEvent(event: string, data: string): StreamEvent {
   if (!Object.hasOwn(streamData, event)) throw new ProtocolError(`事件 ${event}`);
   let parsed: unknown;

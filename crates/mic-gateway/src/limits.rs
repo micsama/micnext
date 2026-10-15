@@ -25,8 +25,6 @@ pub(crate) const PAGE_ROUNDS: NonZeroU32 = NonZeroU32::new(20).unwrap();
 pub(crate) const PAGE_MESSAGES: NonZeroU32 = NonZeroU32::new(300).unwrap();
 /// SSE 心跳注释间隔。
 pub(crate) const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
-/// 一批 SSE 事件后静默多久补一条空注释。
-pub(crate) const SSE_NUDGE: Duration = Duration::from_millis(200);
 /// 单条流待发事件的缓冲；客户端读得慢时回压到内核订阅，落后即断流重连。
 pub(crate) const STREAM_BUFFER: usize = 256;
 /// 停止后等连接自行关闭的上限，超时直接断开。
@@ -34,6 +32,9 @@ pub(crate) const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 /// token 与 Web 会话 chat id 的随机字节数。
 pub(crate) const TOKEN_BYTES: usize = 32;
 pub(crate) const CHAT_ID_BYTES: usize = 16;
+/// SSE 连接票据：随机字节数与未兑换时的有效期。
+pub(crate) const TICKET_BYTES: usize = 32;
+pub(crate) const TICKET_TTL: Duration = Duration::from_secs(60);
 
 /// 带内容哈希的构建产物（`/assets/*`）。
 pub(crate) const ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";

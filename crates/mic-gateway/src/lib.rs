@@ -16,6 +16,7 @@ mod settings;
 mod sql;
 mod sse;
 mod stream;
+mod ticket;
 mod trace;
 mod update;
 mod web;

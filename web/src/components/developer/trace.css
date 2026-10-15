@@ -5,6 +5,7 @@
   --t-accent: #0a66d8; --t-accent-bg: #eef5ff; --t-accent-line: #bcd7fb;
   --t-tool: #1f7a55; --t-tool-bg: #e9f6ef; --t-tool-line: #a9d9c1;
   --t-compact: #6f4fa3; --t-compact-bg: #f3eefb; --t-compact-line: #d9cbef;
+  --t-side: #b2457a; --t-side-bg: #fcf0f6; --t-side-line: #eec3d7;
   --t-warn: #975700; --t-warn-bg: #fff6e8; --t-warn-line: #efd5a8;
   --t-bad: #b0412e; --t-bad-bg: #fff0ed; --t-bad-line: #f0c2b8; --t-ok: #23824a; --t-ok-bg: #eaf7ee;
   --t-code: #f6f6f8; --t-chip: #efeff2;
@@ -19,6 +20,7 @@
   --t-accent: #5aa2ff; --t-accent-bg: #17283f; --t-accent-line: #2c4d78;
   --t-tool: #5cc596; --t-tool-bg: #16291f; --t-tool-line: #2d5b45;
   --t-compact: #b598e6; --t-compact-bg: #251d33; --t-compact-line: #463765;
+  --t-side: #ec8fbb; --t-side-bg: #2e1a25; --t-side-line: #5e3049;
   --t-warn: #e3a54a; --t-warn-bg: #2c2214; --t-warn-line: #5a4422;
   --t-bad: #f08a76; --t-bad-bg: #33191a; --t-bad-line: #6a3128; --t-ok: #6bd08f; --t-ok-bg: #16291c;
   --t-code: #151517; --t-chip: #2a2a2e;
@@ -63,6 +65,7 @@
 .trace-layout .r-compact { background: var(--t-compact-bg); color: var(--t-compact); }
 .trace-layout .r-turn { background: var(--t-chip); color: var(--t-sub); }
 .trace-layout .r-sys { color: var(--t-faint); font-weight: 500; }
+.trace-layout .r-side { background: var(--t-side-bg); color: var(--t-side); }
 
 /* 中：执行流 */
 .trace-layout .stream-head { flex-wrap: wrap; }
@@ -97,7 +100,8 @@
 .trace-layout .row.k-compact .sum { color: var(--t-compact); }
 .trace-layout .row.sys { min-height: 28px; padding: 2px 8px; font-size: 13px; color: var(--t-muted); }
 .trace-layout .row.sys .sum b { font-weight: 500; color: var(--t-sub); margin-right: 6px; }
-.trace-layout .row.side { border-style: dashed; border-color: var(--t-line); }
+.trace-layout .row.side { border-style: dashed; border-color: var(--t-side-line); background: color-mix(in srgb, var(--t-side-bg) 50%, transparent); }
+.trace-layout .row.side:hover, .trace-layout .row.side.selection-active { background-color: var(--t-side-bg); }
 .trace-layout .side-entry { margin: 10px 0; }
 .trace-layout .selection-active { border-color: var(--t-accent) !important; box-shadow: 0 0 0 1px var(--t-ring); }
 .trace-layout .stream > .pinned { position: sticky; top: 0; z-index: 2; display: flex; gap: 8px; margin: 0 -12px 4px; width: calc(100% + 24px); padding: 6px 20px; border-radius: 0; background: var(--t-panel); border-bottom: 1px solid var(--t-line2); }

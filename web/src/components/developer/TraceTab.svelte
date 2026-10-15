@@ -415,7 +415,7 @@
   {@const step = stepOf(r, c)}
   {@const preview = callPreview(r, c)}
   <button type="button" class={cn("row cols", c.purpose === "compaction" ? "k-compact" : "k-ai", r === null && "side", isPicked(c) && selected)} title="{c.model}{c.reasoning_effort ? ` · ${c.reasoning_effort} 档` : ''}" onclick={() => choose({ run: r, call: c })}>
-    <span class={cn("role", c.purpose === "conversation" ? "r-ai" : c.purpose === "compaction" ? "r-compact" : "r-sys")}>{r === null ? "旁路" : c.purpose === "compaction" ? "压缩" : "AI"}</span>
+    <span class={cn("role", r === null ? "r-side" : c.purpose === "conversation" ? "r-ai" : c.purpose === "compaction" ? "r-compact" : "r-sys")}>{r === null ? "旁路" : c.purpose === "compaction" ? "压缩" : "AI"}</span>
     <span class="sum" class:bad={failed(c)}>{r === null ? c.error ?? "标题生成" : preview === c.model ? purpose(c) : preview}</span>
     <span class="tags">
       {#if failed(c)}<span class="signal c-bad" title={c.error ?? ""}><Icon name="error" class="size-[13px]" />{#if c.attempt > 1}<b>{c.attempt}</b>{/if}</span>

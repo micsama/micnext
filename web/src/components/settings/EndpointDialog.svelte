@@ -176,6 +176,7 @@
                   <label class="space-y-1 text-xs text-muted-foreground">最大输出<Input class="h-8 text-xs text-foreground" type="number" min="1" value={limitable(f.preset) ? r.max_tokens : ""} oninput={(e) => (r.max_tokens = e.currentTarget.value)} disabled={!limitable(f.preset)} placeholder={limitable(f.preset) ? "默认" : "不支持"} /></label>
                   <Button variant="ghost" size="icon-sm" aria-label="移除模型 {r.name}" onclick={() => f.models.splice(i, 1)}><XIcon /></Button>
                 </div>
+                <label class="flex w-fit items-center gap-2 text-xs text-muted-foreground" title="关闭后，发给这个模型的图片换成文字占位"><input type="checkbox" bind:checked={r.images} />支持图片</label>
                 <details open={r.id !== null && r.id === focus} {@attach (el) => { if (r.id !== null && r.id === focus) reveal(el); }}>
                   <summary class="cursor-pointer text-xs text-muted-foreground">计费设置 <span class="ml-2 opacity-70">{[r.price_input, r.price_cache_read, r.price_cache_write, r.price_output].filter((v) => v !== "").length ? "已填写单价" : "未设置"}</span><span class="float-right" title="美元 / 百万 token" aria-label="美元 / 百万 token">$ / 百万 token</span></summary>
                   <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">

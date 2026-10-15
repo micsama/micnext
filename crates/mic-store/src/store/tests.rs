@@ -98,6 +98,7 @@ fn reasoning_is_per_session_and_fixed_when_claimed() {
                         name: "test".into(),
                         config_json: "{}".into(),
                         context_window: None,
+                        images: true,
                         price: Default::default(),
                     },
                     1,

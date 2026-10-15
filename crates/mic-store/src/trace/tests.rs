@@ -87,6 +87,7 @@ async fn run_stats_fixture() {
                 name: "m".into(),
                 config_json: "{}".into(),
                 context_window: None,
+                images: true,
                 price: ModelPrice {
                     input: Some(1.0),
                     cache_read: Some(0.5),

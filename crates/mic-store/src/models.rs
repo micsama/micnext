@@ -10,7 +10,7 @@ use crate::{
     ReasoningEffort, Store, StoreError,
 };
 
-const MODEL_COLS: &str = "id, endpoint_id, name, config_json, context_window, price_input, price_cache_read, price_cache_write, price_output";
+const MODEL_COLS: &str = "id, endpoint_id, name, config_json, context_window, price_input, price_cache_read, price_cache_write, price_output, images";
 
 fn view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelView> {
     Ok(ModelView {
@@ -25,6 +25,7 @@ fn view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelView> {
             cache_write: row.get(7)?,
             output: row.get(8)?,
         },
+        images: row.get(9)?,
     })
 }
 
@@ -66,8 +67,8 @@ impl Store {
             tx.execute(
                 "INSERT INTO core_models
                    (endpoint_id, name, config_json, created_at, updated_at, context_window,
-                    price_input, price_cache_read, price_cache_write, price_output)
-                 VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    price_input, price_cache_read, price_cache_write, price_output, images)
+                 VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     m.endpoint_id.0,
                     m.name,
@@ -77,7 +78,8 @@ impl Store {
                     m.price.input,
                     m.price.cache_read,
                     m.price.cache_write,
-                    m.price.output
+                    m.price.output,
+                    m.images
                 ],
             )?;
             let id = ModelId(tx.last_insert_rowid());
@@ -114,10 +116,11 @@ impl Store {
             ensure_name_free(&tx, m.endpoint_id, &m.name, Some(id))?;
             tx.execute(
                 "UPDATE core_models SET name = ?1, config_json = ?2, updated_at = ?3, context_window = ?5,
-                    price_input = ?6, price_cache_read = ?7, price_cache_write = ?8, price_output = ?9
+                    price_input = ?6, price_cache_read = ?7, price_cache_write = ?8, price_output = ?9,
+                    images = ?10
                  WHERE id = ?4",
                 params![m.name, m.config_json, now, id.0, m.context_window,
-                    m.price.input, m.price.cache_read, m.price.cache_write, m.price.output],
+                    m.price.input, m.price.cache_read, m.price.cache_write, m.price.output, m.images],
             )?;
             tx.commit()?;
             Ok(())
@@ -290,9 +293,10 @@ pub(crate) fn read_model(
         model_json,
         deleted,
         context_window,
+        images,
     ) = conn.query_row(
         "SELECT e.name, e.kind, e.config_json, e.key_cipher, e.id, m.name, m.config_json,
-                m.deleted_at IS NOT NULL, m.context_window
+                m.deleted_at IS NOT NULL, m.context_window, m.images
          FROM core_models m JOIN core_endpoints e ON e.id = m.endpoint_id WHERE m.id = ?1",
         [id.0],
         |r| {
@@ -306,6 +310,7 @@ pub(crate) fn read_model(
                 r.get::<_, String>(6)?,
                 r.get::<_, bool>(7)?,
                 r.get::<_, Option<std::num::NonZeroU32>>(8)?,
+                r.get::<_, bool>(9)?,
             ))
         },
     )?;
@@ -316,6 +321,7 @@ pub(crate) fn read_model(
     let key = blob.map(|b| cipher.decrypt(endpoint_id, &b)).transpose()?;
     Ok(ClaimedModel::Selected {
         context_window,
+        images,
         id,
         name,
         kind,

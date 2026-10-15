@@ -6,13 +6,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mic_message::{
-    ExecFailureKind, ExecOutcome, MessageBody, MessageId, ReplyBlock, SessionCommand, SessionId,
-    ToolResultOutcome,
+    ExecFailureKind, ExecOutcome, ImageData, ImageId, MessageBody, MessageId, ReplyBlock,
+    SessionCommand, SessionId, ToolResultOutcome,
 };
 use mic_store::{
-    ClaimedModel, ClaimedRun, ContextCommandError, ModelCallContext, ModelCallOutcome,
-    ModelCallPurpose, ModelId, ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState,
-    Session, SessionKind, Store, StoreError, ToolScope,
+    ClaimedModel, ClaimedRun, ContextCommandError, ContextWindow, ModelCallContext,
+    ModelCallOutcome, ModelCallPurpose, ModelId, ReasoningEffort, Run, RunId, RunInput,
+    RunSettings, RunState, Session, SessionKind, Store, StoreError, ToolScope,
 };
 use mic_tool::{ToolContext, ToolHandle};
 use tokio::task::JoinSet;
@@ -99,16 +99,20 @@ impl Engine {
             .lock()
             .expect("停止令牌表未中毒")
             .insert(run.id, (session.id, stop.clone()));
-        let (model_id, context_window) = match &model {
+        let (model_id, context_window, images) = match &model {
             ClaimedModel::Selected {
-                id, context_window, ..
+                id,
+                context_window,
+                images,
+                ..
             } => (
                 Some(*id),
                 context_window
                     .map(|v| v.get())
                     .unwrap_or(crate::limits::DEFAULT_CONTEXT_WINDOW),
+                *images,
             ),
-            _ => (None, crate::limits::DEFAULT_CONTEXT_WINDOW),
+            _ => (None, crate::limits::DEFAULT_CONTEXT_WINDOW, true),
         };
         let pending_inputs = match &input {
             RunInput::Conversation { message_ids } => message_ids.clone(),
@@ -129,6 +133,7 @@ impl Engine {
             model_id,
             effort: None,
             context_window,
+            images,
             stop,
         };
         let state = match input {
@@ -278,6 +283,8 @@ pub(crate) struct Exec<'a> {
     /// 实际生效的思考档位（已解析默认值）；Provider 建好后才有。
     pub(crate) effort: Option<ReasoningEffort>,
     pub(crate) context_window: u32,
+    /// 模型是否支持图片；否则请求里的图片换成文字占位。
+    pub(crate) images: bool,
     /// 用户停止：只在等待外部处响应，取消后不再认领输入、不再发起调用或工具。
     pub(crate) stop: CancellationToken,
 }
@@ -359,7 +366,7 @@ impl Exec<'_> {
         provider: &dyn Provider,
         tools: &[ToolHandle],
     ) -> Result<Result<Vec<Call>, RunState>, StoreError> {
-        let window = self.engine.store.context_window(self.session.id).await?;
+        let mut window = self.engine.store.context_window(self.session.id).await?;
         let tail: Vec<MessageId> = window
             .messages
             .iter()
@@ -373,11 +380,7 @@ impl Exec<'_> {
             tail: tail.clone(),
             ..Default::default()
         };
-        let images = self
-            .engine
-            .store
-            .images(self.session.id, request::image_ids(&window))
-            .await?;
+        let images = self.window_images(&mut window).await?;
         let channel_prompt = match &self.session.kind {
             SessionKind::Root { channel, .. } => {
                 self.engine.channel_prompts.get(channel.as_str()).copied()
@@ -462,6 +465,20 @@ impl Exec<'_> {
                 }
             }
         }
+    }
+
+    /// 请求要带的图片数据；模型不支持图片时先把窗口里的图片换成占位。
+    pub(crate) async fn window_images(
+        &self,
+        window: &mut ContextWindow,
+    ) -> Result<HashMap<ImageId, ImageData>, StoreError> {
+        if !self.images {
+            request::hide_images(window);
+        }
+        self.engine
+            .store
+            .images(self.session.id, request::image_ids(window))
+            .await
     }
 
     pub(crate) fn caller(&self, provider: &dyn Provider) -> Caller {

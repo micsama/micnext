@@ -100,6 +100,8 @@ impl ModelPrice {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelView {
     pub context_window: Option<NonZeroU32>,
+    /// 关闭时请求里的图片换成文字占位。
+    pub images: bool,
     pub price: ModelPrice,
     pub id: ModelId,
     pub endpoint_id: EndpointId,
@@ -109,6 +111,7 @@ pub struct ModelView {
 
 pub struct ModelWrite {
     pub context_window: Option<NonZeroU32>,
+    pub images: bool,
     pub price: ModelPrice,
     pub endpoint_id: EndpointId,
     pub name: String,
@@ -125,6 +128,7 @@ pub enum ClaimedModel {
     },
     Selected {
         context_window: Option<NonZeroU32>,
+        images: bool,
         id: ModelId,
         /// 「服务商 / 模型」。
         name: String,

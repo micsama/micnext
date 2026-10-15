@@ -220,6 +220,7 @@ async fn manual_title_records_sources_and_side_output() {
                 name: "test".into(),
                 config_json: "{}".into(),
                 context_window: None,
+                images: true,
                 price: Default::default(),
             },
             0,

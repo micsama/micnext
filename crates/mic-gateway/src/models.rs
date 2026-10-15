@@ -64,6 +64,7 @@ pub(crate) struct ModelItem {
     endpoint_id: EndpointId,
     name: String,
     context_window: Option<std::num::NonZeroU32>,
+    images: bool,
     price: ModelPrice,
     /// 该 kind 的模型参数。
     config: Box<RawValue>,
@@ -111,6 +112,7 @@ pub(crate) struct TestResult {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ModelBody {
     context_window: Option<u32>,
+    images: bool,
     #[serde(default)]
     price: ModelPrice,
     endpoint_id: EndpointId,
@@ -326,6 +328,7 @@ fn item(v: ModelView, reasoning: Option<ReasoningOptions>) -> ModelItem {
     ModelItem {
         reasoning,
         context_window: v.context_window,
+        images: v.images,
         price: v.price,
         id: v.id,
         endpoint_id: v.endpoint_id,
@@ -380,6 +383,7 @@ fn draft(b: ModelBody) -> Result<ModelDraft, ApiError> {
                     .ok_or_else(|| ApiError::Unprocessable("上下文窗口须为正整数".into()))
             })
             .transpose()?,
+        images: b.images,
         endpoint_id: b.endpoint_id,
         name,
         config_json: b.config.get().to_owned(),

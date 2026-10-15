@@ -7,12 +7,20 @@ use crate::{Migration, SecretColumn, StoreError};
 
 const CORE: &str = "core";
 
-const CORE_MIGRATIONS: &[Migration] = &[Migration {
-    module: CORE,
-    version: 10,
-    sql: CORE_BASELINE,
-    secret_columns: &[],
-}];
+const CORE_MIGRATIONS: &[Migration] = &[
+    Migration {
+        module: CORE,
+        version: 10,
+        sql: CORE_BASELINE,
+        secret_columns: &[],
+    },
+    Migration {
+        module: CORE,
+        version: 11,
+        sql: "ALTER TABLE core_models ADD COLUMN images INTEGER NOT NULL DEFAULT 1 CHECK(images IN (0, 1));",
+        secret_columns: &[],
+    },
+];
 
 /// 当前形态的完整 schema；更早的迁移链已删除。
 const CORE_BASELINE: &str = "

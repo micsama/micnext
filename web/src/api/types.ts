@@ -122,6 +122,8 @@ export type ModelPrice = { input: number | null; cache_read: number | null; cach
 
 export type Model = {
   context_window: number | null;
+  /** 关闭时请求里的图片换成文字占位。 */
+  images: boolean;
   price: ModelPrice;
   id: number;
   endpoint_id: number;
@@ -146,6 +148,7 @@ export type EndpointTestInput = Omit<EndpointInput, "name"> & { endpoint_id?: nu
 
 export type ModelInput = {
   context_window: number | null;
+  images: boolean;
   price: ModelPrice;
   endpoint_id: number;
   name: string;
@@ -350,6 +353,7 @@ const modelList: Decoder<ModelList> = obj({
       endpoint_id: num,
       name: str,
       context_window: nullable(num),
+      images: bool,
       price: obj({ input: nullable(num), cache_read: nullable(num), cache_write: nullable(num), output: nullable(num) }),
       config: obj({
         max_tokens: nullable(num),

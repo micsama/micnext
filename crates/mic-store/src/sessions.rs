@@ -204,18 +204,23 @@ fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, Stor
 
 /// `filter` 筛出的会话连同 `act`（最近活跃）与 `preview`，供外层再筛选排序。
 fn summaries(filter: &str) -> String {
-    // NOTE: 预览依赖 ContentPart 的 serde 外部标签形状 {"Text":{"text":..}}。
+    // NOTE: 预览依赖 ContentPart 的 serde 外部标签形状 {"Text":{"text":..}}；无文字时以首个附件占位。
     format!(
         "SELECT {SESSION_COLS}, act, preview, title, title_error FROM (
            SELECT s.*,
              COALESCE((SELECT m.created_at FROM core_messages m
                         WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1),
                       s.created_at) AS act,
-             (SELECT substr(json_extract(p.value, '$.Text.text'), 1, {PREVIEW_CHARS})
-                FROM core_messages m, json_each(m.payload, '$.parts') p
-               WHERE m.session_id = s.id AND m.kind = 'UserInput'
-                 AND json_type(p.value, '$.Text') IS NOT NULL
-               ORDER BY m.id, p.key LIMIT 1) AS preview
+             COALESCE(
+               (SELECT substr(json_extract(p.value, '$.Text.text'), 1, {PREVIEW_CHARS})
+                  FROM core_messages m, json_each(m.payload, '$.parts') p
+                 WHERE m.session_id = s.id AND m.kind = 'UserInput'
+                   AND json_type(p.value, '$.Text') IS NOT NULL
+                 ORDER BY m.id, p.key LIMIT 1),
+               (SELECT CASE WHEN json_type(p.value, '$.Image') IS NOT NULL THEN '[图片]' ELSE '[文件]' END
+                  FROM core_messages m, json_each(m.payload, '$.parts') p
+                 WHERE m.session_id = s.id AND m.kind = 'UserInput'
+                 ORDER BY m.id, p.key LIMIT 1)) AS preview
            FROM core_sessions s
            WHERE {filter}
          )"

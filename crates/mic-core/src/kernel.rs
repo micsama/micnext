@@ -47,6 +47,7 @@ pub struct EndpointDraft {
 /// 创建/修改模型的输入；`config_json` 是该 kind 的模型参数。
 pub struct ModelDraft {
     pub context_window: Option<NonZeroU32>,
+    pub images: bool,
     pub endpoint_id: EndpointId,
     pub name: String,
     pub config_json: String,
@@ -798,6 +799,7 @@ impl Kernel {
         )?;
         Ok(ModelWrite {
             context_window: draft.context_window,
+            images: draft.images,
             endpoint_id: draft.endpoint_id,
             name: draft.name,
             config_json,

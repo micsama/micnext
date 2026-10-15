@@ -134,6 +134,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
                 name: "test".into(),
                 config_json: "{}".into(),
                 context_window: None,
+                images: true,
                 price: Default::default(),
             },
             0,
@@ -322,6 +323,7 @@ impl Fixture {
                     name: "test".into(),
                     config_json: "{}".into(),
                     context_window: None,
+                    images: true,
                     price: mic_store::ModelPrice {
                         input: Some(1.0),
                         output: Some(2.0),
@@ -412,6 +414,7 @@ impl Fixture {
             },
             effort: None,
             context_window: 100_000,
+            images: true,
             stop: CancellationToken::new(),
         }
     }
@@ -1077,4 +1080,38 @@ async fn stopped_run_leaves_queued_input_for_the_next_run() {
         f.kernel.stop_run(f.session.id, None).await.unwrap(),
         crate::StopOutcome::NotRunning
     );
+}
+
+#[tokio::test]
+async fn text_only_model_sees_image_placeholders() {
+    let f = Fixture::new().await;
+    let image = mic_message::ImageData {
+        format: mic_message::ImageFormat::Png,
+        bytes: Arc::from(&b"png"[..]),
+    };
+    f.store
+        .append_input(
+            f.session.id,
+            f.owner,
+            vec![NewInputPart::Image(image)],
+            InputDisposition::Held,
+            None,
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let mut exec = f.exec();
+    let parts = |w: &mic_store::ContextWindow| match &w.messages.last().unwrap().body {
+        MessageBody::UserInput { parts, .. } => parts.clone(),
+        _ => unreachable!(),
+    };
+    let mut window = f.store.context_window(f.session.id).await.unwrap();
+    assert_eq!(exec.window_images(&mut window).await.unwrap().len(), 1);
+    exec.images = false;
+    let mut window = f.store.context_window(f.session.id).await.unwrap();
+    assert!(exec.window_images(&mut window).await.unwrap().is_empty());
+    assert!(matches!(
+        &parts(&window)[..],
+        [mic_message::ContentPart::Text { text }] if text.contains("不支持查看")
+    ));
 }

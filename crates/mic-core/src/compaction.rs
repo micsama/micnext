@@ -76,11 +76,7 @@ impl Exec<'_> {
                 .collect(),
             ..Default::default()
         };
-        let images = self
-            .engine
-            .store
-            .images(self.session.id, request::image_ids(&window))
-            .await?;
+        let images = self.window_images(&mut window).await?;
         let channel_prompt = match &self.session.kind {
             SessionKind::Root { channel, .. } => {
                 self.engine.channel_prompts.get(channel.as_str()).copied()

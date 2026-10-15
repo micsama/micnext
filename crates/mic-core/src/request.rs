@@ -30,6 +30,23 @@ fn block(tag: &str, body: &str) -> String {
     format!("<{tag}>\n{body}\n</{tag}>")
 }
 
+const IMAGE_PLACEHOLDER: &str = "[图片：当前模型不支持查看]";
+
+pub(crate) fn hide_images(window: &mut ContextWindow) {
+    for m in &mut window.messages {
+        if let MessageBody::UserInput { parts, .. } = &mut m.body {
+            for part in parts
+                .iter_mut()
+                .filter(|p| matches!(p, ContentPart::Image(_)))
+            {
+                *part = ContentPart::Text {
+                    text: IMAGE_PLACEHOLDER.into(),
+                };
+            }
+        }
+    }
+}
+
 /// 窗口内消息引用的图片 id。
 pub(crate) fn image_ids(window: &ContextWindow) -> Vec<ImageId> {
     window

@@ -1,6 +1,6 @@
 # B2：Web 会话分段加载
 
-**状态：APPROVED（2026-10-12）。**
+**状态：CLOSED（2026-10-13，本地 Chromium/WebKit 自动验收 + human Safari/手机人工验收通过）。**
 
 依据：[B1](../brainstorm/web-message-paging.md)，human 已选方案 B（按轮数加条数上限）、滚到顶部自动加载。目标是打开长会话时只加载、只渲染最近一段，往上滚再接着取更早的。本文修订 [gateway](gateway.md) §五 的回放起点和 [web-ui](web-ui.md) §五，其余条款不变。
 

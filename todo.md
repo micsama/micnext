@@ -10,15 +10,8 @@
 | 已实现，待验收（2026-10-15） | 流式调用长时间无数据即判挂起、直接失败不重试（起因：DeepSeek 思考模式 + `tool_choice: none` 卡死，已在 provider 规避） | [B2](docs/blueprints/model-stall.md) |
 | 想法，以后做（2026-10-15） | 运行中取消/打断：页面上可中止卡住的调用或整轮 | [路线图 §2.4](docs/brainstorm/product-roadmap.md#24-消息任务与取消) |
 | 想法，以后做（2026-10-15） | trace「复制为 curl / 重新推理」：消息按记录还原，系统提示与工具清单用当前配置；工具清单视为固定，与历史工具调用对不上则拒绝重放 | [trace B1](docs/brainstorm/run-trace.md#未来重放与复制为-curl) |
-| B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 错误保留现有类型至处置边界记一次，级别与字段名固定；正文/标题共用 Provider 构建，正文/压缩共用重试日志；补压缩、工具依赖、服务致命退出与 panic 日志，Provider 上游失败降 DEBUG；为 Langfuse 留接缝，不接入 | [B2](docs/blueprints/error-logging.md) |
 | 实现及本地验收完成，待页面/真实环境验收（2026-10-14） | SQLite 整理 + 轻量 trace：core/wechat 新基线、删 run 配置副本与格式版本字段、调用行补事实、trace 页与看板 | [B2](docs/blueprints/run-trace.md)；[存储 B1](docs/brainstorm/sqlite-organization.md)；[trace B1](docs/brainstorm/run-trace.md) |
-| B2 已实现，本地验收通过，待服务器人工验收（2026-10-13） | 思考档位按供应商保守默认 + 已知模型覆盖；DeepSeek/Sol 默认 low、Luna 默认 medium，未知 Codex 默认三档、low；11 项测试与 11 组隔离验收通过 | [B2](docs/blueprints/reasoning-model-capabilities.md)；[B1](docs/brainstorm/reasoning-model-capabilities.md) |
-| B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 会话归档：后端仅标记，记录保留；新消息仍隐藏，手工恢复；前端成功后整页刷新，4 组隔离整体链路通过 | [B2](docs/blueprints/session-archive.md)；[B1](docs/brainstorm/session-archive.md) |
-| B2 已实现，本地验收通过，待 human 验收（2026-10-13）；体积 21.9 → 17.3 MiB，未达 16.5 目标待定 | 模型调用改回手写，移除 async-openai（体积 15.0 → 21.6 MiB 主因）；reqwest 统一 0.13 + ring；功能不变，未知流事件改为忽略并告警 | [B2](docs/blueprints/provider-handwritten.md) |
 | human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](docs/blueprints/web-ui.md#43-设置页与人设选择) |
-| B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 首问自动标题与一键重新生成；用途模型/档位独立，生成中仅内存；11 组隔离整体链路通过；侧栏刷新边界与只 trim 已定，复用会话详情 GET | [B2](docs/blueprints/session-title.md)；[B1](docs/brainstorm/session-title.md) |
-| B2 已实现，本地验收通过，待 human 验收（2026-10-12） | Web 聊天页可切换微信会话模型，与 Web 会话同一入口；`/model` 后续另定 | [B2](docs/blueprints/wechat-session-model.md) |
-| 已知 bug，待排查；human 明确延期（2026-10-10） | Web「检查并更新」后部分消息尾部不可见，刷新无效、发新消息后恢复；IP:端口直连，根因未确认 | [排查记录](docs/brainstorm/web-message-replay.md) |
 | B2 已实现：DeepSeek、ChatGPT 订阅（2026-10-12）已验收，OpenAI（API key）与订阅缓存命中待验收 | 模型调用迁移 async-openai；新增 OpenAI（Responses）与 ChatGPT 订阅（Codex 后端，手贴 access_token）预设；Responses 发会话缓存键 | [SDK B2](docs/blueprints/provider-sdk-responses.md)；[ChatGPT B2](docs/blueprints/provider-chatgpt.md)；[缓存键 B2](docs/blueprints/provider-cache-key.md)；现行契约 [provider-openai](docs/blueprints/provider-openai.md) |
 | B2 CLOSED（2026-10-09） | 构建脚本支持 debug 与 run：默认 release，可构建后 exec 启动，运行参数原样透传 | [build-script-run](docs/blueprints/build-script-run.md) |
 | B2 CLOSED（2026-10-10） | 对话记录与用户所见大致一致：长期记录与系统解释、临时微信媒体打扁；短占位与合并通知省 token；含占位入站只记录 | [B2](docs/blueprints/conversation-parity.md)；[B1](docs/brainstorm/conversation-parity.md) |
@@ -30,8 +23,9 @@
 | B1 待核对，再起 B2 | 定时任务看板事实来源与异步 shell/子 agent 生命周期 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-4～5 |
 | B2 CLOSED：服务商/模型分层与图片输入均已实现并验收；遗留：模型不支持图片时的上游报错呈现、只发图时会话预览为空 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/model-settings.md`](docs/blueprints/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
 | 数据缺口已并入 B1，展示待定（2026-10-14） | 聊天统计行（轮·步·模型/工具耗时·首次输出·速率·缓存·token）与上下文占用：共用本地监控事实；context_window 已支持，精确耗时与首输出待统一采集 | [监控 B1](docs/brainstorm/run-trace.md)；[上下文 B2](docs/blueprints/context-compaction.md) |
-| 待起 B1（2026-10-09 服务器实测触发） | 工具执行隔离：模型以 root 经 bash 读了 micnext.db 与 `master.key` 所在目录。分两层：① 部署改用专用用户 `micnext`（human 进行中）；② bash 子进程套 bwrap，不挂 micnext 数据目录、私有 /tmp、按需 `--unshare-pid`；fs 工具在进程内，须另设路径边界；数据目录清单由 micnext 启动侧下发，不在两工具各写一份。待定：模型对服务器的权限定位（运维助手 vs 受限）、是否断网。环境事实：Ubuntu 24.04 `apparmor_restrict_unprivileged_userns=1`，已加 `/etc/apparmor.d/bwrap` 单程序放行并以 micnext 用户验证隔离生效 | 与「工具授权」缺口（cross-check §四-8～9）合并讨论 |
+| B1 已记录；脱敏明确延期（2026-10-10） | 模型出站脱敏、工具隔离与授权：脱敏只求减少部分意外披露，当前不实施；工具隔离既有缺口仍待定。专用用户部署 human 进行中，服务器 bwrap 已验证可运行；访问与披露各自控制，候选未批准 | [B1](docs/brainstorm/privacy-permissions.md)；合并「工具授权」缺口（cross-check §四-8～9） |
 | 引用 CLOSED（2026-10-10 服务器验收）；入站图片 CLOSED（2026-10-10 服务器验收，[B2](docs/blueprints/wechat-inbound-images.md)）；入站文件/视频已实现待验收（[B2](docs/blueprints/wechat-inbound-files.md)） | 微信 V2：引用关联归微信，不新增核心来源登记接口；随后入站图片/文件/视频、出站媒体；斜杠指令跨 Channel 统一另起 B1 | [引用 B2](docs/blueprints/wechat-quotes.md)；[V2 B1](docs/brainstorm/wechat-v2.md) §二 |
 | 已知 bug，低优先级；human 明确延期（2026-10-10） | 微信 Markdown/表格部分引用无法精确定位时提供完整被引消息并注明；显示文字的精确还原后续再处理，不阻塞本轮引用验收 | [引用 B2](docs/blueprints/wechat-quotes.md)；[样本事实](docs/brainstorm/wechat-v2.md) §三 |
+| 想法，未定；现状够用（2026-10-12） | 日志页开关「落盘包含 DEBUG」：存 SQLite，跨重启有效，仅项目 crate，开启时页面提示。场景：新功能临时调试时复现与查看之间有重启；现状 DEBUG 只在内存实时可看，重启即丢 | [B2](docs/blueprints/developer-log-history.md) |
 | 想法，未定 | 人设绑定 UI 主题；「理性大脑」人设定稿 | [`docs/brainstorm/runtime-settings.md`](docs/brainstorm/runtime-settings.md) §三 |
 | 已知缺口，待定义验收边界 | 入站去重、投递重复；模型/工具/历史尺寸、工具授权与进程退出 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-3、8～9 |

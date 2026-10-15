@@ -21,12 +21,14 @@ Human 定方向和公开契约，AI 探索、起草、实现。
 - 一处真相；同一流程不另起分支；新抽象要有明确消费者。
 - 同一模块第二个不相关补丁 → 停下考虑重构。
 - 大重构不保留兼容性代码，减少历史债务。
+- 版本管理只放在数据库 schema 或整体功能库层面；人设、prompt、消息、配置、业务 payload 不单独版本化，不为历史配置还原建设快照或版本体系。
+- 保留 agent 与应用运行明确需要的数据，删除无实际用途的副本。trace 与看板复用业务执行事实；logs 独立数据库，记录框架运行信息与错误，职责和存储分开。
 - 配置：`config.toml` 只放启动项；用户可调项存 SQLite 经 Web 改；构建期旋钮放 `limits.rs`。
 
 ## 代码
 
 - 优先 `tokio` / `serde` / `thiserror` / `anyhow`；注释只写结论。
-- 测试以 review 和验收为主，值得写再写，放 `foo/tests.rs`。
+- 测试以模块功能测试和人工验收为主，值得写再写，减少无谓的单元测试，放 `foo/tests.rs`。
 - crate 分层：`mic-message` → `mic-store` / `mic-tool` / `mic-media` → `mic-core` → 实现层（Gateway、Channel、Provider、工具），实现层彼此不依赖，由 `bin/micnext` 装配。
 
 ## 提交

@@ -22,4 +22,13 @@
 | 实现完成（CLOSED，2026-10-10 人工验收） | Web 开发者诊断：内存日志（项目 DEBUG/依赖 INFO，1 万条/16 MiB，筛选/正则/暂停/复制）+ 只读 SQL（mic-store 只读连接 + authorizer，凭据列由建表方声明读作 NULL，2s/200 行/1 MiB） | [B2](docs/blueprints/developer-diagnostics.md)；B1：[日志](docs/brainstorm/developer-logs.md)、[SQL](docs/brainstorm/developer-sql.md)；原日志路径/级别约定定稿后补进 `CLAUDE.md` |
 | 实现完成（CLOSED，2026-10-10 服务器验收） | Web 更新：原地 pull --ff-only（5 次，超时 20s→60s 递增，立即重试）+ 缓存构建 + exec；代理继承启动环境、记录 from 提交供人工回退、构建无超时；Linux 原地构建已实测 | [B2](docs/blueprints/self-update.md)；[B1](docs/brainstorm/self-update.md) |
 | 实现完成（CLOSED，2026-10-12） | 开发者日志留痕：INFO+ 进独立 SQLite，超限删旧，失败降级纯文本 | [B1](docs/brainstorm/developer-log-history.md) · [B2](docs/blueprints/developer-log-history.md) |
+| 已修复（2026-10-12） | Web 更新后消息尾部不可见：Chrome 分批渲染贴底竞争（3b98736）；WebKit 压住 SSE 尾段，每批事件后补空注释（fb75c7d） | [排查记录](docs/brainstorm/web-message-replay.md) |
+| 实现完成（CLOSED，2026-10-13 人工验收） | Web 会话分段加载：首屏最近 20 轮/至多 300 条，ready 告知有无更早；倒序滚动，离顶三屏自动取上一页，插入不写 scrollTop；浮动胶囊与交界分隔线提示 | [B2](docs/blueprints/web-message-paging.md)；[B1](docs/brainstorm/web-message-paging.md) |
 | 实现完成（CLOSED，2026-10-13 人工验收） | 思考强度按会话选择，模型 GET 返回节点，切模型重置 null；本轮快照固定；模型与人设入口统一，emoji 与浮层比例调整完成 | [B2](docs/blueprints/reasoning-selection.md) |
+| 已修复（CLOSED，2026-10-13 服务器人工验收） | 聊天与标题模型选择保存时不再闪烁；保留保存提示，标题选择立即更新、失败回退 | [记录](docs/blueprints/session-title.md#模型选择闪烁修复closed2026-10-13) |
+| 实现完成（CLOSED，2026-10-14 人工验收） | 错误保留现有类型至处置边界记一次，级别与字段名固定；正文/标题共用 Provider 构建，正文/压缩共用重试日志；补压缩、工具依赖、服务致命退出与 panic 日志，Provider 上游失败降 DEBUG；为 Langfuse 留接缝，不接入 | [B2](docs/blueprints/error-logging.md) |
+| 实现完成（CLOSED，2026-10-14 人工验收） | 思考档位按供应商保守默认 + 已知模型覆盖；DeepSeek/Sol 默认 low、Luna 默认 medium，未知 Codex 默认三档、low；11 项测试与 11 组隔离验收通过 | [B2](docs/blueprints/reasoning-model-capabilities.md)；[B1](docs/brainstorm/reasoning-model-capabilities.md) |
+| 实现完成（CLOSED，2026-10-14 人工验收） | 会话归档：后端仅标记，记录保留；新消息仍隐藏，手工恢复；前端成功后整页刷新，4 组隔离整体链路通过 | [B2](docs/blueprints/session-archive.md)；[B1](docs/brainstorm/session-archive.md) |
+| 实现完成（CLOSED，2026-10-14 人工验收） | 模型调用改回手写，移除 async-openai（体积 15.0 → 21.6 MiB 主因）；reqwest 统一 0.13 + ring；功能不变，未知流事件改为忽略并告警 | [B2](docs/blueprints/provider-handwritten.md) |
+| 实现完成（CLOSED，2026-10-14 人工验收） | 首问自动标题与一键重新生成；用途模型/档位独立，生成中仅内存；11 组隔离整体链路通过；侧栏刷新边界与只 trim 已定，复用会话详情 GET | [B2](docs/blueprints/session-title.md)；[B1](docs/brainstorm/session-title.md) |
+| 实现完成（CLOSED，2026-10-14 人工验收） | Web 聊天页可切换微信会话模型，与 Web 会话同一入口；`/model` 后续另定 | [B2](docs/blueprints/wechat-session-model.md) |

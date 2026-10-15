@@ -2,20 +2,21 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mic_message::{
-    ExecFailureKind, ExecOutcome, MessageBody, MessageId, ReplyBlock, SessionCommand,
+    ExecFailureKind, ExecOutcome, MessageBody, MessageId, ReplyBlock, SessionCommand, SessionId,
     ToolResultOutcome,
 };
 use mic_store::{
     ClaimedModel, ClaimedRun, ContextCommandError, ModelCallContext, ModelCallOutcome,
-    ModelCallPurpose, ModelId, ReasoningEffort, Run, RunInput, RunSettings, RunState, Session,
-    SessionKind, Store, StoreError, ToolScope,
+    ModelCallPurpose, ModelId, ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState,
+    Session, SessionKind, Store, StoreError, ToolScope,
 };
 use mic_tool::{ToolContext, ToolHandle};
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::attempt::{stream_attempt, Caller, Facts};
 use crate::event::{Events, KernelEventKind};
@@ -26,6 +27,9 @@ use crate::{request, ModelEvent, ModelResponse, Provider, ProviderError, StopRea
 /// 框架通知的 `source`。
 pub(crate) const NOTIFICATION_SOURCE: &str = "micnext";
 
+const STOPPED_TOOL: &str =
+    "Stopped by the user before this tool call finished; its side effects are unknown.";
+
 /// 执行主路径的共享部分；调度与 `-p` 共用。
 pub(crate) struct Engine {
     pub(crate) store: Store,
@@ -34,9 +38,26 @@ pub(crate) struct Engine {
     pub(crate) tools: Vec<ToolHandle>,
     /// 渠道名 → 渠道提示；只用于 Root 会话。
     pub(crate) channel_prompts: Arc<HashMap<&'static str, &'static str>>,
+    /// 执行中 run 的停止令牌，随 `run` 登记与移除。
+    pub(crate) stops: Mutex<HashMap<RunId, (SessionId, CancellationToken)>>,
 }
 
 impl Engine {
+    /// 停该会话执行中的 run（给定 `run` 则只停它）；没有匹配返回 false。
+    pub(crate) fn stop(&self, session: SessionId, run: Option<RunId>) -> bool {
+        let stops = self.stops.lock().expect("停止令牌表未中毒");
+        match stops
+            .iter()
+            .find(|(id, (s, _))| *s == session && run.is_none_or(|r| r == **id))
+        {
+            Some((_, (_, token))) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(crate) fn scoped_tools(&self, scope: &ToolScope) -> Vec<ToolHandle> {
         match scope {
             ToolScope::All => self.tools.clone(),
@@ -69,6 +90,15 @@ impl Engine {
         );
         tracing::info!(session = session.id.0, run = run.id.0, "run started");
         let tools = self.scoped_tools(&session.tool_scope);
+        let stop = CancellationToken::new();
+        let registered = Registered {
+            engine: self,
+            run: run.id,
+        };
+        self.stops
+            .lock()
+            .expect("停止令牌表未中毒")
+            .insert(run.id, (session.id, stop.clone()));
         let (model_id, context_window) = match &model {
             ClaimedModel::Selected {
                 id, context_window, ..
@@ -99,6 +129,7 @@ impl Engine {
             model_id,
             effort: None,
             context_window,
+            stop,
         };
         let state = match input {
             RunInput::Command {
@@ -161,6 +192,10 @@ impl Engine {
                 }
             },
         };
+        drop(registered);
+        if state == RunState::Stopped {
+            exec.notify("已停止。".into()).await?;
+        }
         self.store.finish_run(run.id, state, now_ms()).await?;
         tracing::info!(
             session = session.id.0,
@@ -177,6 +212,21 @@ impl Engine {
             },
         );
         Ok(state)
+    }
+}
+
+struct Registered<'a> {
+    engine: &'a Engine,
+    run: RunId,
+}
+
+impl Drop for Registered<'_> {
+    fn drop(&mut self) {
+        self.engine
+            .stops
+            .lock()
+            .expect("停止令牌表未中毒")
+            .remove(&self.run);
     }
 }
 
@@ -228,6 +278,8 @@ pub(crate) struct Exec<'a> {
     /// 实际生效的思考档位（已解析默认值）；Provider 建好后才有。
     pub(crate) effort: Option<ReasoningEffort>,
     pub(crate) context_window: u32,
+    /// 用户停止：只在等待外部处响应，取消后不再认领输入、不再发起调用或工具。
+    pub(crate) stop: CancellationToken,
 }
 
 struct Call {
@@ -243,6 +295,9 @@ impl Exec<'_> {
         let warn_at = (max_turns * MAX_TURNS_WARN_PERCENT / 100).max(1);
         let mut calls = 0;
         loop {
+            if self.stop.is_cancelled() {
+                return Ok(RunState::Stopped);
+            }
             self.absorb().await?;
             if calls == max_turns {
                 self.note(format!(
@@ -272,12 +327,19 @@ impl Exec<'_> {
             if self.absorb().await? {
                 continue;
             }
-            return Ok(RunState::Completed);
+            return Ok(if self.stop.is_cancelled() {
+                RunState::Stopped
+            } else {
+                RunState::Completed
+            });
         }
     }
 
-    /// 把已到达的新输入并入本 run；有并入返回 true。
+    /// 把已到达的新输入并入本 run；有并入返回 true。已停止则不认领。
     async fn absorb(&mut self) -> Result<bool, StoreError> {
+        if self.stop.is_cancelled() {
+            return Ok(false);
+        }
         let inputs = self.engine.store.absorb(self.run.id).await?;
         let absorbed = !inputs.is_empty();
         self.pending_inputs.extend(inputs);
@@ -334,11 +396,39 @@ impl Exec<'_> {
         let mut attempt = 1;
         loop {
             let mut facts = Facts::start();
-            let error = match stream_attempt(provider, req.clone(), &mut facts, |event| {
-                self.forward(event)
-            })
-            .await
-            {
+            let mut partial = String::new();
+            let streamed = tokio::select! {
+                result = stream_attempt(provider, req.clone(), &mut facts, |event| {
+                    if let ModelEvent::TextDelta(text) = event {
+                        partial.push_str(text);
+                    }
+                    self.forward(event)
+                }) => Some(result),
+                () = self.stop.cancelled() => None,
+            };
+            let Some(streamed) = streamed else {
+                facts.finished_at = now_ms();
+                facts.usage = None;
+                self.pending_inputs.clear();
+                let blocks = if partial.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![ReplyBlock::Text {
+                        text: partial,
+                        phase: None,
+                    }]
+                };
+                self.record(
+                    &caller,
+                    &facts,
+                    Some(StopReason::Stopped),
+                    ModelCallOutcome::Replied { blocks },
+                    context,
+                )
+                .await?;
+                return Ok(Err(RunState::Stopped));
+            };
+            let error = match streamed {
                 Ok(reply) => {
                     self.pending_inputs.clear();
                     return self
@@ -360,7 +450,9 @@ impl Exec<'_> {
             .await?;
             match self.retry_wait("conversation", provider, &error, attempt) {
                 Some(wait) => {
-                    tokio::time::sleep(wait).await;
+                    if self.sleep(wait).await {
+                        return Ok(Err(RunState::Stopped));
+                    }
                     attempt += 1;
                 }
                 None => {
@@ -426,7 +518,7 @@ impl Exec<'_> {
                 self.notify("回复被上游内容审核截断，内容不完整。".into())
                     .await?
             }
-            StopReason::EndTurn | StopReason::ToolUse => {}
+            StopReason::EndTurn | StopReason::ToolUse | StopReason::Stopped => {}
         }
         Ok(calls)
     }
@@ -456,71 +548,97 @@ impl Exec<'_> {
         Ok(())
     }
 
-    /// 本批调用并行执行；每个任务自己取起止时刻并落盘结果，故消息 id 只表示落盘顺序。
+    /// 本批调用并行执行，结果按返回顺序由本 run 落盘，故消息 id 只表示落盘顺序。
+    /// 停止时中止未返回的任务（shell 随之杀进程组），补记已取消。
     async fn run_tools(&self, calls: Vec<Call>) -> Result<(), StoreError> {
         let mut running = JoinSet::new();
+        let mut started = HashMap::new();
         for call in calls {
             let handle = self.tools.iter().find(|t| t.name() == call.name).cloned();
             let ctx = ToolContext::new(PathBuf::from(&self.session.pwd));
-            let store = self.engine.store.clone();
-            let events = self.engine.events.clone();
-            let (session, run) = (self.session.id, self.run.id);
-            let channel = self.channel.to_owned();
-            running.spawn(async move {
-                let started_at = now_ms();
-                let outcome = match handle {
+            let (name, args) = (call.name.clone(), call.args.clone());
+            let started_at = now_ms();
+            let task = running.spawn(async move {
+                match handle {
                     None => ExecOutcome::Failed {
                         kind: ExecFailureKind::Input,
-                        message: format!("unknown tool `{}`", call.name),
+                        message: format!("unknown tool `{name}`"),
                     },
-                    Some(tool) => match tool.invoke(&call.args, &ctx).await {
+                    Some(tool) => match tool.invoke(&args, &ctx).await {
                         Ok(output) => ExecOutcome::Completed { output },
                         Err(e) => ExecOutcome::Failed {
                             kind: e.kind,
                             message: e.message,
                         },
                     },
-                };
-                let returned_at = now_ms();
-                if let ExecOutcome::Failed {
-                    kind: ExecFailureKind::Dependency,
-                    message,
-                } = &outcome
-                {
-                    tracing::warn!(
-                        session = session.0,
-                        run = run.0,
-                        tool = call.name,
-                        error = message,
-                        "tool dependency failed"
-                    );
                 }
-                let publish = events.publisher().await;
-                let message = store
-                    .append(
-                        session,
-                        Some(run),
-                        MessageBody::ToolResult {
-                            tool_name: call.name,
-                            tool_call_id: call.id,
-                            outcome: ToolResultOutcome::Terminal(outcome),
-                            started_at: Some(started_at),
-                        },
-                        returned_at,
-                    )
-                    .await?;
-                publish.appended(session, &channel, message);
-                Ok::<(), StoreError>(())
             });
+            started.insert(task.id(), (call, started_at));
         }
-        while let Some(joined) = running.join_next().await {
-            match joined {
-                Ok(done) => done?,
+        let mut stopping = false;
+        loop {
+            let joined = tokio::select! {
+                joined = running.join_next_with_id() => match joined {
+                    Some(joined) => joined,
+                    None => return Ok(()),
+                },
+                () = self.stop.cancelled(), if !stopping => {
+                    stopping = true;
+                    running.abort_all();
+                    continue;
+                }
+            };
+            let (id, outcome) = match joined {
+                Ok(done) => done,
                 Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
-                Err(e) => unreachable!("工具任务不会被单独取消：{e}"),
+                Err(e) => (
+                    e.id(),
+                    ExecOutcome::Cancelled {
+                        message: STOPPED_TOOL.into(),
+                    },
+                ),
+            };
+            let returned_at = now_ms();
+            let (call, started_at) = started.remove(&id).expect("任务登记过");
+            if let ExecOutcome::Failed {
+                kind: ExecFailureKind::Dependency,
+                message,
+            } = &outcome
+            {
+                tracing::warn!(
+                    session = self.session.id.0,
+                    run = self.run.id.0,
+                    tool = call.name,
+                    error = message,
+                    "tool dependency failed"
+                );
             }
+            let publish = self.engine.events.publisher().await;
+            let message = self
+                .engine
+                .store
+                .append(
+                    self.session.id,
+                    Some(self.run.id),
+                    MessageBody::ToolResult {
+                        tool_name: call.name,
+                        tool_call_id: call.id,
+                        outcome: ToolResultOutcome::Terminal(outcome),
+                        started_at: Some(started_at),
+                    },
+                    returned_at,
+                )
+                .await?;
+            publish.appended(self.session.id, self.channel, message);
         }
-        Ok(())
+    }
+
+    /// 重试前的等待；被停止返回 true。
+    pub(crate) async fn sleep(&self, wait: Duration) -> bool {
+        tokio::select! {
+            () = tokio::time::sleep(wait) => false,
+            () = self.stop.cancelled() => true,
+        }
     }
 
     /// 模型调用失败的处置日志与重试判定：返回重试前的等待，`None` 即放弃。

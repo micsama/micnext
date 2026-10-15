@@ -11,10 +11,10 @@ use axum::response::Response;
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use mic_core::IncomingPart;
-use mic_message::{ImageId, MessageId, SessionId};
+use mic_core::{IncomingPart, ParsedCommand, StopOutcome};
+use mic_message::{ImageId, SessionId};
 use mic_store::{
-    ModelId, NewSession, PersonaId, ReasoningEffort, Session, SessionCursor, SessionKind,
+    ModelId, NewSession, PersonaId, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
     SessionSummary, ToolScope,
 };
 use serde::de::DeserializeOwned;
@@ -225,12 +225,6 @@ pub(crate) struct CreateBody {
 #[derive(Serialize)]
 pub(crate) struct Created {
     session_id: SessionId,
-    message_id: MessageId,
-}
-
-#[derive(Serialize)]
-pub(crate) struct Accepted {
-    pub(crate) message_id: MessageId,
 }
 
 pub(crate) async fn create_session(
@@ -267,12 +261,11 @@ pub(crate) async fn create_session(
             },
         )
         .await?;
-    let message_id = append(&app, session.id, parts).await?;
+    append(&app, session.id, parts).await?;
     Ok((
         StatusCode::CREATED,
         Json(Created {
             session_id: session.id,
-            message_id,
         }),
     ))
 }
@@ -281,14 +274,34 @@ pub(crate) async fn send_message(
     State(app): State<Arc<App>>,
     id: Result<Path<i64>, PathRejection>,
     body: Result<Json<SendBody>, JsonRejection>,
-) -> Result<(StatusCode, Json<Accepted>), ApiError> {
+) -> Result<StatusCode, ApiError> {
     let session = session(&app, id).await?;
     if !writable(&session) {
         return Err(ApiError::ReadOnly);
     }
     let parts = parts(json(body)?.parts)?;
-    let message_id = append(&app, session.id, parts).await?;
-    Ok((StatusCode::ACCEPTED, Json(Accepted { message_id })))
+    append(&app, session.id, parts).await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// 按 run 停止，防止停到刚接上的下一轮。
+pub(crate) async fn stop_run(
+    State(app): State<Arc<App>>,
+    path: Result<Path<(i64, i64)>, PathRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Path((session, run)) = path.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
+    let session = app
+        .kernel
+        .session(SessionId(session))
+        .await?
+        .ok_or(ApiError::NotFound(SESSION_NOT_FOUND))?;
+    if !writable(&session) {
+        return Err(ApiError::ReadOnly);
+    }
+    match app.kernel.stop_run(session.id, Some(RunId(run))).await? {
+        StopOutcome::Stopping => Ok(StatusCode::ACCEPTED),
+        StopOutcome::NotRunning => Err(ApiError::Conflict("这一轮已经结束".into())),
+    }
 }
 
 /// 路径里的会话 id 解析并确认存在。
@@ -339,25 +352,23 @@ fn parts(parts: Vec<PartBody>) -> Result<Vec<IncomingPart>, ApiError> {
         .collect()
 }
 
-async fn append(
-    app: &App,
-    session: SessionId,
-    parts: Vec<IncomingPart>,
-) -> Result<MessageId, ApiError> {
+async fn append(app: &App, session: SessionId, parts: Vec<IncomingPart>) -> Result<(), ApiError> {
     if let [IncomingPart::Text(text)] = parts.as_slice() {
-        if let Some(command) =
-            mic_core::parse_session_command(text).map_err(mic_core::KernelError::from)?
-        {
-            return Ok(app
-                .kernel
-                .append_session_command(session, app.kernel.owner(), command)
-                .await?);
+        match mic_core::parse_command(text).map_err(mic_core::KernelError::from)? {
+            Some(ParsedCommand::Stop) => return Ok(app.kernel.stop_command(session).await?),
+            Some(ParsedCommand::Session(command)) => {
+                app.kernel
+                    .append_session_command(session, app.kernel.owner(), command)
+                    .await?;
+                return Ok(());
+            }
+            None => {}
         }
     }
-    Ok(app
-        .kernel
+    app.kernel
         .append_user_input(session, app.kernel.owner(), parts)
-        .await?)
+        .await?;
+    Ok(())
 }
 
 /// 会话内图片原件；id 不属于该会话与不存在同样返回 404。

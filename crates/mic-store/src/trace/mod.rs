@@ -539,7 +539,7 @@ impl Store {
                 BTreeMap::new();
             let mut stmt = conn.prepare(
                 "SELECT purpose, model_id, finished_at - started_at FROM core_model_calls
-                 WHERE error IS NULL AND model_id IS NOT NULL",
+                 WHERE error IS NULL AND model_id IS NOT NULL AND stop IS NOT 'stopped'",
             )?;
             let mut rows = stmt.query([])?;
             while let Some(r) = rows.next()? {
@@ -600,7 +600,7 @@ impl Store {
             };
             let mut stmt = conn.prepare(&format!(
                 "SELECT {d}, count(*), count(CASE WHEN state = 'completed' THEN 1 END)
-                 FROM core_runs WHERE state <> 'executing' AND {d} >= {floor} GROUP BY 1",
+                 FROM core_runs WHERE state NOT IN ('executing', 'stopped') AND {d} >= {floor} GROUP BY 1",
                 d = day("created_at")
             ))?;
             let mut rows = stmt.query([&since])?;
@@ -618,7 +618,7 @@ impl Store {
             let calls = stmt
                 .query_map([&since], call)?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            for c in calls {
+            for c in calls.into_iter().filter(|c| c.stop != Some(StopReason::Stopped)) {
                 let d = c.day.clone();
                 let model_key = (
                     c.purpose.as_str(),

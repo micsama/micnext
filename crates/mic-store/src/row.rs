@@ -65,6 +65,7 @@ impl StopReason {
             Self::ToolUse => "tool_use",
             Self::MaxTokens => "max_tokens",
             Self::ContentFilter => "content_filter",
+            Self::Stopped => "stopped",
         }
     }
 }
@@ -82,6 +83,7 @@ impl rusqlite::types::FromSql for StopReason {
             "tool_use" => Self::ToolUse,
             "max_tokens" => Self::MaxTokens,
             "content_filter" => Self::ContentFilter,
+            "stopped" => Self::Stopped,
             other => {
                 return Err(rusqlite::types::FromSqlError::Other(
                     format!("未知 stop: {other}").into(),
@@ -271,6 +273,7 @@ pub(crate) fn run(row: &Row<'_>) -> rusqlite::Result<Run> {
         "provider_failed" => RunState::ProviderFailed,
         "max_turns" => RunState::MaxTurns,
         "interrupted" => RunState::Interrupted,
+        "stopped" => RunState::Stopped,
         other => return Err(corrupt(2, format!("未知 run state: {other}"))),
     };
     Ok(Run {

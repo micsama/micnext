@@ -151,9 +151,9 @@ export type Cursor = { before_at: number; before_id: number };
 export type SessionPage = { items: SessionItem[]; next: Cursor | null };
 export type MessagePage = { messages: Message[]; has_earlier: boolean };
 
-export type Created = { session_id: number; message_id: number };
+export type Created = { session_id: number };
 
-export type RunState = "executing" | "completed" | "provider_failed" | "max_turns" | "interrupted";
+export type RunState = "executing" | "completed" | "provider_failed" | "max_turns" | "interrupted" | "stopped";
 
 export type LinkedChannel = {
   account_id: string;
@@ -355,7 +355,7 @@ const sessionPage: Decoder<SessionPage> = obj({
   next: nullable(obj({ before_at: num, before_id: num })),
 });
 
-const created: Decoder<Created> = obj({ session_id: num, message_id: num });
+const created: Decoder<Created> = obj({ session_id: num });
 
 const delta = obj({ text: str });
 
@@ -368,7 +368,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   run_started: obj({ run_id: num }),
   run_finished: obj({
     run_id: num,
-    state: oneOf("executing", "completed", "provider_failed", "max_turns", "interrupted"),
+    state: oneOf("executing", "completed", "provider_failed", "max_turns", "interrupted", "stopped"),
   }),
   ready: obj({ executing_run: nullable(num), has_earlier: nullable(bool) }),
 };

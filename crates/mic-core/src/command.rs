@@ -8,6 +8,13 @@ pub struct CommandSpec {
     pub description: &'static str,
 }
 
+/// `Session` 入队成为 run；`Stop` 立即作用于执行中的 run，不入队。
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParsedCommand {
+    Session(SessionCommand),
+    Stop,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CommandParseError {
     #[error("指令 {command} 不接受参数")]
@@ -26,22 +33,34 @@ pub fn session_commands() -> &'static [CommandSpec] {
             usage: "/clear",
             description: "清空模型上下文，保留对话记录",
         },
+        CommandSpec {
+            name: "stop",
+            usage: "/stop",
+            description: "停止当前回答",
+        },
     ]
 }
 
-pub fn parse_session_command(text: &str) -> Result<Option<SessionCommand>, CommandParseError> {
+pub fn parse_command(text: &str) -> Result<Option<ParsedCommand>, CommandParseError> {
     let text = text.trim();
     let split = text.find(char::is_whitespace).unwrap_or(text.len());
     let (name, rest) = text.split_at(split);
     let rest = rest.trim();
+    let bare = |command| {
+        if rest.is_empty() {
+            Ok(Some(command))
+        } else {
+            Err(CommandParseError::UnexpectedArguments {
+                command: name.into(),
+            })
+        }
+    };
     match name {
-        "/compact" => Ok(Some(SessionCommand::Compact {
+        "/compact" => Ok(Some(ParsedCommand::Session(SessionCommand::Compact {
             text: (!rest.is_empty()).then(|| rest.to_owned()),
-        })),
-        "/clear" if rest.is_empty() => Ok(Some(SessionCommand::Clear)),
-        "/clear" => Err(CommandParseError::UnexpectedArguments {
-            command: name.into(),
-        }),
+        }))),
+        "/clear" => bare(ParsedCommand::Session(SessionCommand::Clear)),
+        "/stop" => bare(ParsedCommand::Stop),
         _ => Ok(None),
     }
 }

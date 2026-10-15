@@ -1,4 +1,4 @@
-import { ApiError, generateTitle, getContext, getMessages, revokeCompaction, getSession } from "../api/client";
+import { ApiError, generateTitle, getContext, getMessages, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
 import { ProtocolError, type ContextView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap } from "svelte/reactivity";
@@ -84,6 +84,19 @@ export class SessionView {
   }
   draft = $state<Draft | null>(null);
   executingRun = $state<number | null>(null);
+  /** 已对这一轮发出停止，等它收尾。 */
+  stopping = $state<number | null>(null);
+
+  async stop(): Promise<void> {
+    const run = this.executingRun;
+    if (run === null || this.stopping === run) return;
+    this.stopping = run;
+    try { await stopRun(this.id, run); }
+    catch (error) {
+      this.stopping = null;
+      if (!(error instanceof ApiError && error.status === 409)) throw error;
+    }
+  }
   ready = $state(false);
   /** 连接断开、正在重连。 */
   reconnecting = $state(false);
@@ -201,6 +214,7 @@ export class SessionView {
         break;
       case "run_finished":
         this.executingRun = null;
+        this.stopping = null;
         this.notice = FINISH_NOTICE[e.data.state] ?? null;
         void webSessions.refresh();
         break;

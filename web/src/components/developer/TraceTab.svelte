@@ -32,7 +32,7 @@
   const hm = (at: number) => new Date(at).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
   const role = (m: TraceMessage) => m.tool ? "工具" : ({ UserInput: "用户", Reply: "AI", Command: "指令", Boundary: "压缩", Notification: "通知", HarnessNote: "系统", Completion: "完成" }[m.kind] ?? m.kind);
   const purpose = (c: TraceCall) => ({ conversation: "模型调用", compaction: "压缩调用", title: "旁路 · 标题" }[c.purpose]);
-  const stateName = (r: TraceRun) => ({ completed: "已完成", interrupted: "已中断", provider_failed: "调用失败", max_turns: "轮数上限" }[r.state] ?? r.state);
+  const stateName = (r: TraceRun) => ({ completed: "已完成", interrupted: "已中断", stopped: "用户停止", provider_failed: "调用失败", max_turns: "轮数上限" }[r.state] ?? r.state);
   const tokens = (c: TraceCall) => c.usage ? formatTokens(c.usage.input_tokens + c.usage.output_tokens) : "—";
   const toggle = (id: number) => { const next = new Set(folded); next.has(id) ? next.delete(id) : next.add(id); folded = next; };
   const callPreview = (r: TraceRun | null, c: TraceCall) => c.error ?? r?.messages.find((m) => m.id === (c.reply_id ?? c.boundary_id))?.preview ?? c.model;
@@ -134,7 +134,7 @@
   });
 
   const failed = (c: TraceCall) => c.error !== null;
-  const runBad = (r: TraceRun) => r.state !== "completed" && r.state !== "executing";
+  const runBad = (r: TraceRun) => !["completed", "executing", "stopped"].includes(r.state);
 
   type Item = { at: number; call?: TraceCall; message?: TraceMessage };
   const items = (r: TraceRun): Item[] =>
@@ -210,7 +210,7 @@
   const toolPeer = (name: string) => peers.tools.find((p) => p.name === name);
   const runMs = (r: TraceRun) => r.finished_at === null ? null : r.finished_at - r.created_at;
   const tokensOf = (calls: TraceCall[]) => { const u = usageOf(calls); return u.known ? `${formatTokens(u.input + u.output)}${u.unknown ? "+?" : ""}` : "—"; };
-  const stopName = (c: TraceCall) => c.stop === null ? "—" : { end_turn: "正常结束", tool_use: "发起工具调用", max_tokens: "达到输出上限", content_filter: "被内容过滤" }[c.stop];
+  const stopName = (c: TraceCall) => c.stop === null ? "—" : { end_turn: "正常结束", tool_use: "发起工具调用", max_tokens: "达到输出上限", content_filter: "被内容过滤", stopped: "用户停止" }[c.stop];
   const speed = (c: TraceCall) => c.usage && c.first_output_at !== null && c.finished_at > c.first_output_at ? c.usage.output_tokens / ((c.finished_at - c.first_output_at) / 1000) : null;
   const runToolErrors = (r: TraceRun) => r.messages.filter((m) => m.tool?.outcome === "failed").length;
 
@@ -484,7 +484,7 @@
                 <span class="run-date">{new Date(r.created_at).toLocaleDateString("zh-CN")}</span>
                 <span class="tags">
                   {#if isFolded && runToolErrors(r)}<span class="signal c-bad" title="本轮工具报错 {runToolErrors(r)} 个"><Icon name="error" class="size-[13px]" /><b>{runToolErrors(r)}</b></span>{/if}
-                  {#if runBad(r)}<span class={cn("signal", r.state === "interrupted" ? "c-warn" : "c-bad")} title={r.state === "interrupted" ? "已中断 · 恢复只补记未知结果，不重跑工具" : stateName(r)}><Icon name={r.state === "interrupted" ? "pause" : "error"} class="size-[13px]" />{stateName(r)}</span>{/if}
+                  {#if runBad(r)}<span class={cn("signal", r.state === "interrupted" ? "c-warn" : "c-bad")} title={r.state === "interrupted" ? "已中断 · 恢复只补记未知结果，不重跑工具" : stateName(r)}><Icon name={r.state === "interrupted" ? "pause" : "error"} class="size-[13px]" />{stateName(r)}</span>{:else if r.state === "stopped"}<span class="signal c-ghost" title="用户停止"><Icon name="stop" class="size-[13px]" />{stateName(r)}</span>{/if}
                 </span>
                 <span class="track track-empty"></span>
                 <span class="cap c-ghost tk">{tokensOf(r.calls)} tok</span>
@@ -530,7 +530,7 @@
           <div class="metric">
             <div class="m-head"><span class="m-label"><Icon name="refresh" class="size-3.5" />轮次</span><span class="m-val">{runs.length}{nextAfter !== null ? "+" : ""}</span></div>
             <div class="spark" title="{runs.length > SPARK_RUNS ? `最近 ${SPARK_RUNS} 轮` : "每轮"}总耗时，点击查看">
-              {#each recent as r (r.id)}<button type="button" class={cn(r.state === "completed" ? "ok" : r.state === "interrupted" ? "warn" : "bad")} style="height:{Math.max(8, (runMs(r) ?? 0) / longest * 100)}%" title="#{runNumber(r)} · {runMs(r) === null ? "未结束" : formatDuration(runMs(r)!)} · {stateName(r)}" aria-label="轮次 {runNumber(r)}" onclick={() => chooseRun(r)}></button>{/each}
+              {#each recent as r (r.id)}<button type="button" class={cn(r.state === "completed" ? "ok" : r.state === "interrupted" || r.state === "stopped" ? "warn" : "bad")} style="height:{Math.max(8, (runMs(r) ?? 0) / longest * 100)}%" title="#{runNumber(r)} · {runMs(r) === null ? "未结束" : formatDuration(runMs(r)!)} · {stateName(r)}" aria-label="轮次 {runNumber(r)}" onclick={() => chooseRun(r)}></button>{/each}
             </div>
             <div class="m-row"><i class="dot s-bad"></i><span>失败</span><b>{s?.failed_runs ?? 0}</b></div>
             <div class="m-row"><i class="dot s-warn"></i><span>中断</span><b>{s?.interrupted_runs ?? 0}</b></div>
@@ -574,6 +574,7 @@
           <div class="pad">{#if detailError}<p class="bad">{detailError}</p>{:else if !detail}<p class="hint">加载中…</p>{:else if "logs" in detail}{@render logList(detail.logs)}{/if}</div>
         {:else}
           {#if r.state === "interrupted"}<div class="alert c-warn"><Icon name="pause" class="size-[15px]" /><div><b>本轮中断</b><div>恢复只补记结果，不重跑工具</div></div></div>
+          {:else if r.state === "stopped"}<div class="alert c-warn"><Icon name="stop" class="size-[15px]" /><div><b>用户停止</b><div>已输出的正文保留，未完成的工具记为已取消</div></div></div>
           {:else if runBad(r)}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div><b>{stateName(r)}</b></div></div>{/if}
           <div class="metrics">{@render runTime(r)}<TraceUsage calls={r.calls} /></div>
           <details open class="d-sec"><summary class="fold"><Icon name="chevron" class="size-[13px]" />执行记录</summary><div class="sec-body rels">
@@ -613,6 +614,7 @@
                 {#each tries as attempt}<div class="attempt"><span class="n">#{attempt.attempt}</span><span class={cn("cap ic", attempt.error ? "c-bad" : "c-ok")}><Icon name={attempt.error ? "error" : "check"} class="size-3" />{attempt.error ? "失败" : "已完成"}</span><span class="e">{attempt.error ?? ""}</span><span class="cap c-ghost">{attempt.usage ? `${tokens(attempt)} tok` : "用量未知"}</span><span class="cap">{formatDuration(attempt.finished_at - attempt.started_at)}</span></div>{/each}
               </div></div>
             {:else if c.error}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div><b>调用失败</b><code>{c.error}</code></div></div>{/if}
+            {#if c.stop === "stopped"}<div class="alert c-warn"><Icon name="stop" class="size-[15px]" /><div><b>用户停止</b><div>只保留已收到的正文，用量未知</div></div></div>{/if}
             {#if c.stop === "max_tokens" || c.stop === "content_filter"}<div class="alert c-warn"><Icon name="alert" class="size-[15px]" /><div><b>{c.stop === "max_tokens" ? "达到输出上限" : "内容被上游过滤"}</b>{#if c.stop === "max_tokens"}<div>回复可能不完整</div>{/if}</div></div>{/if}
             <div class="metrics">{@render callTime(pick.run, c)}<TraceUsage calls={tries} /></div>
             {#if c.purpose === "title"}

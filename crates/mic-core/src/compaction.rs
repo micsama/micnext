@@ -127,7 +127,26 @@ impl Exec<'_> {
         let mut attempt = 1;
         loop {
             let mut facts = Facts::start();
-            match stream_attempt(provider, req.clone(), &mut facts, |_| {}).await {
+            let streamed = tokio::select! {
+                result = stream_attempt(provider, req.clone(), &mut facts, |_| {}) => Some(result),
+                () = self.stop.cancelled() => None,
+            };
+            let Some(streamed) = streamed else {
+                facts.finished_at = now_ms();
+                facts.usage = None;
+                self.engine
+                    .store
+                    .record_model_call(facts.row(
+                        &caller,
+                        ModelCallPurpose::Compaction,
+                        context,
+                        Some(StopReason::Stopped),
+                        ModelCallOutcome::Replied { blocks: Vec::new() },
+                    ))
+                    .await?;
+                return Ok(Err(RunState::Stopped));
+            };
+            match streamed {
                 Ok(response) => {
                     let stop = Some(response.stop);
                     match parse_summary(&response) {
@@ -202,7 +221,9 @@ impl Exec<'_> {
                         .await?;
                     match self.retry_wait("compaction", provider, &error, attempt) {
                         Some(wait) => {
-                            tokio::time::sleep(wait).await;
+                            if self.sleep(wait).await {
+                                return Ok(Err(RunState::Stopped));
+                            }
                             attempt += 1;
                         }
                         None => {
@@ -314,7 +335,7 @@ pub(crate) fn instruction_note(session: SessionId, extra: Option<String>) -> Mes
 
 fn parse_summary(response: &ModelResponse) -> Result<(String, Vec<String>), String> {
     match response.stop {
-        StopReason::MaxTokens | StopReason::ContentFilter => {
+        StopReason::MaxTokens | StopReason::ContentFilter | StopReason::Stopped => {
             return Err("总结被上游截断，内容不完整".into())
         }
         StopReason::EndTurn | StopReason::ToolUse => {}

@@ -386,6 +386,7 @@ impl Assembly {
             factories: self.factories.clone(),
             tools: self.tools.clone(),
             channel_prompts: self.channel_prompts.clone(),
+            stops: Default::default(),
         }
     }
 }

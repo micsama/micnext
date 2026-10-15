@@ -115,7 +115,7 @@
   {/if}
   <MessageList {view} />
   {#if item?.writable}
-    <Composer onsend={send} autofocus {notice} blocked={modelSaving}>
+    <Composer onsend={send} autofocus {notice} blocked={modelSaving} onstop={view.executingRun === null ? undefined : () => view.stop()} stopping={view.stopping !== null}>
       {#snippet leading()}
         <PersonaPicker value={persona!.id} onpick={pick} />
       {/snippet}

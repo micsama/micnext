@@ -87,7 +87,7 @@ impl Kernel {
 }
 ```
 
-语法：去掉首尾空白后只识别完整的 `/compact`、`/compact <文字>`、`/clear`；`/clear` 带参数报错；未知 slash 文本仍是普通输入。不提供撤回 slash 指令，不以 action 字符串分发执行。
+语法：去掉首尾空白后只识别完整的 `/compact`、`/compact <文字>`、`/clear`、`/stop`（[run-stop](run-stop.md)，不入队）；`/clear`、`/stop` 带参数报错；未知 slash 文本仍是普通输入。不提供撤回 slash 指令，不以 action 字符串分发执行。
 
 Channel/Gateway 只对原始纯文本入站调用统一 parser，引用内容、附件说明不参与命令识别；带图片或引用的消息维持普通消息语义。微信在拼接引用之前识别，成功则调用 `append_session_command`，否则保持现有入站路径。Web 创建会话和发送消息两处都调用同一 parser。`append_recorded_input` 的 held 消息保持仅记录；一次性 `-p` 保持普通文字，不增加 CLI 命令接口。
 
@@ -235,9 +235,9 @@ HTTP（保持现有 token 与会话 writable 边界）：
 
 | 接口 | 请求 / 响应 | 错误 |
 |---|---|---|
-| GET `/commands` | `{items:[{name,usage,description}]}`，仅 compact/clear | 现有鉴权错误 |
+| GET `/commands` | `{items:[{name,usage,description}]}`，compact/clear/stop | 现有鉴权错误 |
 | GET `/sessions/{id}/context` | `{active_boundary:number|null, compactions:[{boundary_id,result,state}]}` | 会话不存在 404 |
-| POST `/sessions/{id}/compactions/{boundary_id}/revoke` | 无 body；202 `{message_id}`，指令入队 id | 非 Web 会话 403；目标不存在/不属于会话 404；目标不是当前生效压缩 409 |
+| POST `/sessions/{id}/compactions/{boundary_id}/revoke` | 无 body；202 无响应体 | 非 Web 会话 403；目标不存在/不属于会话 404；目标不是当前生效压缩 409 |
 
 CompactionState JSON 用内部 tag：`{kind:"applied"}` / `{kind:"revoked",at:number}`。其他新增消息类型和 boundary 按 mic-message 既有 serde 方式完整接收；Gateway 不只挑几个摘要字段省略其余。
 

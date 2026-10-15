@@ -216,6 +216,7 @@ stateDiagram-v2
     Executing --> ProviderFailed: 模型调用失败
     Executing --> MaxTurns: 轮次用尽（总结后）
     Executing --> Interrupted: 下次启动收尾
+    Executing --> Stopped: 用户停止
 ```
 
 v0a 没有用户取消的终态：叫停也是一条普通输入，由模型读到后自行收尾（Web 端停止按钮见 §十）。
@@ -250,6 +251,7 @@ loop:
     Reply 里有 ToolCall → 并行执行本次全部调用，各自完成即落盘结果；全部结束后 continue
     absorb 有新输入 → continue
     Completed；结束
+（每步开头、absorb 前先查停止令牌；已停止 → 通知「已停止。」+ Stopped；结束）
 ```
 
 - `warn_at = max_turns × MAX_TURNS_WARN_PERCENT / 100`（向下取整，至少 1；等于 `max_turns` 时不单独提醒）。
@@ -259,7 +261,8 @@ loop:
 - 并入发生在模型调用之前，所以用户在模型输出或工具执行期间发的消息不会打断它们，只在下一次调用时被看到。
   模型本打算结束（无工具调用）但期间有新输入，本轮继续而不是结束后另起一轮。
 - **工具并行**：本次回复的全部 `ToolCall` 同时开始（tokio `JoinSet`，工具句柄以 `Arc` 共享），
-  结果按完成先后落盘。任务集合被丢弃时（停止）各工具 future 随之取消。由模型保证同一回复内的调用互不依赖。
+  任务只执行工具并返回结果，由 run 按返回先后落盘。用户停止时中止未返回的任务，补
+  `Cancelled{"Stopped by the user …"}`（[run-stop](run-stop.md) §2.3）。由模型保证同一回复内的调用互不依赖。
 - 工具调用 → 结果：
   - 名字不在本会话可用工具里（未登记，或不在 `tool_scope`）→ `Failed{Input, "unknown tool `x`"}`。
   - 否则 `ToolHandle::invoke(args, ToolContext::new(session.pwd))`：`Ok(parts)` → `Completed{output}`，
@@ -334,6 +337,7 @@ loop:
 | 回复被截断（`MaxTokens`） | 不影响（照常继续或 `Completed`） | 回复达到输出长度上限，内容不完整 |
 | 被内容审核截断（`ContentFilter`） | 同上 | 回复被上游内容审核截断 |
 | 重启打断（§4.6） | `Interrupted` | 上次执行已中断；有悬空工具时附加“部分工具结果未知” |
+| 用户停止（[run-stop](run-stop.md)） | `Stopped` | 已停止。 |
 
 轮次提醒与用尽写的是 `HarnessNote`（给模型看），不是通知；用尽后由模型自己的总结告诉用户，run 记 `MaxTurns` 供事后统计（如接 langfuse）。
 

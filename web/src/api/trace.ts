@@ -4,7 +4,7 @@ import type { ReasoningEffort } from "./types";
 // 与 docs/blueprints/run-trace.md §六 及 mic-store `trace` 的 serde 形状一一对应。
 
 export type Purpose = "conversation" | "compaction" | "title";
-export type StopReason = "end_turn" | "tool_use" | "max_tokens" | "content_filter";
+export type StopReason = "end_turn" | "tool_use" | "max_tokens" | "content_filter" | "stopped";
 export type ToolOutcome = "completed" | "failed" | "cancelled" | "dispatched";
 
 export type Usage = {
@@ -124,7 +124,7 @@ const traceCall: Decoder<TraceCall> = obj({
   started_at: num,
   first_output_at: nullable(num),
   finished_at: num,
-  stop: nullable(oneOf<StopReason>("end_turn", "tool_use", "max_tokens", "content_filter")),
+  stop: nullable(oneOf<StopReason>("end_turn", "tool_use", "max_tokens", "content_filter", "stopped")),
   error: nullable(str),
   usage: nullable(usage),
   cost: nullable(num),

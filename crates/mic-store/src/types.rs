@@ -293,6 +293,8 @@ pub enum RunState {
     MaxTurns,
     /// 进程停止时仍在执行，启动时收尾。
     Interrupted,
+    /// 用户主动停止。
+    Stopped,
 }
 
 impl RunState {
@@ -304,6 +306,7 @@ impl RunState {
             Self::ProviderFailed => "provider_failed",
             Self::MaxTurns => "max_turns",
             Self::Interrupted => "interrupted",
+            Self::Stopped => "stopped",
         }
     }
 }
@@ -421,6 +424,8 @@ pub enum StopReason {
     MaxTokens,
     /// 被上游内容审核截断。
     ContentFilter,
+    /// 被用户停止：`blocks` 只含已收到的正文。
+    Stopped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]

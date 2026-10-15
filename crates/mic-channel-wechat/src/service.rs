@@ -485,8 +485,12 @@ async fn inbound(
             }
             if incoming.references.is_empty() && notice(&unsupported, &failures).is_none() {
                 if let [mic_core::IncomingPart::Text(text)] = parts.as_slice() {
-                    match mic_core::parse_session_command(text) {
-                        Ok(Some(command)) => {
+                    match mic_core::parse_command(text) {
+                        Ok(Some(mic_core::ParsedCommand::Stop)) => {
+                            kernel.stop_command(account.view.session_id).await?;
+                            continue;
+                        }
+                        Ok(Some(mic_core::ParsedCommand::Session(command))) => {
                             kernel
                                 .append_session_command(
                                     account.view.session_id,

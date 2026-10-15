@@ -6,7 +6,7 @@ use mic_message::{MessageId, SessionCommand, SessionId};
 use serde::Serialize;
 use std::sync::Arc;
 
-use crate::api::{self, Accepted};
+use crate::api;
 use crate::error::{ApiError, SESSION_NOT_FOUND};
 use crate::service::App;
 
@@ -32,7 +32,7 @@ pub(crate) async fn get_context(
 pub(crate) async fn revoke(
     State(app): State<Arc<App>>,
     path: Result<Path<(i64, i64)>, PathRejection>,
-) -> Result<(StatusCode, Json<Accepted>), ApiError> {
+) -> Result<StatusCode, ApiError> {
     let Path((session_id, boundary_id)) =
         path.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
     let session = app
@@ -43,8 +43,7 @@ pub(crate) async fn revoke(
     if !api::writable(&session) {
         return Err(ApiError::ReadOnly);
     }
-    let message_id = app
-        .kernel
+    app.kernel
         .append_session_command(
             session.id,
             app.kernel.owner(),
@@ -53,5 +52,5 @@ pub(crate) async fn revoke(
             },
         )
         .await?;
-    Ok((StatusCode::ACCEPTED, Json(Accepted { message_id })))
+    Ok(StatusCode::ACCEPTED)
 }

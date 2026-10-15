@@ -52,7 +52,44 @@ pub struct ModelDraft {
     pub price: mic_store::ModelPrice,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopOutcome {
+    /// 已发出停止；收尾结果经 `RunFinished` 推送。
+    Stopping,
+    NotRunning,
+}
+
 impl Kernel {
+    /// `run` 为 None 时停该会话执行中的 run；不等收尾。
+    pub async fn stop_run(
+        &self,
+        session: SessionId,
+        run: Option<RunId>,
+    ) -> Result<StopOutcome, KernelError> {
+        self.store
+            .session(session)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        Ok(if self.engine.stop(session, run) {
+            StopOutcome::Stopping
+        } else {
+            StopOutcome::NotRunning
+        })
+    }
+
+    /// 渠道收到 `/stop`：停当前 run，没有则回一条通知。
+    pub async fn stop_command(&self, session: SessionId) -> Result<(), KernelError> {
+        if self.stop_run(session, None).await? == StopOutcome::NotRunning {
+            self.append_notification(
+                session,
+                crate::run::NOTIFICATION_SOURCE,
+                "当前没有在执行的任务。".into(),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     pub async fn context_view(
         &self,
         session: SessionId,

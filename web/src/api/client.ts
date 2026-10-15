@@ -283,6 +283,10 @@ export async function getContext(sessionId: number): Promise<ContextView> {
 export async function listCommands(): Promise<CommandSpec[]> {
   return parseCommands(await request("GET", "/commands"));
 }
+/** 停止指定一轮；该轮已结束时 409。 */
+export async function stopRun(sessionId: number, runId: number): Promise<void> {
+  await request("POST", `/sessions/${sessionId}/runs/${runId}/stop`);
+}
 export async function revokeCompaction(sessionId: number, boundaryId: number): Promise<void> {
   await request("POST", `/sessions/${sessionId}/compactions/${boundaryId}/revoke`);
 }

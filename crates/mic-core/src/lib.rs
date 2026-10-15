@@ -25,11 +25,11 @@ pub use channel_setup::{
     ChannelConnection, ChannelSetup, ChannelSetupError, ChannelSetupView, LinkedChannel,
     SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
 };
-pub use command::{parse_session_command, session_commands, CommandParseError, CommandSpec};
+pub use command::{parse_command, session_commands, CommandParseError, CommandSpec, ParsedCommand};
 pub use error::{AssembleError, KernelError, RunError, WorkdirError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
 pub use input::{IncomingPart, InputError};
-pub use kernel::{EndpointDraft, Kernel, ModelDraft};
+pub use kernel::{EndpointDraft, Kernel, ModelDraft, StopOutcome};
 pub use mic_media::MediaError;
 pub use mic_store::SecretValue;
 pub use module::{Activation, BoxError, Module, ModuleConfig, Registry, Service};

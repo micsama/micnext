@@ -168,6 +168,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         factories: Arc::new(factories),
         tools: Vec::new(),
         channel_prompts: Arc::new(HashMap::new()),
+        stops: Default::default(),
     });
     store
         .append_input(
@@ -370,6 +371,7 @@ impl Fixture {
             factories: Arc::new(Factories::default()),
             tools: vec![],
             channel_prompts: Arc::default(),
+            stops: Default::default(),
         });
         let (titles, _worker) = crate::title::TitleRuntime::new(
             store.clone(),
@@ -410,6 +412,7 @@ impl Fixture {
             },
             effort: None,
             context_window: 100_000,
+            stop: CancellationToken::new(),
         }
     }
     async fn verify(&self, provider: &Scripted) -> Vec<mic_store::TraceCall> {
@@ -839,4 +842,176 @@ async fn explicit_then_automatic_compaction_in_one_run_reconstructs_each_instruc
         assert_eq!(record.context.instruction, [command.id]);
     }
     assert_ne!(calls[1].boundary_id, calls[2].boundary_id);
+}
+
+// 先吐出给定事件，之后一直挂起，模拟卡住的上游。
+struct Hanging(Mutex<std::collections::VecDeque<Result<ModelEvent, ProviderError>>>);
+struct HangEvents(std::collections::VecDeque<Result<ModelEvent, ProviderError>>);
+impl futures_core::Stream for HangEvents {
+    type Item = Result<ModelEvent, ProviderError>;
+    fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.0.pop_front() {
+            Some(event) => Poll::Ready(Some(event)),
+            None => Poll::Pending,
+        }
+    }
+}
+impl Provider for Hanging {
+    fn model(&self) -> &str {
+        "test"
+    }
+    fn stream(&self, _: ModelRequest) -> BoxStream<Result<ModelEvent, ProviderError>> {
+        Box::pin(HangEvents(std::mem::take(&mut *self.0.lock().unwrap())))
+    }
+}
+fn hanging(events: Vec<Result<ModelEvent, ProviderError>>) -> Hanging {
+    Hanging(Mutex::new(events.into()))
+}
+
+async fn stop_soon(stop: &CancellationToken) {
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    stop.cancel();
+}
+
+#[tokio::test]
+async fn stop_mid_stream_keeps_partial_text_only() {
+    let f = Fixture::new().await;
+    let provider = hanging(vec![
+        Ok(ModelEvent::ReasoningDelta("thinking".into())),
+        Ok(ModelEvent::TextDelta("half ".into())),
+        Ok(ModelEvent::TextDelta("answer".into())),
+    ]);
+    let mut exec = f.exec();
+    let stop = exec.stop.clone();
+    let (state, ()) = tokio::join!(exec.execute(&provider), stop_soon(&stop));
+    assert_eq!(state.unwrap(), RunState::Stopped);
+    let messages = f.store.run_messages(f.claimed.run.id).await.unwrap();
+    let replies: Vec<_> = messages
+        .iter()
+        .filter_map(|m| match &m.body {
+            MessageBody::Reply { blocks, .. } => Some(blocks.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        replies,
+        [vec![ReplyBlock::Text {
+            text: "half answer".into(),
+            phase: None
+        }]]
+    );
+    f.store
+        .finish_run(f.claimed.run.id, RunState::Stopped, now_ms())
+        .await
+        .unwrap();
+    let page = f.store.trace_runs(f.session.id, None, 10).await.unwrap();
+    assert_eq!(page.runs[0].state, "stopped");
+    assert_eq!(page.runs[0].calls[0].stop, Some(StopReason::Stopped));
+    assert!(page.runs[0].calls[0].usage.is_none());
+}
+
+#[tokio::test]
+async fn stop_mid_tools_keeps_finished_results_and_cancels_the_rest() {
+    let f = Fixture::new().await;
+    let tool_block = |id: &str, delay| ReplyBlock::ToolCall {
+        id: id.into(),
+        name: "timed".into(),
+        args: serde_json::json!({ "delay": delay }),
+    };
+    let provider = scripted(vec![vec![Ok(ModelEvent::Finished(ModelResponse {
+        blocks: vec![tool_block("slow", 60_000), tool_block("fast", 1)],
+        stop: StopReason::ToolUse,
+    }))]]);
+    let mut exec = f.exec();
+    exec.tools = vec![ToolHandle::new(TimedTool)];
+    let stop = exec.stop.clone();
+    let (state, ()) = tokio::join!(
+        tokio::time::timeout(Duration::from_secs(5), exec.execute(&provider)),
+        stop_soon(&stop)
+    );
+    assert_eq!(state.expect("停止应立即生效").unwrap(), RunState::Stopped);
+    let messages = f.store.run_messages(f.claimed.run.id).await.unwrap();
+    let results: Vec<_> = messages
+        .iter()
+        .filter_map(|m| match &m.body {
+            MessageBody::ToolResult {
+                tool_call_id,
+                outcome: ToolResultOutcome::Terminal(outcome),
+                started_at,
+                ..
+            } => Some((tool_call_id.as_str(), outcome.clone(), started_at.is_some())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(results.len(), 2);
+    assert!(matches!(
+        results[0],
+        ("fast", ExecOutcome::Completed { .. }, true)
+    ));
+    assert!(matches!(
+        &results[1],
+        ("slow", ExecOutcome::Cancelled { message }, true) if message == STOPPED_TOOL
+    ));
+}
+
+#[tokio::test]
+async fn stop_during_retry_wait_or_compaction_ends_at_once() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![vec![Err(ProviderError::Transient {
+        message: "busy".into(),
+        retry_after: Some(Duration::from_secs(60)),
+    })]]);
+    let mut exec = f.exec();
+    let stop = exec.stop.clone();
+    let (state, ()) = tokio::join!(
+        tokio::time::timeout(Duration::from_secs(5), exec.execute(&provider)),
+        stop_soon(&stop)
+    );
+    assert_eq!(state.expect("停止应立即生效").unwrap(), RunState::Stopped);
+
+    let f = Fixture::new().await;
+    let exec = f.exec();
+    let stop = exec.stop.clone();
+    let provider = hanging(vec![Ok(ModelEvent::TextDelta("partial summary".into()))]);
+    let (state, ()) = tokio::join!(exec.compact(&provider), stop_soon(&stop));
+    assert_eq!(state.unwrap(), Err(RunState::Stopped));
+    let messages = f.store.run_messages(f.claimed.run.id).await.unwrap();
+    assert!(!messages
+        .iter()
+        .any(|m| matches!(m.body, MessageBody::Boundary { .. })));
+}
+
+#[tokio::test]
+async fn stopped_run_leaves_queued_input_for_the_next_run() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![reply("done")]);
+    let mut exec = f.exec();
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    f.store
+        .append_input(
+            f.session.id,
+            f.owner,
+            vec![NewInputPart::Text("queued".into())],
+            InputDisposition::Pending,
+            None,
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    exec.stop.cancel();
+    assert!(!exec.absorb().await.unwrap());
+    assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Stopped);
+    f.store
+        .finish_run(f.claimed.run.id, RunState::Stopped, now_ms())
+        .await
+        .unwrap();
+    let next = f.store.claim_next(f.session.id, now_ms()).await.unwrap();
+    assert!(matches!(
+        next.map(|c| c.input),
+        Some(RunInput::Conversation { message_ids }) if message_ids.len() == 1
+    ));
+    assert_eq!(
+        f.kernel.stop_run(f.session.id, None).await.unwrap(),
+        crate::StopOutcome::NotRunning
+    );
 }

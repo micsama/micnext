@@ -95,6 +95,8 @@ pub enum RunState {
     MaxTurns,
     /// 进程停止时仍在执行，启动时收尾。
     Interrupted,
+    /// 用户停止（run-stop）。
+    Stopped,
 }
 
 pub struct Run {

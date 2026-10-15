@@ -119,8 +119,9 @@ impl Store {
 |---|---|---|
 | `GET /api/sessions?channel=web[&before_at=…&before_id=…][&limit=…]` | `before_at`/`before_id` 同有同无 | 200 `SessionPage` |
 | `GET /api/sessions/{id}` | — | 200 `SessionItem`；不存在或非 Root → 404 |
-| `POST /api/sessions` | `{"text": "…"}` | 201 `{"session_id": 3, "message_id": 12}` |
-| `POST /api/sessions/{id}/messages` | `{"text": "…"}` | 202 `{"message_id": 13}` |
+| `POST /api/sessions` | `{"text": "…"}` | 201 `{"session_id": 3}` |
+| `POST /api/sessions/{id}/messages` | `{"text": "…"}` | 202 无响应体 |
+| `POST /api/sessions/{id}/runs/{run_id}/stop` | — | 202；run 不在执行 409（[run-stop](run-stop.md) §2.4） |
 | `POST /api/sessions/{id}/stream-ticket` | — | 200 `{"ticket"}`（[web-sse-eventsource](web-sse-eventsource.md) §2.1） |
 | `GET /api/sessions/{id}/stream?ticket=<t>[&after=<message_id>]` | — | 200 `text/event-stream`（§五）；票据鉴权 |
 | `GET /api/sessions/{id}/messages?before=<message_id>` | — | 200 `{"messages", "has_earlier"}`，往前取一页（[web-message-paging](web-message-paging.md) §4.2） |

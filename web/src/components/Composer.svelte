@@ -14,6 +14,8 @@
     trailing,
     notice = null,
     blocked = false,
+    onstop,
+    stopping = false,
   }: {
     onsend: (parts: InputPart[]) => Promise<void>;
     placeholder?: string;
@@ -26,6 +28,9 @@
     notice?: string | null;
     /** 暂不能发送（原因见 notice）。 */
     blocked?: boolean;
+    /** 有一轮在执行时传入：输入为空时发送键变为停止，Esc 同效。 */
+    onstop?: () => Promise<void>;
+    stopping?: boolean;
   } = $props();
 
   const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -49,6 +54,14 @@
   const MAX_HEIGHT_PX = 240;
 
   const canSend = $derived((text.trim() !== "" || attachments.length > 0) && !posting && !blocked);
+  const stopMode = $derived(!!onstop && text.trim() === "" && attachments.length === 0 && !posting);
+
+  async function stop() {
+    if (!onstop || stopping) return;
+    error = null;
+    try { await onstop(); }
+    catch (e) { error = (e as Error).message; }
+  }
 
   $effect(() => {
     void text;
@@ -133,6 +146,11 @@
         return;
       }
       if (e.key === "Tab") { e.preventDefault(); complete(suggestions[commandIndex % suggestions.length]!); return; }
+    }
+    if (e.key === "Escape" && stopMode) {
+      e.preventDefault();
+      void stop();
+      return;
     }
     // 输入法选词中的回车不发送。
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
@@ -220,14 +238,26 @@
       {@render leading?.()}
       <div class="flex-1"></div>
       {@render trailing?.()}
-      <button
-        type="button"
-        onclick={send}
-        disabled={!canSend}
-        aria-label="发送"
-        class="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30">
-        <Icon name={posting ? "loader" : "arrowUp"} class={posting ? "size-5 animate-spin" : "size-5"} />
-      </button>
+      {#if stopMode}
+        <button
+          type="button"
+          onclick={stop}
+          disabled={stopping}
+          aria-label="停止"
+          title={stopping ? "正在停止" : "停止（Esc）"}
+          class="grid size-9 shrink-0 place-items-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-50">
+          <Icon name={stopping ? "loader" : "stop"} class={stopping ? "size-5 animate-spin" : "size-4 fill-current"} />
+        </button>
+      {:else}
+        <button
+          type="button"
+          onclick={send}
+          disabled={!canSend}
+          aria-label="发送"
+          class="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30">
+          <Icon name={posting ? "loader" : "arrowUp"} class={posting ? "size-5 animate-spin" : "size-5"} />
+        </button>
+      {/if}
     </div>
   </div>
 </div>

@@ -359,8 +359,13 @@ fn run_stats(
                 .map_or(0, |end| (end - step.finished_at).max(0))
         })
         .sum();
+    // 失败与被停止的调用拿不到用量，按零计，不影响完整性与费用。
+    let settled: Vec<&TraceCall> = calls
+        .iter()
+        .filter(|c| c.error.is_none() && c.stop != Some(StopReason::Stopped))
+        .collect();
     let known: Vec<&Usage> = calls.iter().filter_map(|c| c.usage.as_ref()).collect();
-    let usage_complete = known.len() == calls.len();
+    let usage_complete = settled.iter().all(|c| c.usage.is_some());
     let (speed_tokens, speed_ms) = calls
         .iter()
         .filter_map(|c| match (c.usage.as_ref(), c.first_output_at) {
@@ -387,7 +392,7 @@ fn run_stats(
         usage_complete,
         cache_read_tokens: known.iter().filter_map(|u| u.cache_read_tokens).sum(),
         cache_complete: usage_complete && known.iter().all(|u| u.cache_read_tokens.is_some()),
-        cost: calls.iter().try_fold(0.0, |n, c| Some(n + c.cost?)),
+        cost: settled.iter().try_fold(0.0, |n, c| Some(n + c.cost?)),
     }
 }
 

@@ -20,8 +20,8 @@
 | `steps`、`requests`、`tools` | 步数（重试合并为一步）、请求次数、工具调用数 |
 | `first_output_ms` | 第一个有输出的对话调用：首次输出 − 其开始；都无输出为 null |
 | `output_tps` | 输出 token ÷ Σ(结束 − 首次输出)，只取两者都有的调用；无样本为 null |
-| `input_tokens`、`output_tokens`、`cache_read_tokens` | 各调用之和；有调用缺用量时对应 `*_complete = false`，前端标「≥」 |
-| `cost` | 按当前单价折算之和；任一调用无价则 null |
+| `input_tokens`、`output_tokens`、`cache_read_tokens` | 各调用之和；失败与被停止的调用无用量，按零计；正常结束的调用缺用量时对应 `*_complete = false`，前端标「≥」 |
+| `cost` | 按当前单价折算正常结束调用之和；其中任一无价则 null |
 
 缓存命中率由前端算 `cache_read / input`，不另存；仅在两者都完整且 `input > 0` 时显示，否则显示未知。
 

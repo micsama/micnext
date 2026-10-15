@@ -9,7 +9,8 @@
     blocks,
     results,
     running,
-  }: { blocks: ReplyBlock[]; results: Map<string, ToolResultOutcome>; running: boolean } = $props();
+    meta,
+  }: { blocks: ReplyBlock[]; results: Map<string, ToolResultOutcome>; running: boolean; meta: string } = $props();
 
   const text = $derived(
     blocks
@@ -19,7 +20,7 @@
   );
 </script>
 
-<div class="group/reply">
+<div class="group/reply relative">
   {#each blocks as block, i (i)}
     {#if "Reasoning" in block}
       {#if "Visible" in block.Reasoning}
@@ -40,8 +41,10 @@
     {/if}
   {/each}
   {#if text}
-    <div class="mt-1 opacity-0 transition-opacity group-hover/reply:opacity-100 focus-within:opacity-100">
-      <CopyButton {text} />
+    <div class="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover/reply:opacity-100 focus-within:opacity-100">
+      <CopyButton {text} /><span class="text-xs text-muted-foreground">{meta}</span>
     </div>
+  {:else}
+    <span class="pointer-events-none absolute top-full left-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover/reply:opacity-100">{meta}</span>
   {/if}
 </div>

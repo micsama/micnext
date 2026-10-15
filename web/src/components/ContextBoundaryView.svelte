@@ -14,13 +14,14 @@
   }
 </script>
 
-<details class="rounded-xl border border-border bg-muted/30 text-sm">
-  <summary class="flex cursor-pointer items-center gap-2 px-4 py-3 select-none">
-    <span class={revoked ? "text-muted-foreground" : "text-emerald-600 dark:text-emerald-400"}>{revoked ? "↶" : "✓"}</span>
-    <span class="font-medium">{revoked ? "已撤回" : "已压缩"}</span>
-    <span class="text-xs text-muted-foreground">查看摘要</span>
+<details class="group/compact text-sm">
+  <summary class="flex cursor-pointer list-none items-center gap-3 text-xs text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+    <div class="h-px flex-1 bg-border"></div>
+    <span class={revoked ? "" : "text-emerald-600 dark:text-emerald-400"}>{revoked ? "↶" : "✓"}</span>{revoked ? "已撤回压缩" : "已压缩"} ·
+    <span class="group-open/compact:hidden">查看摘要</span><span class="hidden group-open/compact:inline">收起</span>
+    <div class="h-px flex-1 bg-border"></div>
   </summary>
-  <div class="space-y-4 border-t border-border px-4 py-3">
+  <div class="mt-3 space-y-4 rounded-xl border border-border px-4 py-3">
     <Markdown source={result.summary} />
     {#each result.files as file (file.path)}
       <details class="rounded-lg border border-border">

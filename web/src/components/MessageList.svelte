@@ -207,12 +207,9 @@
           </div>
         {/if}
         {#if messages[0].body.kind === "Notification"}
-          <aside aria-label="系统提示" class="rounded-xl border border-border bg-muted px-4 py-3">
-            <div class="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <Icon name="alert" class="size-3.5 shrink-0" />
-              系统提示
-            </div>
-            <div class="space-y-2 pl-5.5">
+          <aside aria-label="系统提示" class="flex gap-2 text-muted-foreground">
+            <Icon name="alert" class="mt-1.5 size-3.5 shrink-0" />
+            <div class="space-y-1">
               {#each messages as message (message.id)}
                 <MessageItem {view} {message} {results} {callIds} {running} />
               {/each}

@@ -52,10 +52,7 @@
     {:else}撤回压缩{/if}
   </p>
 {:else if body.kind === "Reply"}
-  <div class="group relative">
-    <ReplyView blocks={body.blocks} {results} {running} />
-    <span class="pointer-events-none absolute top-full left-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{time} · {body.model}</span>
-  </div>
+  <ReplyView blocks={body.blocks} {results} {running} meta="{time} · {body.model}" />
 {:else if body.kind === "ToolResult"}
   {#if !callIds.has(body.tool_call_id)}
     <ToolRow name={body.tool_name} result={body.outcome} />

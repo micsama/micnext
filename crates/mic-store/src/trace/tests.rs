@@ -201,7 +201,7 @@ async fn run_stats_fixture() {
         (s.input_tokens, s.output_tokens, s.cache_read_tokens),
         (300, 100, 50)
     );
-    assert!(!s.usage_complete && !s.cache_complete);
+    assert!(s.usage_complete && !s.cache_complete, "失败调用不算缺用量");
     assert_eq!(s.cost, None, "无价即未知");
     let s = &all[1].stats;
     assert!(s.usage_complete && s.cache_complete);

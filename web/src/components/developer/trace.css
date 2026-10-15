@@ -1,5 +1,5 @@
-/* 视觉取自 tmp/trace-preview 原型：层级靠缩进与底色，状态只标异常。 */
-.trace-layout {
+/* 视觉取自 tmp/trace-preview 原型：层级靠缩进与底色，状态只标异常。看板共用同一套色板。 */
+.trace-layout, .trace-board {
   --t-bg: var(--sidebar); --t-panel: var(--background); --t-hover: #f2f2f5; --t-line: var(--border); --t-line2: #efeff2;
   --t-text: var(--foreground); --t-sub: #48484d; --t-muted: #6e6e73; --t-faint: #8e8e93;
   --t-accent: #0a66d8; --t-accent-bg: #eef5ff; --t-accent-line: #bcd7fb;
@@ -10,10 +10,10 @@
   --t-code: #f6f6f8; --t-chip: #efeff2;
   --t-user: #f5f0fc; --t-user-h: #ede5f8; --t-tool-z: #f6fbf8; --t-bad-h: #fde4df; --t-ring: #0a66d840;
   --lat-bg: 94%; --lat-fg: 38%;
-  display: grid; grid-template-columns: 230px minmax(0, 1fr) 420px; gap: 12px;
-  flex: 1; min-height: 0; padding: 12px; background: var(--t-bg); color: var(--t-text); font-size: 14px; line-height: 1.6;
+  flex: 1; min-height: 0; background: var(--t-bg); color: var(--t-text); font-size: 14px; line-height: 1.6;
 }
-[data-theme="dark"] .trace-layout {
+.trace-layout { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 12px; padding: 12px; }
+[data-theme="dark"] .trace-layout, [data-theme="dark"] .trace-board {
   --t-hover: #26262a; --t-line2: #2a2a2e;
   --t-sub: #c4c4ca; --t-muted: #9a9aa1; --t-faint: #7c7c84;
   --t-accent: #5aa2ff; --t-accent-bg: #17283f; --t-accent-line: #2c4d78;
@@ -63,21 +63,6 @@
 .trace-layout .r-compact { background: var(--t-compact-bg); color: var(--t-compact); }
 .trace-layout .r-turn { background: var(--t-chip); color: var(--t-sub); }
 .trace-layout .r-sys { color: var(--t-faint); font-weight: 500; }
-
-/* 左：会话 */
-.trace-layout .ch-select { margin-left: auto; max-width: 96px; background: none; color: var(--t-muted); font-size: 12px; outline: none; }
-.trace-layout .search { display: flex; align-items: center; gap: 6px; margin: 10px 12px 2px; padding: 0 10px; height: 30px; border: 1px solid var(--t-line); border-radius: 8px; background: var(--t-bg); color: var(--t-faint); }
-.trace-layout .search:focus-within { border-color: var(--t-accent); }
-.trace-layout .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 13px; color: var(--t-text); }
-.trace-layout .group { padding: 6px 8px; }
-.trace-layout .group-label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--t-faint); padding: 6px 8px 4px; font-weight: 600; }
-.trace-layout .group-label em { margin-left: auto; font-style: normal; font-weight: 500; }
-.trace-layout .session { display: grid; grid-template-columns: minmax(0, 1fr) auto 36px; align-items: center; gap: 6px; width: 100%; min-height: 32px; padding: 4px 8px; margin: 1px 0; border-radius: 7px; border: 1px solid transparent; }
-.trace-layout .session:hover, .trace-layout .session.on { background: var(--t-hover); }
-.trace-layout .session.on { border-color: var(--t-accent); box-shadow: 0 0 0 1px var(--t-ring); }
-.trace-layout .s-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; color: var(--t-sub); }
-.trace-layout .session.on .s-title { color: var(--t-text); font-weight: 600; }
-.trace-layout .session time { font-size: 11px; color: var(--t-faint); text-align: right; font-variant-numeric: tabular-nums; }
 
 /* 中：执行流 */
 .trace-layout .stream-head { flex-wrap: wrap; }
@@ -307,19 +292,18 @@
 .trace-layout .detail-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .25); }
 
 @media (max-width: 1280px) {
-  .trace-layout { grid-template-columns: 200px minmax(0, 1fr) 360px; gap: 8px; padding: 8px; }
+  .trace-layout { grid-template-columns: minmax(0, 1fr) 360px; gap: 8px; padding: 8px; }
   .trace-layout .cols { grid-template-columns: var(--lead) minmax(0, 1fr) auto 62px 66px 44px; }
   .trace-layout .row.tool { grid-template-columns: minmax(0, 1fr) auto 62px 66px 44px; }
   .trace-layout .cols > .track { display: none; }
 }
 @media (max-width: 980px) {
-  .trace-layout { grid-template-columns: 180px minmax(0, 1fr); overflow: auto; }
+  .trace-layout { grid-template-columns: minmax(0, 1fr); overflow: auto; }
   .trace-layout .inspector:not(.expanded) { grid-column: 1 / -1; min-height: 360px; }
-  .trace-layout .sessions-panel, .trace-layout .panel:nth-child(2) { min-height: 430px; max-height: 65vh; }
+  .trace-layout .panel:first-child { min-height: 430px; max-height: 65vh; }
 }
 @media (max-width: 720px) {
   .trace-layout { display: flex; flex-direction: column; padding: 12px 16px; }
-  .trace-layout .sessions-panel { min-height: 170px; max-height: 220px; }
   .trace-layout .cols { grid-template-columns: var(--lead) minmax(0, 1fr) auto 66px; gap: 5px; }
   .trace-layout .row.tool { grid-template-columns: minmax(0, 1fr) auto 66px; }
   .trace-layout .cols > .tk, .trace-layout .cols > time { display: none; }

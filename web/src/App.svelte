@@ -56,10 +56,10 @@
   </div>
 {:else}
   <div class="flex h-full">
-    {#if router.current.kind !== "trace"}<Sidebar open={drawer} onclose={() => (drawer = false)} activeSession={view?.info ?? null} />{/if}
+    <Sidebar open={drawer} onclose={() => (drawer = false)} activeSession={view?.info ?? null} />
     <main class="flex min-w-0 flex-1 flex-col">
       {#if router.current.kind === "trace"}
-        {#key router.current.id}<TraceView initialSession={router.current.id} />{/key}
+        <TraceView target={router.current.id} onmenu={openDrawer} />
       {:else if router.current.kind === "new"}
         <NewChat onmenu={openDrawer} />
       {:else if router.current.kind === "settings"}

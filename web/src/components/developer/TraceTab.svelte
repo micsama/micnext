@@ -1,14 +1,16 @@
 <script lang="ts">
   import "./trace.css";
   import { tick } from "svelte";
-  import { ApiError, getSession, getTraceCallInput, getTraceMessage, getTracePeers, getTraceRunLogs, getTraceRuns, getTraceSessions, getTraceSystem } from "../../api/client";
+  import { ApiError, getSession, getTraceCallInput, getTraceMessage, getTracePeers, getTraceRunLogs, getTraceRuns, getTraceSystem } from "../../api/client";
   import type { StoredLogRecord } from "../../api/developer";
-  import type { Peers, TraceCall, TraceMessage, TraceRun, TraceSession } from "../../api/trace";
+  import type { Peers, TraceCall, TraceMessage, TraceRun } from "../../api/trace";
   import { cn } from "$lib/utils";
   import { formatDuration, formatTokens } from "../../lib/format";
   import Icon from "../../lib/Icon.svelte";
   import type { Message, SessionDetail } from "../../api/types";
   import { settingsStore } from "../../state/settings.svelte";
+  import { router } from "../../state/route.svelte";
+  import { traceSessions } from "../../state/trace-sessions.svelte";
   import { attempts, steps, owner, toolsFor, stepOf, bar, usageOf, heat, toolMs, jsonHtml, isLong } from "./trace-presentation";
   import TraceUsage from "./TraceUsage.svelte";
   import TraceContent from "./TraceContent.svelte";
@@ -16,9 +18,8 @@
   import TraceCard from "./TraceCard.svelte";
   import CopyButton from "../CopyButton.svelte";
 
-  let { active, initialSession = null }: { active: boolean; initialSession?: number | null } = $props();
-  let search = $state("");
-  let channelFilter = $state("");
+  /** target 来自地址：侧栏选会话、浏览器前进后退都经它切换。 */
+  let { active, target }: { active: boolean; target: number | null } = $props();
   let issuesOnly = $state(false);
   let folded = $state<Set<number>>(new Set());
   let expanded = $state(false);
@@ -38,7 +39,6 @@
   type Pick = { run: TraceRun | null; call: TraceCall } | { run: TraceRun; message: TraceMessage };
   type DetailTab = "overview" | "detail" | "input" | "logs";
 
-  let sessions = $state.raw<TraceSession[]>([]);
   let session = $state<number | null>(null);
   let runs = $state.raw<TraceRun[]>([]);
   let titleCalls = $state.raw<TraceCall[]>([]);
@@ -76,15 +76,10 @@
   }
 
   async function refresh() {
-    const [s, p] = await Promise.all([guard(getTraceSessions), guard(getTracePeers)]);
-    if (s) sessions = s;
+    const [, p] = await Promise.all([traceSessions.refresh(), guard(getTracePeers)]);
     if (p) peers = p;
-    if (session !== null) await open(session);
-    else if (initialSession !== null) {
-      const info = await guard(() => getSession(initialSession));
-      if (info) channelFilter = info.channel;
-      await open(initialSession);
-    } else if (s?.length) await open(s[0]!.session);
+    const first = session ?? target ?? traceSessions.items[0]?.session;
+    if (first !== undefined) await open(first);
   }
 
   async function open(id: number) {
@@ -92,6 +87,7 @@
     const request = ++pageRequest;
     ++detailRequest;
     session = id;
+    if (target !== id) router.replace(`/s/${id}/trace`);
     systemSelected = false;
     sessionSelected = false;
     selectedRun = null;
@@ -131,10 +127,8 @@
     }
   });
 
-  const channels = $derived.by(() => {
-    const by = new Map<string, TraceSession[]>();
-    for (const s of sessions.filter((s) => (!channelFilter || s.channel === channelFilter) && (s.title ?? `会话 ${s.session}`).toLowerCase().includes(search.toLowerCase()))) by.set(s.channel, [...(by.get(s.channel) ?? []), s]);
-    return [...by];
+  $effect(() => {
+    if (active && session !== null && target !== null && target !== session) void open(target);
   });
 
   const failed = (c: TraceCall) => c.error !== null;
@@ -177,7 +171,7 @@
     back = rest;
   }
   const viewName = (v: View) =>
-    v.session !== session ? (sessions.find((x) => x.session === v.session)?.title ?? `会话 ${v.session}`)
+    v.session !== session ? traceSessions.title(v.session)
     : "pick" in v ? ("call" in v.pick ? (v.pick.call.purpose === "title" ? "标题调用" : v.pick.call.purpose === "compaction" ? "压缩调用" : "AI 调用") : v.pick.message.tool?.name ?? "消息")
     : "run" in v ? `轮次 #${runNumber(v.run)}` : "system" in v ? "系统提示" : "会话";
 
@@ -354,7 +348,7 @@
     ["logs", "日志"],
   ];
 
-  const currentSession = $derived(sessions.find((s) => s.session === session));
+  const currentSession = $derived(traceSessions.items.find((s) => s.session === session));
   const isBad = (e: Entry) => e.kind === "run" ? badRun(e.run) : e.call.error !== null;
   const visibleEntries = $derived(entries.filter((e) => !issuesOnly || isBad(e)));
   const badCount = $derived(entries.filter(isBad).length);
@@ -457,35 +451,11 @@
 {/snippet}
 
 <div class="trace-layout">
-  <aside class="panel sessions-panel">
-    <div class="panel-head"><h2>会话</h2><select class="ch-select" bind:value={channelFilter} aria-label="筛选渠道"><option value="">全部渠道</option>{#each [...new Set(sessions.map((s) => s.channel))] as channel}<option value={channel}>{channel === "wechat" ? "微信" : channel}</option>{/each}</select><button type="button" class="iconbtn sm" title="刷新追踪" aria-label="刷新追踪" onclick={refresh}><Icon name="refresh" class="size-3.5" /></button></div>
-    <label class="search"><Icon name="search" class="size-3.5" /><input bind:value={search} placeholder="搜索会话" aria-label="搜索会话" /></label>
-    <div class="panel-body">
-      {#each channels as [channel, list] (channel)}
-        <div class="group">
-          <div class="group-label"><Icon name={channel === "web" ? "monitor" : "terminal"} class="size-[13px]" /><span>{channel === "wechat" ? "微信" : channel}</span><em>{list.length}</em></div>
-          {#each list as s (s.session)}
-            <button type="button" class="session" class:on={session === s.session} onclick={() => open(s.session)}>
-              <span class="s-title">{s.title ?? `会话 ${s.session}`}</span>
-              <span class="tags">
-                {#if s.failed_runs + s.tool_errors > 0}<span class="signal c-bad" title="调用失败 {s.failed_runs} 轮 · 工具报错 {s.tool_errors} 个"><Icon name="error" class="size-[13px]" /><b>{s.failed_runs + s.tool_errors}</b></span>{/if}
-                {#if s.interrupted_runs > 0}<span class="signal c-warn" title="中断 {s.interrupted_runs} 轮"><Icon name="pause" class="size-[13px]" /><b>{s.interrupted_runs}</b></span>{/if}
-              </span>
-              <time>{s.last_run_at === null ? "" : hm(s.last_run_at)}</time>
-            </button>
-          {/each}
-        </div>
-      {/each}
-      {#if channels.length === 0}<p class="blank">没有匹配的会话</p>{/if}
-    </div>
-    <div class="panel-foot">仅展示已结束的执行</div>
-  </aside>
-
   <section class="panel">
     <div class="panel-head stream-head">
       <button type="button" class={cn("s-head", sessionSelected && "on")} disabled={session === null} title="查看会话详情" onclick={chooseSession}><h2 class="truncate">{currentSession?.title ?? (session === null ? "运行追踪" : `会话 ${session}`)}</h2><Icon name="info" class="size-3.5" /></button>
       <div class="caps"><span class="cap">{runs.length} 轮</span><span class="cap">{runs.reduce((n, r) => n + r.calls.length, 0)} 次调用</span><span class="cap">{tokensOf(runs.flatMap((r) => r.calls))} token</span></div>
-      <button type="button" class="toggle" class:on={issuesOnly} title="只看失败、中断或含报错的运行" onclick={() => issuesOnly = !issuesOnly}><Icon name="error" class="size-[13px]" />只看异常<b>{badCount}</b></button>
+      <button type="button" class="toggle" class:on={issuesOnly} title="只看失败、中断或含报错的运行" onclick={() => issuesOnly = !issuesOnly}><Icon name="error" class="size-[13px]" />只看异常<b>{badCount}</b></button><button type="button" class="iconbtn sm" title="刷新追踪" aria-label="刷新追踪" onclick={refresh}><Icon name="refresh" class="size-3.5" /></button>
     </div>
     <div class="panel-body stream" bind:this={stream}>
       {#if session !== null}<button type="button" class={cn("row cols sys pinned", systemSelected && selected)} onclick={chooseSystem}><span class="role r-sys">系统</span><span class="sum"><b>系统提示</b>当前配置，非历史快照</span></button>{/if}

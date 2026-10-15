@@ -10,6 +10,7 @@
   import Icon, { type IconName } from "../lib/Icon.svelte";
   import { router } from "../state/route.svelte";
   import { otherSessions, webSessions, type SessionList } from "../state/sessions.svelte";
+  import { traceSessions } from "../state/trace-sessions.svelte";
   import { theme, type ThemeChoice } from "../state/theme.svelte";
   import { updater } from "../state/update.svelte";
 
@@ -17,6 +18,25 @@
 
   const groups = $derived(groupSessions(webSessions.items));
   const activeId = $derived(router.current.kind === "session" ? router.current.id : null);
+  // 同一侧栏两种展示：聊天按日期列会话；追踪按渠道列有运行的会话，带异常角标。
+  const tracing = $derived(router.current.kind === "trace");
+  const traceId = $derived(router.current.kind === "trace" ? router.current.id : null);
+  let search = $state("");
+  let channel = $state("");
+  const channelName = (c: string) => (c === "wechat" ? "微信" : c);
+  const traceGroups = $derived.by(() => {
+    const q = search.trim().toLowerCase();
+    const by = new Map<string, typeof traceSessions.items>();
+    for (const s of traceSessions.items)
+      if ((!channel || s.channel === channel) && (s.title ?? `会话 ${s.session}`).toLowerCase().includes(q)) by.set(s.channel, [...(by.get(s.channel) ?? []), s]);
+    return [...by];
+  });
+  const lastRun = (at: number) => {
+    const d = new Date(at);
+    return d.toDateString() === new Date().toDateString()
+      ? d.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" })
+      : `${d.getMonth() + 1}/${d.getDate()}`;
+  };
   let othersOpen = $state(false);
   let archiving = $state<number | null>(null);
   let archiveError = $state<string | null>(null);
@@ -116,14 +136,47 @@
     </button>
   </div>
   <div class="px-2 pb-2">
-    <button
-      type="button"
-      onclick={() => go("/")}
-      class="flex w-full items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm hover:bg-accent">
-      <Icon name="plus" />新会话
-    </button>
+    {#if tracing}
+      <div class="flex items-center gap-1 rounded-md border border-border bg-background pl-3 focus-within:border-ring">
+        <Icon name="search" class="size-3.5 shrink-0 text-muted-foreground" />
+        <input bind:value={search} placeholder="搜索会话" aria-label="搜索会话" class="h-9 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none" />
+        <select bind:value={channel} aria-label="筛选渠道" class="mr-1 max-w-20 bg-transparent text-xs text-muted-foreground outline-none">
+          <option value="">全部</option>
+          {#each [...new Set(traceSessions.items.map((s) => s.channel))] as c (c)}<option value={c}>{channelName(c)}</option>{/each}
+        </select>
+      </div>
+    {:else}
+      <button
+        type="button"
+        onclick={() => go("/")}
+        class="flex w-full items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm hover:bg-accent">
+        <Icon name="plus" />新会话
+      </button>
+    {/if}
   </div>
   <nav class="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+    {#if tracing}
+      {#if traceSessions.error}<p class="px-3 py-1 text-xs text-destructive">{traceSessions.error}</p>{/if}
+      {#each traceGroups as [ch, items] (ch)}
+        <p class="flex px-3 pt-3 pb-1 text-xs text-muted-foreground"><span class="flex-1">{channelName(ch)}</span>{items.length}</p>
+        {#each items as s (s.session)}
+          {@const bad = s.failed_runs + s.tool_errors}
+          <a
+            href="/s/{s.session}/trace"
+            onclick={(e) => (e.preventDefault(), go(`/s/${s.session}/trace`))}
+            class="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-accent"
+            class:bg-accent={traceId === s.session}
+            class:font-medium={traceId === s.session}>
+            <span class="min-w-0 flex-1 truncate">{s.title ?? `会话 ${s.session}`}</span>
+            {#if bad > 0}<span class="inline-flex items-center gap-0.5 text-xs text-destructive" title="调用失败 {s.failed_runs} 轮 · 工具报错 {s.tool_errors} 个"><Icon name="error" class="size-3" />{bad}</span>{/if}
+            {#if s.interrupted_runs > 0}<span class="inline-flex items-center gap-0.5 text-xs text-amber-600 dark:text-amber-400" title="中断 {s.interrupted_runs} 轮"><Icon name="pause" class="size-3" />{s.interrupted_runs}</span>{/if}
+            {#if s.last_run_at !== null}<time class="w-9 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{lastRun(s.last_run_at)}</time>{/if}
+          </a>
+        {/each}
+      {/each}
+      {#if traceSessions.loaded && traceGroups.length === 0}<p class="px-3 pt-3 text-xs text-muted-foreground">没有匹配的会话</p>{/if}
+      <p class="px-3 pt-4 text-xs text-muted-foreground">仅列出有已结束运行的会话</p>
+    {:else}
     {#if archiveError}<p role="alert" class="px-3 py-2 text-xs text-destructive">归档失败：{archiveError}</p>{/if}
     {#each groups as group (group.label)}
       <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">{group.label}</p>
@@ -154,11 +207,18 @@
         {@render list(other)}
       {/each}
     {/if}
+    {/if}
   </nav>
   <div class="border-t px-2 py-1">
-    <button type="button" class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => go("/trace")}>
-      <Icon name="sparkles" />运行追踪
-    </button>
+    {#if tracing}
+      <button type="button" class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground" title="打开当前追踪的会话" onclick={() => go(traceId === null ? "/" : `/s/${traceId}`)}>
+        <Icon name="reply" />返回聊天
+      </button>
+    {:else}
+      <button type="button" class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground" title="查看当前会话的运行" onclick={() => go(activeId === null ? "/trace" : `/s/${activeId}/trace`)}>
+        <Icon name="sparkles" />运行追踪
+      </button>
+    {/if}
   </div>
   <div class="flex items-center gap-1 border-border p-2">
     <button

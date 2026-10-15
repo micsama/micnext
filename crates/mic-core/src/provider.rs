@@ -237,12 +237,15 @@ pub enum ProviderError {
     /// 请求本身被拒（上下文超长、参数非法、含不支持的内容）：重试无用。
     #[error("模型拒绝了请求：{message}")]
     Rejected { message: String },
-    /// 限流、过载、5xx、网络、超时、流中途断开：可重试。
+    /// 限流、过载、5xx、网络、流中途断开：可重试。
     #[error("模型暂时不可用：{message}")]
     Transient {
         message: String,
         retry_after: Option<Duration>,
     },
+    /// 流式空闲超时：上游视为挂起，不重试。
+    #[error("模型无响应：{message}")]
+    Stalled { message: String },
     /// 响应不符合协议（解析失败、事件顺序错）：实现与上游不匹配，不重试。
     #[error("模型响应不符合协议：{message}")]
     Protocol { message: String },

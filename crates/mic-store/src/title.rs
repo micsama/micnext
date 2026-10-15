@@ -1,12 +1,14 @@
 use std::num::NonZeroU32;
 
-use mic_message::{ContentPart, Message, MessageBody, SessionId};
+use mic_message::{
+    AssistantPhase, ContentPart, Message, MessageBody, ReplyBlock, SessionId, SidePurpose,
+};
 use rusqlite::{params, Connection};
 
 use crate::context::insert_call;
 use crate::row::{self, MESSAGE_COLS, MESSAGE_FROM};
 use crate::{
-    models, ClaimedModel, ModelId, ModelSettingsError, NewModelCall, Store, StoreError,
+    models, ClaimedModel, ModelId, ModelSettingsError, Store, StoreError, TitleCall,
     TitleModelSelection,
 };
 
@@ -64,14 +66,17 @@ impl Store {
         .await
     }
 
-    pub async fn recent_text_inputs(
+    /// 最近 `inputs` 条文字输入与 `replies` 条收尾回复（见 [`reply_answer`]），id 升序。
+    pub async fn title_sources(
         &self,
         session: SessionId,
-        limit: NonZeroU32,
+        inputs: NonZeroU32,
+        replies: u32,
     ) -> Result<Vec<Message>, StoreError> {
         self.call(move |conn| {
-            let mut messages = text_inputs(conn, session, limit, true)?;
-            messages.reverse();
+            let mut messages = text_inputs(conn, session, inputs, true)?;
+            messages.extend(final_replies(conn, session, replies)?);
+            messages.sort_by_key(|m| m.id);
             Ok(messages)
         })
         .await
@@ -81,12 +86,23 @@ impl Store {
         &self,
         session: SessionId,
         result: Result<String, String>,
-        call: Option<NewModelCall>,
+        call: Option<TitleCall>,
     ) -> Result<(), StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
-            if let Some(call) = call {
-                insert_call(&tx, &call)?;
+            if let Some(TitleCall { call, output }) = call {
+                let call_id = insert_call(&tx, &call)?;
+                if let Some(text) = output {
+                    let body = MessageBody::SideOutput {
+                        purpose: SidePurpose::Title,
+                        text,
+                    };
+                    tx.execute(
+                        "INSERT INTO core_messages (session_id, model_call_id, payload, created_at)
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![session.0, call_id.0, row::payload(&body)?, call.finished_at],
+                    )?;
+                }
             }
             match result {
                 Ok(title) => {
@@ -143,6 +159,52 @@ fn text_inputs(
                 if messages.len() == limit.get() as usize {
                     break;
                 }
+            }
+        }
+    }
+    Ok(messages)
+}
+
+/// 一轮收尾回复的正文：含工具调用的不算；取非 `Commentary` 的 Text（无阶段标注的协议照取）；无正文为 `None`。
+pub fn reply_answer(blocks: &[ReplyBlock]) -> Option<String> {
+    let mut parts = Vec::new();
+    for block in blocks {
+        match block {
+            ReplyBlock::ToolCall { .. } => return None,
+            ReplyBlock::Text {
+                phase: Some(AssistantPhase::Commentary),
+                ..
+            } => {}
+            ReplyBlock::Text { text, .. } => parts.push(text.trim()),
+            ReplyBlock::Reasoning(_) => {}
+        }
+    }
+    let text = parts
+        .into_iter()
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    (!text.is_empty()).then_some(text)
+}
+
+fn final_replies(
+    conn: &Connection,
+    session: SessionId,
+    limit: u32,
+) -> Result<Vec<Message>, StoreError> {
+    let mut messages = Vec::new();
+    if limit == 0 {
+        return Ok(messages);
+    }
+    let mut query = conn.prepare(&format!("SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.session_id = ?1 AND m.kind = 'Reply' ORDER BY m.id DESC"))?;
+    let rows = query.query_map([session.0], row::message)?;
+    for row in rows {
+        let message = row?;
+        if matches!(&message.body, MessageBody::Reply { blocks, .. } if reply_answer(blocks).is_some())
+        {
+            messages.push(message);
+            if messages.len() == limit as usize {
+                break;
             }
         }
     }

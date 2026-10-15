@@ -46,9 +46,10 @@ pub struct TraceCall {
     pub cost: Option<f64>,
     /// 同一输入的第几次尝试，从 1 起。
     pub attempt: u32,
-    /// 这次调用写出的 `Reply` / `Boundary`。
+    /// 这次调用写出的 `Reply` / `Boundary` / `SideOutput`。
     pub reply_id: Option<MessageId>,
     pub boundary_id: Option<MessageId>,
+    pub side_id: Option<MessageId>,
     #[serde(skip)]
     key: (Option<i64>, Option<i64>),
     #[serde(skip)]
@@ -180,9 +181,11 @@ pub struct Dashboard {
 }
 
 /// 调用费用（美元）：公式见 docs/blueprints/run-trace.md §六。任一依据未知则为 `None`。
+/// 缓存写入可选：未上报按 0，未设写入价按输入价。
 pub fn call_cost(usage: Option<&Usage>, price: &ModelPrice) -> Option<f64> {
     let usage = usage?;
-    let (read, write) = (usage.cache_read_tokens?, usage.cache_write_tokens?);
+    let read = usage.cache_read_tokens?;
+    let write = usage.cache_write_tokens.unwrap_or(0);
     let fresh = usage.input_tokens.saturating_sub(read + write);
     let term = |tokens: u64, price: Option<f64>| match tokens {
         0 => Some(0.0),
@@ -191,7 +194,7 @@ pub fn call_cost(usage: Option<&Usage>, price: &ModelPrice) -> Option<f64> {
     Some(
         (term(fresh, price.input)?
             + term(read, price.cache_read)?
-            + term(write, price.cache_write)?
+            + term(write, price.cache_write.or(price.input))?
             + term(usage.output_tokens, price.output)?)
             / 1e6,
     )
@@ -217,6 +220,7 @@ const CALL_SELECT: &str = "SELECT c.id, c.purpose, c.model_id, c.model, c.reason
         m.price_input, m.price_cache_read, m.price_cache_write, m.price_output,
         (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'Reply'),
         (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'Boundary'),
+        (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'SideOutput'),
         c.context_boundary_id, c.context_through_id,
         strftime('%Y-%m-%d', c.started_at / 1000, 'unixepoch', 'localtime')
  FROM core_model_calls c LEFT JOIN core_models m ON m.id = c.model_id";
@@ -255,8 +259,9 @@ fn call(r: &Row<'_>) -> rusqlite::Result<TraceCall> {
         attempt: 1,
         reply_id: r.get::<_, Option<i64>>(19)?.map(MessageId),
         boundary_id: r.get::<_, Option<i64>>(20)?.map(MessageId),
-        key: (r.get(21)?, r.get(22)?),
-        day: r.get(23)?,
+        side_id: r.get::<_, Option<i64>>(21)?.map(MessageId),
+        key: (r.get(22)?, r.get(23)?),
+        day: r.get(24)?,
     })
 }
 
@@ -377,6 +382,7 @@ fn trace_message(m: Message) -> TraceMessage {
             },
             None,
         ),
+        MessageBody::SideOutput { text, .. } => ("SideOutput", text.clone(), None),
     };
     TraceMessage {
         id: m.id,

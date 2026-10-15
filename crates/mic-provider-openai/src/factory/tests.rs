@@ -295,7 +295,9 @@ async fn reasoning_presets_reach_both_protocols() {
         let body = captured.await.unwrap().body;
         assert_eq!(body["model"], name);
         assert_eq!(body.pointer(field).unwrap(), effort);
-        assert_eq!(body["tool_choice"], "none");
+        // DeepSeek 思考模式不发 `tool_choice: none`，否则上游不出数据。
+        let deepseek = protocol == Protocol::Chat(Dialect::DeepSeek);
+        assert_eq!(body.get("tool_choice").is_none(), deepseek);
     }
 }
 
@@ -764,4 +766,27 @@ async fn probe_lists_models() {
         .await
         .unwrap_err();
     assert!(matches!(err, ProbeError::Unexpected(m) if m == "返回内容不是模型列表"));
+}
+
+#[tokio::test]
+async fn keepalive_only_stream_stalls() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        read_request(&mut sock).await;
+        let mut head = sse(&[chunk(json!({"content": "t"}), None)], false);
+        head.push_str(": keep-alive\n\n");
+        sock.write_all(head.as_bytes()).await.unwrap();
+        let mut buf = [0u8; 64];
+        while sock.read(&mut buf).await.unwrap() > 0 {}
+    });
+    let p = provider(&url, Protocol::Chat(Dialect::Generic), HeaderMap::new());
+    let mut s = p.stream(history());
+    assert!(matches!(s.next().await, Some(Ok(ModelEvent::TextDelta(_)))));
+    tokio::time::pause();
+    assert!(matches!(
+        s.next().await,
+        Some(Err(ProviderError::Stalled { .. }))
+    ));
 }

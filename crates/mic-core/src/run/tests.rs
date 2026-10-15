@@ -539,6 +539,22 @@ async fn all_failed_attempts_keep_usage_without_reply() {
 }
 
 #[tokio::test]
+async fn stalled_call_fails_without_retry() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![vec![Err(ProviderError::Stalled {
+        message: "300 秒没有收到数据".into(),
+    })]]);
+    assert!(matches!(
+        f.exec().call_model(&provider, &[]).await.unwrap(),
+        Err(RunState::ProviderFailed)
+    ));
+    assert_eq!(f.verify(&provider).await.len(), 1);
+    let messages = f.store.run_messages(f.claimed.run.id).await.unwrap();
+    assert!(messages.iter().any(|m| matches!(&m.body,
+        MessageBody::Notification { text, .. } if text.starts_with("模型无响应"))));
+}
+
+#[tokio::test]
 async fn compaction_links_boundary_and_parse_failure_keeps_provider_success() {
     let f = Fixture::new().await;
     let provider = scripted(vec![reply("reply"), reply("summary"), reply("")]);

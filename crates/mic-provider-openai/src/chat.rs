@@ -152,6 +152,15 @@ pub(crate) fn request(
         model: cfg.model.clone(),
         tool_choice: match req.tool_choice {
             ToolChoice::Auto => None,
+            // DeepSeek 思考模式不支持 `tool_choice: "none"`：不报错，只回 keep-alive 注释直到空闲超时
+            // （2026-10-15 实测，关思考则正常）。故思考时不发，靠提示词约束；压缩会丢弃偶发的工具调用。
+            // 新接入的推理模型若压缩卡在首字前，先查是否同类问题。
+            ToolChoice::None
+                if dialect == Dialect::DeepSeek
+                    && cfg.reasoning_effort != Some(ReasoningEffort::None) =>
+            {
+                None
+            }
             ToolChoice::None => Some("none"),
         },
         messages,

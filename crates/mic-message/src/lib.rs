@@ -203,6 +203,14 @@ pub enum MessageBody {
     Notification { source: String, text: String },
     /// 上下文截断，不进模型上下文。
     Boundary { boundary: ContextBoundary },
+    /// 旁路调用的模型原文，只供 trace；不进上下文与聊天。
+    SideOutput { purpose: SidePurpose, text: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SidePurpose {
+    Title,
 }
 
 /// 排序依据是 `id`；`created_at`（unix millis）是发生时间，只用于展示与诊断。

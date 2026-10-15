@@ -5,13 +5,25 @@
   import { setDefaultModel } from "../../api/client";
   import type { Endpoint, Model } from "../../api/types";
   import { settingsStore } from "../../state/settings.svelte";
+  import { router } from "../../state/route.svelte";
   import { blankEndpoint, presetLabel, toForm, type EndpointForm } from "./endpoint-form";
   import EndpointDialog from "./EndpointDialog.svelte";
 
-  let { ondirty }: { ondirty: (dirty: boolean) => void } = $props();
+  let { focus = null, ondirty }: { focus?: number | null; ondirty: (dirty: boolean) => void } = $props();
 
   let editing = $state<{ form: EndpointForm; base: EndpointForm } | null>(null);
   let error = $state<string | null>(null);
+  let priceOf = $state<number | null>(null);
+
+  // 从 trace 跳来设置单价：打开所属服务商并展开该模型计费，随即清掉地址里的模型。
+  $effect(() => {
+    const m = focus === null ? undefined : settingsStore.models.find((m) => m.id === focus);
+    const e = m && settingsStore.endpoints.find((e) => e.id === m.endpoint_id);
+    if (!m || !e) return;
+    priceOf = m.id;
+    open(toForm(e, settingsStore.models));
+    router.replace("/settings");
+  });
 
   function open(f: EndpointForm) {
     editing = { form: structuredClone(f), base: f };
@@ -84,4 +96,4 @@
   {/if}
 </div>
 
-<EndpointDialog bind:editing {ondirty} />
+<EndpointDialog bind:editing focus={priceOf} {ondirty} />

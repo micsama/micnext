@@ -28,6 +28,7 @@ pub use diagnostic::{Cell, ColumnSchema, DiagnosticError, QueryResult, TableSche
 pub use error::{ContextCommandError, ModelSettingsError, SettingsError, StoreError};
 pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
+pub use title::reply_answer;
 pub use trace::{
     call_cost, CallRecord, CallStat, Dashboard, DayStat, ModelPeers, ModelStat, Peers, ToolPeers,
     ToolStat, ToolTraceOutcome, TraceCall, TraceMessage, TraceRun, TraceRunPage, TraceSession,
@@ -40,6 +41,6 @@ pub use types::{
     ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelPrice, ModelView, ModelWrite,
     NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId,
     ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState, SecretColumn, Session,
-    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, StopReason,
+    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, StopReason, TitleCall,
     TitleModelSelection, ToolScope, Usage,
 };

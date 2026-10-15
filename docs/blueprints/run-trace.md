@@ -88,7 +88,7 @@ Store 函数经 Kernel 同名转发。未知值一律 `null`（不用 0）；时
 | `GET /trace/peers` | `call_peers()` | `{ models: [{ purpose, model_id, median_ms, samples }], tools: [{ name, median_ms, samples }] }`：全库成功样本，模型按 `(purpose, model_id)`（`model_id` 为空不入样本），工具按工具名 |
 | `GET /trace/dashboard?days=` | `dashboard(days)` | 按天、按模型、按工具的聚合；token 已知合计 + `unknown_usage` 次数，费用已知合计 + `unknown_cost` 次数 |
 
-**费用**：调用费用 =（输入 − 缓存读 − 缓存写）× 输入价 + 缓存读 × 缓存读价 + 缓存写 × 缓存写价 + 输出 × 输出价，单价按百万 token。推理 token 已含在输出里，不另计。用量未知、公式里任一 token 项为 `None`、或某项 token > 0 而对应单价未填 → 该调用费用未知；单价填 0 即免费。按当前单价估算。
+**费用**：调用费用 =（输入 − 缓存读 − 缓存写）× 输入价 + 缓存读 × 缓存读价 + 缓存写 × 缓存写价 + 输出 × 输出价，单价按百万 token。推理 token 已含在输出里，不另计。缓存写入可选（human 定，2026-10-15）：未上报按 0，未填缓存写价按输入价。用量未知、缓存读未上报、或某项 token > 0 而对应单价未填 → 该调用费用未知；单价填 0 即免费。按当前单价估算。
 
 **一处口径**：重试归组、耗时、费用各一个计算函数，trace 与看板共用；不引入 span 框架或统计事实表。
 

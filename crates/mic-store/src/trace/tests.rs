@@ -42,4 +42,14 @@ fn cost_is_unknown_without_a_basis() {
     };
     assert_eq!(call_cost(Some(&cached), &price), None);
     assert_eq!(call_cost(None, &price), None);
+    let written = Usage {
+        cache_write_tokens: Some(500_000),
+        ..usage
+    };
+    assert_eq!(call_cost(Some(&written), &price), Some(3.0));
+    let unreported = Usage {
+        cache_write_tokens: None,
+        ..usage
+    };
+    assert_eq!(call_cost(Some(&unreported), &price), Some(3.0));
 }

@@ -41,6 +41,8 @@ export type TraceCall = {
   attempt: number;
   reply_id: number | null;
   boundary_id: number | null;
+  /** 旁路调用的模型原文（`SideOutput` 消息）。 */
+  side_id: number | null;
 };
 
 export type TraceTool = {
@@ -129,6 +131,7 @@ const traceCall: Decoder<TraceCall> = obj({
   attempt: num,
   reply_id: nullable(num),
   boundary_id: nullable(num),
+  side_id: nullable(num),
 });
 
 const traceTool: Decoder<TraceTool> = obj({

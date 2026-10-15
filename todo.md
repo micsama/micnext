@@ -5,6 +5,11 @@
 
 | 状态 | 主题 | 文档 |
 |---|---|---|
+| 以后做（2026-10-15 human 定） | 服务商分时段计价：空闲时段挂服务商，模型另填空闲价，费用按调用开始时间取价；币种保持美元。现按高峰价计，DeepSeek 已按高峰价填库 | [B2](docs/blueprints/offpeak-pricing.md) |
+| 已实现，待验收（2026-10-15） | 旁路调用记录输入与产出：手动标题另带最近 2 条 AI 回复（截断）；标题调用的输入指向原消息，产出存为不进上下文的 `SideOutput` 消息；以后新旁路沿用 | [B2](docs/blueprints/side-call-output.md) |
+| 已实现，待验收（2026-10-15） | 流式调用长时间无数据即判挂起、直接失败不重试（起因：DeepSeek 思考模式 + `tool_choice: none` 卡死，已在 provider 规避） | [B2](docs/blueprints/model-stall.md) |
+| 想法，以后做（2026-10-15） | 运行中取消/打断：页面上可中止卡住的调用或整轮 | [路线图 §2.4](docs/brainstorm/product-roadmap.md#24-消息任务与取消) |
+| 想法，以后做（2026-10-15） | trace「复制为 curl / 重新推理」：消息按记录还原，系统提示与工具清单用当前配置；工具清单视为固定，与历史工具调用对不上则拒绝重放 | [trace B1](docs/brainstorm/run-trace.md#未来重放与复制为-curl) |
 | B2 已实现，本地验收通过，待 human 验收（2026-10-13） | 错误保留现有类型至处置边界记一次，级别与字段名固定；正文/标题共用 Provider 构建，正文/压缩共用重试日志；补压缩、工具依赖、服务致命退出与 panic 日志，Provider 上游失败降 DEBUG；为 Langfuse 留接缝，不接入 | [B2](docs/blueprints/error-logging.md) |
 | 实现及本地验收完成，待页面/真实环境验收（2026-10-14） | SQLite 整理 + 轻量 trace：core/wechat 新基线、删 run 配置副本与格式版本字段、调用行补事实、trace 页与看板 | [B2](docs/blueprints/run-trace.md)；[存储 B1](docs/brainstorm/sqlite-organization.md)；[trace B1](docs/brainstorm/run-trace.md) |
 | B2 已实现，本地验收通过，待服务器人工验收（2026-10-13） | 思考档位按供应商保守默认 + 已知模型覆盖；DeepSeek/Sol 默认 low、Luna 默认 medium，未知 Codex 默认三档、low；11 项测试与 11 组隔离验收通过 | [B2](docs/blueprints/reasoning-model-capabilities.md)；[B1](docs/brainstorm/reasoning-model-capabilities.md) |

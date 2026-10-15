@@ -132,9 +132,11 @@ fn fail<A>(e: ProviderError) -> (Vec<Item>, State<A>) {
     (vec![Err(e)], State::Done)
 }
 
-/// 单次等待超过空闲上限 → `Transient`。
+/// 单次等待超过空闲上限 → `Stalled`。
 async fn idle<F: Future>(f: F) -> Result<F::Output, ProviderError> {
     tokio::time::timeout(STREAM_IDLE_TIMEOUT, f)
         .await
-        .map_err(|_| transient(format!("{} 秒没有收到数据", STREAM_IDLE_TIMEOUT.as_secs())))
+        .map_err(|_| ProviderError::Stalled {
+            message: format!("{} 秒没有收到数据", STREAM_IDLE_TIMEOUT.as_secs()),
+        })
 }

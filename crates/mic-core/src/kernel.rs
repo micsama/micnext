@@ -310,18 +310,21 @@ impl Kernel {
         if !matches!(session.kind, SessionKind::Root { .. }) {
             return Err(crate::TitleError::NotRoot.into());
         }
-        let inputs = self
+        let sources = self
             .store
-            .recent_text_inputs(
+            .title_sources(
                 session.id,
                 NonZeroU32::new(crate::limits::TITLE_INPUTS).unwrap(),
+                crate::limits::TITLE_REPLIES,
             )
             .await?;
-        if inputs.is_empty() {
+        if !sources
+            .iter()
+            .any(|m| matches!(m.body, MessageBody::UserInput { .. }))
+        {
             return Err(crate::TitleError::EmptyInput.into());
         }
-        self.titles
-            .submit(session, crate::title::input_text(&inputs))?;
+        self.titles.submit(session, sources)?;
         Ok(())
     }
 
@@ -339,10 +342,7 @@ impl Kernel {
             return Ok(());
         };
         let channel = session_channel(&self.store, &summary.session).await?;
-        match self
-            .titles
-            .submit(summary.session, crate::title::input_text(&[first]))
-        {
+        match self.titles.submit(summary.session, vec![first]) {
             Ok(()) | Err(crate::TitleError::Generating) => {}
             Err(error) => {
                 self.store
@@ -435,7 +435,15 @@ impl Kernel {
             return Ok(None);
         };
         if record.purpose == ModelCallPurpose::Title {
-            return Ok(None);
+            let sources = record.context.instruction;
+            if sources.is_empty() {
+                return Ok(None);
+            }
+            let sources = self.store.messages_by_ids(sources).await?;
+            return Ok(Some(vec![crate::title::title_note(
+                record.session_id,
+                &sources,
+            )]));
         }
         let context = record.context;
         let window = self

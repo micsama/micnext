@@ -110,7 +110,7 @@ impl Store {
         .await
     }
 
-    /// 稳定回放（含 `Boundary`）；游标只能是消息 id，实时增量不作游标。
+    /// 稳定回放（含 `Boundary`，不含 `SideOutput`）；游标只能是消息 id，实时增量不作游标。
     pub async fn messages_after(
         &self,
         session_id: SessionId,
@@ -121,7 +121,7 @@ impl Store {
             Ok(conn
                 .prepare(&format!(
                     "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM}
-                     WHERE m.session_id = ?1 AND m.id > ?2 ORDER BY m.id"
+                     WHERE m.session_id = ?1 AND m.id > ?2 AND m.kind <> 'SideOutput' ORDER BY m.id"
                 ))?
                 .query_map(params![session_id.0, after], row::message)?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
@@ -129,7 +129,7 @@ impl Store {
         .await
     }
 
-    /// `before` 之前的一页（不含 `before`；`None` = 到最新）：最近 `rounds` 轮，至多 `cap` 条。
+    /// `before` 之前的一页（不含 `before`；`None` = 到最新）：最近 `rounds` 轮，至多 `cap` 条；不含 `SideOutput`。
     pub async fn messages_page(
         &self,
         session_id: SessionId,
@@ -142,7 +142,7 @@ impl Store {
             let newest_first = conn
                 .prepare(&format!(
                     "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM}
-                     WHERE m.session_id = ?1 AND m.id < ?2 ORDER BY m.id DESC LIMIT ?3"
+                     WHERE m.session_id = ?1 AND m.id < ?2 AND m.kind <> 'SideOutput' ORDER BY m.id DESC LIMIT ?3"
                 ))?
                 .query_map(
                     params![session_id.0, before, i64::from(cap.get()) + 1],

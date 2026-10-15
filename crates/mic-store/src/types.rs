@@ -36,6 +36,13 @@ pub enum ReasoningEffort {
     Max,
 }
 
+/// 一次标题调用：取材消息在 `call.context.instruction`；`output` 为模型原文，上游失败时无。
+#[derive(Debug, Clone, PartialEq)]
+pub struct TitleCall {
+    pub call: NewModelCall,
+    pub output: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TitleModelSelection {
     pub model_id: Option<ModelId>,

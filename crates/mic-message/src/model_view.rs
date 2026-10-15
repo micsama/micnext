@@ -25,7 +25,7 @@ pub enum ModelView<'a> {
 }
 
 impl Message {
-    /// `Boundary` 不进上下文，返回 `None`。
+    /// `Boundary`、`SideOutput` 不进上下文，返回 `None`。
     pub fn model_view(&self) -> Option<ModelView<'_>> {
         Some(match &self.body {
             MessageBody::Command {
@@ -81,7 +81,7 @@ impl Message {
                 .render();
                 ModelView::User(vec![text(format!("{header}\n{note}"))])
             }
-            MessageBody::Boundary { .. } => return None,
+            MessageBody::Boundary { .. } | MessageBody::SideOutput { .. } => return None,
         })
     }
 }

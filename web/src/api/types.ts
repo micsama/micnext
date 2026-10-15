@@ -50,7 +50,9 @@ export type MessageBody =
   | { kind: "Completion"; person: number; tool_name: string; exec_id: string; outcome: ExecOutcome }
   | { kind: "HarnessNote"; text: string }
   | { kind: "Notification"; source: string; text: string }
-  | { kind: "Boundary"; boundary: ContextBoundary };
+  | { kind: "Boundary"; boundary: ContextBoundary }
+  /** 旁路调用的模型原文，只在 trace 出现。 */
+  | { kind: "SideOutput"; purpose: "title"; text: string };
 
 export type Message = {
   id: number;
@@ -263,6 +265,7 @@ const messageBody: Decoder<MessageBody> = kinded({
   HarnessNote: { text: str },
   Notification: { source: str, text: str },
   Boundary: { boundary },
+  SideOutput: { purpose: oneOf<"title">("title"), text: str },
 });
 
 const message: Decoder<Message> = obj({

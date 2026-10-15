@@ -6,6 +6,7 @@
   import type { Component } from "svelte";
   import { cn } from "$lib/utils";
   import { settingsStore } from "../../state/settings.svelte";
+  import { router } from "../../state/route.svelte";
   import Header from "../Header.svelte";
   import EndpointsSection from "./EndpointsSection.svelte";
   import PersonasSection from "./PersonasSection.svelte";
@@ -25,7 +26,8 @@
     { id: "models", label: "服务商与模型", icon: BoxesIcon },
     { id: "wechat", label: "微信", icon: QrCodeIcon },
   ];
-  let tab = $state<Tab>("prefs");
+  const priceModel = $derived(router.current.kind === "settings" ? router.current.model : null);
+  let tab = $state<Tab>(router.current.kind === "settings" && router.current.model !== null ? "models" : "prefs");
   const current = $derived(tabs.find((t) => t.id === tab)!);
 
   // 弹窗遮挡站内导航，只需拦截刷新与关闭页面。
@@ -75,7 +77,7 @@
       {:else if tab === "personas"}
         <PersonasSection ondirty={(d) => (personasDirty = d)} />
       {:else}
-        <EndpointsSection ondirty={(d) => (endpointsDirty = d)} />
+        <EndpointsSection focus={priceModel} ondirty={(d) => (endpointsDirty = d)} />
       {/if}
     </div>
   </div>

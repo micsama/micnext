@@ -1,14 +1,15 @@
-/** `/` 新会话、`/s/<id>` 某会话、`/settings` 设置、`/developer[/<页签>]` 开发者诊断。 */
+/** `/` 新会话、`/s/<id>` 某会话、`/settings[/models/<id>]` 设置（可直达某模型单价）、`/developer[/<页签>]` 开发者诊断。 */
 export type DeveloperTab = "logs" | "sql" | "update";
 export type Route =
   | { kind: "new" }
   | { kind: "session"; id: number }
-  | { kind: "settings" }
+  | { kind: "settings"; model: number | null }
   | { kind: "trace"; id: number | null }
   | { kind: "developer"; tab: DeveloperTab };
 
 function parse(path: string): Route {
-  if (/^\/settings\/?$/.test(path)) return { kind: "settings" };
+  const settings = /^\/settings(?:\/models\/(\d+))?\/?$/.exec(path);
+  if (settings) return { kind: "settings", model: settings[1] ? Number(settings[1]) : null };
   const trace = /^\/(?:s\/(\d+)\/)?trace\/?$/.exec(path);
   if (trace) return { kind: "trace", id: trace[1] ? Number(trace[1]) : null };
   const dev = /^\/developer(?:\/(logs|sql|update))?\/?$/.exec(path);
@@ -26,6 +27,11 @@ class Router {
 
   go(path: string): void {
     if (location.pathname !== path) history.pushState(null, "", path);
+    this.current = parse(path);
+  }
+
+  replace(path: string): void {
+    history.replaceState(null, "", path);
     this.current = parse(path);
   }
 }

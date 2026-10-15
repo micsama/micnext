@@ -592,6 +592,7 @@ fn provider_failure_text(error: &ProviderError, attempts: u32) -> String {
         ProviderError::Transient { .. } => {
             format!("{error}。已尝试 {attempts} 次，请稍后重新发送。")
         }
+        ProviderError::Stalled { .. } => format!("{error}。请稍后重新发送，或换一个模型。"),
         ProviderError::Protocol { .. } => {
             format!("{error}。这是 micnext 与模型服务不匹配的问题，需要修复。")
         }

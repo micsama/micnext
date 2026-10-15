@@ -1,6 +1,6 @@
 # Web 更新后消息尾部不可见
 
-状态：已在受测 Safari 复现与 WebKit 322545 一致的行为，human 定采用原生 EventSource + 一次性票据，进入 [B2](../blueprints/web-sse-eventsource.md)；已实现、补注释已删，Safari/iPhone 现场待 human 验收（2026-10-15）。
+状态：已在受测 Safari 复现与 WebKit 322545 一致的行为，human 定采用原生 EventSource + 一次性票据，进入 [B2](../blueprints/web-sse-eventsource.md)；已实现、补注释已删，Safari 现场验收通过，B2 CLOSED（2026-10-15）。
 
 历史处理：
 - Chrome：消息分批渲染时贴底判断出现竞争，导致停在中间（3b98736）。

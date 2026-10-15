@@ -10,7 +10,6 @@
 | 已实现，待验收（2026-10-15） | 流式调用长时间无数据即判挂起、直接失败不重试（起因：DeepSeek 思考模式 + `tool_choice: none` 卡死，已在 provider 规避） | [B2](docs/blueprints/model-stall.md) |
 | 想法，以后做（2026-10-15） | 运行中取消/打断：页面上可中止卡住的调用或整轮 | [路线图 §2.4](docs/brainstorm/product-roadmap.md#24-消息任务与取消) |
 | 想法，以后做（2026-10-15） | trace「复制为 curl / 重新推理」：消息按记录还原，系统提示与工具清单用当前配置；工具清单视为固定，与历史工具调用对不上则拒绝重放 | [trace B1](docs/brainstorm/run-trace.md#未来重放与复制为-curl) |
-| 实现及本地验收完成，待页面/真实环境验收（2026-10-14） | SQLite 整理 + 轻量 trace：core/wechat 新基线、删 run 配置副本与格式版本字段、调用行补事实、trace 页与看板 | [B2](docs/blueprints/run-trace.md)；[存储 B1](docs/brainstorm/sqlite-organization.md)；[trace B1](docs/brainstorm/run-trace.md) |
 | human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](docs/blueprints/web-ui.md#43-设置页与人设选择) |
 | B2 已实现：DeepSeek、ChatGPT 订阅（2026-10-12）已验收，OpenAI（API key）与订阅缓存命中待验收 | 模型调用迁移 async-openai；新增 OpenAI（Responses）与 ChatGPT 订阅（Codex 后端，手贴 access_token）预设；Responses 发会话缓存键 | [SDK B2](docs/blueprints/provider-sdk-responses.md)；[ChatGPT B2](docs/blueprints/provider-chatgpt.md)；[缓存键 B2](docs/blueprints/provider-cache-key.md)；现行契约 [provider-openai](docs/blueprints/provider-openai.md) |
 | B2 CLOSED（2026-10-09） | 构建脚本支持 debug 与 run：默认 release，可构建后 exec 启动，运行参数原样透传 | [build-script-run](docs/blueprints/build-script-run.md) |

@@ -1,6 +1,6 @@
 # B2：Web 实时流改用原生 EventSource + 一次性连接票据
 
-**状态：已批准并实现（2026-10-15）**，补注释已删。本地已验：票据契约用 curl 逐条验过（缺票、过期外的重复使用、换目标、其它接口带票都 401，`no-store`）；Chromium、WebKit 用 Playwright 跑过会话回放、日志流、服务重启后带 `after` 续传，没有残留连接。待 human 验收：受测 Safari 经 HTTPS/Caddy 复测，再加 iPhone 真机；通过后标 CLOSED。
+**状态：CLOSED（2026-10-15）。** 实现后补注释已删；curl 验票据契约，Chromium/WebKit 自动验回放、日志流与重启续传；human 在受测 Safari 经 HTTPS/Caddy 验收通过。iPhone 真机未单独回归。
 
 依据：[排查记录](../brainstorm/web-message-replay.md)。受测 Safari 27.2 上，`fetch` 读流在页面忙过之后会压住已到达的尾段，要等下一批网络数据才放出（与 WebKit 322545 一致）；同条件下原生 `EventSource` 正常，Chrome 都正常。human 选定：原生 EventSource + 一次性票据；其余接口保持 Bearer，不做全站 Cookie，不改 WebSocket。
 

@@ -1,6 +1,6 @@
 # B2：轻量 trace 与存储整理
 
-**状态：实现与本地验收完成，待 human 验收页面观感及真实环境（2026-10-14）。**
+**状态：CLOSED（2026-10-15 human 真实使用验收）。**
 
 依据：[trace B1](../brainstorm/run-trace.md)、[存储 B1](../brainstorm/sqlite-organization.md)。原型 `tmp/trace-preview/index.html`（模拟数据，不进 git）。B1 已拍板的取舍不再复述，本文只写契约、采集点、重建规则与验收。
 

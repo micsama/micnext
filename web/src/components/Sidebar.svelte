@@ -209,16 +209,19 @@
     {/if}
     {/if}
   </nav>
-  <div class="border-t px-2 py-1">
-    {#if tracing}
-      <button type="button" class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground" title="打开当前追踪的会话" onclick={() => go(traceId === null ? "/" : `/s/${traceId}`)}>
-        <Icon name="reply" />返回聊天
-      </button>
-    {:else}
-      <button type="button" class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground" title="查看当前会话的运行" onclick={() => go(activeId === null ? "/trace" : `/s/${activeId}/trace`)}>
-        <Icon name="sparkles" />运行追踪
-      </button>
-    {/if}
+  <div class="border-t px-2 pt-2">
+    <!-- 单击整条切换；滑块落在当前展示上。 -->
+    <button
+      type="button"
+      role="switch"
+      aria-checked={tracing}
+      title={tracing ? "返回当前会话的聊天" : "查看当前会话的运行追踪"}
+      onclick={() => go(tracing ? (traceId === null ? "/" : `/s/${traceId}`) : activeId === null ? "/trace" : `/s/${activeId}/trace`)}
+      class="relative grid w-full grid-cols-2 rounded-lg bg-muted p-0.5 text-sm">
+      <span class="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-md bg-background shadow-sm transition-transform duration-200" class:translate-x-full={tracing}></span>
+      <span class="relative flex items-center justify-center gap-1.5 py-1.5 transition-colors {tracing ? 'text-muted-foreground' : 'font-medium text-foreground'}"><Icon name="message" />聊天</span>
+      <span class="relative flex items-center justify-center gap-1.5 py-1.5 transition-colors {tracing ? 'font-medium text-foreground' : 'text-muted-foreground'}"><Icon name="sparkles" />追踪</span>
+    </button>
   </div>
   <div class="flex items-center gap-1 border-border p-2">
     <button

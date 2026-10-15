@@ -70,10 +70,39 @@ export function stepOf(run: TraceRun | null, call: TraceCall) {
   };
 }
 
+const MIN_SEGMENT = .08;
+
+type Segment = { from: number; to: number; content: boolean; x: number; w: number };
+
+// 模型尝试、重试等待、工具批次各成一段：段宽按时长平方根分配，内容段保底，段内线性，短工具也看得见。
+function axis(step: ReturnType<typeof stepOf>): Segment[] {
+  const segs: Segment[] = [];
+  const push = (from: number, to: number, content: boolean) => { if (to > from || content) segs.push({ from, to, content, x: 0, w: 0 }); };
+  let t = step.start;
+  for (const c of step.calls) { push(t, c.started_at, false); push(c.started_at, c.finished_at, true); t = c.finished_at; }
+  if (step.end > step.toolStart) { const from = Math.max(t, step.toolStart); push(t, from, false); push(from, step.end, true); }
+  const raw = segs.map((g) => Math.sqrt(Math.max(g.to - g.from, 1)));
+  const total = raw.reduce((n, w) => n + w, 0);
+  const small = segs.map((g, i) => g.content && raw[i]! / total < MIN_SEGMENT);
+  const fixed = small.filter(Boolean).length * MIN_SEGMENT;
+  const rest = raw.reduce((n, w, i) => small[i] ? n : n + w, 0);
+  let x = 0;
+  segs.forEach((g, i) => { g.x = x; g.w = small[i] ? MIN_SEGMENT : raw[i]! / rest * (1 - fixed); x += g.w; });
+  return segs;
+}
+
+function place(segs: Segment[], at: number): number {
+  const g = segs.find((g) => at <= g.to) ?? segs.at(-1)!;
+  return g.x + Math.min(Math.max((at - g.from) / Math.max(g.to - g.from, 1), 0), 1) * g.w;
+}
+
 export function bar(run: TraceRun, from: number, to: number, call?: TraceCall): string {
-  const step = call ? stepOf(run, call) : { start: from, span: Math.max(to - from, 1) };
-  const left = Math.max(0, (from - step.start) / step.span * 100);
-  return `left:${left}%;width:${Math.min(Math.max((to - from) / step.span * 100, .8), 100 - left)}%`;
+  if (!call) return "left:0;width:100%";
+  const step = stepOf(run, call);
+  const segs = axis(step);
+  const scale = step.known / step.span * 100;
+  const left = place(segs, from) * scale;
+  return `left:${left}%;width:${Math.min(Math.max((place(segs, to) * scale - left), .8), 100 - left)}%`;
 }
 
 export function usageOf(calls: TraceCall[]) {

@@ -424,7 +424,7 @@
         {#if c.attempt > 1}<span class="signal c-warn" title="重试 {c.attempt - 1} 次"><Icon name="refresh" class="size-[13px]" /><b>{c.attempt - 1}</b></span>{/if}
       {/if}
     </span>
-    <span class="track" class:track-empty={!r || (!step.tools.length && step.calls.length < 2)} title="本步 {step.unknown ? '≥ ' : ''}{formatDuration(step.known)} · 模型 {formatDuration(step.model)}{step.wait ? ` · 重试等待 ${formatDuration(step.wait)}` : ''}">
+    <span class="track" class:track-empty={!r || (!step.tools.length && step.calls.length < 2)} title="本步 {step.unknown ? '≥ ' : ''}{formatDuration(step.known)} · 模型 {formatDuration(step.model)}{step.wait ? ` · 重试等待 ${formatDuration(step.wait)}` : ''}（条按段压缩，短段放大）">
       {#if r && (step.tools.length || step.calls.length > 1)}
         {#each step.calls as attempt}<span class="llm-bar" class:fail-bar={failed(attempt)} style={bar(r, attempt.started_at, attempt.finished_at, c)}></span>{/each}
         {#if step.end > step.toolStart}<span class="batch-bar" style={bar(r, step.toolStart, step.end, c)}></span>{/if}

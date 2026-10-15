@@ -1,7 +1,7 @@
 import { getTraceSessions } from "../api/client";
 import type { TraceSession } from "../api/trace";
 
-/** trace 模式下侧栏与追踪页共用的会话列表。 */
+/** trace 模式下侧栏与 Trace 页共用的会话列表。 */
 class TraceSessions {
   items = $state.raw<TraceSession[]>([]);
   loaded = $state(false);

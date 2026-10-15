@@ -462,9 +462,9 @@
 <div class="trace-layout">
   <section class="panel">
     <div class="panel-head stream-head">
-      <button type="button" class={cn("s-head", sessionSelected && "on")} disabled={session === null} title="查看会话详情" onclick={chooseSession}><h2 class="truncate">{currentSession?.title ?? (session === null ? "运行追踪" : `会话 ${session}`)}</h2><Icon name="info" class="size-3.5" /></button>
+      <button type="button" class={cn("s-head", sessionSelected && "on")} disabled={session === null} title="查看会话详情" onclick={chooseSession}><h2 class="truncate">{currentSession?.title ?? (session === null ? "Trace" : `会话 ${session}`)}</h2><Icon name="info" class="size-3.5" /></button>
       <div class="caps"><span class="cap">{runs.length} 轮</span><span class="cap">{runs.reduce((n, r) => n + r.calls.length, 0)} 次调用</span><span class="cap">{tokensOf(runs.flatMap((r) => r.calls))} token</span></div>
-      <button type="button" class="toggle" class:on={issuesOnly} title="只看失败、中断或含报错的运行" onclick={() => issuesOnly = !issuesOnly}><Icon name="error" class="size-[13px]" />只看异常<b>{badCount}</b></button><button type="button" class="iconbtn sm" title="刷新追踪" aria-label="刷新追踪" onclick={refresh}><Icon name="refresh" class="size-3.5" /></button>
+      <button type="button" class="toggle" class:on={issuesOnly} title="只看失败、中断或含报错的运行" onclick={() => issuesOnly = !issuesOnly}><Icon name="error" class="size-[13px]" />只看异常<b>{badCount}</b></button><button type="button" class="iconbtn sm" title="刷新 Trace" aria-label="刷新 Trace" onclick={refresh}><Icon name="refresh" class="size-3.5" /></button>
     </div>
     <div class="panel-body stream" bind:this={stream}>
       {#if session !== null}<button type="button" class={cn("row cols sys pinned", systemSelected && selected)} onclick={chooseSystem}><span class="role r-sys">系统</span><span class="sum"><b>系统提示</b>当前配置，非历史快照</span></button>{/if}

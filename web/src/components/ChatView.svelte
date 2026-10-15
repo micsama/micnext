@@ -93,7 +93,7 @@
 
 <Header {title} {detail} {onmenu}>
   {#snippet detailActions()}
-    <button type="button" class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 text-primary hover:bg-accent" onclick={() => router.go(`/s/${view.id}/trace`)} title="追踪当前会话"><Icon name="sparkles" class="size-3" />Trace</button>
+    <button type="button" class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 text-primary hover:bg-accent" onclick={() => router.go(`/s/${view.id}/trace`)} title="查看当前会话的 Trace"><Icon name="sparkles" class="size-3" />Trace</button>
   {/snippet}
   {#snippet actions()}
     <button type="button" aria-label="重新生成标题" title={titleBusy ? "正在生成标题" : "重新生成标题"} disabled={titleBusy || !view.ready || !!view.fatal} onclick={() => view.regenerateTitle()} class="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">

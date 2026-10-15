@@ -142,6 +142,22 @@
   }
 }
 
+/* 悬停说明，见 lib/tooltip.ts */
+.app-tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: 280px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+}
+
 /* Markdown 正文 */
 .prose {
   line-height: 1.7;

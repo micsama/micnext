@@ -18,7 +18,7 @@
 
   const groups = $derived(groupSessions(webSessions.items));
   const activeId = $derived(router.current.kind === "session" ? router.current.id : null);
-  // 同一侧栏两种展示：聊天按日期列会话；追踪按渠道列有运行的会话，带异常角标。
+  // 同一侧栏两种展示：聊天按日期列会话；Trace 按渠道列有运行的会话，带异常角标。
   const tracing = $derived(router.current.kind === "trace");
   const traceId = $derived(router.current.kind === "trace" ? router.current.id : null);
   let search = $state("");
@@ -215,12 +215,12 @@
       type="button"
       role="switch"
       aria-checked={tracing}
-      title={tracing ? "返回当前会话的聊天" : "查看当前会话的运行追踪"}
+      title={tracing ? "返回当前会话的聊天" : "查看当前会话的 Trace"}
       onclick={() => go(tracing ? (traceId === null ? "/" : `/s/${traceId}`) : activeId === null ? "/trace" : `/s/${activeId}/trace`)}
       class="relative grid w-full grid-cols-2 rounded-lg bg-muted p-0.5 text-sm">
       <span class="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-md bg-background shadow-sm transition-transform duration-200" class:translate-x-full={tracing}></span>
       <span class="relative flex items-center justify-center gap-1.5 py-1.5 transition-colors {tracing ? 'text-muted-foreground' : 'font-medium text-foreground'}"><Icon name="message" />聊天</span>
-      <span class="relative flex items-center justify-center gap-1.5 py-1.5 transition-colors {tracing ? 'font-medium text-foreground' : 'text-muted-foreground'}"><Icon name="sparkles" />追踪</span>
+      <span class="relative flex items-center justify-center gap-1.5 py-1.5 transition-colors {tracing ? 'font-medium text-foreground' : 'text-muted-foreground'}"><Icon name="sparkles" />Trace</span>
     </button>
   </div>
   <div class="flex items-center gap-1 border-border p-2">

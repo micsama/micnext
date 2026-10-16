@@ -59,6 +59,8 @@ pub struct ChannelSetupView {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChannelSetupError {
+    #[error("账号备份无效：{reason}")]
+    BackupInvalid { reason: String },
     #[error("登录已失效，请重新获取二维码")]
     AttemptNotFound,
     #[error("当前登录状态不接受此操作")]
@@ -71,7 +73,16 @@ pub enum ChannelSetupError {
     Internal { source: BoxError },
 }
 
+pub trait ChannelRestore: Send {
+    fn restore(self: Box<Self>) -> BoxFuture<Result<(), ChannelSetupError>>;
+}
+
 pub trait ChannelSetup: Send + Sync + 'static {
+    fn export(&self) -> BoxFuture<Result<Option<serde_json::Value>, ChannelSetupError>>;
+    fn prepare_restore(
+        &self,
+        account: Option<serde_json::Value>,
+    ) -> Result<Box<dyn ChannelRestore>, ChannelSetupError>;
     fn status(&self) -> BoxFuture<Result<ChannelSetupView, ChannelSetupError>>;
     fn begin(&self) -> BoxFuture<Result<SetupAttempt, ChannelSetupError>>;
     fn submit_code(

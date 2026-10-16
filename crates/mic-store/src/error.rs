@@ -1,5 +1,7 @@
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("无法解密设置备份：格式无效、主密钥不匹配或内容被改动")]
+    ExportUndecryptable,
     #[error("sqlite: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("payload 序列化: {0}")]
@@ -27,6 +29,8 @@ pub enum StoreError {
 /// 设置与人设写入的业务错误；文案面向用户。
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
+    #[error("设置备份无效：{0}")]
+    ImportInvalid(String),
     #[error("人设不存在")]
     PersonaNotFound,
     #[error("内置人设不能修改或删除，可以复制后编辑")]

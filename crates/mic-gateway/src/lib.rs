@@ -2,6 +2,7 @@
 //! 契约：docs/blueprints/gateway.md。
 
 mod api;
+mod backup;
 mod channels;
 mod config;
 mod context;

@@ -1440,6 +1440,7 @@ name = "mic-store"
 version = "0.0.0"
 dependencies = [
  "aes-gcm",
+ "base64 0.22.1",
  "mic-message",
  "rusqlite",
  "serde",

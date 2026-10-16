@@ -17,6 +17,7 @@
 | 进行中（步 1～6 与存储重整完成，v0a Web 闭环打通） | v0a 模块地图：Web 闭环的模块划分、对接方式、实现顺序（v0a 总索引） | [`docs/blueprints/v0a-module-map.md`](docs/blueprints/v0a-module-map.md) |
 | B2 CLOSED（2026-10-12）；fmt/clippy、Web 检查/构建与 12 项隔离链路验收通过；human 接手真实使用验收，OpenAI key 401 待补 | 上下文压缩与 `/compact`、`/clear`：每次模型返回后按其上游用量判定，默认 80% 触发，压完再接上工具结果或新输入；只读最新有效 Boundary，clear 后排队输入正常执行；快照走 read；Web 展示结果并可将当前压缩边界置为失效撤回，保留审计记录 | [B1](docs/brainstorm/context-compaction.md)；[B2](docs/blueprints/context-compaction.md) |
 | B1 待核对，再起 B2 | 定时任务看板事实来源与异步 shell/子 agent 生命周期 | [`docs/brainstorm/cross-check-2026-09-23.md`](docs/brainstorm/cross-check-2026-09-23.md) §四-4～5 |
+| 第一阶段已实现、自动验收通过（2026-10-16）；待 human 页面/真实微信验收并导出备份，第二阶段待实施 | 设置加密导出/导入、写入前解析全部备份内容；之后库版本不符时备份旧库并新建 | [B2](docs/blueprints/settings-backup.md) |
 | 已实现，待验收（2026-10-15） | 模型「支持图片」开关：关闭时请求里的图片换成文字占位，记录不变；会话预览无文字时显示「[图片]」「[文件]」 | [B2](docs/blueprints/model-image-support.md) |
 | B1 已记录；脱敏明确延期（2026-10-10） | 模型出站脱敏、工具隔离与授权：脱敏只求减少部分意外披露，当前不实施；工具隔离既有缺口仍待定。专用用户部署 human 进行中，服务器 bwrap 已验证可运行；访问与披露各自控制，候选未批准 | [B1](docs/brainstorm/privacy-permissions.md)；合并「工具授权」缺口（cross-check §四-8～9） |
 | 引用 CLOSED（2026-10-10 服务器验收）；入站图片 CLOSED（2026-10-10 服务器验收，[B2](docs/blueprints/wechat-inbound-images.md)）；入站文件/视频已实现待验收（[B2](docs/blueprints/wechat-inbound-files.md)） | 微信 V2：引用关联归微信，不新增核心来源登记接口；随后入站图片/文件/视频、出站媒体；斜杠指令跨 Channel 统一另起 B1 | [引用 B2](docs/blueprints/wechat-quotes.md)；[V2 B1](docs/brainstorm/wechat-v2.md) §二 |

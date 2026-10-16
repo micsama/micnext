@@ -328,3 +328,11 @@ export async function getTracePeers(): Promise<Peers> {
 export async function getDashboard(days: number): Promise<Dashboard> {
   return parseDashboard(await request("GET", `/trace/dashboard?days=${days}`));
 }
+
+export async function exportSettings(): Promise<string> {
+  return obj({ text: str })(await request("POST", "/settings/export"), "设置备份").text;
+}
+
+export async function importSettings(text: string): Promise<void> {
+  await request("POST", "/settings/import", { text });
+}

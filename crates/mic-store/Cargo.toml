@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 aes-gcm = "0.11.1"
+base64 = "0.22"
 mic-message = { path = "../mic-message" }
 rusqlite = { version = "0.40", features = ["bundled", "hooks", "limits"] }
 serde = { version = "1", features = ["derive"] }

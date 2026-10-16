@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -69,7 +69,77 @@ pub enum StopOutcome {
     NotRunning,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsBackup {
+    pub core: mic_store::SettingsExport,
+    pub channels: BTreeMap<String, serde_json::Value>,
+}
+
 impl Kernel {
+    pub fn channel_setups(&self) -> BTreeMap<&'static str, Arc<dyn ChannelSetup>> {
+        self.channel_setups
+            .iter()
+            .map(|(&name, setup)| (name, setup.clone()))
+            .collect()
+    }
+
+    pub async fn export_settings(&self) -> Result<mic_store::SettingsExport, KernelError> {
+        Ok(self.store.export_settings().await?)
+    }
+
+    pub async fn import_settings(
+        &self,
+        mut s: mic_store::SettingsExport,
+    ) -> Result<(), KernelError> {
+        for endpoint in &mut s.endpoints {
+            let factory = self
+                .factories
+                .get(&endpoint.kind)
+                .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
+            endpoint.config_json = factory
+                .check_endpoint(&endpoint.config_json)
+                .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
+            for model in &mut endpoint.models {
+                model.config_json = factory
+                    .check_model(&endpoint.config_json, &model.name, &model.config_json)
+                    .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
+            }
+        }
+        if let Some(reference) = &s.preferences.title_model {
+            if let Some(endpoint) = s.endpoints.iter().find(|e| e.name == reference.endpoint) {
+                let options = self
+                    .factories
+                    .get(&endpoint.kind)?
+                    .reasoning_options(&endpoint.config_json, &reference.model)
+                    .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
+                resolve_reasoning(options, s.preferences.title_reasoning_effort)
+                    .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
+            }
+        }
+        Ok(self.store.import_settings(s, now_ms()).await?)
+    }
+
+    pub fn seal_backup(&self, b: &SettingsBackup) -> String {
+        let plain =
+            mic_store::SecretValue::new(serde_json::to_string(b).expect("设置备份可序列化"));
+        self.store.seal_export(&plain)
+    }
+
+    pub fn open_backup(&self, text: &str) -> Result<SettingsBackup, KernelError> {
+        let plain = self
+            .store
+            .open_export(text)
+            .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
+        serde_json::from_str(plain.expose()).map_err(|e| {
+            KernelError::BackupInvalid(format!(
+                "备份字段不符（第 {} 行，第 {} 列）",
+                e.line(),
+                e.column()
+            ))
+        })
+    }
+
     /// `run` 为 None 时停该会话执行中的 run；不等收尾。
     pub async fn stop_run(
         &self,

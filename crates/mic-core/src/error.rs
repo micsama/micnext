@@ -64,6 +64,8 @@ pub enum RunError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum KernelError {
+    #[error("设置备份无效：{0}")]
+    BackupInvalid(String),
     #[error(transparent)]
     Title(#[from] crate::TitleError),
     #[error(transparent)]

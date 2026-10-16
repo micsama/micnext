@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ArchiveIcon from "@lucide/svelte/icons/archive";
+  import BackupSection from "./BackupSection.svelte";
   import BoxesIcon from "@lucide/svelte/icons/boxes";
   import SlidersIcon from "@lucide/svelte/icons/sliders-horizontal";
   import SparklesIcon from "@lucide/svelte/icons/sparkles";
@@ -17,12 +19,13 @@
     document.title = "设置 · micnext";
   });
 
-  type Tab = "prefs" | "personas" | "models" | "wechat";
+  type Tab = "prefs" | "personas" | "models" | "wechat" | "backup";
   const tabs: { id: Tab; label: string; icon: Component }[] = [
     { id: "prefs", label: "对话偏好", icon: SlidersIcon },
     { id: "personas", label: "人设", icon: SparklesIcon },
     { id: "models", label: "服务商与模型", icon: BoxesIcon },
     { id: "wechat", label: "微信", icon: QrCodeIcon },
+    { id: "backup", label: "设置备份", icon: ArchiveIcon },
   ];
   const priceModel = $derived(router.current.kind === "settings" ? router.current.model : null);
   let tab = $state<Tab>(router.current.kind === "settings" && router.current.model !== null ? "models" : "prefs");
@@ -66,7 +69,9 @@
       {#if settingsStore.error}
         <p class="mb-4 text-sm text-destructive">{settingsStore.error}</p>
       {/if}
-      {#if tab === "wechat"}
+      {#if tab === "backup"}
+        <BackupSection />
+      {:else if tab === "wechat"}
         <WechatSection />
       {:else if !settingsStore.settings}
         <p class="text-sm text-muted-foreground">加载中…</p>

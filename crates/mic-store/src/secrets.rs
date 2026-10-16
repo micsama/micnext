@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use aes_gcm::aead::{Aead, Generate, Key, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use zeroize::Zeroizing;
 
 use crate::StoreError;
@@ -92,8 +93,33 @@ impl Cipher {
         }
     }
 
+    pub(crate) fn seal_export(&self, plain: &SecretValue) -> String {
+        format!(
+            "micnext-settings:{}",
+            STANDARD.encode(self.encrypt_with_aad(b"settings-export", plain))
+        )
+    }
+
+    pub(crate) fn open_export(&self, text: &str) -> Result<SecretValue, StoreError> {
+        let invalid = || StoreError::ExportUndecryptable;
+        let blob = STANDARD
+            .decode(text.strip_prefix("micnext-settings:").ok_or_else(invalid)?)
+            .map_err(|_| invalid())?;
+        self.decrypt_with_aad(b"settings-export", &blob)
+            .ok_or_else(invalid)
+    }
+
     /// `nonce || ciphertext || tag`。
     pub(crate) fn encrypt(&self, endpoint: i64, secret: &SecretValue) -> Vec<u8> {
+        self.encrypt_with_aad(&aad(endpoint), secret)
+    }
+
+    pub(crate) fn decrypt(&self, endpoint: i64, blob: &[u8]) -> Result<SecretValue, StoreError> {
+        self.decrypt_with_aad(&aad(endpoint), blob)
+            .ok_or(StoreError::SecretIntegrity { endpoint })
+    }
+
+    fn encrypt_with_aad(&self, aad: &[u8], secret: &SecretValue) -> Vec<u8> {
         let nonce = Nonce::generate();
         let sealed = self
             .0
@@ -101,7 +127,7 @@ impl Cipher {
                 &nonce,
                 Payload {
                     msg: secret.expose().as_bytes(),
-                    aad: &aad(endpoint),
+                    aad,
                 },
             )
             .expect("AES-GCM 加密内存缓冲不会失败");
@@ -110,26 +136,14 @@ impl Cipher {
         out
     }
 
-    pub(crate) fn decrypt(&self, endpoint: i64, blob: &[u8]) -> Result<SecretValue, StoreError> {
-        let integrity = || StoreError::SecretIntegrity { endpoint };
-        if blob.len() <= NONCE_LEN {
-            return Err(integrity());
+    fn decrypt_with_aad(&self, aad: &[u8], blob: &[u8]) -> Option<SecretValue> {
+        if blob.len() < NONCE_LEN + 16 {
+            return None;
         }
         let (nonce, sealed) = blob.split_at(NONCE_LEN);
-        let nonce = Nonce::try_from(nonce).map_err(|_| integrity())?;
-        let plain = self
-            .0
-            .decrypt(
-                &nonce,
-                Payload {
-                    msg: sealed,
-                    aad: &aad(endpoint),
-                },
-            )
-            .map_err(|_| integrity())?;
-        String::from_utf8(plain)
-            .map(SecretValue::new)
-            .map_err(|_| integrity())
+        let nonce = Nonce::try_from(nonce).ok()?;
+        let plain = self.0.decrypt(&nonce, Payload { msg: sealed, aad }).ok()?;
+        String::from_utf8(plain).ok().map(SecretValue::new)
     }
 }
 

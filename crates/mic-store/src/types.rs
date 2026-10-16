@@ -80,6 +80,7 @@ pub struct EndpointWrite {
 
 /// 单价，美元 / 百万 token；`None` = 未填，`Some(0.0)` = 免费。
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelPrice {
     pub input: Option<f64>,
     pub cache_read: Option<f64>,
@@ -159,6 +160,7 @@ pub enum RunInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompactionSettings {
     pub trigger_percent: u8,
     pub keep_steps: u32,

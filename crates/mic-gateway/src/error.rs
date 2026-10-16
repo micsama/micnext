@@ -29,6 +29,7 @@ pub(crate) enum ApiError {
     Unavailable(String),
     /// 新会话工作目录无法使用，文案含路径与原因。
     Workdir(String),
+    ImportPartial(String),
     Internal(KernelError),
     Setup(ChannelSetupError),
 }
@@ -64,6 +65,7 @@ impl From<KernelError> for ApiError {
                 }
                 mic_store::ContextCommandError::Store(error) => Self::Internal(error.into()),
             },
+            KernelError::BackupInvalid(reason) => Self::BadRequest(reason),
             KernelError::SessionNotFound => Self::NotFound(SESSION_NOT_FOUND),
             KernelError::SessionNotRoot => Self::Forbidden(e.to_string()),
             KernelError::Workdir(e) => {
@@ -75,6 +77,7 @@ impl From<KernelError> for ApiError {
                 Self::Workdir(format!("{e}。{hint}"))
             }
             KernelError::Settings(e) => match e {
+                SettingsError::ImportInvalid(reason) => Self::BadRequest(reason),
                 SettingsError::PersonaNotFound => Self::NotFound(PERSONA_NOT_FOUND),
                 SettingsError::Builtin => Self::Forbidden(e.to_string()),
                 SettingsError::IsDefault | SettingsError::NameTaken(_) | SettingsError::Deleted => {
@@ -136,6 +139,7 @@ impl IntoResponse for ApiError {
                 tracing::error!(error = %m, "web session workdir unusable");
                 (StatusCode::INTERNAL_SERVER_ERROR, m)
             }
+            Self::ImportPartial(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
             Self::Internal(e) => {
                 tracing::error!(error = %e, "gateway request failed");
                 (StatusCode::INTERNAL_SERVER_ERROR, "内部错误".to_owned())
@@ -144,6 +148,7 @@ impl IntoResponse for ApiError {
                 let status = match &e {
                     ChannelSetupError::AttemptNotFound => StatusCode::NOT_FOUND,
                     ChannelSetupError::WrongPhase => StatusCode::CONFLICT,
+                    ChannelSetupError::BackupInvalid { .. } => StatusCode::BAD_REQUEST,
                     ChannelSetupError::InvalidCode => StatusCode::BAD_REQUEST,
                     ChannelSetupError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
                     ChannelSetupError::Internal { source } => {

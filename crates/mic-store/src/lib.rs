@@ -1,6 +1,7 @@
 //! 内核事实持久化与模块迁移事务入口。
 //! 契约：docs/blueprints/mic-store.md；表目录：schema.rs 的 TABLE_CATALOG。
 
+mod backup;
 mod context;
 mod diagnostic;
 mod endpoints;
@@ -22,6 +23,9 @@ mod title;
 mod trace;
 mod types;
 
+pub use backup::{
+    ExportEndpoint, ExportModel, ExportModelRef, ExportPersona, ExportPreferences, SettingsExport,
+};
 pub use rusqlite;
 
 pub use diagnostic::{Cell, ColumnSchema, DiagnosticError, QueryResult, TableSchema};

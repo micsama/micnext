@@ -4,9 +4,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use mic_core::{
-    Activation, BoxError, BoxFuture, ChannelConnection, ChannelSetup, ChannelSetupError,
-    ChannelSetupView, EventReceiver, IncomingPart, Kernel, Module, ModuleConfig, Registry, Service,
-    SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
+    Activation, BoxError, BoxFuture, ChannelConnection, ChannelRestore, ChannelSetup,
+    ChannelSetupError, ChannelSetupView, EventReceiver, IncomingPart, Kernel, Module, ModuleConfig,
+    Registry, Service, SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
 };
 use mic_message::limits::MAX_IMAGES_PER_INPUT;
 use serde::Deserialize;
@@ -14,7 +14,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
-use crate::account::{self, Account, AccountError};
+use crate::account::{self, Account, AccountError, Credentials};
+use crate::backup::{self, AccountBackup};
 use crate::client::{Client, ClientError, IncomingContent, Unsupported};
 use crate::delivery;
 use crate::limits::{
@@ -57,6 +58,11 @@ impl Module for WechatModule {
 type Ack<T> = oneshot::Sender<Result<T, ChannelSetupError>>;
 
 enum Command {
+    Export(Ack<Option<serde_json::Value>>),
+    Restore {
+        credentials: Option<Credentials>,
+        ack: Ack<()>,
+    },
     Begin(Ack<SetupAttempt>),
     SubmitCode {
         id: SetupAttemptId,
@@ -74,7 +80,50 @@ struct Setup {
     snapshot: watch::Receiver<Option<ChannelSetupView>>,
 }
 
+struct Restore {
+    commands: mpsc::Sender<Command>,
+    credentials: Option<Credentials>,
+}
+
+impl ChannelRestore for Restore {
+    fn restore(self: Box<Self>) -> BoxFuture<Result<(), ChannelSetupError>> {
+        Box::pin(async move {
+            let (ack, response) = oneshot::channel();
+            self.commands
+                .send(Command::Restore {
+                    credentials: self.credentials,
+                    ack,
+                })
+                .await
+                .map_err(|_| ChannelSetupError::Unavailable)?;
+            response.await.map_err(|_| ChannelSetupError::Unavailable)?
+        })
+    }
+}
+
 impl ChannelSetup for Setup {
+    fn export(&self) -> BoxFuture<Result<Option<serde_json::Value>, ChannelSetupError>> {
+        let commands = self.commands.clone();
+        Box::pin(async move {
+            let (ack, response) = oneshot::channel();
+            commands
+                .send(Command::Export(ack))
+                .await
+                .map_err(|_| ChannelSetupError::Unavailable)?;
+            response.await.map_err(|_| ChannelSetupError::Unavailable)?
+        })
+    }
+
+    fn prepare_restore(
+        &self,
+        account: Option<serde_json::Value>,
+    ) -> Result<Box<dyn ChannelRestore>, ChannelSetupError> {
+        Ok(Box::new(Restore {
+            commands: self.commands.clone(),
+            credentials: account.map(backup::parse).transpose()?,
+        }))
+    }
+
     fn status(&self) -> BoxFuture<Result<ChannelSetupView, ChannelSetupError>> {
         let view = self
             .snapshot
@@ -176,6 +225,35 @@ impl Coordinator {
                 command = self.commands.recv() => {
                     let Some(command) = command else { break };
                     match command {
+                        Command::Export(ack) => {
+                            let result = account::active(&kernel).await
+                                .map(|account| account.map(|a| serde_json::to_value(AccountBackup::from(&a.credentials)).expect("账号备份只含字符串")))
+                                .map_err(|source| ChannelSetupError::Internal { source: source.into() });
+                            let _ = ack.send(result);
+                        }
+                        Command::Restore { credentials, ack } => {
+                            let result = async {
+                                cancel_active(&mut active).await?;
+                                view.login = None;
+                                let linked = replace_account(&kernel, &mut connection, credentials, &stop).await?;
+                                view.account = linked;
+                                Ok::<_, BoxError>(())
+                            }.await;
+                            if result.is_err() {
+                                let account = account::active(&kernel).await?;
+                                view.account = account.as_ref().map(|a| a.view.clone());
+                                if connection.is_none() {
+                                    if let Some(account) = account {
+                                        if matches!(account.view.connection, ChannelConnection::Connected) {
+                                            account::set_connection(&kernel, &account.credentials.user_id, ChannelConnection::Faulted).await?;
+                                            view.account.as_mut().expect("刚读到当前账号").connection = ChannelConnection::Faulted;
+                                        }
+                                    }
+                                }
+                            }
+                            self.view.send_replace(Some(view.clone()));
+                            let _ = ack.send(result.map_err(|source| ChannelSetupError::Internal { source }));
+                        }
                         Command::Begin(ack) => {
                             cancel_active(&mut active).await?;
                             let id = new_attempt_id()?;
@@ -231,10 +309,9 @@ impl Coordinator {
                     let result = result.map_err(|_| ClientError::Protocol("登录任务崩溃"))?;
                     let progress = match result {
                         Ok(Outcome::Connected(credentials)) => {
-                            stop_connection(&kernel, &mut connection).await?;
-                            let account = account::save(&kernel, credentials).await?;
+                            let account = replace_account(&kernel, &mut connection, Some(credentials), &stop).await?
+                                .expect("登录成功提供了账号");
                             view.account = Some(account.clone());
-                            connection = start_connection(kernel.clone(), account::active(&kernel).await?, &stop).await?;
                             tracing::info!("wechat account linked");
                             SetupProgress::Connected { account }
                         }
@@ -277,6 +354,32 @@ impl Coordinator {
         let connection_closed = stop_connection(&kernel, &mut connection).await;
         result.and(login_closed).and(connection_closed)
     }
+}
+
+async fn replace_account(
+    kernel: &Kernel,
+    connection: &mut Option<ActiveConnection>,
+    credentials: Option<Credentials>,
+    stop: &CancellationToken,
+) -> Result<Option<mic_core::LinkedChannel>, BoxError> {
+    stop_connection(kernel, connection).await?;
+    let linked = match credentials {
+        Some(credentials) => Some(account::save(kernel, credentials).await?),
+        None => {
+            kernel
+                .with_module_tx(|tx| {
+                    tx.execute(
+                        "UPDATE wechat_settings SET active_user_id = NULL WHERE id = 1",
+                        [],
+                    )?;
+                    Ok(())
+                })
+                .await?;
+            None
+        }
+    };
+    *connection = start_connection(kernel.clone(), account::active(kernel).await?, stop).await?;
+    Ok(linked)
 }
 
 async fn start_connection(

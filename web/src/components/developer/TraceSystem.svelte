@@ -15,6 +15,8 @@
     persona: ["人设与偏好", "user", "设置页可改"],
     context: ["环境与上下文", "folder", "工作目录、渠道、工具提示与压缩摘要"],
   };
+  /** 原文里的块标签行，单独着色。 */
+  const tags = $derived(new Set(view.blocks.flatMap((b) => [`<${b.kind}>`, `</${b.kind}>`])));
   const body = (parts: PromptPart[]) => parts.map((p) => p.text).join("\n\n");
   /** context 块内相邻同类段合成一节。 */
   function sections(parts: PromptPart[]) {
@@ -33,7 +35,7 @@
     <span class="seg"><button type="button" class:on={!raw} onclick={() => raw = false}>分块</button><button type="button" class:on={raw} onclick={() => raw = true}>原文</button></span>
     <CopyButton text={view.text} />
   </div>
-  {#if raw}<pre>{view.text}</pre>
+  {#if raw}<pre class="pv-raw">{#each view.text.split("\n") as line, i (i)}{#if tags.has(line)}<span class="tag">{line}</span>{:else}{line}{/if}{"\n"}{/each}</pre>
   {:else}
     {#each view.blocks as b (b.kind)}
       {@const [title, icon, note] = BLOCK[b.kind]}

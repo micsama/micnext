@@ -1,5 +1,6 @@
 <script lang="ts">
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+  import CopyIcon from "@lucide/svelte/icons/copy";
   import PlusIcon from "@lucide/svelte/icons/plus";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
@@ -10,6 +11,7 @@
   import type { Persona } from "../../api/types";
   import { confirm } from "../../state/confirm.svelte";
   import { settingsStore } from "../../state/settings.svelte";
+  import PersonaIcon from "../PersonaIcon.svelte";
   import Group from "./Group.svelte";
 
   let { ondirty }: { ondirty: (dirty: boolean) => void } = $props();
@@ -88,6 +90,7 @@
     class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/60"
     onclick={() => open(p)}
   >
+    <PersonaIcon persona={p} tile />
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2">
         <span class="truncate text-sm font-medium">{p.name}</span>
@@ -95,7 +98,7 @@
           <Badge variant="secondary">默认</Badge>
         {/if}
       </div>
-      <p class="mt-0.5 truncate text-xs text-muted-foreground">{p.prompt}</p>
+      <p class="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{p.prompt.replace(/\s+/g, " ")}</p>
     </div>
     <ChevronRightIcon class="size-4 shrink-0 text-muted-foreground" />
   </button>
@@ -104,16 +107,25 @@
 <div class="space-y-8">
   <Group title="我的">
     {#snippet actions()}
-      <Button variant="ghost" size="xs" onclick={() => edit(null, "", "")}><PlusIcon />新建</Button>
+      {#if custom.length}
+        <Button variant="ghost" size="xs" onclick={() => edit(null, "", "")}><PlusIcon />新建</Button>
+      {/if}
     {/snippet}
     {#each custom as p (p.id)}
       {@render row(p)}
     {:else}
-      <p class="px-4 py-6 text-center text-sm text-muted-foreground">还没有自定义人设</p>
+      <div class="flex flex-col items-center gap-3 px-4 py-8 text-center">
+        <PersonaIcon tile />
+        <div class="space-y-1">
+          <p class="text-sm font-medium">还没有自定义人设</p>
+          <p class="text-xs text-muted-foreground">从零新建，或打开下方内置人设复制一份再改</p>
+        </div>
+        <Button variant="outline" size="sm" onclick={() => edit(null, "", "")}><PlusIcon />新建人设</Button>
+      </div>
     {/each}
   </Group>
 
-  <Group title="内置">
+  <Group title="内置" footer="内置人设随版本更新，不可修改。">
     {#each builtin as p (p.id)}
       {@render row(p)}
     {/each}
@@ -124,13 +136,16 @@
   <Dialog.Content class="sm:max-w-lg">
     {#if editor?.kind === "view"}
       {@const p = editor.persona}
-      <Dialog.Header>
-        <Dialog.Title>{p.name}</Dialog.Title>
-        <Dialog.Description>内置人设不可修改，可复制后编辑。</Dialog.Description>
+      <Dialog.Header class="flex-row items-center gap-3 text-left">
+        <PersonaIcon persona={p} tile />
+        <div class="space-y-1">
+          <Dialog.Title>{p.name}</Dialog.Title>
+          <Dialog.Description>内置人设，可复制后编辑</Dialog.Description>
+        </div>
       </Dialog.Header>
-      <pre class="max-h-80 overflow-auto rounded-lg bg-muted px-3 py-2 font-sans text-sm whitespace-pre-wrap">{p.prompt}</pre>
+      <pre class="max-h-80 overflow-auto rounded-lg border bg-muted/50 px-4 py-3 font-sans text-sm leading-relaxed whitespace-pre-wrap">{p.prompt}</pre>
       <Dialog.Footer>
-        <Button onclick={() => copy(p)}>复制为我的人设</Button>
+        <Button onclick={() => copy(p)}><CopyIcon />复制为我的人设</Button>
       </Dialog.Footer>
     {:else if editor?.kind === "edit"}
       {@const e = editor}
@@ -144,9 +159,17 @@
         <Dialog.Header>
           <Dialog.Title>{e.id === null ? "新建人设" : "编辑人设"}</Dialog.Title>
         </Dialog.Header>
-        <div class="space-y-3">
-          <Input bind:value={e.name} placeholder="名称" maxlength={40} required />
-          <Textarea bind:value={e.prompt} rows={10} placeholder="描述角色、做事方式与语气" required />
+        <div class="space-y-4">
+          <label class="block space-y-1.5">
+            <span class="text-xs font-medium text-muted-foreground">名称</span>
+            <Input bind:value={e.name} placeholder="例如：代码审查员" maxlength={40} required />
+          </label>
+          <label class="block space-y-1.5">
+            <span class="flex justify-between text-xs font-medium text-muted-foreground">
+              提示词<span class="font-normal tabular-nums">{e.prompt.length} 字</span>
+            </span>
+            <Textarea bind:value={e.prompt} rows={10} class="max-h-[50vh] leading-relaxed" placeholder="描述角色、做事方式与语气" required />
+          </label>
           {#if error}<p class="text-sm text-destructive">{error}</p>{/if}
         </div>
         <Dialog.Footer class="sm:justify-between">

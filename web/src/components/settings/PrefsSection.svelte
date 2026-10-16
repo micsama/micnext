@@ -8,6 +8,7 @@
   import { putSettings } from "../../api/client";
   import type { Settings, SettingsInput } from "../../api/types";
   import { settingsStore } from "../../state/settings.svelte";
+  import PersonaIcon from "../PersonaIcon.svelte";
   import Group from "./Group.svelte";
   import SaveStatus, { type SaveState } from "./SaveStatus.svelte";
   import TitleModelSection from "./TitleModelSection.svelte";
@@ -83,11 +84,15 @@
           onValueChange={(v) => save("default_persona_id", Number(v))}
         >
           <Select.Trigger class="w-44">
-            {settingsStore.persona(draft.default_persona_id)?.name ?? "未选择"}
+            {@const current = settingsStore.persona(draft.default_persona_id)}
+            <span class="flex min-w-0 items-center gap-2">
+              {#if current}<PersonaIcon persona={current} />{/if}
+              <span class="truncate">{current?.name ?? "未选择"}</span>
+            </span>
           </Select.Trigger>
           <Select.Content>
             {#each settingsStore.personas as p (p.id)}
-              <Select.Item value={String(p.id)} label={p.name} />
+              <Select.Item value={String(p.id)} label={p.name}><PersonaIcon persona={p} />{p.name}</Select.Item>
             {/each}
           </Select.Content>
         </Select.Root>

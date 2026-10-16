@@ -172,7 +172,7 @@
             <div class="flex items-center justify-between"><h3 class="text-xs font-medium text-muted-foreground">模型 <span class="ml-1 tabular-nums">{f.models.length}</span></h3><Button variant="ghost" size="xs" onclick={() => f.models.push(blankRow())}><PlusIcon />添加模型</Button></div>
             {#if f.models.length === 0}<div class="rounded-lg border border-dashed px-3 py-3 text-center text-xs leading-6 text-muted-foreground">还没有模型<br />测试连接可以发现模型，也可以手动添加。</div>{/if}
             {#each f.models as r, i (r)}
-              <div class="border-b last:border-b-0 py-3 space-y-2 model-row">
+              <div class="border-b last:border-b-0 py-3 space-y-2">
                 <div class="model-fields">
                   <label class="min-w-0 space-y-1 text-xs text-muted-foreground">模型 ID<Input bind:value={r.name} class="h-8 font-mono text-xs text-foreground" placeholder="例如 deepseek-flash" /></label>
                   <label class="space-y-1 text-xs text-muted-foreground">上下文 · token<Input class="h-8 text-xs text-foreground" type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="100000" /></label>
@@ -236,8 +236,4 @@
     .model-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px 32px; }
     .model-fields>label:first-child { grid-column: 1 / -1; }
   }
-
-  .model-row :global(input[type="number"]) { appearance: textfield; }
-  .model-row :global(input::-webkit-inner-spin-button),
-  .model-row :global(input::-webkit-outer-spin-button) { -webkit-appearance: none; margin: 0; }
 </style>

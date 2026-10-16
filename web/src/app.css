@@ -148,6 +148,15 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* 数字框只用键盘输入，不要原生上下箭头。 */
+  input[type="number"] {
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
   html,
   body,
   #app {

@@ -38,3 +38,4 @@
 | 实现完成（CLOSED，2026-10-15 人工验收） | 流式调用长时间无数据即判挂起、直接失败不重试（起因：DeepSeek 思考模式 + `tool_choice: none` 卡死，已在 provider 规避） | [B2](docs/blueprints/model-stall.md) |
 | 实现完成（CLOSED，2026-10-15 人工验收） | 运行中停止：Web 停止键与 Web/微信 `/stop`；半截回复保留并通知「已停止」，工具记已取消，未并入的消息照常开新一轮；run 新增「用户停止」终态 | [B2](docs/blueprints/run-stop.md)；[B1](docs/brainstorm/run-stop.md) |
 | 实现完成（CLOSED）；遗留两项 2026-10-15 转入 [model-image-support](docs/blueprints/model-image-support.md) 与会话预览修复 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/model-settings.md`](docs/blueprints/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
+| 实现完成（CLOSED，2026-10-16 人工验收） | 上下文构成浮层与系统提示结构化：系统提示一处组装，trace 按块展示；构成按上次调用记录查询时重算，不改 schema | [B2](docs/blueprints/context-breakdown.md)；[B1](docs/brainstorm/context-breakdown.md) |

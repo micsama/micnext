@@ -32,7 +32,7 @@
       sideOffset={8}
       collisionPadding={16}
       aria-label="上下文构成"
-      class="picker-panel z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-border/70 bg-popover/95 p-4 text-popover-foreground outline-none backdrop-blur-xl">
+      class="picker-panel z-50 w-[26rem] max-w-[calc(100vw-2rem)] rounded-2xl border border-border/70 bg-popover/95 p-4 text-popover-foreground outline-none backdrop-blur-xl">
       <ContextBreakdown {session} occupancy={o} />
     </Popover.Content>
   </Popover.Portal>

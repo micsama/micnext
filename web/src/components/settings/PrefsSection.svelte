@@ -3,12 +3,11 @@
   import { untrack } from "svelte";
   import * as Collapsible from "$lib/components/ui/collapsible";
   import { Input } from "$lib/components/ui/input";
-  import * as Select from "$lib/components/ui/select";
   import { Textarea } from "$lib/components/ui/textarea";
   import { putSettings } from "../../api/client";
   import type { Settings, SettingsInput } from "../../api/types";
   import { settingsStore } from "../../state/settings.svelte";
-  import PersonaIcon from "../PersonaIcon.svelte";
+  import PersonaPicker from "../PersonaPicker.svelte";
   import Group from "./Group.svelte";
   import SaveStatus, { type SaveState } from "./SaveStatus.svelte";
   import TitleModelSection from "./TitleModelSection.svelte";
@@ -78,24 +77,12 @@
     <div class="space-y-1 px-4 py-3">
       <div class="flex items-center justify-between gap-4">
         {@render label("默认人设", "default_persona_id")}
-        <Select.Root
-          type="single"
-          value={String(draft.default_persona_id)}
-          onValueChange={(v) => save("default_persona_id", Number(v))}
-        >
-          <Select.Trigger class="w-44">
-            {@const current = settingsStore.persona(draft.default_persona_id)}
-            <span class="flex min-w-0 items-center gap-2">
-              {#if current}<PersonaIcon persona={current} />{/if}
-              <span class="truncate">{current?.name ?? "未选择"}</span>
-            </span>
-          </Select.Trigger>
-          <Select.Content>
-            {#each settingsStore.personas as p (p.id)}
-              <Select.Item value={String(p.id)} label={p.name}><PersonaIcon persona={p} />{p.name}</Select.Item>
-            {/each}
-          </Select.Content>
-        </Select.Root>
+        <PersonaPicker
+          value={draft.default_persona_id}
+          side="bottom"
+          align="end"
+          onpick={(id) => save("default_persona_id", id)}
+        />
       </div>
       {@render error("default_persona_id")}
     </div>

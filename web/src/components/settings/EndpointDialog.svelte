@@ -1,4 +1,7 @@
 <script lang="ts">
+  import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+  import ImageIcon from "@lucide/svelte/icons/image";
+  import ImageOffIcon from "@lucide/svelte/icons/image-off";
   import PlusIcon from "@lucide/svelte/icons/plus";
   import XIcon from "@lucide/svelte/icons/x";
   import { Button } from "$lib/components/ui/button";
@@ -165,8 +168,8 @@
             </div>
           </section>
 
-          <section class="space-y-2 border-t pt-3">
-            <div class="flex items-center justify-between"><h3 class="text-sm font-medium">模型 <span class="ml-2 text-xs text-muted-foreground">{f.models.length}</span></h3><Button variant="ghost" size="sm" onclick={() => f.models.push(blankRow())}><PlusIcon />添加模型</Button></div>
+          <section class="space-y-1 border-t pt-4">
+            <div class="flex items-center justify-between"><h3 class="text-xs font-medium text-muted-foreground">模型 <span class="ml-1 tabular-nums">{f.models.length}</span></h3><Button variant="ghost" size="xs" onclick={() => f.models.push(blankRow())}><PlusIcon />添加模型</Button></div>
             {#if f.models.length === 0}<div class="rounded-lg border border-dashed px-3 py-3 text-center text-xs leading-6 text-muted-foreground">还没有模型<br />测试连接可以发现模型，也可以手动添加。</div>{/if}
             {#each f.models as r, i (r)}
               <div class="border-b last:border-b-0 py-3 space-y-2 model-row">
@@ -174,11 +177,28 @@
                   <label class="min-w-0 space-y-1 text-xs text-muted-foreground">模型 ID<Input bind:value={r.name} class="h-8 font-mono text-xs text-foreground" placeholder="例如 deepseek-flash" /></label>
                   <label class="space-y-1 text-xs text-muted-foreground">上下文 · token<Input class="h-8 text-xs text-foreground" type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="100000" /></label>
                   <label class="space-y-1 text-xs text-muted-foreground">最大输出<Input class="h-8 text-xs text-foreground" type="number" min="1" value={limitable(f.preset) ? r.max_tokens : ""} oninput={(e) => (r.max_tokens = e.currentTarget.value)} disabled={!limitable(f.preset)} placeholder={limitable(f.preset) ? "默认" : "不支持"} /></label>
-                  <Button variant="ghost" size="icon-sm" aria-label="移除模型 {r.name}" onclick={() => f.models.splice(i, 1)}><XIcon /></Button>
+                  <div class="space-y-1 text-xs text-muted-foreground">
+                    <span class="block">多模态</span>
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      class={r.images ? "border-success/50 bg-success/10 text-success hover:bg-success/15 hover:text-success" : "text-muted-foreground/60"}
+                      aria-pressed={r.images}
+                      aria-label="多模态"
+                      title={r.images ? "多模态：可接收图片（点击关闭）" : "非多模态：图片换成文字占位（点击开启）"}
+                      onclick={() => (r.images = !r.images)}
+                    >
+                      {#if r.images}<ImageIcon />{:else}<ImageOffIcon />{/if}
+                    </Button>
+                  </div>
+                  <Button variant="ghost" size="icon-sm" class="text-muted-foreground" aria-label="移除模型 {r.name}" onclick={() => f.models.splice(i, 1)}><XIcon /></Button>
                 </div>
-                <label class="flex w-fit items-center gap-2 text-xs text-muted-foreground" title="关闭后，发给这个模型的图片换成文字占位"><input type="checkbox" bind:checked={r.images} />支持图片</label>
-                <details open={r.id !== null && r.id === focus} {@attach (el) => { if (r.id !== null && r.id === focus) reveal(el); }}>
-                  <summary class="cursor-pointer text-xs text-muted-foreground">计费设置 <span class="ml-2 opacity-70">{[r.price_input, r.price_cache_read, r.price_cache_write, r.price_output].filter((v) => v !== "").length ? "已填写单价" : "未设置"}</span><span class="float-right" title="美元 / 百万 token" aria-label="美元 / 百万 token">$ / 百万 token</span></summary>
+                <details class="group" open={r.id !== null && r.id === focus} {@attach (el) => { if (r.id !== null && r.id === focus) reveal(el); }}>
+                  <summary class="flex cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+                    <ChevronRightIcon class="size-3.5 transition-transform group-open:rotate-90" />计费
+                    <span class="ml-1 opacity-70">{[r.price_input, r.price_cache_read, r.price_cache_write, r.price_output].filter((v) => v !== "").length ? "已填写单价" : "未设置"}</span>
+                    <span class="ml-auto opacity-70">$ / 百万 token</span>
+                  </summary>
                   <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {#each [["price_input", "输入"], ["price_output", "输出"], ["price_cache_read", "缓存读取"], ["price_cache_write", "缓存写入"]] as const as [key, label]}
                       <label class="space-y-1 text-xs text-muted-foreground">{label}<Input class="h-8 text-xs text-foreground" type="number" min="0" step="any" value={r[key]} oninput={(e) => (r[key] = e.currentTarget.value)} placeholder={key === "price_cache_write" ? "同输入" : "未设置"} /></label>
@@ -211,9 +231,9 @@
 </Dialog.Root>
 
 <style>
-  .model-fields { display: grid; grid-template-columns: minmax(0, 1fr) 96px 88px 28px; align-items: end; gap: 8px; }
+  .model-fields { display: grid; grid-template-columns: minmax(0, 1fr) 96px 88px 44px 32px; align-items: end; gap: 8px; }
   @media (max-width: 480px) {
-    .model-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 28px; }
+    .model-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px 32px; }
     .model-fields>label:first-child { grid-column: 1 / -1; }
   }
 

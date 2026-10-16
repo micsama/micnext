@@ -4,7 +4,13 @@
   import { settingsStore } from "../state/settings.svelte";
   import PersonaIcon from "./PersonaIcon.svelte";
 
-  let { value, onpick, disabled = false }: { value: number; onpick: (id: number) => void; disabled?: boolean } = $props();
+  let {
+    value,
+    onpick,
+    disabled = false,
+    side = "top",
+    align = "start",
+  }: { value: number; onpick: (id: number) => void; disabled?: boolean; side?: "top" | "bottom"; align?: "start" | "end" } = $props();
 
   let open = $state(false);
   const persona = $derived(settingsStore.persona(value));
@@ -27,8 +33,8 @@
   </Popover.Trigger>
   <Popover.Portal>
     <Popover.Content
-      side="top"
-      align="start"
+      {side}
+      {align}
       sideOffset={8}
       collisionPadding={16}
       aria-label="人设"

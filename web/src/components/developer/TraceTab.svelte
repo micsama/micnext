@@ -559,7 +559,7 @@
     {:else if systemSelected}
       <div class="d-head"><div><div class="d-type"><span class="role r-sys">系统</span></div><div class="d-title">系统提示<small class="sub">当前配置 · 非历史快照</small></div></div>{@render expandButton()}</div>
       <div class="tabs"></div>
-      <div class="panel-body">
+      <div class="panel-body sys-body">
         {#if detailError}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{detailError}</div></div>
         {:else if systemView !== null}<div class="pad"><TraceSystem view={systemView} /></div>
         {:else}<p class="hint pad">加载中…</p>{/if}

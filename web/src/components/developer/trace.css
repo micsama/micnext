@@ -234,7 +234,12 @@
 .trace-layout dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .trace-layout pre { margin: 0; background: var(--t-code); border: 1px solid var(--t-line2); border-radius: 8px; padding: 10px 12px; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; }
 .trace-layout pre.hl { color: var(--t-sub); }
-.trace-layout pre.pv-raw { max-height: none; }
+/* 系统提示：顶栏固定，正文在内部滚动。 */
+.trace-layout .panel-body.sys-body { display: flex; flex-direction: column; overflow: hidden; }
+.trace-layout .sys-body > .pad { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.trace-layout .sys-body .pv { flex: 1; min-height: 0; }
+.trace-layout .pv-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin; }
+.trace-layout pre.pv-raw { flex: 1; min-height: 0; max-height: none; }
 .trace-layout pre.pv-raw .tag { color: var(--t-accent); }
 /* 预览 */
 .trace-layout .pv { display: flex; flex-direction: column; gap: 10px; }
@@ -311,6 +316,7 @@
 @media (max-width: 980px) {
   .trace-layout { grid-template-columns: minmax(0, 1fr); overflow: auto; }
   .trace-layout .inspector:not(.expanded) { grid-column: 1 / -1; min-height: 360px; }
+  .trace-layout .inspector:not(.expanded) .sys-body :is(.pv-scroll, pre.pv-raw) { max-height: 70vh; }
   .trace-layout .panel:first-child { min-height: 430px; max-height: 65vh; }
 }
 @media (max-width: 720px) {

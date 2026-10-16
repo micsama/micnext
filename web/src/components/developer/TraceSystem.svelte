@@ -37,6 +37,7 @@
   </div>
   {#if raw}<pre class="pv-raw">{#each view.text.split("\n") as line, i (i)}{#if tags.has(line)}<span class="tag">{line}</span>{:else}{line}{/if}{"\n"}{/each}</pre>
   {:else}
+    <div class="pv-scroll">
     {#each view.blocks as b (b.kind)}
       {@const [title, icon, note] = BLOCK[b.kind]}
       {@const text = body(b.parts)}
@@ -51,5 +52,6 @@
         {:else}<Markdown source={text} />{/if}
       </TraceCard>
     {/each}
+    </div>
   {/if}
 </div>

@@ -10,10 +10,10 @@ use mic_message::{
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
     CallRecord, CredentialWrite, Dashboard, EndpointId, EndpointView, EndpointWrite, Identity,
-    InputDisposition, MessagePage, ModelCallId, ModelCallPurpose, ModelId, ModelView, ModelWrite,
-    NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId, QueryResult,
-    ReasoningEffort, RunId, Session, SessionCursor, SessionKind, SessionPage, SessionSummary,
-    Settings, Store, StoreError, TableSchema, TraceRunPage, TraceSession,
+    InputDisposition, JobId, MessagePage, ModelCallId, ModelCallPurpose, ModelId, ModelView,
+    ModelWrite, NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId,
+    QueryResult, ReasoningEffort, RunId, Session, SessionCursor, SessionKind, SessionPage,
+    SessionSummary, Settings, Store, StoreError, TableSchema, TraceRunPage, TraceSession,
 };
 use mic_tool::ToolSpec;
 use tokio::sync::mpsc;
@@ -22,6 +22,8 @@ use crate::compaction::{self, Occupancy};
 use crate::context_usage::{self, ContextBreakdown};
 use crate::event::{EventReceiver, Events};
 use crate::input::{validate, IncomingPart};
+use crate::jobs::{JobOutput, JobView, StopJobOutcome};
+use crate::limits::JOB_READ_DEFAULT;
 use crate::provider::{resolve_key, resolve_reasoning, Factories};
 use crate::request::SystemPrompt;
 use crate::run::{now_ms, Engine};
@@ -159,6 +161,50 @@ impl Kernel {
         } else {
             StopOutcome::NotRunning
         })
+    }
+
+    /// `session` 及其后代名下的后台任务；`include_old` 含 14 天前结束的。
+    pub async fn jobs(
+        &self,
+        session: SessionId,
+        include_old: bool,
+    ) -> Result<Vec<JobView>, KernelError> {
+        self.existing(session).await?;
+        Ok(self.engine.jobs.views(session, include_old).await?)
+    }
+
+    /// `offset` 缺省读尾部；`limit` 缺省 16 KiB。
+    pub async fn job_output(
+        &self,
+        session: SessionId,
+        job: JobId,
+        offset: Option<u64>,
+        limit: Option<u64>,
+    ) -> Result<JobOutput, KernelError> {
+        self.existing(session).await?;
+        Ok(self
+            .engine
+            .jobs
+            .output(session, job, offset, limit.unwrap_or(JOB_READ_DEFAULT))
+            .await?
+            .1)
+    }
+
+    /// 用户终止后台任务，收尾完成后返回；owner 收到「已被用户终止」的回注。
+    pub async fn stop_job(
+        &self,
+        session: SessionId,
+        job: JobId,
+    ) -> Result<StopJobOutcome, KernelError> {
+        self.existing(session).await?;
+        Ok(self.engine.jobs.stop(session, job, true).await?)
+    }
+
+    async fn existing(&self, session: SessionId) -> Result<Session, KernelError> {
+        self.store
+            .session(session)
+            .await?
+            .ok_or(KernelError::SessionNotFound)
     }
 
     /// 渠道收到 `/stop`：停当前 run，没有则回一条通知。
@@ -559,7 +605,7 @@ impl Kernel {
             &settings,
             &s.pwd,
             channel_prompt,
-            &self.engine.scoped_tools(&s.tool_scope),
+            &self.engine.scoped_tools(s),
             window.summary.as_deref(),
             &window.files,
         ))
@@ -599,7 +645,7 @@ impl Kernel {
         }
         let tools: Vec<ToolSpec> = self
             .engine
-            .scoped_tools(&s.tool_scope)
+            .scoped_tools(&s)
             .iter()
             .map(|t| t.spec().clone())
             .collect();

@@ -26,6 +26,7 @@ import {
 import { parseMessage, parseMessages, type Message } from "./types";
 import {
   parseContextBreakdown, parseContextView, parseCommands, parseRunStats,
+  parseJobs, parseJobOutput, parseStopJob, type JobView, type JobOutput, type StopJobOutcome,
   type ContextBreakdown, type ContextView, type CommandSpec, type ChatRunStats,
   parseCreated,
   parseEndpoints,
@@ -296,6 +297,17 @@ export async function listCommands(): Promise<CommandSpec[]> {
 /** 停止指定一轮；该轮已结束时 409。 */
 export async function stopRun(sessionId: number, runId: number): Promise<void> {
   await request("POST", `/sessions/${sessionId}/runs/${runId}/stop`);
+}
+export async function listJobs(sessionId: number, includeOld = false): Promise<JobView[]> {
+  return parseJobs(await request("GET", `/sessions/${sessionId}/jobs?include_old=${includeOld}`));
+}
+/** `offset` 缺省读尾部。 */
+export async function jobOutput(sessionId: number, jobId: number, offset?: number, limit?: number): Promise<JobOutput> {
+  const q = new URLSearchParams({ ...(offset === undefined ? {} : { offset: String(offset) }), ...(limit === undefined ? {} : { limit: String(limit) }) });
+  return parseJobOutput(await request("GET", `/sessions/${sessionId}/jobs/${jobId}/output?${q}`));
+}
+export async function stopJob(sessionId: number, jobId: number): Promise<StopJobOutcome> {
+  return parseStopJob(await request("POST", `/sessions/${sessionId}/jobs/${jobId}/stop`));
 }
 export async function revokeCompaction(sessionId: number, boundaryId: number): Promise<void> {
   await request("POST", `/sessions/${sessionId}/compactions/${boundaryId}/revoke`);

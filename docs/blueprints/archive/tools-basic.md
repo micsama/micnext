@@ -25,7 +25,7 @@
 
 不定：
 - 工具在 system prompt 里的拼接位置、按 `tool_scope` 筛选、并行调用（M6）。
-- `bash` 后台执行（v2 job）、`read_image` 等多模态工具（随多模态能力 B2）、`web_search`。
+- `read_image` 等多模态工具（随多模态能力 B2）、`web_search`。
 - 工具 tag 与按模式禁用（§七）。
 
 ## 三、公开契约
@@ -186,9 +186,10 @@ system prompt 分节顺序一致（bash、read、write、edit、glob、grep、we
 | `command` | string | 是 | 非空 |
 | `description` | string | 是 | 非空；DSH 原文（5-10 词、主动语态、示例） |
 | `workdir` | string | 否 | 缺省 cwd |
-| `timeoutMs` | integer | 否 | 缺省 120000，超过 600000 按 600000 执行 |
+| `timeoutMs` | integer | 否 | 前台缺省 120000，超过 600000 按 600000 执行；后台见下 |
+| `background` | boolean | 否 | 缺省 false；后台缺省 600000、不截顶、0 = 不限时（[async-jobs](async-jobs.md) P1.4） |
 
-- 不接受 `run_in_background`：写了就是未知字段，`input`（mic-tool §一）。
+- 不接受 `run_in_background`：写了就是未知字段，`input`（mic-tool §一）。后台用 `background`，派出与输出见 async-jobs P1。
 - 执行：`bash -c <command>`，stdin 为空，继承进程环境；子进程自成进程组。以下三种情况都对整个进程组发 SIGKILL：
   超时、future 被丢弃（取消）、主进程退出后（收掉残留的后台子进程，保证"每次都是新 shell、没有后台"）。
 - 输出（同 DSH）：stdout；stderr 非空时追加 `[stderr]\n…`；两者皆空为 `(no output)`；随后逐行附标记
@@ -241,7 +242,7 @@ system prompt 分节顺序一致（bash、read、write、edit、glob、grep、we
 - **工具 tag 与模式禁用**：工具声明 tag（如 `write`、`network`），模式按 tag 禁用；接口随模式 B2 定，
   大概率是 `Tool` 加方法或 `Registry::tool` 带 tag，与 M6 的 `tool_scope` 筛选合并考虑。
 - **可调项**：`Always` 模块的同名段已留位；出现真实需求时把对应常量从 `limits.rs` 挪进配置结构体。
-- **后台执行、`read_image`、`web_search`**：见 §二。
+- **`read_image`、`web_search`**：见 §二；后台执行见 async-jobs。
 
 ## 八、验收（步 3，含 mic-tool §八）
 

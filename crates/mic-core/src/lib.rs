@@ -10,6 +10,7 @@ mod context_usage;
 mod error;
 mod event;
 mod input;
+mod jobs;
 mod kernel;
 mod limits;
 mod module;
@@ -31,9 +32,11 @@ pub use context_usage::{ContextBreakdown, ContextKind, ContextPart};
 pub use error::{AssembleError, KernelError, RunError, WorkdirError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
 pub use input::{IncomingPart, InputError};
+pub use jobs::{JobAccessError, JobOutput, JobView, StopJobOutcome};
 pub use kernel::{ContextOverview, EndpointDraft, Kernel, ModelDraft, SettingsBackup, StopOutcome};
 pub use mic_media::MediaError;
 pub use mic_store::SecretValue;
+pub use mic_store::{JobId, JobState};
 pub use module::{Activation, BoxError, Module, ModuleConfig, Registry, Service};
 pub use provider::{
     BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ModelResponse, ProbeError,

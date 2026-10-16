@@ -1,15 +1,12 @@
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
-use mic_message::ContentPart;
 use serde::Deserialize;
 
 use crate::schema::parameters_for;
-use crate::{Tool, ToolContext, ToolError, ToolSpec};
+use crate::{BoxFuture, Tool, ToolContext, ToolError, ToolOutput, ToolSpec};
 
-type ToolResult = Result<Vec<ContentPart>, ToolError>;
-type BoxFuture<'a> = Pin<Box<dyn Future<Output = ToolResult> + Send + 'a>>;
+type ToolResult = Result<ToolOutput, ToolError>;
 
 /// 类型擦除后的工具，core 以它汇总不同 `Args` 的工具。Clone 廉价。
 #[derive(Clone)]
@@ -56,7 +53,11 @@ impl ToolHandle {
 
 trait Erased: Send + Sync {
     fn prompt_hint(&self) -> Option<&str>;
-    fn invoke<'a>(&'a self, args: &'a serde_json::Value, ctx: &'a ToolContext) -> BoxFuture<'a>;
+    fn invoke<'a>(
+        &'a self,
+        args: &'a serde_json::Value,
+        ctx: &'a ToolContext,
+    ) -> BoxFuture<'a, ToolResult>;
 }
 
 impl<T: Tool> Erased for T {
@@ -64,7 +65,11 @@ impl<T: Tool> Erased for T {
         Tool::prompt_hint(self)
     }
 
-    fn invoke<'a>(&'a self, args: &'a serde_json::Value, ctx: &'a ToolContext) -> BoxFuture<'a> {
+    fn invoke<'a>(
+        &'a self,
+        args: &'a serde_json::Value,
+        ctx: &'a ToolContext,
+    ) -> BoxFuture<'a, ToolResult> {
         Box::pin(async move {
             if !args.is_object() {
                 return Err(ToolError::input("arguments must be a JSON object"));

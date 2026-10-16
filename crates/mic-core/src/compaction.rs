@@ -8,7 +8,7 @@ use mic_store::{
     ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
     SessionKind, StoreError,
 };
-use mic_tool::ToolContext;
+use mic_tool::{ToolContext, ToolOutput};
 use serde::Serialize;
 
 use crate::attempt::{stream_attempt, Facts};
@@ -298,7 +298,10 @@ impl Exec<'_> {
 
     async fn read_snapshots(&self, paths: Vec<String>) -> Vec<FileSnapshot> {
         let read = self.tools.iter().find(|t| t.name() == "read");
-        let ctx = ToolContext::new(PathBuf::from(&self.session.pwd));
+        let ctx = ToolContext::new(
+            PathBuf::from(&self.session.pwd),
+            std::sync::Arc::new(crate::jobs::NoBackground),
+        );
         let mut remaining = SNAPSHOT_BYTES;
         let mut files = Vec::new();
         for (index, path) in paths.into_iter().enumerate() {
@@ -314,7 +317,10 @@ impl Exec<'_> {
                 let args =
                     serde_json::to_value(ReadArgs { file_path: &path }).expect("read 参数可序列化");
                 match read.invoke(&args, &ctx).await {
-                    Ok(parts) => {
+                    Ok(output) => {
+                        let ToolOutput::Completed(parts) = output else {
+                            unreachable!("read 不派出后台任务")
+                        };
                         let mut text = parts
                             .into_iter()
                             .filter_map(|p| match p {

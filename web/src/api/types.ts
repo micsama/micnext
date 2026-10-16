@@ -43,6 +43,13 @@ export type CompactionView = { boundary_id: number; result: Compaction; state: {
 export type Occupancy = { used_tokens: number; window: number; trigger_percent: number };
 export type ContextKind = "instructions" | "persona" | "tools" | "environment" | "summary" | "conversation";
 export type ContextBreakdown = Occupancy & { parts: { kind: ContextKind; tokens: number; tool_tokens: number | null }[] };
+export type JobState = "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted";
+export type JobView = {
+  id: number; tool_name: string; owner_session_id: number; description: string; state: JobState;
+  created_at: number; finished_at: number | null; timeout_ms: number | null; output_bytes: number; tail: string;
+};
+export type JobOutput = { text: string; offset: number; next_offset: number; eof: boolean; available_from: number; total_bytes: number };
+export type StopJobOutcome = "stopped" | "already_finished";
 export type ContextView = { active_boundary: number | null; compactions: CompactionView[]; occupancy: Occupancy | null };
 /** 一轮的统计；聊天统计行与 trace 运行概览共用（chat-run-stats §1.1）。 */
 export type RunStats = {
@@ -233,6 +240,7 @@ export const parseWechatView = (v: unknown): WechatView => {
 
 export type StreamEvent =
   | { event: "session_title_changed"; data: Record<string, never> }
+  | { event: "jobs_changed"; data: Record<string, never> }
   | { event: "message"; data: Message }
   | { event: "text_delta"; data: { text: string } }
   | { event: "reasoning_delta"; data: { text: string } }
@@ -282,6 +290,15 @@ const runStatsFields = {
 export const runStats: Decoder<RunStats> = obj(runStatsFields);
 const chatRunStats: Decoder<ChatRunStats> = obj({ ...runStatsFields, run_id: num, state: runState, anchor_id: num });
 export const parseRunStats = (v: unknown): ChatRunStats[] => obj({ runs: arr(chatRunStats) })(v, "统计").runs;
+const jobState: Decoder<JobState> = oneOf("running", "completed", "failed", "timed_out", "cancelled", "interrupted");
+const jobView: Decoder<JobView> = obj({
+  id: num, tool_name: str, owner_session_id: num, description: str, state: jobState,
+  created_at: num, finished_at: nullable(num), timeout_ms: nullable(num), output_bytes: num, tail: str,
+});
+const jobOutput: Decoder<JobOutput> = obj({ text: str, offset: num, next_offset: num, eof: bool, available_from: num, total_bytes: num });
+export const parseJobs = (v: unknown): JobView[] => arr(jobView)(v, "任务列表");
+export const parseJobOutput = (v: unknown): JobOutput => jobOutput(v, "任务输出");
+export const parseStopJob = (v: unknown): StopJobOutcome => obj({ outcome: oneOf("stopped", "already_finished") })(v, "终止任务").outcome;
 export const parseContextView = (v: unknown): ContextView => contextView(v, "上下文");
 const contextKind: Decoder<ContextKind> = oneOf("instructions", "persona", "tools", "environment", "summary", "conversation");
 const contextBreakdown: Decoder<ContextBreakdown> = obj({ used_tokens: num, window: num, trigger_percent: num, parts: arr(obj({ kind: contextKind, tokens: num, tool_tokens: nullable(num) })) });
@@ -404,6 +421,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   reasoning_delta: delta,
   draft_discarded: obj({}),
   session_title_changed: obj({}),
+  jobs_changed: obj({}),
   run_started: obj({ run_id: num }),
   run_finished: obj({
     run_id: num,

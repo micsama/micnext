@@ -15,7 +15,7 @@ use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
 use crate::update::{RestartRequest, Updater};
 use crate::{
-    api, backup, channels, context, log_stream, models, settings, sql, stream, ticket, trace,
+    api, backup, channels, context, jobs, log_stream, models, settings, sql, stream, ticket, trace,
     update, web, DeveloperLogs,
 };
 
@@ -117,6 +117,9 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/sessions/{id}/images/{image_id}", get(api::get_image))
         .route("/sessions/{id}/run-stats", get(api::run_stats))
         .route("/sessions/{id}/runs/{run_id}/stop", post(api::stop_run))
+        .route("/sessions/{id}/jobs", get(jobs::list))
+        .route("/sessions/{id}/jobs/{job}/output", get(jobs::output))
+        .route("/sessions/{id}/jobs/{job}/stop", post(jobs::stop))
         .route("/sessions/{id}/stream-ticket", post(ticket::session_ticket))
         .route("/commands", get(context::commands))
         .route("/sessions/{id}/context", get(context::get_context))

@@ -1,7 +1,9 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use mic_core::{ChannelSetupError, InputError, KernelError, MediaError, WorkdirError};
+use mic_core::{
+    ChannelSetupError, InputError, JobAccessError, KernelError, MediaError, WorkdirError,
+};
 use mic_store::{DiagnosticError, ModelSettingsError, SettingsError};
 use serde::Serialize;
 
@@ -39,6 +41,7 @@ pub(crate) const PERSONA_NOT_FOUND: &str = "人设不存在";
 pub(crate) const IMAGE_NOT_FOUND: &str = "图片不存在";
 pub(crate) const MODEL_NOT_FOUND: &str = "模型不存在";
 pub(crate) const ENDPOINT_NOT_FOUND: &str = "服务商不存在";
+pub(crate) const JOB_NOT_FOUND: &str = "任务不存在";
 
 impl From<ChannelSetupError> for ApiError {
     fn from(error: ChannelSetupError) -> Self {
@@ -114,6 +117,14 @@ impl From<KernelError> for ApiError {
                 }
                 DiagnosticError::Unavailable => Self::Unavailable(e.to_string()),
                 DiagnosticError::Store(e) => Self::Internal(e.into()),
+            },
+            KernelError::Job(e) => match e {
+                JobAccessError::NotFound => Self::NotFound(JOB_NOT_FOUND),
+                JobAccessError::Forbidden => Self::Forbidden(e.to_string()),
+                JobAccessError::ReadLimit => Self::BadRequest(e.to_string()),
+                JobAccessError::Io(_) | JobAccessError::Store(_) => {
+                    Self::Internal(KernelError::Job(e))
+                }
             },
             e => Self::Internal(e),
         }

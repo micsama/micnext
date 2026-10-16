@@ -12,6 +12,7 @@
   import ContextMeter from "./ContextMeter.svelte";
   import PersonaPicker from "./PersonaPicker.svelte";
   import Icon from "../lib/Icon.svelte";
+  import JobsPanel from "./JobsPanel.svelte";
 
   let { view }: { view: SessionView } = $props();
 
@@ -82,6 +83,9 @@
     }
   }
 
+  let jobsOpen = $state(matchMedia("(min-width: 1024px)").matches);
+  const runningJobs = $derived(view.jobs.filter((j) => j.state === "running").length);
+
   const channelName = (c: string) => (c === "wechat" ? "微信" : c);
 
   const modelNotice = $derived(pickError ?? (modelDeleted ? "原模型已删除，请重新选择" : null));
@@ -97,12 +101,19 @@
     <button type="button" class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 text-primary hover:bg-accent" onclick={() => router.go(`/s/${view.id}/trace`)} title="查看当前会话的 Trace"><Icon name="sparkles" class="size-3" />Trace</button>
   {/snippet}
   {#snippet actions()}
+    {#if view.jobs.length > 0}
+      <button type="button" aria-label="后台任务" title={runningJobs ? `${runningJobs} 个后台任务运行中` : "后台任务"} aria-pressed={jobsOpen} onclick={() => (jobsOpen = !jobsOpen)} class="inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground {jobsOpen ? 'bg-accent text-foreground' : ''}">
+        <Icon name="terminal" class="size-3.5" />{#if runningJobs}<span class="text-primary">{runningJobs}</span>{/if}
+      </button>
+    {/if}
     <button type="button" aria-label="重新生成标题" title={titleBusy ? "正在生成标题" : "重新生成标题"} disabled={titleBusy || !view.ready || !!view.fatal} onclick={() => view.regenerateTitle()} class="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">
       <Icon name={titleBusy ? "loader" : "refresh"} class="size-3.5 {titleBusy ? 'animate-spin' : ''}" />
     </button>
   {/snippet}
 </Header>
 {#if titleError}<p role="alert" class="border-b border-border px-4 py-2 text-xs text-destructive">标题生成：{titleError}</p>{/if}
+<div class="relative flex min-h-0 flex-1">
+<div class="flex min-w-0 flex-1 flex-col">
 {#if view.fatal}
   <div class="grid flex-1 place-items-center p-6 text-center">
     <div class="space-y-3">
@@ -138,3 +149,6 @@
     </div>
   {/if}
 {/if}
+</div>
+{#if jobsOpen && view.jobs.length > 0}<JobsPanel {view} writable={!!item?.writable} onclose={() => (jobsOpen = false)} />{/if}
+</div>

@@ -7,6 +7,7 @@ mod channels;
 mod config;
 mod context;
 mod error;
+mod jobs;
 mod limits;
 mod log_store;
 mod log_stream;

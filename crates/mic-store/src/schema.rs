@@ -20,7 +20,40 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: "ALTER TABLE core_models ADD COLUMN images INTEGER NOT NULL DEFAULT 1 CHECK(images IN (0, 1));",
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 12,
+        sql: CORE_JOBS,
+        secret_columns: &[],
+    },
 ];
+
+/// 后台任务；输出在数据目录 `jobs/<id>/`，不进库。
+const CORE_JOBS: &str = "
+CREATE TABLE core_jobs (
+  id                  INTEGER PRIMARY KEY,
+  kind                TEXT NOT NULL CHECK(kind IN ('tool', 'agent')),
+  owner_session_id    INTEGER NOT NULL REFERENCES core_sessions(id),
+  person_id           INTEGER NOT NULL REFERENCES core_persons(id),
+  origin_run_id       INTEGER NOT NULL REFERENCES core_runs(id),
+  origin_tool_call_id TEXT NOT NULL,
+  tool_name           TEXT NOT NULL,
+  description         TEXT NOT NULL,
+  created_at          INTEGER NOT NULL,
+  timeout_ms          INTEGER,
+  state               TEXT CHECK(state IN
+                        ('running', 'completed', 'failed', 'timed_out', 'cancelled', 'interrupted')),
+  finished_at         INTEGER,
+  report_message_id   INTEGER REFERENCES core_messages(id),
+  child_session_id    INTEGER UNIQUE REFERENCES core_sessions(id),
+  UNIQUE(origin_run_id, origin_tool_call_id),
+  CHECK((kind = 'tool') = (state IS NOT NULL)),
+  CHECK((kind = 'agent') = (child_session_id IS NOT NULL))
+);
+CREATE INDEX idx_jobs_owner ON core_jobs(owner_session_id);
+CREATE INDEX idx_jobs_running ON core_jobs(id) WHERE state = 'running';
+ALTER TABLE core_runs ADD COLUMN report_message_id INTEGER REFERENCES core_messages(id);
+";
 
 /// 当前形态的完整 schema；更早的迁移链已删除。
 const CORE_BASELINE: &str = "
@@ -323,6 +356,7 @@ pub(crate) const TABLE_CATALOG: &[(&str, &str, &str)] = &[
     ("core_settings", "身份与设置", "用户设置"),
     ("core_sessions", "会话与执行", "会话"),
     ("core_runs", "会话与执行", "执行轮次"),
+    ("core_jobs", "会话与执行", "后台任务"),
     ("core_messages", "会话与执行", "消息事实"),
     ("core_model_calls", "调用与上下文", "模型调用尝试"),
     ("core_model_call_inputs", "调用与上下文", "调用输入选择依据"),

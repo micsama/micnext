@@ -1,5 +1,5 @@
 use mic_message::ContentPart;
-use mic_tool::{Tool, ToolContext, ToolError};
+use mic_tool::{Tool, ToolContext, ToolError, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -31,7 +31,7 @@ impl Tool for Write {
         Some("write creates a file or fully overwrites it: read an existing file first, and prefer edit for partial changes.")
     }
 
-    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {
+    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let path = resolve(ctx, &args.file_path)?;
         let display = display_path(ctx.cwd(), &path);
         let text = blocking(move |_| {
@@ -52,6 +52,6 @@ impl Tool for Write {
             ))
         })
         .await?;
-        Ok(vec![ContentPart::Text { text }])
+        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
     }
 }

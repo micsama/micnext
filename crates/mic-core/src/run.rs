@@ -14,12 +14,13 @@ use mic_store::{
     ModelCallOutcome, ModelCallPurpose, ModelId, ReasoningEffort, Run, RunId, RunInput,
     RunSettings, RunState, Session, SessionKind, Store, StoreError, ToolScope,
 };
-use mic_tool::{ToolContext, ToolHandle};
+use mic_tool::{ToolContext, ToolHandle, ToolOutput};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::attempt::{stream_attempt, Caller, Facts};
 use crate::event::{Events, KernelEventKind};
+use crate::jobs::{JobPort, Jobs, Origin};
 use crate::limits::{MAX_MODEL_ATTEMPTS, MAX_RETRY_WAIT, MAX_TURNS_WARN_PERCENT, RETRY_BASE};
 use crate::provider::{BuiltProvider, Factories};
 use crate::{request, ModelEvent, ModelResponse, Provider, ProviderError, StopReason};
@@ -36,6 +37,7 @@ pub(crate) struct Engine {
     pub(crate) events: Events,
     pub(crate) factories: Arc<Factories>,
     pub(crate) tools: Vec<ToolHandle>,
+    pub(crate) jobs: Arc<Jobs>,
     /// 渠道名 → 渠道提示；只用于 Root 会话。
     pub(crate) channel_prompts: Arc<HashMap<&'static str, &'static str>>,
     /// 执行中 run 的停止令牌，随 `run` 登记与移除。
@@ -58,15 +60,16 @@ impl Engine {
         }
     }
 
-    pub(crate) fn scoped_tools(&self, scope: &ToolScope) -> Vec<ToolHandle> {
-        match scope {
-            ToolScope::All => self.tools.clone(),
-            ToolScope::Only(names) => self
-                .tools
-                .iter()
-                .filter(|t| names.contains(t.name()))
-                .cloned()
-                .collect(),
+    /// 会话可用的工具：登记工具加绑定本会话的任务管理工具，按工具范围过滤。
+    pub(crate) fn scoped_tools(&self, session: &Session) -> Vec<ToolHandle> {
+        let all = self
+            .tools
+            .iter()
+            .cloned()
+            .chain(self.jobs.tools(session.id));
+        match &session.tool_scope {
+            ToolScope::All => all.collect(),
+            ToolScope::Only(names) => all.filter(|t| names.contains(t.name())).collect(),
         }
     }
 
@@ -89,7 +92,7 @@ impl Engine {
             KernelEventKind::RunStarted { run_id: run.id },
         );
         tracing::info!(session = session.id.0, run = run.id.0, "run started");
-        let tools = self.scoped_tools(&session.tool_scope);
+        let tools = self.scoped_tools(session);
         let stop = CancellationToken::new();
         let registered = Registered {
             engine: self,
@@ -567,31 +570,45 @@ impl Exec<'_> {
     }
 
     /// 本批调用并行执行，结果按返回顺序由本 run 落盘，故消息 id 只表示落盘顺序。
-    /// 停止时中止未返回的任务（shell 随之杀进程组），补记已取消。
+    /// 停止时中止未返回的任务（shell 随之杀进程组）：已登记后台任务的记 `Dispatched`，其余补记已取消。
     async fn run_tools(&self, calls: Vec<Call>) -> Result<(), StoreError> {
         let mut running = JoinSet::new();
         let mut started = HashMap::new();
         for call in calls {
             let handle = self.tools.iter().find(|t| t.name() == call.name).cloned();
-            let ctx = ToolContext::new(PathBuf::from(&self.session.pwd));
+            let port = Arc::new(JobPort::new(
+                self.engine.jobs.clone(),
+                Origin {
+                    session: self.session.id,
+                    run: self.run.id,
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                },
+            ));
+            let ctx = ToolContext::new(PathBuf::from(&self.session.pwd), port.clone());
             let (name, args) = (call.name.clone(), call.args.clone());
             let started_at = now_ms();
             let task = running.spawn(async move {
                 match handle {
-                    None => ExecOutcome::Failed {
+                    None => ToolResultOutcome::Terminal(ExecOutcome::Failed {
                         kind: ExecFailureKind::Input,
                         message: format!("unknown tool `{name}`"),
-                    },
+                    }),
                     Some(tool) => match tool.invoke(&args, &ctx).await {
-                        Ok(output) => ExecOutcome::Completed { output },
-                        Err(e) => ExecOutcome::Failed {
+                        Ok(ToolOutput::Completed(output)) => {
+                            ToolResultOutcome::Terminal(ExecOutcome::Completed { output })
+                        }
+                        Ok(ToolOutput::Dispatched { exec_id }) => {
+                            ToolResultOutcome::Dispatched { exec_id }
+                        }
+                        Err(e) => ToolResultOutcome::Terminal(ExecOutcome::Failed {
                             kind: e.kind,
                             message: e.message,
-                        },
+                        }),
                     },
                 }
             });
-            started.insert(task.id(), (call, started_at));
+            started.insert(task.id(), (call, started_at, port));
         }
         let mut stopping = false;
         loop {
@@ -609,19 +626,25 @@ impl Exec<'_> {
             let (id, outcome) = match joined {
                 Ok(done) => done,
                 Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
-                Err(e) => (
-                    e.id(),
-                    ExecOutcome::Cancelled {
-                        message: STOPPED_TOOL.into(),
-                    },
-                ),
+                Err(e) => {
+                    let (_, _, port) = &started[&e.id()];
+                    let outcome = match port.registered().await {
+                        Some(job) => ToolResultOutcome::Dispatched {
+                            exec_id: job.0.to_string(),
+                        },
+                        None => ToolResultOutcome::Terminal(ExecOutcome::Cancelled {
+                            message: STOPPED_TOOL.into(),
+                        }),
+                    };
+                    (e.id(), outcome)
+                }
             };
             let returned_at = now_ms();
-            let (call, started_at) = started.remove(&id).expect("任务登记过");
-            if let ExecOutcome::Failed {
+            let (call, started_at, _) = started.remove(&id).expect("任务登记过");
+            if let ToolResultOutcome::Terminal(ExecOutcome::Failed {
                 kind: ExecFailureKind::Dependency,
                 message,
-            } = &outcome
+            }) = &outcome
             {
                 tracing::warn!(
                     session = self.session.id.0,
@@ -641,7 +664,7 @@ impl Exec<'_> {
                     MessageBody::ToolResult {
                         tool_name: call.name,
                         tool_call_id: call.id,
-                        outcome: ToolResultOutcome::Terminal(outcome),
+                        outcome,
                         started_at: Some(started_at),
                     },
                     returned_at,

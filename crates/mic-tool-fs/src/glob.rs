@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
 use mic_message::ContentPart;
-use mic_tool::{Tool, ToolContext, ToolError};
+use mic_tool::{Tool, ToolContext, ToolError, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -40,7 +40,7 @@ impl Tool for Glob {
         Some("Find files with glob, not shell find. A pattern without \"/\" matches basenames at any depth, so \"*\" matches the whole tree. Results are files only (hidden and ignored included), newest first; oversized results keep the newest.")
     }
 
-    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {
+    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         if args.pattern.trim().is_empty() {
             return Err(ToolError::input("pattern must be a non-empty string"));
         }
@@ -54,7 +54,7 @@ impl Tool for Glob {
             Ok::<_, ToolError>(render(&paths, &cwd))
         })
         .await?;
-        Ok(vec![ContentPart::Text { text }])
+        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
     }
 }
 

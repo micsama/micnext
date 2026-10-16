@@ -10,4 +10,4 @@ mic-tool = { path = "../mic-tool" }
 nix = { version = "0.30", features = ["signal"] }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["process", "time", "io-util"] }
+tokio = { version = "1", features = ["process", "time", "io-util", "macros"] }

@@ -24,3 +24,17 @@ pub(crate) const TITLE_INPUTS: u32 = 8;
 pub(crate) const TITLE_REPLIES: u32 = 2;
 pub(crate) const TITLE_REPLY_CHARS: usize = 500;
 pub(crate) const TITLE_CHARS: usize = 40;
+/// 后台任务输出：至少保留最近这么多字节，按段落盘、整段丢弃。
+pub(crate) const JOB_OUTPUT_KEEP: u64 = 1024 * 1024;
+pub(crate) const JOB_OUTPUT_SEGMENT: u64 = 256 * 1024;
+/// `job_output` 单次读取的缺省与上限字节数。
+pub(crate) const JOB_READ_DEFAULT: u64 = 16 * 1024;
+pub(crate) const JOB_READ_MAX: u64 = 64 * 1024;
+/// 回注里附带的输出尾部字节数。
+pub(crate) const JOB_REPORT_TAIL: u64 = 4 * 1024;
+/// 任务列表里每项附带的输出尾部字节数。
+pub(crate) const JOB_VIEW_TAIL: u64 = 1024;
+/// 输出增长的列表刷新通知至多这么频繁。
+pub(crate) const JOB_NOTIFY_INTERVAL: Duration = Duration::from_secs(1);
+/// 结束超过这么久的任务默认不列出。
+pub(crate) const JOB_HIDE_AFTER: Duration = Duration::from_secs(14 * 24 * 3600);

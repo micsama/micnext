@@ -163,9 +163,11 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
     factories
         .insert(Box::new(Factory(capture.clone())))
         .unwrap();
+    let events = Events::new();
     let engine = Arc::new(Engine {
+        jobs: crate::jobs::Jobs::scratch(&store, &events),
         store: store.clone(),
-        events: Events::new(),
+        events,
         factories: Arc::new(factories),
         tools: Vec::new(),
         channel_prompts: Arc::new(HashMap::new()),
@@ -367,9 +369,11 @@ impl Fixture {
             .await
             .unwrap()
             .unwrap();
+        let events = Events::new();
         let engine = Arc::new(Engine {
+            jobs: crate::jobs::Jobs::scratch(&store, &events),
             store: store.clone(),
-            events: Events::new(),
+            events,
             factories: Arc::new(Factories::default()),
             tools: vec![],
             channel_prompts: Arc::default(),
@@ -619,12 +623,43 @@ impl mic_tool::Tool for TimedTool {
         &self,
         args: Self::Args,
         _: &ToolContext,
-    ) -> Result<Vec<mic_message::ContentPart>, mic_tool::ToolError> {
+    ) -> Result<mic_tool::ToolOutput, mic_tool::ToolError> {
         let delay = args["delay"];
         tokio::time::sleep(Duration::from_millis(delay)).await;
-        Ok(vec![mic_message::ContentPart::Text {
-            text: delay.to_string(),
-        }])
+        Ok(mic_tool::ToolOutput::Completed(vec![
+            mic_message::ContentPart::Text {
+                text: delay.to_string(),
+            },
+        ]))
+    }
+}
+
+/// 派出一个永不结束的后台任务后自己也不返回：停止落在提交之后。
+struct HangAfterDispatch;
+impl mic_tool::Tool for HangAfterDispatch {
+    type Args = HashMap<String, u64>;
+    fn name(&self) -> &str {
+        "hang"
+    }
+    fn description(&self) -> &str {
+        "test dispatch"
+    }
+    fn prompt_hint(&self) -> Option<&str> {
+        None
+    }
+    async fn execute(
+        &self,
+        _: Self::Args,
+        ctx: &ToolContext,
+    ) -> Result<mic_tool::ToolOutput, mic_tool::ToolError> {
+        ctx.background()
+            .dispatch(mic_tool::BackgroundTask {
+                description: "hang".into(),
+                timeout: None,
+                run: Box::new(|_| Box::pin(std::future::pending())),
+            })
+            .await?;
+        std::future::pending().await
     }
 }
 
@@ -761,7 +796,12 @@ async fn parallel_tools_publish_in_persisted_order_and_recovery_has_no_start_tim
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(crate::recovery::recover(&recovery.store).await.unwrap(), 1);
+    assert_eq!(
+        crate::recovery::recover(&recovery.store, std::env::temp_dir())
+            .await
+            .unwrap(),
+        1
+    );
     let messages = recovery
         .store
         .run_messages(recovery.claimed.run.id)
@@ -1042,11 +1082,22 @@ async fn stop_mid_tools_keeps_finished_results_and_cancels_the_rest() {
         args: serde_json::json!({ "delay": delay }),
     };
     let provider = scripted(vec![vec![Ok(ModelEvent::Finished(ModelResponse {
-        blocks: vec![tool_block("slow", 60_000), tool_block("fast", 1)],
+        blocks: vec![
+            tool_block("slow", 60_000),
+            tool_block("fast", 1),
+            ReplyBlock::ToolCall {
+                id: "bg".into(),
+                name: "hang".into(),
+                args: serde_json::json!({}),
+            },
+        ],
         stop: StopReason::ToolUse,
     }))]]);
     let mut exec = f.exec();
-    exec.tools = vec![ToolHandle::new(TimedTool)];
+    exec.tools = vec![
+        ToolHandle::new(TimedTool),
+        ToolHandle::new(HangAfterDispatch),
+    ];
     let stop = exec.stop.clone();
     let (state, ()) = tokio::join!(
         tokio::time::timeout(Duration::from_secs(5), exec.execute(&provider)),
@@ -1075,6 +1126,23 @@ async fn stop_mid_tools_keeps_finished_results_and_cancels_the_rest() {
         &results[1],
         ("slow", ExecOutcome::Cancelled { message }, true) if message == STOPPED_TOOL
     ));
+    // 已提交的派出一定落 Dispatched，任务本身不受停止影响。
+    let job = f
+        .store
+        .job_by_origin(f.claimed.run.id, "bg")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(messages.iter().any(|m| matches!(
+        &m.body,
+        MessageBody::ToolResult { tool_call_id, outcome: ToolResultOutcome::Dispatched { exec_id }, .. }
+            if tool_call_id == "bg" && *exec_id == job.0.to_string()
+    )));
+    assert_eq!(
+        f.store.job(job).await.unwrap().unwrap().state,
+        mic_store::JobState::Running
+    );
+    f.engine.jobs.shutdown().await;
 }
 
 #[tokio::test]

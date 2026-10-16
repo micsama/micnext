@@ -7,6 +7,7 @@ mod diagnostic;
 mod endpoints;
 mod error;
 mod images;
+mod jobs;
 mod limits;
 mod messages;
 mod models;
@@ -30,6 +31,7 @@ pub use rusqlite;
 
 pub use diagnostic::{Cell, ColumnSchema, DiagnosticError, QueryResult, TableSchema};
 pub use error::{ContextCommandError, ModelSettingsError, SettingsError, StoreError};
+pub use jobs::{Job, JobId, JobState, NewToolJob};
 pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
 pub use title::reply_answer;

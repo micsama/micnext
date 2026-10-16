@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::event::{Events, KernelEvent};
 use crate::input::validate;
+use crate::jobs::Jobs;
 use crate::limits::WAKE_CHANNEL_CAPACITY;
 use crate::provider::Factories;
 use crate::run::{now_ms, Engine};
@@ -207,7 +208,9 @@ impl Assembly {
             self.factories.clone(),
             events.clone(),
         );
-        let engine = Arc::new(self.engine(started.store.clone(), events.clone()));
+        let engine =
+            Arc::new(self.engine(started.store.clone(), events.clone(), Some(wake_tx.clone())));
+        let jobs = engine.jobs.clone();
         let kernel = Kernel::new(
             started.owner,
             wake_tx,
@@ -245,9 +248,10 @@ impl Assembly {
                 }
             }
         }
-        // 先停执行（进行中的 run 留在 Executing，下次启动收尾），再等 Service 退出。
+        // 先停执行（进行中的 run 留在 Executing、后台任务留在 running，下次启动收尾），再等 Service 退出。
         drop(scheduler);
         drop(titles);
+        jobs.shutdown().await;
         while let Some(joined) = tasks.join_next_with_id().await {
             settle(joined, &owners, &shutdown, &mut failure);
         }
@@ -259,13 +263,13 @@ impl Assembly {
     pub async fn run_once(
         mut self,
         once: OneShot,
-        mut on_event: impl FnMut(&KernelEvent) + Send,
+        on_event: impl FnMut(&KernelEvent) + Send,
         stop: CancellationToken,
     ) -> Result<OnceOutcome, RunError> {
         let started = self.start().await?;
         let store = started.store.clone();
         let events = Events::new();
-        let mut rx = events.subscribe();
+        let rx = events.subscribe();
         let now = now_ms();
         let chat = now.to_string();
         let session = store
@@ -308,7 +312,23 @@ impl Assembly {
             .await?
             .expect("刚写入的输入必然可认领");
 
-        let engine = Arc::new(self.engine(store, events));
+        let engine = Arc::new(self.engine(store, events, None));
+        let jobs = engine.jobs.clone();
+        let outcome = Self::drive_once(engine, session, claimed, rx, on_event, stop).await;
+        // 不为后台结果延长寿命。
+        jobs.shutdown().await;
+        outcome
+    }
+
+    async fn drive_once(
+        engine: Arc<Engine>,
+        session: mic_store::Session,
+        claimed: mic_store::ClaimedRun,
+        mut rx: crate::EventReceiver,
+        mut on_event: impl FnMut(&KernelEvent) + Send,
+        stop: CancellationToken,
+    ) -> Result<OnceOutcome, RunError> {
+        let session_id = session.id;
         let mut task = JoinSet::new();
         task.spawn(async move { engine.run(&session, ONCE_CHANNEL, claimed).await });
         let mut show = |event: Result<KernelEvent, crate::Lagged>| match event {
@@ -368,7 +388,7 @@ impl Assembly {
             self.key_file.clone(),
         )
         .await?;
-        let interrupted = recovery::recover(&store).await?;
+        let interrupted = recovery::recover(&store, data_dir.clone()).await?;
         let held_sessions = store.hold_unclaimed_inputs(now_ms()).await?.len();
         let owner = store.ensure_person(&self.owner, now_ms()).await?;
         tracing::info!(db = %db.display(), interrupted, held_sessions, "store ready");
@@ -379,8 +399,19 @@ impl Assembly {
         })
     }
 
-    fn engine(&self, store: Store, events: Events) -> Engine {
+    fn engine(
+        &self,
+        store: Store,
+        events: Events,
+        wake: Option<mpsc::Sender<SessionId>>,
+    ) -> Engine {
         Engine {
+            jobs: Arc::new(Jobs::new(
+                store.clone(),
+                events.clone(),
+                wake,
+                self.data_dir.clone(),
+            )),
             store,
             events,
             factories: self.factories.clone(),

@@ -3,24 +3,26 @@ use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
-use mic_message::ContentPart;
-use mic_tool::{Tool, ToolContext, ToolError};
+use mic_message::{ContentPart, ExecOutcome};
+use mic_tool::{BackgroundTask, OutputSink, Tool, ToolContext, ToolError, ToolOutput};
 use nix::sys::signal::{killpg, Signal};
 use nix::unistd::Pid;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio::process::Command;
+use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 
-use crate::limits::{DEFAULT_TIMEOUT_MS, MAX_OUTPUT_BYTES, MAX_TIMEOUT_MS};
+use crate::limits::{BACKGROUND_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, MAX_OUTPUT_BYTES, MAX_TIMEOUT_MS};
 
 pub(crate) struct Bash;
 
 const DESCRIPTION: &str = "Execute a bash command (`bash -c`) and return its stdout/stderr. \
     Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls \
     — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. \
-    Long output is truncated to its tail. Background execution is not available; \
-    long-running commands must finish within the timeout.";
+    Long output is truncated to its tail. Set `background` for long-running work (builds, \
+    servers): the call returns at once with an exec_id, stdout and stderr go to a log you read \
+    with `job_output`, and the exit arrives later as a completion. Background commands must not \
+    daemonize themselves.";
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -29,11 +31,14 @@ pub(crate) struct Args {
     command: String,
     /// Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; "git status" → "Show working tree status"; "npm install" → "Install package dependencies".
     description: String,
-    /// Timeout in milliseconds. Defaults to 120000; values above 600000 are capped at 600000. The command is killed on expiry.
+    /// Timeout in milliseconds; the command is killed on expiry. Foreground: defaults to 120000, values above 600000 are capped at 600000. Background: defaults to 600000, no cap, 0 = no timeout (for servers).
     #[serde(rename = "timeoutMs")]
     timeout_ms: Option<u64>,
     /// Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.
     workdir: Option<String>,
+    /// Run in the background and return immediately. Defaults to false.
+    #[serde(default)]
+    background: bool,
 }
 
 impl Tool for Bash {
@@ -48,21 +53,20 @@ impl Tool for Bash {
     }
 
     fn prompt_hint(&self) -> Option<&str> {
-        Some("Check the [exit code: N] marker on every bash result; investigate failures before moving on.")
+        Some(
+            "Check the [exit code: N] marker on every bash result; investigate failures before moving on. \
+             A dispatched background command is not yet ready: read its output or probe it before telling the user it has started.",
+        )
     }
 
-    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {
+    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         if args.command.trim().is_empty() {
             return Err(ToolError::input("command must be a non-empty string"));
         }
         if args.description.trim().is_empty() {
             return Err(ToolError::input("description must be a non-empty string"));
         }
-        let timeout_ms = match args.timeout_ms {
-            Some(0) => return Err(ToolError::input("timeoutMs must be a positive integer")),
-            Some(ms) => ms.min(MAX_TIMEOUT_MS),
-            None => DEFAULT_TIMEOUT_MS,
-        };
+        let timeout = parse_timeout(args.timeout_ms, args.background)?;
         let workdir = match args.workdir {
             Some(dir) => ctx.cwd().join(dir),
             None => ctx.cwd().to_path_buf(),
@@ -73,11 +77,36 @@ impl Tool for Bash {
                 workdir.display()
             )));
         }
-        let run = run(&args.command, workdir, timeout_ms).await?;
-        Ok(vec![ContentPart::Text {
-            text: run.render(timeout_ms),
-        }])
+        if !args.background {
+            let timeout_ms = timeout.expect("前台必有超时");
+            let run = run(&args.command, workdir, timeout_ms).await?;
+            return Ok(ToolOutput::Completed(vec![ContentPart::Text {
+                text: run.render(timeout_ms),
+            }]));
+        }
+        let command = args.command;
+        let exec_id = ctx
+            .background()
+            .dispatch(BackgroundTask {
+                description: args.description,
+                timeout: timeout.map(Duration::from_millis),
+                run: Box::new(move |sink| Box::pin(run_background(command, workdir, sink))),
+            })
+            .await?;
+        Ok(ToolOutput::Dispatched { exec_id })
     }
+}
+
+/// 毫秒；`None` = 不限时（只有后台允许）。
+fn parse_timeout(timeout_ms: Option<u64>, background: bool) -> Result<Option<u64>, ToolError> {
+    Ok(match (timeout_ms, background) {
+        (None, false) => Some(DEFAULT_TIMEOUT_MS),
+        (None, true) => Some(BACKGROUND_TIMEOUT_MS),
+        (Some(0), false) => return Err(ToolError::input("timeoutMs must be a positive integer")),
+        (Some(0), true) => None,
+        (Some(ms), false) => Some(ms.min(MAX_TIMEOUT_MS)),
+        (Some(ms), true) => Some(ms),
+    })
 }
 
 struct Run {
@@ -87,7 +116,14 @@ struct Run {
     stderr: Tail,
 }
 
-async fn run(command: &str, workdir: PathBuf, timeout_ms: u64) -> Result<Run, ToolError> {
+struct Spawned {
+    child: Child,
+    group: ProcessGroup,
+    stdout: ChildStdout,
+    stderr: ChildStderr,
+}
+
+fn spawn(command: &str, workdir: PathBuf) -> Result<Spawned, ToolError> {
     let mut child = Command::new("bash")
         .arg("-c")
         .arg(command)
@@ -104,21 +140,47 @@ async fn run(command: &str, workdir: PathBuf, timeout_ms: u64) -> Result<Run, To
     ));
     let stdout = child.stdout.take().expect("stdout 已设为 piped");
     let stderr = child.stderr.take().expect("stderr 已设为 piped");
+    Ok(Spawned {
+        child,
+        group,
+        stdout,
+        stderr,
+    })
+}
 
-    // 主进程退出即杀进程组：残留的后台子进程若还握着管道，读端也能随之结束。
-    let wait = async {
-        let result =
-            match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait()).await {
-                Ok(status) => status.map(|s| (s, false)),
-                Err(_) => {
-                    group.kill();
-                    child.wait().await.map(|s| (s, true))
-                }
-            };
-        group.kill();
-        result
+/// 主进程退出即杀进程组：残留的后台子进程若还握着管道，读端也能随之结束。
+/// 返回 (状态, 是否超时)。
+async fn wait(
+    child: &mut Child,
+    group: &ProcessGroup,
+    timeout_ms: Option<u64>,
+) -> std::io::Result<(ExitStatus, bool)> {
+    let result = match timeout_ms {
+        None => child.wait().await.map(|s| (s, false)),
+        Some(ms) => match tokio::time::timeout(Duration::from_millis(ms), child.wait()).await {
+            Ok(status) => status.map(|s| (s, false)),
+            Err(_) => {
+                group.kill();
+                child.wait().await.map(|s| (s, true))
+            }
+        },
     };
-    let (waited, stdout, stderr) = tokio::join!(wait, read_tail(stdout), read_tail(stderr));
+    group.kill();
+    result
+}
+
+async fn run(command: &str, workdir: PathBuf, timeout_ms: u64) -> Result<Run, ToolError> {
+    let Spawned {
+        mut child,
+        group,
+        stdout,
+        stderr,
+    } = spawn(command, workdir)?;
+    let (waited, stdout, stderr) = tokio::join!(
+        wait(&mut child, &group, Some(timeout_ms)),
+        read_tail(stdout),
+        read_tail(stderr)
+    );
     let (status, timed_out) =
         waited.map_err(|e| ToolError::dependency(format!("failed to wait for bash: {e}")))?;
     Ok(Run {
@@ -127,6 +189,76 @@ async fn run(command: &str, workdir: PathBuf, timeout_ms: u64) -> Result<Run, To
         stdout,
         stderr,
     })
+}
+
+/// 超时由 core 计；这里只跑到退出，stdout/stderr 按读到的顺序合并写入 sink。
+async fn run_background(
+    command: String,
+    workdir: PathBuf,
+    mut sink: Box<dyn OutputSink>,
+) -> ExecOutcome {
+    let Spawned {
+        mut child,
+        group,
+        stdout,
+        stderr,
+    } = match spawn(&command, workdir) {
+        Ok(spawned) => spawned,
+        Err(e) => return failed(e),
+    };
+    let pumped = async {
+        let result = pump(stdout, stderr, &mut *sink).await;
+        if result.is_err() {
+            group.kill();
+        }
+        result
+    };
+    let (waited, pumped) = tokio::join!(wait(&mut child, &group, None), pumped);
+    if let Err(e) = pumped {
+        return failed(ToolError::dependency(format!(
+            "failed to write output: {e}"
+        )));
+    }
+    match waited {
+        Ok((status, _)) => ExecOutcome::Completed {
+            output: vec![ContentPart::Text {
+                text: exit_marker(status).unwrap_or_else(|| "[exit code: 0]".to_owned()),
+            }],
+        },
+        Err(e) => failed(ToolError::dependency(format!(
+            "failed to wait for bash: {e}"
+        ))),
+    }
+}
+
+fn failed(e: ToolError) -> ExecOutcome {
+    ExecOutcome::Failed {
+        kind: e.kind,
+        message: e.message,
+    }
+}
+
+/// 读错误视同 EOF，同前台。
+async fn pump(
+    mut stdout: ChildStdout,
+    mut stderr: ChildStderr,
+    sink: &mut dyn OutputSink,
+) -> std::io::Result<()> {
+    let (mut out_buf, mut err_buf) = ([0u8; 8192], [0u8; 8192]);
+    let (mut out_open, mut err_open) = (true, true);
+    while out_open || err_open {
+        tokio::select! {
+            r = stdout.read(&mut out_buf), if out_open => match r {
+                Ok(n) if n > 0 => sink.write(&out_buf[..n]).await?,
+                _ => out_open = false,
+            },
+            r = stderr.read(&mut err_buf), if err_open => match r {
+                Ok(n) if n > 0 => sink.write(&err_buf[..n]).await?,
+                _ => err_open = false,
+            },
+        }
+    }
+    Ok(())
 }
 
 /// 丢弃时对整个进程组发 SIGKILL：覆盖取消（future 被丢弃）这一路径。
@@ -210,11 +342,7 @@ impl Run {
         if self.timed_out {
             markers.push(format!("[timed out after {timeout_ms}ms]"));
         }
-        match (self.status.signal(), self.status.code()) {
-            (Some(sig), _) => markers.push(format!("[killed by signal: {}]", signal_name(sig))),
-            (None, Some(code)) if code != 0 => markers.push(format!("[exit code: {code}]")),
-            _ => {}
-        }
+        markers.extend(exit_marker(self.status));
         if !markers.is_empty() {
             if !body.ends_with('\n') {
                 body.push('\n');
@@ -225,6 +353,18 @@ impl Run {
     }
 }
 
+/// 正常退出（code 0）为 `None`。
+fn exit_marker(status: ExitStatus) -> Option<String> {
+    match (status.signal(), status.code()) {
+        (Some(sig), _) => Some(format!("[killed by signal: {}]", signal_name(sig))),
+        (None, Some(code)) if code != 0 => Some(format!("[exit code: {code}]")),
+        _ => None,
+    }
+}
+
 fn signal_name(sig: i32) -> String {
     Signal::try_from(sig).map_or_else(|_| sig.to_string(), |s| s.as_str().to_owned())
 }
+
+#[cfg(test)]
+mod tests;

@@ -11,6 +11,7 @@ async fn held_first_text_is_eligible_but_commands_old_text_and_failed_first_are_
     let (handle, runtime) = TitleRuntime::new(store.clone(), factories.clone(), events.clone());
     let (wake, _receiver) = mpsc::channel(16);
     let engine = Arc::new(crate::run::Engine {
+        jobs: crate::jobs::Jobs::scratch(&store, &events),
         store: store.clone(),
         events: events.clone(),
         factories: factories.clone(),
@@ -356,6 +357,7 @@ async fn manual_title_records_sources_and_side_output() {
 
     let (wake, _receiver) = mpsc::channel(1);
     let engine = Arc::new(crate::run::Engine {
+        jobs: crate::jobs::Jobs::scratch(&store, &Events::new()),
         store: store.clone(),
         events: Events::new(),
         factories: factories.clone(),

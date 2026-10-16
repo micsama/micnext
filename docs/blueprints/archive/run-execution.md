@@ -35,8 +35,6 @@
 不定（各自 B2）：
 - 打断正在进行的输出或工具调用（当前一律等待，见 §十）。
 - Skill、ContextContributor、Hook；`/clear`、压缩与撤回已经按 context-compaction 联合契约接入。
-- 异步工具（`Dispatched`/`Completion` 的生产者，v2）。本文的调度与上下文规则已按"`Completion` 可认领、
-  映射为 user 视图"处理，届时不改主路径。
 - Gateway 读稳定历史（回放、会话列表、用量）的方法：随 M9 B2 与其消费者一起加入。
 - Web 会话的 `pwd` 取值（M9）。
 
@@ -265,9 +263,10 @@ loop:
   `Cancelled{"Stopped by the user …"}`（[run-stop](run-stop.md) §2.3）。由模型保证同一回复内的调用互不依赖。
 - 工具调用 → 结果：
   - 名字不在本会话可用工具里（未登记，或不在 `tool_scope`）→ `Failed{Input, "unknown tool `x`"}`。
-  - 否则 `ToolHandle::invoke(args, ToolContext::new(session.pwd))`：`Ok(parts)` → `Completed{output}`，
+  - 否则 `ToolHandle::invoke(args, ToolContext::new(session.pwd, port))`：`Ok(Completed(parts))` → `Completed{output}`，
+    `Ok(Dispatched)` → `Dispatched{exec_id}`（port 与派出交接见 [async-jobs](async-jobs.md) P1.5），
     `Err(e)` → `Failed{e.kind, e.message}`。
-  - 一律包成 `ToolResult{tool_name, tool_call_id, Terminal(..)}`。
+  - 包成 `ToolResult{tool_name, tool_call_id, ..}`。
 - HarnessNote 以 `append` 落盘（`MessageBody::HarnessNote`），模型视图为 `[runtime-note]` user 消息；
   排在本批工具结果之后（§4.4 规则 2 也保证这一点）。
 - 每次请求前先判断当前有效历史是否压缩，成功后再重读 `context_window`：历史以 Store 为唯一真相，循环不在内存里另存一份。
@@ -285,7 +284,7 @@ loop:
     碰到对应的 `ToolResult` 销账。有未结调用时遇到 user 视图消息（用户输入、`HarnessNote`、`Notification`、
     `Completion`），先放进待放队列，销账清零时按原顺序放回。于是请求里一次回复的全部 `ToolCall`
     之后紧跟全部 `ToolResult`，工具运行期间到达的消息落在结果之后，符合"同步工具要等"。
-    异步工具（v2）的 `Dispatched` 回执本身就是 ToolResult，会立即销账；真实结果以 `Completion`
+    后台工具的 `Dispatched` 回执本身就是 ToolResult，会立即销账；真实结果以 `Completion`
     作为 user 视图消息另行交付，同样适用本规则。
   - 存储层不受影响：落盘顺序与消息 id 就是真实发生顺序，回放照此呈现。规则只在 core 组请求这一处执行，
     Provider 按收到的顺序映射。
@@ -314,6 +313,7 @@ loop:
 3. 对每个遗留 run R，core 算出收尾消息，`interrupt_run` 在一个事务里写入并转为 `interrupted`：
    - `run_messages(R)` 里 `Reply` 的 `ToolCall` 块减去已有 `ToolResult`，差集各补一条（挂 R）
      `ToolResult{Terminal(Cancelled{"micnext stopped before this tool call finished; its side effects are unknown."})}`（I1）；
+     已登记后台任务的调用补 `Dispatched`（[async-jobs](async-jobs.md) P1.6）；
    - 追加一条中断通知（§4.7，挂 R）。
    - 不重跑（I4）：该 run 已认领的输入视为已消费。
    - 收尾中途失败或停止：未提交的 run 仍是 `executing`，下次启动从头收尾，不会留下悬空调用。
@@ -482,7 +482,6 @@ micnext [--config <path>] -p <prompt>     一次性（调试用）
   微信等纯文本 Channel 没有这个入口，仍靠发消息让模型自行收尾。随 M9 之后单独 B2。
 - **工具并发声明**：若同一回复内并行调用确实出现冲突（如并行写同一文件），再给工具加并发安全声明，
   有副作用的串行。
-- **异步工具（v2）**：`Dispatched` 回执与 `Completion` 回注，调度与上下文规则已兼容（§4.4）。
 - **tool 隔离**：若工具 panic 实际频繁导致进程重启，再把 panic 转 `Failed{Dependency}`。
 - **多模型、按次切换**：`[models] default` 之外的选择随路由 B2。
 

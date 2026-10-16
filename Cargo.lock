@@ -1367,6 +1367,7 @@ dependencies = [
  "mic-message",
  "mic-store",
  "mic-tool",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror",

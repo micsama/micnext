@@ -36,6 +36,8 @@ pub enum KernelEventKind {
         run_id: RunId,
         state: RunState,
     },
+    /// 会话树的后台任务有变化（登记、输出增长、结束），`session_id` 为树根；订阅方重新拉取。
+    JobsChanged,
 }
 
 pub struct EventReceiver(broadcast::Receiver<KernelEvent>);

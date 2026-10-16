@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 use mic_message::ContentPart;
-use mic_tool::{Tool, ToolContext, ToolError};
+use mic_tool::{Tool, ToolContext, ToolError, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -38,7 +38,7 @@ impl Tool for Read {
         Some("View text files with read, not cat; output has line numbers; page large files with offset and limit.")
     }
 
-    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {
+    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let path = resolve(ctx, &args.file_path)?;
         let offset = positive(args.offset, "offset")?.unwrap_or(1);
         let limit = positive(args.limit, "limit")?.unwrap_or(READ_LIMIT);
@@ -49,7 +49,7 @@ impl Tool for Read {
         }
         let display = display_path(ctx.cwd(), &path);
         let text = blocking(move |_| read_window(path, &display, offset, limit)).await?;
-        Ok(vec![ContentPart::Text { text }])
+        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
     }
 }
 

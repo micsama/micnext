@@ -6,7 +6,7 @@ use grep_searcher::{sinks, BinaryDetection, Searcher, SearcherBuilder};
 use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
 use mic_message::ContentPart;
-use mic_tool::{Tool, ToolContext, ToolError};
+use mic_tool::{Tool, ToolContext, ToolError, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -41,7 +41,7 @@ impl Tool for Grep {
         Some("Search file contents with grep, not shell grep/rg; read a match for surrounding context.")
     }
 
-    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {
+    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         if args.pattern.is_empty() {
             return Err(ToolError::input("pattern must be a non-empty string"));
         }
@@ -55,7 +55,7 @@ impl Tool for Grep {
             Ok::<_, ToolError>(render(&found))
         })
         .await?;
-        Ok(vec![ContentPart::Text { text }])
+        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
     }
 }
 

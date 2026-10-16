@@ -1,5 +1,5 @@
 use mic_message::ContentPart;
-use mic_tool::{Tool, ToolContext, ToolError};
+use mic_tool::{Tool, ToolContext, ToolError, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -41,7 +41,7 @@ impl Tool for Edit {
         Some("edit replaces literal old_string with new_string in a UTF-8 text file; old_string must be unique unless replace_all is true. Read the file first unless you just wrote or edited it.")
     }
 
-    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<Vec<ContentPart>, ToolError> {
+    async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let path = resolve(ctx, &args.file_path)?;
         if args.old_string.is_empty() {
             return Err(ToolError::input("old_string must be a non-empty string"));
@@ -94,7 +94,7 @@ impl Tool for Edit {
             })
         })
         .await?;
-        Ok(vec![ContentPart::Text { text }])
+        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
     }
 }
 

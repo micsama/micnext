@@ -92,6 +92,8 @@ pub enum KernelError {
     Probe(#[from] crate::ProbeError),
     #[error(transparent)]
     Diagnostic(#[from] mic_store::DiagnosticError),
+    #[error(transparent)]
+    Job(#[from] crate::JobAccessError),
 }
 
 #[derive(Debug, thiserror::Error)]

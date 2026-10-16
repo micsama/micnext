@@ -1,7 +1,12 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
 
-use mic_message::{ContentPart, ExecFailureKind};
+use mic_message::{ContentPart, ExecFailureKind, ExecOutcome};
+
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// 发给模型的工具定义；由各 Tool 自带，core 只汇总后放进请求。
 #[derive(Debug, Clone, PartialEq)]
@@ -25,28 +30,63 @@ pub trait Tool: Send + Sync + 'static {
     fn prompt_hint(&self) -> Option<&str>;
 
     /// 丢弃返回的 future = 取消：实现须随之释放资源（如杀掉子进程组），不得留下后台副作用。
+    /// 已经 `dispatch` 提交的后台任务归 core 所有，不受此约束。
     fn execute(
         &self,
         args: Self::Args,
         ctx: &ToolContext,
-    ) -> impl Future<Output = Result<Vec<ContentPart>, ToolError>> + Send;
+    ) -> impl Future<Output = Result<ToolOutput, ToolError>> + Send;
+}
+
+pub enum ToolOutput {
+    Completed(Vec<ContentPart>),
+    /// 已交给后台执行，结果日后以 `Completion` 回注。
+    Dispatched {
+        exec_id: String,
+    },
+}
+
+/// 后台任务的输出去处；core 只保留最近一段。
+pub trait OutputSink: Send {
+    fn write<'a>(&'a mut self, bytes: &'a [u8]) -> BoxFuture<'a, std::io::Result<()>>;
+}
+
+pub struct BackgroundTask {
+    pub description: String,
+    /// `None` = 不限时。
+    pub timeout: Option<Duration>,
+    /// 丢弃返回的 future = 取消，须释放全部资源（如杀进程组）。
+    /// 结论只描述工具自身（如退出码），输出尾部由 core 拼进回注。
+    #[allow(clippy::type_complexity)]
+    pub run: Box<dyn FnOnce(Box<dyn OutputSink>) -> BoxFuture<'static, ExecOutcome> + Send>,
+}
+
+/// 后台派出 port，由 core 按调用绑定会话、run、发起人与工具调用。
+pub trait Background: Send + Sync {
+    /// 登记即提交；返回 exec_id。
+    fn dispatch(&self, task: BackgroundTask) -> BoxFuture<'_, Result<String, ToolError>>;
 }
 
 /// 单次调用的执行上下文，由 core 构造。
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ToolContext {
     cwd: PathBuf,
+    background: Arc<dyn Background>,
 }
 
 impl ToolContext {
     /// `cwd` 为绝对路径（会话 `pwd`），由 core 保证。
-    pub fn new(cwd: PathBuf) -> Self {
-        Self { cwd }
+    pub fn new(cwd: PathBuf, background: Arc<dyn Background>) -> Self {
+        Self { cwd, background }
     }
 
     /// 相对路径的解析基准、`bash` 的默认工作目录。
     pub fn cwd(&self) -> &Path {
         &self.cwd
+    }
+
+    pub fn background(&self) -> &dyn Background {
+        &*self.background
     }
 }
 

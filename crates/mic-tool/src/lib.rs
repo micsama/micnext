@@ -6,4 +6,7 @@ mod schema;
 mod tool;
 
 pub use handle::ToolHandle;
-pub use tool::{Tool, ToolContext, ToolError, ToolSpec};
+pub use tool::{
+    Background, BackgroundTask, BoxFuture, OutputSink, Tool, ToolContext, ToolError, ToolOutput,
+    ToolSpec,
+};

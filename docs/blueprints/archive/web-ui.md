@@ -103,7 +103,7 @@ mic-message 形状变化时，改它的 B2 须把本文列为调用方（gateway
 | `UserInput` | 右侧气泡；`Text` 原文（不渲染 Markdown），`File` 显示文件名小标签 |
 | `Reply` | 左侧无气泡，按 `blocks` 顺序：`Reasoning::Visible` → 折叠行"思考过程"；`Redacted` → "（推理内容已加密）"；`Text` → Markdown；`ToolCall` → 工具行 |
 | `ToolResult` | 不单独成行，并入 `tool_call_id` 相同的工具行（✓ / ✗ 与输出）；找不到对应调用时单独显示一行 |
-| `Completion` | 一行"后台任务完成：工具名"，可展开输出（v2 才会产生，先最小呈现） |
+| `Completion` | 一行"后台任务完成：工具名"，可展开输出；任务本身见右侧任务列表（[async-jobs](async-jobs.md) P1.7） |
 | `HarnessNote` | 不显示（给模型看的备注） |
 | `Notification` | 居中的灰色系统提示 |
 | `Boundary` | 压缩：✓ 已压缩，可展开摘要/快照并撤回当前边界；失效显示已撤回；clear 显示清空分隔线 |
@@ -154,7 +154,8 @@ type SessionView = {
 | `message` | 追加（服务端保证 id 升序、不重复，gateway §5.3）；是 `Reply` 则 `draft = null` |
 | `text_delta` / `reasoning_delta` | 追加到 `draft`（无则新建） |
 | `draft_discarded` | `draft = null` |
-| `ready` | `ready = true`，`executingRun` 取其值 |
+| `ready` | `ready = true`，`executingRun` 取其值；重查任务列表 |
+| `jobs_changed` | 重查任务列表 |
 | `run_started` / `run_finished` | 更新 `executingRun`（以最后收到的为准）；`run_finished` 后刷新左栏，非 `completed` 显示提示 |
 
 重连：流结束或出错 → 按 1、2、4、8 秒（上限 10 秒）退避，带 `after = 最大消息 id` 重连；重连时先

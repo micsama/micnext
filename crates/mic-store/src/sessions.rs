@@ -67,6 +67,26 @@ impl Store {
         .await
     }
 
+    /// 会话所在树的 Root（Root 即自身）。
+    pub async fn session_root(&self, id: SessionId) -> Result<Session, StoreError> {
+        self.call(move |conn| {
+            Ok(conn.query_row(
+                &format!(
+                    "WITH RECURSIVE up(id, parent) AS (
+                       SELECT id, parent_session_id FROM core_sessions WHERE id = ?1
+                       UNION ALL
+                       SELECT s.id, s.parent_session_id FROM core_sessions s JOIN up ON s.id = up.parent
+                     )
+                     SELECT {SESSION_COLS} FROM core_sessions
+                     WHERE id = (SELECT id FROM up WHERE parent IS NULL)"
+                ),
+                [id.0],
+                row::session,
+            )?)
+        })
+        .await
+    }
+
     pub async fn set_pwd(&self, id: SessionId, pwd: &str) -> Result<(), StoreError> {
         let pwd = pwd.to_owned();
         self.call(move |conn| {

@@ -1,6 +1,6 @@
-import { ApiError, generateTitle, getContext, getMessages, getRunStats, revokeCompaction, getSession, stopRun } from "../api/client";
+import { ApiError, generateTitle, getContext, listJobs, getMessages, getRunStats, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, type ChatRunStats, type ContextView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
+import { ProtocolError, type ChatRunStats, type ContextView, type JobView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
 import { otherSessions, webSessions } from "./sessions.svelte";
@@ -81,6 +81,29 @@ export class SessionView {
         } catch (error) { this.contextError = (error as Error).message; }
       }
     })().finally(() => { this.#contextRefresh = null; });
+  }
+  /** 当前 Root 名下的后台任务。 */
+  jobs = $state<JobView[]>([]);
+  jobsError = $state<string | null>(null);
+  #jobsRefresh: Promise<void> | null = null;
+  #jobsDirty = false;
+
+  refreshJobs(): void {
+    this.#jobsDirty = true;
+    if (this.#jobsRefresh) return;
+    this.#jobsRefresh = (async () => {
+      while (this.#jobsDirty && !this.#abort.signal.aborted) {
+        this.#jobsDirty = false;
+        try {
+          const jobs = await listJobs(this.id);
+          if (this.#abort.signal.aborted) return;
+          this.jobs = jobs;
+          this.jobsError = null;
+        } catch (error) {
+          if (!this.#abort.signal.aborted) this.jobsError = (error as Error).message;
+        }
+      }
+    })().finally(() => { this.#jobsRefresh = null; });
   }
   /** 已结束轮次的统计，按挂载的消息 id。 */
   readonly runStats = new SvelteMap<number, ChatRunStats>();
@@ -203,6 +226,7 @@ export class SessionView {
 
   #apply(e: StreamEvent): void {
     if (e.event === "ready" || e.event === "session_title_changed") this.#refreshTitle();
+    if (e.event === "ready" || e.event === "jobs_changed") this.refreshJobs();
     if (e.event === "ready" || e.event === "run_finished" || (e.event === "message" && ["Reply", "Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
     switch (e.event) {
       case "message":

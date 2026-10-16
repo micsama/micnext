@@ -122,6 +122,7 @@ impl Store {
 | `POST /api/sessions` | `{"text": "…"}` | 201 `{"session_id": 3}` |
 | `POST /api/sessions/{id}/messages` | `{"text": "…"}` | 202 无响应体 |
 | `GET /api/sessions/{id}/run-stats?from=<message_id>[&to=<message_id>]` | — | 200 `{"runs": [RunStats]}`（[chat-run-stats](chat-run-stats.md) §1.2） |
+| `GET /api/sessions/{id}/jobs`、`…/jobs/{job}/output`、`POST …/jobs/{job}/stop` | — | 后台任务列表、读输出、终止（[async-jobs](async-jobs.md) 总则 §四） |
 | `POST /api/sessions/{id}/runs/{run_id}/stop` | — | 202；run 不在执行 409（[run-stop](run-stop.md) §2.4） |
 | `POST /api/sessions/{id}/stream-ticket` | — | 200 `{"ticket"}`（[web-sse-eventsource](web-sse-eventsource.md) §2.1） |
 | `GET /api/sessions/{id}/stream?ticket=<t>[&after=<message_id>]` | — | 200 `text/event-stream`（§五）；票据鉴权 |
@@ -195,6 +196,7 @@ mic-message 形状变化即 wire 变化，由改 mic-message 的 B2 列 M10 为�
 | `draft_discarded` | — | `{}` |
 | `run_started` | — | `{"run_id": 5}` |
 | `run_finished` | — | `{"run_id": 5, "state": "completed"}`（snake_case，同库列值） |
+| `jobs_changed` | — | `{}`：会话树后台任务有变化，重查任务列表（[async-jobs](async-jobs.md) 总则 §四） |
 | `ready` | — | `{"executing_run": 5 \| null, "has_earlier": true \| false \| null}`：回放结束、之后都是实时；`has_earlier` 见 [web-message-paging](web-message-paging.md) §4.1 |
 
 只有 `message` 带 `id`，所以客户端记下的最后一个事件 id 恰是稳定游标，重连时作 `after` 传回。

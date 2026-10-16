@@ -5,6 +5,7 @@
 
 | 状态 | 主题 | 文档 |
 |---|---|---|
+| B2 草案待批准（2026-10-16） | 点上下文占用圆圈查看构成：重组当前请求分项估算、按上游总量等比分配；方格图展示，工具调用与结果并入对话只注明占比；无上游总量不显示 | [B2](docs/blueprints/context-breakdown.md)；[B1](docs/brainstorm/context-breakdown.md) |
 | 以后做（2026-10-15 human 定） | 服务商分时段计价：空闲时段挂服务商，模型另填空闲价，费用按调用开始时间取价；币种保持美元。现按高峰价计，DeepSeek 已按高峰价填库 | [B2](docs/blueprints/offpeak-pricing.md) |
 | 想法，以后做（2026-10-15） | trace「复制为 curl / 重新推理」：消息按记录还原，系统提示与工具清单用当前配置；工具清单视为固定，与历史工具调用对不上则拒绝重放 | [trace B1](docs/brainstorm/run-trace.md#未来重放与复制为-curl) |
 | human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](docs/blueprints/web-ui.md#43-设置页与人设选择) |

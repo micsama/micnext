@@ -1,14 +1,10 @@
 use super::*;
 
 fn scratch() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "micnext-output-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("micnext-output-{}-{n}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -19,7 +15,44 @@ fn segs(dir: PathBuf) -> Segments {
         segs: VecDeque::new(),
         file: None,
         total: 0,
+        sealed: false,
     }
+}
+
+fn writer(dir: PathBuf, events: &Events) -> (Writer, Seal) {
+    let tree = Tree {
+        root: SessionId(1),
+        channel: "web".into(),
+    };
+    Writer::create(dir, events.clone(), tree).unwrap()
+}
+
+#[tokio::test]
+async fn sealed_output_stops_changing() {
+    let dir = scratch();
+    let (mut w, seal) = writer(dir.clone(), &Events::new());
+    w.write(b"kept").await.unwrap();
+    seal.seal().await;
+    w.write(b" late").await.unwrap();
+    assert_eq!(read(&dir, None, 100).unwrap().text, "kept");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn growth_inside_throttle_window_is_notified_later() {
+    let dir = scratch();
+    let events = Events::new();
+    let mut rx = events.subscribe();
+    let (mut w, _seal) = writer(dir.clone(), &events);
+    w.write(b"starting\n").await.unwrap();
+    w.write(b"ready\n").await.unwrap();
+    w.write(b"listening\n").await.unwrap();
+    assert!(rx.try_recv().is_some());
+    assert!(rx.try_recv().is_none());
+    let trailing = tokio::time::timeout(JOB_NOTIFY_INTERVAL * 2, rx.recv()).await;
+    assert!(matches!(trailing, Ok(Ok(e)) if matches!(e.kind, KernelEventKind::JobsChanged)));
+    assert!(rx.try_recv().is_none());
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

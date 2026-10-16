@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use mic_message::SessionId;
@@ -138,38 +139,102 @@ pub(crate) struct Tree {
 
 /// core 交给后台任务的 sink。
 pub(crate) struct Writer {
-    state: Option<Segments>,
-    events: Events,
-    tree: Tree,
-    notified: Option<Instant>,
+    segments: Arc<Mutex<Segments>>,
+    notifier: Arc<Notifier>,
 }
+
+/// 收尾前封口：等在途写入落完，之后到达的写入丢弃，读到的尾部即最终输出。
+pub(crate) struct Seal(Arc<Mutex<Segments>>);
 
 struct Segments {
     dir: PathBuf,
     segs: VecDeque<(u64, u64)>,
     file: Option<File>,
     total: u64,
+    sealed: bool,
 }
 
 impl Writer {
-    pub(crate) fn create(dir: PathBuf, events: Events, tree: Tree) -> io::Result<Self> {
+    pub(crate) fn create(dir: PathBuf, events: Events, tree: Tree) -> io::Result<(Self, Seal)> {
         fs::create_dir_all(&dir)?;
-        Ok(Self {
-            state: Some(Segments {
-                dir,
-                segs: VecDeque::new(),
-                file: None,
-                total: 0,
+        let segments = Arc::new(Mutex::new(Segments {
+            dir,
+            segs: VecDeque::new(),
+            file: None,
+            total: 0,
+            sealed: false,
+        }));
+        let writer = Self {
+            segments: segments.clone(),
+            notifier: Arc::new(Notifier {
+                events,
+                tree,
+                state: Mutex::default(),
             }),
-            events,
-            tree,
-            notified: None,
-        })
+        };
+        Ok((writer, Seal(segments)))
+    }
+}
+
+impl Seal {
+    pub(crate) async fn seal(self) {
+        tokio::task::spawn_blocking(move || self.0.lock().expect("输出段未中毒").sealed = true)
+            .await
+            .expect("封口任务不会 panic");
+    }
+}
+
+/// 输出增长通知：每 [`JOB_NOTIFY_INTERVAL`] 至多一次，窗口内的增长在窗口结束时补发。
+struct Notifier {
+    events: Events,
+    tree: Tree,
+    state: Mutex<Throttle>,
+}
+
+#[derive(Default)]
+struct Throttle {
+    last: Option<Instant>,
+    pending: bool,
+}
+
+impl Notifier {
+    fn grew(self: &Arc<Self>) {
+        let mut t = self.state.lock().expect("通知节流未中毒");
+        match t.last.map(|at| at.elapsed()) {
+            Some(elapsed) if elapsed < JOB_NOTIFY_INTERVAL => {
+                if !t.pending {
+                    t.pending = true;
+                    let this = self.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(JOB_NOTIFY_INTERVAL - elapsed).await;
+                        let mut t = this.state.lock().expect("通知节流未中毒");
+                        t.pending = false;
+                        t.last = Some(Instant::now());
+                        this.emit();
+                    });
+                }
+            }
+            _ => {
+                t.last = Some(Instant::now());
+                self.emit();
+            }
+        }
+    }
+
+    fn emit(&self) {
+        self.events.emit(
+            self.tree.root,
+            &self.tree.channel,
+            KernelEventKind::JobsChanged,
+        );
     }
 }
 
 impl Segments {
     fn append(&mut self, mut bytes: &[u8]) -> io::Result<()> {
+        if self.sealed {
+            return Ok(());
+        }
         while !bytes.is_empty() {
             let full = self
                 .segs
@@ -208,30 +273,14 @@ impl Segments {
 impl OutputSink for Writer {
     fn write<'a>(&'a mut self, bytes: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
-            let mut state = self
-                .state
-                .take()
-                .ok_or_else(|| io::Error::other("earlier write was cancelled"))?;
+            let segments = self.segments.clone();
             let buf = bytes.to_vec();
-            let (state, result) = tokio::task::spawn_blocking(move || {
-                let result = state.append(&buf);
-                (state, result)
+            tokio::task::spawn_blocking(move || {
+                segments.lock().expect("输出段未中毒").append(&buf)
             })
             .await
-            .map_err(io::Error::other)?;
-            self.state = Some(state);
-            result?;
-            if self
-                .notified
-                .is_none_or(|at| at.elapsed() >= JOB_NOTIFY_INTERVAL)
-            {
-                self.notified = Some(Instant::now());
-                self.events.emit(
-                    self.tree.root,
-                    &self.tree.channel,
-                    KernelEventKind::JobsChanged,
-                );
-            }
+            .map_err(io::Error::other)??;
+            self.notifier.grew();
             Ok(())
         })
     }

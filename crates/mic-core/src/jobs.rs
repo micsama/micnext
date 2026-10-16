@@ -187,7 +187,7 @@ impl Jobs {
         let dir = self.dir.join(job.id.0.to_string());
         let end = match Writer::create(dir, self.events.clone(), tree.clone()) {
             Err(e) => End::Unstarted(e),
-            Ok(writer) => {
+            Ok((writer, seal)) => {
                 let mut run = (task.run)(Box::new(writer));
                 let stopped = async {
                     match stop.await {
@@ -201,13 +201,16 @@ impl Jobs {
                         None => std::future::pending().await,
                     }
                 };
-                // 跳出即丢弃 `run`：工具随之释放资源（如杀进程组），之后的输出已全部落盘。
-                tokio::select! {
+                let end = tokio::select! {
                     biased;
                     request = stopped => End::Stopped(request),
                     () = timeout => End::TimedOut(task.timeout.expect("只有限时任务会超时")),
                     outcome = &mut run => End::Exited(outcome),
-                }
+                };
+                // 丢弃 `run` 即释放工具资源（如杀进程组）；封口后输出不再变化，再读尾部收尾。
+                drop(run);
+                seal.seal().await;
+                end
             }
         };
         let id = job.id;

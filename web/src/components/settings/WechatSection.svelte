@@ -116,8 +116,8 @@
           <p class="flex items-center gap-1.5 text-sm font-medium">
             <span class="size-1.5 shrink-0 rounded-full {conn.dot}"></span>{conn.text}
           </p>
-          <p class="mt-0.5 truncate font-mono text-xs text-muted-foreground" title={account?.user_id}>
-            {account?.user_id ?? "扫码登录后，即可在微信里与 micnext 对话"}
+          <p class="mt-0.5 text-xs text-muted-foreground">
+            {account ? "只回复扫码绑定的这个微信" : "扫码登录后，即可在微信里与 micnext 对话"}
           </p>
         </div>
         {#if !active}

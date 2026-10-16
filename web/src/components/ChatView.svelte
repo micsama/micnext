@@ -13,7 +13,7 @@
   import PersonaPicker from "./PersonaPicker.svelte";
   import Icon from "../lib/Icon.svelte";
 
-  let { view, onmenu }: { view: SessionView; onmenu: () => void } = $props();
+  let { view }: { view: SessionView } = $props();
 
   const item = $derived(view.info);
 
@@ -92,7 +92,7 @@
   );
 </script>
 
-<Header {title} {detail} {onmenu}>
+<Header {title} {detail}>
   {#snippet detailActions()}
     <button type="button" class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 text-primary hover:bg-accent" onclick={() => router.go(`/s/${view.id}/trace`)} title="查看当前会话的 Trace"><Icon name="sparkles" class="size-3" />Trace</button>
   {/snippet}

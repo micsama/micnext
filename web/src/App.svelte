@@ -12,7 +12,6 @@
   import { otherSessions, webSessions } from "./state/sessions.svelte";
   import { settingsStore } from "./state/settings.svelte";
 
-  let drawer = $state(false);
   let view = $state<SessionView | null>(null);
 
   // 路由决定当前打开的会话；切换时中止旧流。
@@ -41,8 +40,6 @@
     addEventListener("focus", onfocus);
     return () => removeEventListener("focus", onfocus);
   });
-
-  const openDrawer = () => (drawer = true);
 </script>
 
 {#if !auth.token}
@@ -56,19 +53,19 @@
   </div>
 {:else}
   <div class="flex h-full">
-    <Sidebar open={drawer} onclose={() => (drawer = false)} activeSession={view?.info ?? null} />
+    <Sidebar activeSession={view?.info ?? null} />
     <main class="flex min-w-0 flex-1 flex-col">
       {#if router.current.kind === "trace"}
-        <TraceView target={router.current.id} onmenu={openDrawer} />
+        <TraceView target={router.current.id} />
       {:else if router.current.kind === "new"}
-        <NewChat onmenu={openDrawer} />
+        <NewChat />
       {:else if router.current.kind === "settings"}
-        <SettingsView onmenu={openDrawer} />
+        <SettingsView />
       {:else if router.current.kind === "developer"}
-        <DeveloperView onmenu={openDrawer} />
+        <DeveloperView />
       {:else if view}
         {#key view}
-          <ChatView {view} onmenu={openDrawer} />
+          <ChatView {view} />
         {/key}
       {/if}
     </main>

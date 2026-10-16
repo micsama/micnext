@@ -7,8 +7,6 @@
   import SqlTab from "./SqlTab.svelte";
   import UpdateTab from "./UpdateTab.svelte";
 
-  let { onmenu }: { onmenu: () => void } = $props();
-
   $effect(() => {
     document.title = "开发者诊断 · micnext";
   });
@@ -25,7 +23,7 @@
   const tab = $derived(router.current.kind === "developer" ? router.current.tab : "logs");
 </script>
 
-<Header title="开发者诊断" {onmenu} />
+<Header title="开发者诊断" />
 <nav class="flex shrink-0 gap-1 border-b px-3 py-2">
   {#each tabs as t (t.id)}
     <button

@@ -9,8 +9,6 @@
   import ModelPicker from "./ModelPicker.svelte";
   import PersonaPicker from "./PersonaPicker.svelte";
 
-  let { onmenu }: { onmenu: () => void } = $props();
-
   $effect(() => {
     document.title = "新会话 · micnext";
   });
@@ -40,7 +38,7 @@
   }
 </script>
 
-<Header title="新会话" {onmenu} />
+<Header title="新会话" />
 <div class="grid flex-1 place-items-center px-4">
   <p class="text-2xl font-medium text-muted-foreground">有什么要做的？</p>
 </div>

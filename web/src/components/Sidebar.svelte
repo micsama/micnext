@@ -13,14 +13,20 @@
   import { traceSessions } from "../state/trace-sessions.svelte";
   import { theme, type ThemeChoice } from "../state/theme.svelte";
   import { updater } from "../state/update.svelte";
+  import { sidebar } from "../state/sidebar.svelte";
 
-  let { open, onclose, activeSession }: { open: boolean; onclose: () => void; activeSession: SessionItem | null } = $props();
+  let { activeSession }: { activeSession: SessionItem | null } = $props();
 
   const groups = $derived(groupSessions(webSessions.items));
   const activeId = $derived(router.current.kind === "session" ? router.current.id : null);
   // 同一侧栏两种展示：聊天按日期列会话；Trace 按渠道列有运行的会话，带异常角标。
   const tracing = $derived(router.current.kind === "trace");
   const traceId = $derived(router.current.kind === "trace" ? router.current.id : null);
+  // 两种展示之间切换时保留当前会话。
+  const modes = $derived([
+    { tracing: false, icon: "message", label: "聊天", href: traceId === null ? "/" : `/s/${traceId}` },
+    { tracing: true, icon: "sparkles", label: "Trace", href: activeId === null ? "/trace" : `/s/${activeId}/trace` },
+  ] satisfies { tracing: boolean; icon: IconName; label: string; href: string }[]);
   let search = $state("");
   let channel = $state("");
   const channelName = (c: string) => (c === "wechat" ? "微信" : c);
@@ -70,7 +76,7 @@
 
   function go(path: string) {
     router.go(path);
-    onclose();
+    sidebar.drawer = false;
   }
 
   function toggleOthers() {
@@ -122,19 +128,31 @@
   </div>
 {/snippet}
 
-{#if open}
-  <button type="button" class="fixed inset-0 z-20 bg-black/30 md:hidden" aria-label="关闭会话列表" onclick={onclose}
+{#if sidebar.drawer}
+  <button type="button" class="fixed inset-0 z-20 bg-black/30 md:hidden" aria-label="关闭会话列表" onclick={() => (sidebar.drawer = false)}
   ></button>
 {/if}
 <aside
-  class="fixed inset-y-0 left-0 z-30 flex w-72 flex-col border-r border-border bg-muted transition-transform md:static md:translate-x-0"
-  class:-translate-x-full={!open}>
+  class={["fixed inset-y-0 left-0 z-30 flex w-72 flex-col border-r border-border bg-muted transition-transform md:static md:translate-x-0", !sidebar.drawer && "-translate-x-full", !sidebar.docked && "md:hidden"]}>
   <div class="flex h-12 shrink-0 items-center gap-2 px-3">
     <span class="flex-1 font-semibold">micnext</span>
-    <button type="button" class="rounded p-1.5 hover:bg-accent md:hidden" aria-label="关闭" onclick={onclose}>
-      <Icon name="x" />
+    <button type="button" title="收起侧栏" aria-label="收起侧栏" class="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => sidebar.toggle()}>
+      <Icon name="sidebar" />
     </button>
   </div>
+  <nav aria-label="展示" class="relative mx-2 mb-2 grid grid-cols-2 rounded-lg bg-accent p-0.5 text-sm">
+    <span class="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-md bg-background shadow-sm transition-transform duration-200" class:translate-x-full={tracing}></span>
+    {#each modes as m (m.label)}
+      {@const current = m.tracing === tracing}
+      <a
+        href={m.href}
+        aria-current={current ? "page" : undefined}
+        onclick={(e) => (e.preventDefault(), current || go(m.href))}
+        class={["relative flex items-center justify-center gap-1.5 rounded-md py-1.5 transition-colors", current ? "font-medium text-foreground" : "text-muted-foreground hover:bg-background/50 hover:text-foreground"]}>
+        <Icon name={m.icon} />{m.label}
+      </a>
+    {/each}
+  </nav>
   <div class="px-2 pb-2">
     {#if tracing}
       <div class="flex items-center gap-1 rounded-md border border-border bg-background pl-3 focus-within:border-ring">
@@ -209,21 +227,7 @@
     {/if}
     {/if}
   </nav>
-  <div class="border-t px-2 pt-2">
-    <!-- 单击整条切换；滑块落在当前展示上。 -->
-    <button
-      type="button"
-      role="switch"
-      aria-checked={tracing}
-      title={tracing ? "返回当前会话的聊天" : "查看当前会话的 Trace"}
-      onclick={() => go(tracing ? (traceId === null ? "/" : `/s/${traceId}`) : activeId === null ? "/trace" : `/s/${activeId}/trace`)}
-      class="relative grid w-full grid-cols-2 rounded-lg bg-muted p-0.5 text-sm">
-      <span class="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-md bg-background shadow-sm transition-transform duration-200" class:translate-x-full={tracing}></span>
-      <span class="relative flex items-center justify-center gap-1.5 py-1.5 transition-colors {tracing ? 'text-muted-foreground' : 'font-medium text-foreground'}"><Icon name="message" />聊天</span>
-      <span class="relative flex items-center justify-center gap-1.5 py-1.5 transition-colors {tracing ? 'font-medium text-foreground' : 'text-muted-foreground'}"><Icon name="sparkles" />Trace</span>
-    </button>
-  </div>
-  <div class="flex items-center gap-1 border-border p-2">
+  <div class="flex items-center gap-1 border-t border-border p-2">
     <button
       type="button"
       onclick={() => go("/settings")}

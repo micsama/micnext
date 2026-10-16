@@ -13,8 +13,6 @@
   import PrefsSection from "./PrefsSection.svelte";
   import WechatSection from "./WechatSection.svelte";
 
-  let { onmenu }: { onmenu: () => void } = $props();
-
   $effect(() => {
     document.title = "设置 · micnext";
   });
@@ -41,7 +39,7 @@
   });
 </script>
 
-<Header title="设置" {onmenu} />
+<Header title="设置" />
 <div class="flex min-h-0 flex-1 flex-col md:flex-row">
   <nav
     class="flex shrink-0 gap-1 border-b p-2 max-md:overflow-x-auto md:w-52 md:flex-col md:border-r md:border-b-0 md:p-3"

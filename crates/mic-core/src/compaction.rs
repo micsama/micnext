@@ -5,8 +5,8 @@ use mic_message::{
     ModelView, ReplyBlock, SessionCommand, SessionId, SnapshotExtent,
 };
 use mic_store::{
-    ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session, SessionKind,
-    StoreError,
+    ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
+    SessionKind, StoreError,
 };
 use mic_tool::ToolContext;
 use serde::Serialize;
@@ -34,6 +34,14 @@ pub(crate) async fn occupancy(
     engine: &Engine,
     session: &Session,
 ) -> Result<Option<Occupancy>, StoreError> {
+    Ok(usage(engine, session).await?.map(|(o, ..)| o))
+}
+
+/// 占用连同其来源调用的用量，以及当前模型是否支持图片。
+pub(crate) async fn usage(
+    engine: &Engine,
+    session: &Session,
+) -> Result<Option<(Occupancy, ContextUsage, bool)>, StoreError> {
     let Some(model_id) = session.model_id else {
         return Ok(None);
     };
@@ -44,13 +52,14 @@ pub(crate) async fn occupancy(
         return Ok(None);
     };
     let settings = engine.store.run_settings(session.id).await?;
-    Ok(Some(Occupancy {
+    let occupancy = Occupancy {
         used_tokens: usage.input_tokens + usage.output_tokens,
         window: model
             .context_window
             .map_or(DEFAULT_CONTEXT_WINDOW, |w| w.get()),
         trigger_percent: settings.compaction.trigger_percent,
-    }))
+    };
+    Ok(Some((occupancy, usage, model.images)))
 }
 
 impl Exec<'_> {

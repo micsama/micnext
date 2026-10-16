@@ -29,6 +29,14 @@ pub(crate) async fn get_context(
     Ok(Json(app.kernel.context_view(session.id).await?))
 }
 
+pub(crate) async fn get_breakdown(
+    State(app): State<Arc<App>>,
+    id: Result<Path<i64>, PathRejection>,
+) -> Result<Json<Option<mic_core::ContextBreakdown>>, ApiError> {
+    let session = api::session(&app, id).await?;
+    Ok(Json(app.kernel.context_breakdown(session.id).await?))
+}
+
 pub(crate) async fn revoke(
     State(app): State<Arc<App>>,
     path: Result<Path<(i64, i64)>, PathRejection>,

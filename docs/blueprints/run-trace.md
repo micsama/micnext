@@ -81,7 +81,7 @@ Store 函数经 Kernel 同名转发。未知值一律 `null`（不用 0）；时
 |---|---|---|
 | `GET /trace/sessions` | `trace_sessions()` | `[{ session, channel, title, last_run_at, failed_runs, interrupted_runs, tool_errors }]`，Root 会话 |
 | `GET /trace/sessions/{id}?after=<run_id>&limit=` | `trace_runs(session, after, limit)` | `{ runs, title_calls, next_after }`。run：`{ id, state, created_at, finished_at, calls, messages }`；call：`{ id, purpose, model_id, model, reasoning_effort, started_at, first_output_at, finished_at, stop, error, usage, reply_id, boundary_id }`；message：`{ id, kind, created_at, preview（≤200 字）, tool?: { name, call_id, started_at, outcome, error } }`。按完整 run 旧到新，`next_after` 为 `null` 即到底；`title_calls` 只在首页 |
-| `GET /trace/sessions/{id}/system` | `system_prompt(session)` | 当前配置下的系统提示 |
+| `GET /trace/sessions/{id}/system` | `system_prompt(session)` | 当前配置下的系统提示 `{ text, blocks }`，结构见 [context-breakdown §四](context-breakdown.md#四接口) |
 | `GET /trace/messages/{id}` | `message(id)` | 完整消息（现有消息 DTO） |
 | `GET /trace/calls/{id}/input` | `call_input(call)` | 重建的输入消息；标题调用返回 404 |
 | `GET /trace/runs/{id}/logs` | logs 库 `by_run(run)` | 该 run 的 WARN/ERROR；查询前走现有 `flush` 屏障，保证已发生的日志可见 |

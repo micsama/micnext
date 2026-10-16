@@ -9,6 +9,7 @@ import {
   parseTraceSessions,
   type Dashboard,
   type Peers,
+  type SystemPromptView,
   type TraceRunPage,
   type TraceSession,
 } from "./trace";
@@ -24,8 +25,8 @@ import {
 } from "./developer";
 import { parseMessage, parseMessages, type Message } from "./types";
 import {
-  parseContextView, parseCommands, parseRunStats,
-  type ContextView, type CommandSpec, type ChatRunStats,
+  parseContextBreakdown, parseContextView, parseCommands, parseRunStats,
+  type ContextBreakdown, type ContextView, type CommandSpec, type ChatRunStats,
   parseCreated,
   parseEndpoints,
   parseModels,
@@ -280,6 +281,10 @@ export async function startUpdate(): Promise<void> {
 export async function getContext(sessionId: number): Promise<ContextView> {
   return parseContextView(await request("GET", `/sessions/${sessionId}/context`));
 }
+
+export async function getContextBreakdown(sessionId: number): Promise<ContextBreakdown | null> {
+  return parseContextBreakdown(await request("GET", `/sessions/${sessionId}/context/breakdown`));
+}
 /** 最后一条消息落在 [from, to] 内的已结束轮次统计。 */
 export async function getRunStats(sessionId: number, from: number, to?: number): Promise<ChatRunStats[]> {
   const q = new URLSearchParams({ from: String(from), ...(to === undefined ? {} : { to: String(to) }) });
@@ -305,7 +310,7 @@ export async function getTraceRuns(session: number, after: number | null): Promi
   return parseTraceRunPage(await request("GET", `/trace/sessions/${session}${q}`));
 }
 
-export async function getTraceSystem(session: number): Promise<string> {
+export async function getTraceSystem(session: number): Promise<SystemPromptView> {
   return parseSystemPrompt(await request("GET", `/trace/sessions/${session}/system`));
 }
 

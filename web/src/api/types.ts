@@ -41,6 +41,8 @@ export type SessionCommand = { Compact: { text: string | null } } | "Clear" | { 
 export type CompactionView = { boundary_id: number; result: Compaction; state: { kind: "applied" } | { kind: "revoked"; at: number } };
 /** 上下文占用，口径同自动压缩判定，总含估算。 */
 export type Occupancy = { used_tokens: number; window: number; trigger_percent: number };
+export type ContextKind = "instructions" | "persona" | "tools" | "environment" | "summary" | "conversation";
+export type ContextBreakdown = Occupancy & { parts: { kind: ContextKind; tokens: number; tool_tokens: number | null }[] };
 export type ContextView = { active_boundary: number | null; compactions: CompactionView[]; occupancy: Occupancy | null };
 /** 一轮的统计；聊天统计行与 trace 运行概览共用（chat-run-stats §1.1）。 */
 export type RunStats = {
@@ -281,6 +283,9 @@ export const runStats: Decoder<RunStats> = obj(runStatsFields);
 const chatRunStats: Decoder<ChatRunStats> = obj({ ...runStatsFields, run_id: num, state: runState, anchor_id: num });
 export const parseRunStats = (v: unknown): ChatRunStats[] => obj({ runs: arr(chatRunStats) })(v, "统计").runs;
 export const parseContextView = (v: unknown): ContextView => contextView(v, "上下文");
+const contextKind: Decoder<ContextKind> = oneOf("instructions", "persona", "tools", "environment", "summary", "conversation");
+const contextBreakdown: Decoder<ContextBreakdown> = obj({ used_tokens: num, window: num, trigger_percent: num, parts: arr(obj({ kind: contextKind, tokens: num, tool_tokens: nullable(num) })) });
+export const parseContextBreakdown = (v: unknown): ContextBreakdown | null => nullable(contextBreakdown)(v, "上下文构成");
 export const parseCommands = (v: unknown): CommandSpec[] => obj({ items: arr(obj({ name: str, usage: str, description: str })) })(v, "指令列表").items;
 const boundary: Decoder<ContextBoundary> = (v, at) => (v === "UserClear" ? v : compaction(v, at));
 

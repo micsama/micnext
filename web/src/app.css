@@ -44,6 +44,12 @@
   --hl-title: #8250df;
   --hl-attr: #953800;
   --hl-built: #0550ae;
+  --ctx-instructions: #8e8e93;
+  --ctx-persona: #af52de;
+  --ctx-tools: #5856d6;
+  --ctx-environment: #30b0c7;
+  --ctx-summary: #ff9500;
+  --ctx-conversation: var(--primary);
   color-scheme: light;
 }
 
@@ -84,6 +90,12 @@
   --hl-title: #d2a8ff;
   --hl-attr: #ffa657;
   --hl-built: #79c0ff;
+  --ctx-instructions: #98989d;
+  --ctx-persona: #bf5af2;
+  --ctx-tools: #5e5ce6;
+  --ctx-environment: #40c8e0;
+  --ctx-summary: #ff9f0a;
+  --ctx-conversation: var(--primary);
   color-scheme: dark;
 }
 

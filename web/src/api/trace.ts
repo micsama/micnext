@@ -1,5 +1,5 @@
 import { arr, nullable, num, obj, oneOf, str, type Decoder } from "./decode";
-import { runStats, type ReasoningEffort, type RunStats } from "./types";
+import { runStats, type ContextKind, type ReasoningEffort, type RunStats } from "./types";
 
 // 与 docs/blueprints/run-trace.md §六 及 mic-store `trace` 的 serde 形状一一对应。
 
@@ -193,6 +193,12 @@ const dashboard: Decoder<Dashboard> = obj({
 
 export const parseTraceSessions = (v: unknown): TraceSession[] => arr(traceSession)(v, "trace 会话");
 export const parseTraceRunPage = (v: unknown): TraceRunPage => runPage(v, "trace 运行");
-export const parseSystemPrompt = (v: unknown): string => obj({ text: str })(v, "系统提示词").text;
+export type PromptPart = { kind: Exclude<ContextKind, "conversation">; text: string };
+export type PromptBlock = { kind: "instructions" | "persona" | "context"; parts: PromptPart[] };
+/** 当前配置下的系统提示：`text` 为发给模型的原文，`blocks` 为同一份结构。 */
+export type SystemPromptView = { text: string; blocks: PromptBlock[] };
+const promptPart: Decoder<PromptPart> = obj({ kind: oneOf("instructions", "persona", "tools", "environment", "summary"), text: str });
+export const parseSystemPrompt = (v: unknown): SystemPromptView =>
+  obj({ text: str, blocks: arr(obj({ kind: oneOf("instructions", "persona", "context"), parts: arr(promptPart) })) })(v, "系统提示词");
 export const parsePeers = (v: unknown): Peers => peers(v, "同类耗时");
 export const parseDashboard = (v: unknown): Dashboard => dashboard(v, "看板");

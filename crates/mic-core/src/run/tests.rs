@@ -629,6 +629,63 @@ impl mic_tool::Tool for TimedTool {
 }
 
 #[tokio::test]
+async fn context_breakdown_explains_last_call_usage() {
+    let f = Fixture::new().await;
+    assert_eq!(
+        f.kernel.context_breakdown(f.session.id).await.unwrap(),
+        None
+    );
+    let usage = |input_tokens, output_tokens| {
+        Ok(ModelEvent::Usage(mic_store::Usage {
+            input_tokens,
+            output_tokens,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            reasoning_tokens: None,
+        }))
+    };
+    let provider = scripted(vec![
+        vec![
+            usage(900, 40),
+            Ok(ModelEvent::Finished(ModelResponse {
+                blocks: vec![ReplyBlock::ToolCall {
+                    id: "t".into(),
+                    name: "timed".into(),
+                    args: serde_json::json!({ "delay": 0 }),
+                }],
+                stop: StopReason::ToolUse,
+            })),
+        ],
+        std::iter::once(usage(1234, 56))
+            .chain(reply("done"))
+            .collect(),
+    ]);
+    let mut exec = f.exec();
+    exec.tools = vec![ToolHandle::new(TimedTool)];
+    let calls = exec
+        .call_model(&provider, &exec.tools.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    exec.run_tools(calls).await.unwrap();
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    let system = f.kernel.system_prompt(f.session.id).await.unwrap();
+    assert_eq!(system.render(), provider.requests.lock().unwrap()[1].system);
+    let b = f
+        .kernel
+        .context_breakdown(f.session.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(b.used_tokens, 1290);
+    assert_eq!(b.parts.iter().map(|p| p.tokens).sum::<u64>(), 1290);
+    let conversation = b.parts.last().unwrap();
+    let tool_tokens = conversation.tool_tokens.unwrap();
+    assert!(tool_tokens > 0 && tool_tokens <= conversation.tokens);
+    assert!(b.parts[0].tokens > 0);
+}
+
+#[tokio::test]
 async fn parallel_tools_publish_in_persisted_order_and_recovery_has_no_start_time() {
     let f = Fixture::new().await;
     let tool_block = |id: &str, delay| ReplyBlock::ToolCall {

@@ -9,31 +9,93 @@ use mic_message::{
 };
 use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
+use serde::Serialize;
 
 use crate::{ModelRequest, ToolChoice};
 
 const BASE_PROMPT: &str = include_str!("prompts/system.md");
 
-static INSTRUCTIONS: LazyLock<String> = LazyLock::new(|| {
-    block(
-        "instructions",
-        &format!("{}\n\n{}", BASE_PROMPT.trim_end(), header_legend()),
-    )
-});
+static INSTRUCTIONS: LazyLock<String> =
+    LazyLock::new(|| format!("{}\n\n{}", BASE_PROMPT.trim_end(), header_legend()));
+
+static INSTRUCTIONS_BLOCK: LazyLock<String> =
+    LazyLock::new(|| block("instructions", &INSTRUCTIONS));
 
 /// `instructions` 块，设置页只读展示。
 pub(crate) fn base_prompt() -> &'static str {
-    &INSTRUCTIONS
+    &INSTRUCTIONS_BLOCK
 }
 
 fn block(tag: &str, body: &str) -> String {
     format!("<{tag}>\n{body}\n</{tag}>")
 }
 
+/// 系统提示的结构：模型请求、trace 预览、上下文构成都由它而来。
+/// 契约：docs/blueprints/context-breakdown.md §二。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SystemPrompt {
+    pub blocks: Vec<PromptBlock>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PromptBlock {
+    pub kind: PromptBlockKind,
+    pub parts: Vec<PromptPart>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PromptPart {
+    pub kind: PromptPartKind,
+    /// 实际发送的完整段落。
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptBlockKind {
+    Instructions,
+    Persona,
+    Context,
+}
+
+impl PromptBlockKind {
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Instructions => "instructions",
+            Self::Persona => "persona",
+            Self::Context => "context",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptPartKind {
+    Instructions,
+    Persona,
+    Tools,
+    Environment,
+    Summary,
+}
+
+impl SystemPrompt {
+    /// 发给模型的原文。
+    pub fn render(&self) -> String {
+        self.blocks
+            .iter()
+            .map(|b| {
+                let body: Vec<&str> = b.parts.iter().map(|p| p.text.as_str()).collect();
+                block(b.kind.tag(), &body.join("\n\n"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+}
+
 const IMAGE_PLACEHOLDER: &str = "[图片：当前模型不支持查看]";
 
-pub(crate) fn hide_images(window: &mut ContextWindow) {
-    for m in &mut window.messages {
+pub(crate) fn hide_images(messages: &mut [Message]) {
+    for m in messages {
         if let MessageBody::UserInput { parts, .. } = &mut m.body {
             for part in parts
                 .iter_mut()
@@ -82,7 +144,8 @@ pub(crate) fn build(
             tools,
             window.summary.as_deref(),
             &window.files,
-        ),
+        )
+        .render(),
         messages: arrange(window.messages, tail),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
@@ -99,21 +162,29 @@ pub(crate) fn system_prompt(
     tools: &[ToolHandle],
     summary: Option<&str>,
     files: &[mic_message::FileSnapshot],
-) -> String {
-    let mut persona = vec![settings.persona.prompt.clone()];
+) -> SystemPrompt {
+    use PromptPartKind::*;
+    let part = |kind, text: String| PromptPart { kind, text };
+    let mut persona = vec![part(Persona, settings.persona.prompt.clone())];
     if !settings.general_prompt.is_empty() {
-        persona.push(format!("User preferences:\n{}", settings.general_prompt));
+        persona.push(part(
+            Persona,
+            format!("User preferences:\n{}", settings.general_prompt),
+        ));
     }
-    let mut context = vec![format!("Working directory: {pwd}")];
-    context.extend(channel_prompt.map(str::to_owned));
+    let mut context = vec![part(Environment, format!("Working directory: {pwd}"))];
+    context.extend(channel_prompt.map(|p| part(Environment, p.to_owned())));
     context.extend(
         tools
             .iter()
             .filter_map(|t| t.prompt_hint())
-            .map(str::to_owned),
+            .map(|h| part(Tools, h.to_owned())),
     );
     if let Some(summary) = summary {
-        context.push(format!("Summary of the earlier conversation:\n{summary}"));
+        context.push(part(
+            Summary,
+            format!("Summary of the earlier conversation:\n{summary}"),
+        ));
     }
     for file in files {
         let content = match &file.outcome {
@@ -124,17 +195,27 @@ pub(crate) fn system_prompt(
                 format!("Unavailable: {reason}")
             }
         };
-        context.push(format!(
-            "File snapshot at compaction time: {}\n{content}",
-            file.path
+        context.push(part(
+            Summary,
+            format!("File snapshot at compaction time: {}\n{content}", file.path),
         ));
     }
-    [
-        INSTRUCTIONS.clone(),
-        block("persona", &persona.join("\n\n")),
-        block("context", &context.join("\n\n")),
-    ]
-    .join("\n\n")
+    SystemPrompt {
+        blocks: vec![
+            PromptBlock {
+                kind: PromptBlockKind::Instructions,
+                parts: vec![part(Instructions, INSTRUCTIONS.clone())],
+            },
+            PromptBlock {
+                kind: PromptBlockKind::Persona,
+                parts: persona,
+            },
+            PromptBlock {
+                kind: PromptBlockKind::Context,
+                parts: context,
+            },
+        ],
+    }
 }
 
 /// 请求里的消息顺序：先 `order`，再把本步待处理输入（`tail`）按原相对顺序挪到末尾。

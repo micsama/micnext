@@ -376,6 +376,7 @@ pub struct ModelCallContext {
 /// 当前有效边界下最近一次成功对话调用的上游用量。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextUsage {
+    pub call: ModelCallId,
     pub input_tokens: u64,
     pub output_tokens: u64,
 }

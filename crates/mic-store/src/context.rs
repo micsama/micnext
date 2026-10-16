@@ -78,7 +78,7 @@ impl Store {
             let boundary_id = active_boundary(conn, session)?.map(|m| m.id.0);
             Ok(conn
                 .query_row(
-                    "SELECT input_tokens, output_tokens FROM core_model_calls
+                    "SELECT id, input_tokens, output_tokens FROM core_model_calls
                      WHERE session_id = ?1 AND purpose = 'conversation' AND error IS NULL
                        AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL
                        AND context_boundary_id IS ?2
@@ -86,8 +86,9 @@ impl Store {
                     params![session.0, boundary_id],
                     |r| {
                         Ok(ContextUsage {
-                            input_tokens: r.get::<_, i64>(0)? as u64,
-                            output_tokens: r.get::<_, i64>(1)? as u64,
+                            call: ModelCallId(r.get(0)?),
+                            input_tokens: r.get::<_, i64>(1)? as u64,
+                            output_tokens: r.get::<_, i64>(2)? as u64,
                         })
                     },
                 )

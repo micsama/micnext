@@ -139,6 +139,8 @@ pub struct CallRecord {
     pub session_id: SessionId,
     pub purpose: ModelCallPurpose,
     pub context: ModelCallContext,
+    /// 该调用产出的回复。
+    pub reply: Option<MessageId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -641,10 +643,11 @@ impl Store {
 
     pub async fn call_record(&self, id: ModelCallId) -> Result<Option<CallRecord>, StoreError> {
         self.call(move |conn| {
-            let Some((session_id, purpose, boundary_id, through, skip)) = conn
+            let Some((session_id, purpose, boundary_id, through, skip, reply)) = conn
                 .query_row(
-                    "SELECT session_id, purpose, context_boundary_id, context_through_id, context_skip
-                     FROM core_model_calls WHERE id = ?1",
+                    "SELECT session_id, purpose, context_boundary_id, context_through_id, context_skip,
+                       (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'Reply')
+                     FROM core_model_calls c WHERE id = ?1",
                     [id.0],
                     |r| {
                         Ok((
@@ -653,6 +656,7 @@ impl Store {
                             r.get::<_, Option<i64>>(2)?.map(MessageId),
                             r.get::<_, Option<i64>>(3)?.map(MessageId),
                             r.get::<_, u32>(4)?,
+                            r.get::<_, Option<i64>>(5)?.map(MessageId),
                         ))
                     },
                 )
@@ -682,6 +686,7 @@ impl Store {
                 session_id,
                 purpose,
                 context,
+                reply,
             }))
         })
         .await

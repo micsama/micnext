@@ -318,3 +318,6 @@
   .trace-layout .cols > .tk, .trace-layout .cols > time { display: none; }
   .trace-layout .inspector.expanded { inset: 8px; }
 }
+.trace-layout .sys-sec + .sys-sec { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--t-line2); }
+.trace-layout .sys-sec-title { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 2px; font-size: 11px; font-weight: 600; color: var(--t-faint); }
+.trace-layout .sys-sec-title i { width: 6px; height: 6px; border-radius: 50%; }

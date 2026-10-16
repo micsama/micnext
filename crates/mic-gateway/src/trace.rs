@@ -56,13 +56,14 @@ pub(crate) async fn runs(
 #[derive(serde::Serialize)]
 pub(crate) struct SystemPrompt {
     text: String,
+    blocks: Vec<mic_core::PromptBlock>,
 }
 
 pub(crate) async fn system(
     State(app): State<Arc<App>>,
     session: Id,
 ) -> Result<Json<SystemPrompt>, ApiError> {
-    let text = app
+    let prompt = app
         .kernel
         .system_prompt(SessionId(id(session)?))
         .await
@@ -70,7 +71,10 @@ pub(crate) async fn system(
             mic_core::KernelError::SessionNotFound => ApiError::NotFound(SESSION_NOT_FOUND),
             e => e.into(),
         })?;
-    Ok(Json(SystemPrompt { text }))
+    Ok(Json(SystemPrompt {
+        text: prompt.render(),
+        blocks: prompt.blocks,
+    }))
 }
 
 pub(crate) async fn message(

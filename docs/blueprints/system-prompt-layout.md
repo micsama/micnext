@@ -122,7 +122,7 @@ Bracketed headers are added by the framework:
 
 ## 五、`mic-core` 改动（私有）
 
-- `request.rs`：`system_prompt()` 按 §三 组装；`instructions` 块用 `LazyLock<String>` 拼一次。
+- `request.rs`：`system_prompt()` 按 §三 组装为结构化 `SystemPrompt`（块 → 段，[context-breakdown §二](context-breakdown.md#二系统提示结构一处真相)），`render()` 得到发送文本；`instructions` 块用 `LazyLock<String>` 拼一次。
 - `base_prompt()` 返回该块；`Kernel::system_prompt() -> &'static str` 签名不变。
 - `prompts/system.md`：删去手写的消息头段落，其余收紧措辞；运行规则与确认破坏性操作的规则保持。
 

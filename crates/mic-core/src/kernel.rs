@@ -4,22 +4,26 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mic_message::{
-    ImageData, ImageId, Message, MessageBody, MessageId, PersonId, SessionCommand, SessionId,
+    ImageData, ImageId, Message, MessageBody, MessageId, PersonId, ReplyBlock, SessionCommand,
+    SessionId,
 };
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
-    CredentialWrite, Dashboard, EndpointId, EndpointView, EndpointWrite, Identity,
+    CallRecord, CredentialWrite, Dashboard, EndpointId, EndpointView, EndpointWrite, Identity,
     InputDisposition, MessagePage, ModelCallId, ModelCallPurpose, ModelId, ModelView, ModelWrite,
     NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId, QueryResult,
     ReasoningEffort, RunId, Session, SessionCursor, SessionKind, SessionPage, SessionSummary,
     Settings, Store, StoreError, TableSchema, TraceRunPage, TraceSession,
 };
+use mic_tool::ToolSpec;
 use tokio::sync::mpsc;
 
-use crate::compaction::Occupancy;
+use crate::compaction::{self, Occupancy};
+use crate::context_usage::{self, ContextBreakdown};
 use crate::event::{EventReceiver, Events};
 use crate::input::{validate, IncomingPart};
 use crate::provider::{resolve_key, resolve_reasoning, Factories};
+use crate::request::SystemPrompt;
 use crate::run::{now_ms, Engine};
 use crate::{request, ChannelSetup, KernelError, ProviderKindView, WorkdirError};
 
@@ -178,7 +182,7 @@ impl Kernel {
             .ok_or(KernelError::SessionNotFound)?;
         Ok(ContextOverview {
             view: self.store.context_view(session.id).await?,
-            occupancy: crate::compaction::occupancy(&self.engine, &session).await?,
+            occupancy: compaction::occupancy(&self.engine, &session).await?,
         })
     }
 
@@ -533,14 +537,18 @@ impl Kernel {
     }
 
     /// 该会话按当前配置下一次调用会用的系统提示。
-    pub async fn system_prompt(&self, session: SessionId) -> Result<String, KernelError> {
+    pub async fn system_prompt(&self, session: SessionId) -> Result<SystemPrompt, KernelError> {
         let s = self
             .store
             .session(session)
             .await?
             .ok_or(KernelError::SessionNotFound)?;
-        let settings = self.store.run_settings(session).await?;
-        let window = self.store.context_window(session).await?;
+        self.current_system_prompt(&s).await
+    }
+
+    async fn current_system_prompt(&self, s: &Session) -> Result<SystemPrompt, KernelError> {
+        let settings = self.store.run_settings(s.id).await?;
+        let window = self.store.context_window(s.id).await?;
         let channel_prompt = match &s.kind {
             SessionKind::Root { channel, .. } => {
                 self.engine.channel_prompts.get(channel.as_str()).copied()
@@ -557,11 +565,66 @@ impl Kernel {
         ))
     }
 
-    /// 重建某次调用当时的输入消息；标题调用没有会话输入，返回 `None`。
-    pub async fn call_input(&self, call: ModelCallId) -> Result<Option<Vec<Message>>, KernelError> {
-        let Some(record) = self.store.call_record(call).await? else {
+    /// 上次对话调用的上下文构成：消息与输出按调用记录，系统提示与工具按当前配置。
+    /// 契约：docs/blueprints/context-breakdown.md。
+    pub async fn context_breakdown(
+        &self,
+        session: SessionId,
+    ) -> Result<Option<ContextBreakdown>, KernelError> {
+        let s = self
+            .store
+            .session(session)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        let Some((occupancy, usage, images)) = compaction::usage(&self.engine, &s).await? else {
             return Ok(None);
         };
+        let Some(record) = self.store.call_record(usage.call).await? else {
+            return Ok(None);
+        };
+        let output = match record.reply {
+            Some(id) => self.store.messages_by_ids(vec![id]).await?,
+            None => Vec::new(),
+        };
+        let output: Vec<ReplyBlock> = output
+            .into_iter()
+            .flat_map(|m| match m.body {
+                MessageBody::Reply { blocks, .. } => blocks,
+                _ => Vec::new(),
+            })
+            .collect();
+        let mut messages = self.input_messages(record).await?.unwrap_or_default();
+        if !images {
+            request::hide_images(&mut messages);
+        }
+        let tools: Vec<ToolSpec> = self
+            .engine
+            .scoped_tools(&s.tool_scope)
+            .iter()
+            .map(|t| t.spec().clone())
+            .collect();
+        Ok(Some(context_usage::breakdown(
+            occupancy,
+            &usage,
+            &self.current_system_prompt(&s).await?,
+            &tools,
+            &messages,
+            &output,
+        )))
+    }
+
+    /// 重建某次调用当时的输入消息；标题调用没有会话输入，返回 `None`。
+    pub async fn call_input(&self, call: ModelCallId) -> Result<Option<Vec<Message>>, KernelError> {
+        match self.store.call_record(call).await? {
+            Some(record) => self.input_messages(record).await,
+            None => Ok(None),
+        }
+    }
+
+    async fn input_messages(
+        &self,
+        record: CallRecord,
+    ) -> Result<Option<Vec<Message>>, KernelError> {
         if record.purpose == ModelCallPurpose::Title {
             let sources = record.context.instruction;
             if sources.is_empty() {

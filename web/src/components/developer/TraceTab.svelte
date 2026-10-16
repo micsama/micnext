@@ -3,7 +3,7 @@
   import { tick } from "svelte";
   import { ApiError, getSession, getTraceCallInput, getTraceMessage, getTracePeers, getTraceRunLogs, getTraceRuns, getTraceSystem } from "../../api/client";
   import type { StoredLogRecord } from "../../api/developer";
-  import type { Peers, TraceCall, TraceMessage, TraceRun } from "../../api/trace";
+  import type { Peers, SystemPromptView, TraceCall, TraceMessage, TraceRun } from "../../api/trace";
   import { cn } from "$lib/utils";
   import { formatDuration, formatTokens } from "../../lib/format";
   import Icon from "../../lib/Icon.svelte";
@@ -178,7 +178,7 @@
     : "run" in v ? `轮次 #${runNumber(v.run)}` : "system" in v ? "系统提示" : "会话";
 
   let systemSelected = $state(false);
-  let systemText = $state<string | null>(null);
+  let systemView = $state<SystemPromptView | null>(null);
   async function chooseSystem() {
     if (session === null) return;
     remember();
@@ -187,11 +187,11 @@
     sessionSelected = false;
     systemSelected = true;
     pick = null;
-    systemText = null;
+    systemView = null;
     detailError = null;
     try {
       const value = await getTraceSystem(session);
-      if (request === detailRequest) systemText = value;
+      if (request === detailRequest) systemView = value;
     } catch (e) { if (request === detailRequest) detailError = String(e); }
   }
 
@@ -266,7 +266,7 @@
       } else if (tab === "input") {
         if (!("call" in p) || p.call.purpose === "title") return;
         const [system, messages] = await Promise.all([
-          p.call.purpose === "conversation" && session !== null ? getTraceSystem(session) : Promise.resolve(undefined),
+          p.call.purpose === "conversation" && session !== null ? getTraceSystem(session).then((v) => v.text) : Promise.resolve(undefined),
           getTraceCallInput(p.call.id),
         ]);
         result = { key, system, messages };
@@ -561,7 +561,7 @@
       <div class="tabs"></div>
       <div class="panel-body">
         {#if detailError}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{detailError}</div></div>
-        {:else if systemText !== null}<div class="pad"><TraceSystem text={systemText} /></div>
+        {:else if systemView !== null}<div class="pad"><TraceSystem view={systemView} /></div>
         {:else}<p class="hint pad">加载中…</p>{/if}
       </div>
     {:else if selectedRun}

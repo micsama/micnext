@@ -473,7 +473,7 @@ impl Exec<'_> {
         window: &mut ContextWindow,
     ) -> Result<HashMap<ImageId, ImageData>, StoreError> {
         if !self.images {
-            request::hide_images(window);
+            request::hide_images(&mut window.messages);
         }
         self.engine
             .store

@@ -121,6 +121,10 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/commands", get(context::commands))
         .route("/sessions/{id}/context", get(context::get_context))
         .route(
+            "/sessions/{id}/context/breakdown",
+            get(context::get_breakdown),
+        )
+        .route(
             "/sessions/{id}/compactions/{boundary_id}/revoke",
             post(context::revoke),
         )

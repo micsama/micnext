@@ -121,7 +121,7 @@
         <PersonaPicker value={persona!.id} onpick={pick} />
       {/snippet}
       {#snippet trailing()}
-        {#if view.context?.occupancy}<ContextMeter occupancy={view.context.occupancy} />{/if}
+        {#if view.context?.occupancy}<ContextMeter session={view.id} occupancy={view.context.occupancy} />{/if}
         <ModelPicker value={modelValue} onpick={(id) => pickModel(id)} reasoningEffort={item.reasoning_effort} onreasoning={(effort) => pickModel(modelValue!, effort)} disabled={modelSaving} />
       {/snippet}
     </Composer>
@@ -131,7 +131,7 @@
       <div class="flex items-center justify-between gap-3">
         <p class="text-sm text-muted-foreground">消息请在{channelName(item.channel)}发送，这里可切换模型与思考强度</p>
         <div class="flex shrink-0 items-center">
-          {#if view.context?.occupancy}<ContextMeter occupancy={view.context.occupancy} />{/if}
+          {#if view.context?.occupancy}<ContextMeter session={view.id} occupancy={view.context.occupancy} />{/if}
           <ModelPicker value={modelValue} onpick={(id) => pickModel(id)} reasoningEffort={item.reasoning_effort} onreasoning={(effort) => pickModel(modelValue!, effort)} disabled={modelSaving} />
         </div>
       </div>

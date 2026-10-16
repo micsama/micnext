@@ -27,6 +27,7 @@ pub use channel_setup::{
 };
 pub use command::{parse_command, session_commands, CommandParseError, CommandSpec, ParsedCommand};
 pub use compaction::Occupancy;
+pub use context_usage::{ContextBreakdown, ContextKind, ContextPart};
 pub use error::{AssembleError, KernelError, RunError, WorkdirError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
 pub use input::{IncomingPart, InputError};
@@ -39,4 +40,5 @@ pub use provider::{
     Provider, ProviderError, ProviderFactory, ProviderKindView, ReasoningOptions, StopReason,
     ToolChoice,
 };
+pub use request::{PromptBlock, PromptBlockKind, PromptPart, PromptPartKind, SystemPrompt};
 pub use title::TitleError;

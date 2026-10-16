@@ -4,7 +4,7 @@
 
 human 方向：官方 SDK / API 支持的能力尽量都接上。依据为官方包
 `@tencent-weixin/openclaw-weixin@2.4.9/src`（约 7k 行），协议事实见 [`wechat-protocol.md`](wechat-protocol.md)。
-基础契约见 [微信 B2](../blueprints/wechat-channel.md)。
+基础契约见 [微信 B2](../blueprints/archive/wechat-channel.md)。
 
 ## 一、SDK 能力盘点
 
@@ -14,18 +14,18 @@ human 方向：官方 SDK / API 支持的能力尽量都接上。依据为官方
 | typing | `getconfig` / `sendtyping`，5 秒续发 | 已接（V1） | — |
 | -14 会话失效 | `session-guard.ts` | 已接 | — |
 | 上下线通知 | `ilink/bot/msg/notifystart` / `notifystop` | 未接 | 暂不接：「未连接」由微信按轮询中断自行显示，SDK 未说明通知的额外效果；实测停服后提示明显滞后再补 |
-| 入站图片 | `cdn/pic-decrypt.ts`、`media-download.ts`：CDN 下载 + AES-128-ECB | 已接，[B2](../blueprints/wechat-inbound-images.md) | 非 PNG/JPEG/WebP 及超大图经 `mic-media` 规整；失败为占位并提示重发 |
+| 入站图片 | `cdn/pic-decrypt.ts`、`media-download.ts`：CDN 下载 + AES-128-ECB | 已接，[B2](../blueprints/archive/wechat-inbound-images.md) | 非 PNG/JPEG/WebP 及超大图经 `mic-media` 规整；失败为占位并提示重发 |
 | 表情 | SDK 无表情包 item 类型 | 默认表情以 `[发呆]` 这类文本到达，随文本支持 | human 实测只有默认表情会到达，无需另接 |
 | 入站文件、视频 | `media-download.ts` | 已实现待验收，[B2](../blueprints/wechat-inbound-files.md) | 存会话工作目录 `微信文件/<日期>/`，占位带路径，模型用文件工具读；上限 100 MB，不自动清理 |
 | 入站无转写语音 | `media/silk-transcode.ts`（silk → wav） | 占位 `[语音]` | 不接：正常语音均有服务端转写，缺转写属少见情况，维持占位 |
-| 引用回复（含引用 bot、部分引用） | `inbound.ts` + `partial-quote.ts` + `quote-store.ts` | 已接，[B2](../blueprints/wechat-quotes.md) | 被引内容以 `[引用：…]` 前缀进文字；bot 引用复用出站分段计划；Markdown/表格部分选区精确还原为延期的已知 bug |
+| 引用回复（含引用 bot、部分引用） | `inbound.ts` + `partial-quote.ts` + `quote-store.ts` | 已接，[B2](../blueprints/archive/wechat-quotes.md) | 被引内容以 `[引用：…]` 前缀进文字；bot 引用复用出站分段计划；Markdown/表格部分选区精确还原为延期的已知 bug |
 | 出站图片、文件、视频、语音 | `cdn/upload.ts`、`send-media.ts`：`getuploadurl` → 加密上传 → item 引用 | 只发文本 | **接**：需模型侧「发文件」能力（工具或回复块），走 B2 |
 | 工具调用进度 | `reply-progress-sender.ts`：item 11/12 + `message_state` | 不发 | 不接：human 判断会刷屏 |
 | Markdown 过滤 | `markdown-filter.ts`（373 行） | 不转换，靠渠道提示 | 不接：已选渠道提示路线 |
 | 斜杠指令 `/echo`、`/toggle-debug` | `slash-commands.ts` | 无 | **做**，但不在微信 crate 内：统一指令管理，Web 与各 Channel 同步，另起 B1 |
 | 多账号、pairing | `accounts.ts`、`pairing.ts` | 单对象 | 不接（单进程个人工具） |
 
-入站单条消息的缺陷（未知 item、残缺字段、引用无法解析）按条降级为占位并打日志，不断开入站连接；规则见 [微信 B2](../blueprints/wechat-channel.md) §6.2。
+入站单条消息的缺陷（未知 item、残缺字段、引用无法解析）按条降级为占位并打日志，不断开入站连接；规则见 [微信 B2](../blueprints/archive/wechat-channel.md) §6.2。
 
 ## 二、顺序
 

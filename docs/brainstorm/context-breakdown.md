@@ -1,6 +1,6 @@
 # B1：上下文构成
 
-**状态：方向已定（2026-10-16），进 [B2](../blueprints/context-breakdown.md)。不是实现授权。**
+**状态：方向已定（2026-10-16），进 [B2](../blueprints/archive/context-breakdown.md)。不是实现授权。**
 
 human 决定：方格图，要做得好看；工具调用与结果并入「对话」，只在图例里注明其中占比，不做逐条下钻；没有上游总量时不显示构成。
 
@@ -8,7 +8,7 @@ human 决定：方格图，要做得好看；工具调用与结果并入「对�
 
 ## 一、现有事实
 
-- 总量已有：`occupancy.used_tokens` = 当前有效窗口下最近一次成功对话调用的上游 `input + output`（[chat-run-stats §二](../blueprints/chat-run-stats.md#二上下文占用)），与压缩判定同口径。
+- 总量已有：`occupancy.used_tokens` = 当前有效窗口下最近一次成功对话调用的上游 `input + output`（[chat-run-stats §二](../blueprints/archive/chat-run-stats.md#二上下文占用)），与压缩判定同口径。
 - 上游只给总数，不给分项。分项只能靠估算。
 - 请求不落盘，但 `request::build` 是纯组装：同一会话的当前窗口、设置、工具、渠道提示重新组装一次，得到的就是「下一次要发出去的请求」。它约等于上次的 input 加上次的 output（output 已成为窗口里的回复）。trace 重建输入走的也是这个函数。
 - 请求由三部分组成：`system`（三块）、`messages`、`tools`（工具 schema）。另有 `images`。

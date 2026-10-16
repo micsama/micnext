@@ -1,6 +1,6 @@
 # B1：Web 闭环后的最小正交审查（余项）
 
-**状态**：A 并入模型设置阶段二（[`runtime-settings.md`](../blueprints/runtime-settings.md) §四）；C、D 已落地，E 只做了详情一处；B、F 与 E 余项待定。
+**状态**：A 并入模型设置阶段二（[`runtime-settings.md`](../blueprints/archive/runtime-settings.md) §四）；C、D 已落地，E 只做了详情一处；B、F 与 E 余项待定。
 不替换已批准 Blueprint，不新增实现；方向确定后按主题起 B2，不把本稿当成整体重写授权。
 
 已落地（契约在对应 blueprint，此处不再展开）：
@@ -27,7 +27,7 @@
 也不能为假想协议设计巨大联合类型。待定：工具调用与结果相邻是统一上下文约束还是协议适配约束；模型输入需保留哪些来源元数据以支持推理兼容判断。
 迁移应逐字段比较当前请求 JSON，不能仅靠编译证明行为等价。
 
-2026-10-09 范围核对：[system-prompt-layout](../blueprints/system-prompt-layout.md) 仅统一消息头解释与 system 布局，
+2026-10-09 范围核对：[system-prompt-layout](../blueprints/archive/system-prompt-layout.md) 仅统一消息头解释与 system 布局，
 沿用当前 `mic-message::model_view` 所有权。本文 B 的重构方向仍未决；如以后迁移呈现，消息头定义与解释一起迁移。
 
 ## 二、E 余项：会话身份与来源关系（needs-investigation）

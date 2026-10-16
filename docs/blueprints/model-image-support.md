@@ -2,7 +2,7 @@
 
 **状态：已实现（2026-10-15）；fmt/clippy、workspace 测试、Web 检查与真实库副本迁移验收通过，设置页与真实模型交 human。**
 
-修订 [model-settings](model-settings.md) 的模型字段与 §十「不支持图片的模型收到图」一行。
+修订 [model-settings](archive/model-settings.md) 的模型字段与 §十「不支持图片的模型收到图」一行。
 
 ## 问题
 

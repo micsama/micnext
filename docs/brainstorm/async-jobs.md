@@ -56,9 +56,9 @@ review 后 human 确认：子 agent 是可休眠、可继续 query 的 session�
 
 现有契约已经覆盖回注所需的消息与顺延规则：
 
-- [mic-message](../blueprints/mic-message.md) §三把 `Completion` 定义为「可认领、进模型上下文」的消息。
+- [mic-message](../blueprints/archive/mic-message.md) §三把 `Completion` 定义为「可认领、进模型上下文」的消息。
 - 派出时，工具调用立即以 `Dispatched { exec_id }` 闭合。
-- [run-execution](../blueprints/run-execution.md) §4.4 已有顺延规则：工具结果出来之前到达的消息，排到结果之后。
+- [run-execution](../blueprints/archive/run-execution.md) §4.4 已有顺延规则：工具结果出来之前到达的消息，排到结果之后。
 
 回注就是写一条 `Completion`、再发一次 `Wake`：
 
@@ -126,7 +126,7 @@ pi 把投递分成 steer / followUp / nextTurn 三档，我们只要一档：插
   - 子会话复用现有 `Root` 与子会话关系，需核对是否支持追问（子会话多次被认领）以及按子树查询。
 - `mic-tool`：
   - `execute` 的成功值要能表达 `Dispatched`。
-  - `ToolContext` 增加派出入口（[mic-tool](../blueprints/mic-tool.md) §七 已预告）。
+  - `ToolContext` 增加派出入口（[mic-tool](../blueprints/archive/mic-tool.md) §七 已预告）。
 - `mic-tool-shell`：后台执行模式，输出落盘。
 - `mic-core`：
   - 任务运行时：派出、监视、回注、杀掉、启动收尾。
@@ -143,14 +143,14 @@ B2 需要一并修订的：
 
 | 文档 | 牵连点 |
 |---|---|
-| [mic-store](../blueprints/mic-store.md) | `SessionKind::Task` 已有。需补：任务表；子会话可被多次认领（追问）；按子树查询；任务行记下发起者 person，重启收尾的回注要用到 |
-| [mic-tool](../blueprints/mic-tool.md) §七 | `Dispatched` 成功值与 `ToolContext` 派出入口。「丢弃 future = 取消」只约束前台执行 |
-| [tools-basic](../blueprints/tools-basic.md) | `bash` 前台默认超时 120 s、上限 600 s。后台模式另定默认值与「不限时」写法；删掉「`run_in_background` 报未知字段」的说明 |
-| [run-execution](../blueprints/run-execution.md) §4.1、§4.6 | 写者表加任务运行时；启动收尾加任务中断与回注 |
-| [run-stop](../blueprints/run-stop.md) | 停止键不动后台任务；同步子 agent 随父停。「异步任务的主动停止另议」随本文关闭 |
-| [session-archive](../blueprints/session-archive.md) | 归档前提示并杀掉任务。回收站另起（todo 已记） |
-| [web-ui](../blueprints/web-ui.md) | `Completion` 的呈现（现为最小占位）、右侧任务列表、进入子会话 |
-| [system-prompt-layout](../blueprints/system-prompt-layout.md) | 子会话不带人设，任务说明放哪一块 |
+| [mic-store](../blueprints/archive/mic-store.md) | `SessionKind::Task` 已有。需补：任务表；子会话可被多次认领（追问）；按子树查询；任务行记下发起者 person，重启收尾的回注要用到 |
+| [mic-tool](../blueprints/archive/mic-tool.md) §七 | `Dispatched` 成功值与 `ToolContext` 派出入口。「丢弃 future = 取消」只约束前台执行 |
+| [tools-basic](../blueprints/archive/tools-basic.md) | `bash` 前台默认超时 120 s、上限 600 s。后台模式另定默认值与「不限时」写法；删掉「`run_in_background` 报未知字段」的说明 |
+| [run-execution](../blueprints/archive/run-execution.md) §4.1、§4.6 | 写者表加任务运行时；启动收尾加任务中断与回注 |
+| [run-stop](../blueprints/archive/run-stop.md) | 停止键不动后台任务；同步子 agent 随父停。「异步任务的主动停止另议」随本文关闭 |
+| [session-archive](../blueprints/archive/session-archive.md) | 归档前提示并杀掉任务。回收站另起（todo 已记） |
+| [web-ui](../blueprints/archive/web-ui.md) | `Completion` 的呈现（现为最小占位）、右侧任务列表、进入子会话 |
+| [system-prompt-layout](../blueprints/archive/system-prompt-layout.md) | 子会话不带人设，任务说明放哪一块 |
 | [product-roadmap](product-roadmap.md) §2.3–2.4、[cross-check](cross-check-2026-09-23.md) §四-5 | 改成指向本文 |
 
 历史草案 [next-gen-architecture](next-gen-architecture.md) §4.1 曾经规定：`Task` 里不许派异步任务。理由是子会话交付后，迟到的完成消息会落进一个没人看的会话，成为孤儿。本文用「子 agent 可追问、被回注唤醒后再交付一次」消解了这个问题，所以不再需要那条禁令。

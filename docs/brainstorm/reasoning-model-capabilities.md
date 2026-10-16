@@ -1,6 +1,6 @@
 # B1：按具体模型提供思考档位预设
 
-**状态：方向已确认（2026-10-13）；human 修订为供应商保守默认 + 已知模型覆盖，[B2](../blueprints/reasoning-model-capabilities.md) 已批准实施。现行契约以 B2 为准。**
+**状态：方向已确认（2026-10-13）；human 修订为供应商保守默认 + 已知模型覆盖，[B2](../blueprints/archive/reasoning-model-capabilities.md) 已批准实施。现行契约以 B2 为准。**
 
 ## 问题
 

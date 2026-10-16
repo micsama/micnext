@@ -2,9 +2,9 @@
 
 **状态**：第二轮核对中。已确认的方向见 [`product-roadmap.md`](product-roadmap.md) §二；
 仍需决策的契约见其 §四与 [`../../todo.md`](../../todo.md)。本文是核对入口，
-不代替 [`mic-message`](../blueprints/mic-message.md)、
-[`mic-store`](../blueprints/mic-store.md)、
-[`mic-core-module`](../blueprints/mic-core-module.md) 的 B2。
+不代替 [`mic-message`](../blueprints/archive/mic-message.md)、
+[`mic-store`](../blueprints/archive/mic-store.md)、
+[`mic-core-module`](../blueprints/archive/mic-core-module.md) 的 B2。
 
 ## 一、项目目标
 

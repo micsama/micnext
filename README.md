@@ -6,7 +6,7 @@ git 历史；micbot 保留作代码参考。
 - 设计蓝图：[`docs/brainstorm/next-gen-architecture.md`](docs/brainstorm/next-gen-architecture.md)
   （B1 头脑风暴，从 micbot 仓库同步过来，后续在本仓库继续演进）。
 - 当前状态：v0a 进行中，Web 闭环已打通（网关 + 内嵌前端 + `-p` 调试调用）。进度与模块划分见
-  [`docs/blueprints/v0a-module-map.md`](docs/blueprints/v0a-module-map.md)，待办见 [`todo.md`](todo.md)。
+  [`docs/blueprints/archive/v0a-module-map.md`](docs/blueprints/archive/v0a-module-map.md)，待办见 [`todo.md`](todo.md)。
 
 ## 起步方式
 

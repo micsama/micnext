@@ -1,6 +1,6 @@
 # B1: mic-message 类型设计
 
-**状态**: 历史 B1 论证；现行类型以 [`mic-message` B2](../blueprints/mic-message.md) 为准
+**状态**: 历史 B1 论证；现行类型以 [`mic-message` B2](../blueprints/archive/mic-message.md) 为准
 **创建**: 2026-08-26 · **修订**: 2026-08-26（交叉验证 + Harness 三分）
 **阅读提示**: 本文的候选和旧 Channel 例子不作为待办或实现契约。
 **范围**: `crates/mic-message`——`Message`/`MessageAuthor`/消息类型闭集/`ContextBoundary`
@@ -181,4 +181,4 @@ channel crate 的 B2 时接线（可能后续开放配置覆盖，当前无需�
 6. 时间戳：`i64` unix millis；展示时区默认 `Asia/Shanghai`（IANA 标识，非
    "UTC+8"偏移量本身），留到 channel crate B2 接线。
 
-B1 收敛完成，下一步：起草 `mic-message` 的 B2 blueprint（`docs/blueprints/mic-message.md`）。
+B1 收敛完成，下一步：起草 `mic-message` 的 B2 blueprint（`docs/blueprints/archive/mic-message.md`）。

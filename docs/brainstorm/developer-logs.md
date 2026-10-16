@@ -1,6 +1,6 @@
 # B1：Web 开发者日志
 
-**状态：方向收敛；契约已与只读 SQL 合并为 [开发者诊断 B2](../blueprints/developer-diagnostics.md)，待批准（2026-10-10）。**
+**状态：方向收敛；契约已与只读 SQL 合并为 [开发者诊断 B2](../blueprints/archive/developer-diagnostics.md)，待批准（2026-10-10）。**
 
 ## 已确认方向
 
@@ -21,4 +21,4 @@
 
 main.rs 当前使用带 EnvFilter 的 fmt subscriber；需改为独立 layer 过滤。唯一 GatewayModule 构造一次迁移，不新增临时 API/无关 module.rs；-p 不创建日志缓冲或随机标识。微信 client.rs 已有 `wechat inbound quote` DEBUG 事件，可直接搜索其现有字段。
 
-实体/状态、公开签名、容量、HTTP/SSE、调用方兼容和验收统一见 B2，本文不重复。原后续更新候选已移到 [更新 B1](self-update.md)和 [更新 B2](../blueprints/self-update.md)。
+实体/状态、公开签名、容量、HTTP/SSE、调用方兼容和验收统一见 B2，本文不重复。原后续更新候选已移到 [更新 B1](self-update.md)和 [更新 B2](../blueprints/archive/self-update.md)。

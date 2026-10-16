@@ -1,7 +1,7 @@
 # B2: 模型请求携带会话缓存键
 
 **状态**：APPROVED（2026-10-10），已实现，fmt/clippy 通过，待 §六 验收后 CLOSED
-**来源**：[provider-chatgpt](provider-chatgpt.md) 验收中发现 ChatGPT 订阅缓存命中恒为 0。
+**来源**：[provider-chatgpt](archive/provider-chatgpt.md) 验收中发现 ChatGPT 订阅缓存命中恒为 0。
 
 ## 一、已验证事实（2026-10-10，human 本机脚本，同一约 3300 token 前缀各连发 3 次）
 

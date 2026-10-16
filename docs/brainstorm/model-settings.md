@@ -1,7 +1,7 @@
 # B1：阶段二模型设置审查（2026-10-08）
 
-**状态**：human 已要求准备 B2（2026-10-08）；[联合 B2 草案](../blueprints/model-settings.md) 已起草，待批准，未授权实现。
-现有草案在 [`runtime-settings.md`](../blueprints/runtime-settings.md) §四（早期引用的 §十已不存在）。
+**状态**：human 已要求准备 B2（2026-10-08）；[联合 B2 草案](../blueprints/archive/model-settings.md) 已起草，待批准，未授权实现。
+现有草案在 [`runtime-settings.md`](../blueprints/archive/runtime-settings.md) §四（早期引用的 §十已不存在）。
 本稿记录审查、候选与未知项，不替换已批准的阶段一契约。
 **范围补充**：human 要求考虑模型多模态，并让 Web 支持插入图片（2026-10-08）。图片输入端到端契约一并进入本次 B1/B2。
 **已确认方向**（2026-10-08）：
@@ -286,7 +286,7 @@ run：认领读定模型 ──组装含图片字节的输入──> Provider wi
 
 ## 七、进入 B2 的状态
 
-human 已要求起联合 B2；§五的方向候选现在在 [B2 §一](../blueprints/model-settings.md#一范围与待批准项)
+human 已要求起联合 B2；§五的方向候选现在在 [B2 §一](../blueprints/archive/model-settings.md#一范围与待批准项)
 落成具体提案供审定，不视为批量获批。§二～六、§八保留探索与 review 记录；
 其中探测/能力三态相关候选以 §九为准，无模型拒收候选以 B2 的统一失败提案供最终选择。
 方向未收敛仍退回 B1，公开签名、错误、依赖与副作用须 B2 批准后才能实现。

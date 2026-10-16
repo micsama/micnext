@@ -1,6 +1,6 @@
 # B1：Web 会话分段加载
 
-状态：已定（2026-10-12），选方案 B，滚到顶部自动加载。契约见 [B2](../blueprints/web-message-paging.md)。
+状态：已定（2026-10-12），选方案 B，滚到顶部自动加载。契约见 [B2](../blueprints/archive/web-message-paging.md)。
 
 ## 一、现状与实测
 

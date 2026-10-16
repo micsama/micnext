@@ -1,6 +1,6 @@
 # B1：SQLite 存储整理
 
-**状态：方向已拍板（2026-10-14），与 [run-trace](run-trace.md) 合并 B2 见 [run-trace](../blueprints/run-trace.md)，未实施。** 过程稿已收敛，本文只留结论。
+**状态：方向已拍板（2026-10-14），与 [run-trace](run-trace.md) 合并 B2 见 [run-trace](../blueprints/archive/run-trace.md)，未实施。** 过程稿已收敛，本文只留结论。
 
 ## 方向
 

@@ -1,6 +1,6 @@
 # B1：运行中停止
 
-**状态：方向已定（2026-10-15 human），进入 [B2](../blueprints/run-stop.md)。**
+**状态：方向已定（2026-10-15 human），进入 [B2](../blueprints/archive/run-stop.md)。**
 
 ## 问题
 

@@ -1,7 +1,7 @@
 # 微信接入：iLink Bot 协议事实
 
 **状态**：协议事实参考。取自官方 npm 包 `@tencent-weixin/openclaw-weixin@2.4.9` 的源码
-（OpenClaw 框架的 Channel 插件）及接入实测；只记协议事实，契约见 [微信 B2](../blueprints/wechat-channel.md)。
+（OpenClaw 框架的 Channel 插件）及接入实测；只记协议事实，契约见 [微信 B2](../blueprints/archive/wechat-channel.md)。
 插件里 `channel.ts`、`process-message.ts` 等是对接 OpenClaw 的胶水，不在学习范围。
 
 ## 一、已定方向（2026-10-08 与 human 确认）
@@ -117,7 +117,7 @@ SDK 每 5 秒续发一次 1。我们按此续发，回复送达后才发 2（详
 
 **下载**：`media.full_url`，没有则 `<cdn>/download?encrypted_query_param=…`；AES-128-ECB(PKCS7) 解密，无 key 则为明文。
 key 有两种形态：base64 解出 16 字节；或解出 32 字符 hex 串再转字节。入站图片另有 `aeskey` hex 字段，优先用。
-入站图片已按此实现并服务器验收（[入站图片 B2](../blueprints/wechat-inbound-images.md)）。语音只取服务端 `voice_item.text` 转写，不转码 silk。
+入站图片已按此实现并服务器验收（[入站图片 B2](../blueprints/archive/wechat-inbound-images.md)）。语音只取服务端 `voice_item.text` 转写，不转码 silk。
 
 ## 七、待实测（遇到再回填）
 

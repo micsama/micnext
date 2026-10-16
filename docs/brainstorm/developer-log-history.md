@@ -1,12 +1,12 @@
 # B1：开发者日志留痕
 
-**状态：已收敛（2026-10-12），见 [B2](../blueprints/developer-log-history.md)。**
+**状态：已收敛（2026-10-12），见 [B2](../blueprints/archive/developer-log-history.md)。**
 
 ## 一、需求
 
 重启（手动或自动更新）后，网页仍能看到此前最近一段日志，用于排障。网页加快捷范围「全部 / 本次启动以来」。不做归档、压缩、全历史浏览。
 
-现状：`crates/mic-gateway/src/logs.rs` 只有内存缓冲（10,000 条 / 16 MiB），进程退出即丢。原 [开发者诊断 B2](../blueprints/developer-diagnostics.md) 约定「内存日志、重启清空」，本次改契约，走 B2。
+现状：`crates/mic-gateway/src/logs.rs` 只有内存缓冲（10,000 条 / 16 MiB），进程退出即丢。原 [开发者诊断 B2](../blueprints/archive/developer-diagnostics.md) 约定「内存日志、重启清空」，本次改契约，走 B2。
 
 ## 二、human 决定
 

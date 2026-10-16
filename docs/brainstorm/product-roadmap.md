@@ -2,9 +2,9 @@
 
 **状态**：B1 第二轮核对中（2026-09-23）。已确认的方向可作为 B2 输入；§四尚未
 收敛的公开契约与副作用边界，不据此实施。
-**当前契约**：[mic-message](../blueprints/mic-message.md)、
-[mic-store](../blueprints/mic-store.md)、
-[mic-core 模块装配](../blueprints/mic-core-module.md)。
+**当前契约**：[mic-message](../blueprints/archive/mic-message.md)、
+[mic-store](../blueprints/archive/mic-store.md)、
+[mic-core 模块装配](../blueprints/archive/mic-core-module.md)。
 **核对清单**：[cross-check-2026-09-23.md](cross-check-2026-09-23.md)。
 
 ## 一、项目定位
@@ -111,7 +111,7 @@ DSH 的 `glob`/`grep` 用 ripgrep 语法；`bash` 每次开启新 shell，不保
   精确或更长久的状态出现真实需求后由模块持久化，不把全量历史默认塞回上下文。
 - 微信可用 `/clear` 清空后续上下文但保留历史，`/compact` 压缩；Web 新建
   会话用按钮。普通新消息在模型/工具边界插嘴。Web 停止键与 `/stop` 立即停当前一轮：
-  模型流、工具（shell 整组杀进程并落盘已取消）、重试等待与压缩都中止（[run-stop](../blueprints/run-stop.md)）。
+  模型流、工具（shell 整组杀进程并落盘已取消）、重试等待与压缩都中止（[run-stop](../blueprints/archive/run-stop.md)）。
   异步任务的主动停止另议。
 - 同步调用要等结果才能继续本轮；异步调用先返回执行引用，后续完成再回注并可通知。
   异步还必须定义执行所有权、失败、崩溃与停止语义。子 agent 按异步方向规划，
@@ -171,3 +171,22 @@ DSH 的 `glob`/`grep` 用 ripgrep 语法；`bash` 每次开启新 shell，不保
 
 旧的设计论证仅作背景，不能覆盖本文与已批准 Blueprint。B2 涉及的新签名和
 副作用边界必须另行批准；本文件不授权实现。
+
+
+## 五、从 todo 移入的待定与延期事项（2026-10-16）
+
+以下保留原有决定与线索，形成独立 B2 后再进入 `todo.md`；不代表实现授权。
+
+| 状态 | 主题 | 文档 |
+|---|---|---|
+| 想法，以后做（2026-10-15） | trace「复制为 curl / 重新推理」：消息按记录还原，系统提示与工具清单用当前配置；工具清单视为固定，与历史工具调用对不上则拒绝重放 | [trace B1](run-trace.md#未来重放与复制为-curl) |
+| human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](../blueprints/archive/web-ui.md#43-设置页与人设选择) |
+| B1 余项：B（模型输入呈现）、F（工具参数）、E 余项（会话身份）待定；A 并入阶段二 | 最小正交审查余项 | [`docs/brainstorm/orthogonality-review-2026-09-24.md`](orthogonality-review-2026-09-24.md) |
+| B1 第二轮收敛中 | 产品定位、Web + 微信、定时看板、同步/异步与 v0–v3 路线；全项目待决策项见 §四 | [`docs/brainstorm/product-roadmap.md`](product-roadmap.md) |
+| B1 待核对，再起 B2 | 定时任务看板事实来源 | [`docs/brainstorm/cross-check-2026-09-23.md`](cross-check-2026-09-23.md) §四-4 |
+| B1 已记录；脱敏明确延期（2026-10-10） | 模型出站脱敏、工具隔离与授权：脱敏只求减少部分意外披露，当前不实施；工具隔离既有缺口仍待定。专用用户部署 human 进行中，服务器 bwrap 已验证可运行；访问与披露各自控制，候选未批准 | [B1](privacy-permissions.md)；合并「工具授权」缺口（cross-check §四-8～9） |
+| 已知 bug，低优先级；human 明确延期（2026-10-10） | 微信 Markdown/表格部分引用无法精确定位时提供完整被引消息并注明；显示文字的精确还原后续再处理，不阻塞本轮引用验收 | [引用 B2](../blueprints/archive/wechat-quotes.md)；[样本事实](wechat-v2.md) §三 |
+| 想法，未定；现状够用（2026-10-12） | 日志页开关「落盘包含 DEBUG」：存 SQLite，跨重启有效，仅项目 crate，开启时页面提示。场景：新功能临时调试时复现与查看之间有重启；现状 DEBUG 只在内存实时可看，重启即丢 | [B2](../blueprints/archive/developer-log-history.md) |
+| 想法，待起 B1（2026-10-16） | 会话回收站：侧栏下方列出 7 天内归档的会话，可恢复；超过 7 天是否真删待定 | [归档 B1](session-archive.md) |
+| 想法，未定 | 人设绑定 UI 主题；「理性大脑」人设定稿 | [`docs/brainstorm/runtime-settings.md`](runtime-settings.md) §三 |
+| 已知缺口，待定义验收边界 | 入站去重、投递重复；模型/工具/历史尺寸、工具授权与进程退出 | [`docs/brainstorm/cross-check-2026-09-23.md`](cross-check-2026-09-23.md) §四-3、8～9 |

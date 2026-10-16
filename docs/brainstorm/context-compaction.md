@@ -1,8 +1,8 @@
 # B1：上下文压缩与 `/compact`、`/clear`
 
-**状态：B1 已收敛（2026-10-12）；[B2 已批准并实现、CLOSED](../blueprints/context-compaction.md)。基本链路与构建检查通过，human 接手真实使用验收；OpenAI API key 实测因凭据 401 待补。**
+**状态：B1 已收敛（2026-10-12）；[B2 已批准并实现、CLOSED](../blueprints/archive/context-compaction.md)。基本链路与构建检查通过，human 接手真实使用验收；OpenAI API key 实测因凭据 401 待补。**
 
-前作：micbot [BP-043](../../../micbot/docs/blueprints/bp-043-context-compaction.md)（触发、锚点、累计 summary）、[BP-047](../../../micbot/docs/blueprints/bp-047-compaction-request-shaping.md)（请求形状：原样历史 + 末尾 user 祈使，实测真总结而不续写）、[BP-056](../../../micbot/docs/blueprints/bp-056-slash-commands.md)（`/compact` 手动入口）、[context-engineering](../../../micbot/docs/brainstorm/context-engineering.md) §六/§十四（改前缀是稀有昂贵事件）。本仓既有：[next-gen-architecture](next-gen-architecture.md) §4.9（Boundary 进 messages 表，不新增 summary 消息类型）、[mic-store](../blueprints/mic-store.md)（`context_window` 只读最后 Boundary 之后；`core_model_calls.run_id` 为空表示压缩调用）。
+前作：micbot [BP-043](../../../micbot/docs/blueprints/bp-043-context-compaction.md)（触发、锚点、累计 summary）、[BP-047](../../../micbot/docs/blueprints/bp-047-compaction-request-shaping.md)（请求形状：原样历史 + 末尾 user 祈使，实测真总结而不续写）、[BP-056](../../../micbot/docs/blueprints/bp-056-slash-commands.md)（`/compact` 手动入口）、[context-engineering](../../../micbot/docs/brainstorm/context-engineering.md) §六/§十四（改前缀是稀有昂贵事件）。本仓既有：[next-gen-architecture](next-gen-architecture.md) §4.9（Boundary 进 messages 表，不新增 summary 消息类型）、[mic-store](../blueprints/archive/mic-store.md)（`context_window` 只读最后 Boundary 之后；`core_model_calls.run_id` 为空表示压缩调用）。
 
 ## 一、需求
 

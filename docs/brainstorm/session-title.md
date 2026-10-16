@@ -1,6 +1,6 @@
 # B1：会话自动标题与重新生成
 
-**状态（2026-10-13）：[思考选择 B2](../blueprints/reasoning-selection.md) 已验收 CLOSED；[标题 B2](../blueprints/session-title.md) 进入独立评审，待批准，尚未实施。human 已确认侧栏刷新边界及标题只 trim、依赖提示词约束的规则。独立的「回到底部」按钮尺寸调整已实施。**
+**状态（2026-10-13）：[思考选择 B2](../blueprints/archive/reasoning-selection.md) 已验收 CLOSED；[标题 B2](../blueprints/archive/session-title.md) 进入独立评审，待批准，尚未实施。human 已确认侧栏刷新边界及标题只 trim、依赖提示词约束的规则。独立的「回到底部」按钮尺寸调整已实施。**
 
 ## 一、诉求与现状
 
@@ -37,7 +37,7 @@ B 的「使用默认模型」是用户可见的选择模式，不是专用模型
 
 ## 四、进入 B2 时必须明确的契约
 
-思考选择独立在 `docs/blueprints/reasoning-selection.md`，标题生成在 `docs/blueprints/session-title.md`，分别批准、实施与验收。评审后明确的精简：
+思考选择独立在 `docs/blueprints/archive/reasoning-selection.md`，标题生成在 `docs/blueprints/archive/session-title.md`，分别批准、实施与验收。评审后明确的精简：
 
 1. 生成中只放 core 内存，库只存标题/错误；运行时持有独立标题 JoinSet，不改正文调度，不做启动生成状态收尾。
 2. 新消息 id 等于第一条含文字 UserInput id 且尚无标题时自动生成，不存自动资格或补跑旧消息。

@@ -2,7 +2,7 @@
 
 **状态：B3 已审；B2 已批准并实现（2026-10-09）**
 
-审查对象：[channel-prompt](../blueprints/channel-prompt.md) 的初稿；以下保留审查依据。
+审查对象：[channel-prompt](../blueprints/archive/channel-prompt.md) 的初稿；以下保留审查依据。
 human 要求直接调整蓝图、提示精简直接；B2 已采用候选 A，修正 F1～F4。
 human 实测确认微信支持大部分 Markdown：数学块、脚注和折叠块不支持，代码块可复制但无高亮。
 B2 与本文已同步，只列具体限制，不笼统要求简单格式。本文不是实现授权。

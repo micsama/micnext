@@ -1,6 +1,6 @@
 # 运行期设置：配置边界与后续想法（2026-10-08）
 
-状态：B1 已收敛并落地（阶段一 CLOSED），决定与契约见 [`blueprints/runtime-settings.md`](../blueprints/runtime-settings.md)。
+状态：B1 已收敛并落地（阶段一 CLOSED），决定与契约见 [`blueprints/runtime-settings.md`](../blueprints/archive/runtime-settings.md)。
 本文只留配置边界的取舍依据和未定的后续想法。
 
 核心划分：**设置页管长期偏好，会话保存下一轮选择，run 保存当轮事实。** 「下一轮想用什么」和「上一轮实际用了什么」

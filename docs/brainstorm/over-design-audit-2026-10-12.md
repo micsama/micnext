@@ -21,7 +21,7 @@ provider 基本干净，只有一处与蓝图矛盾；gateway 与工具类 crate
 
 | # | 位置 | 问题 | 依据或来源 |
 |---|---|---|---|
-| A1 | `mic-provider-openai/src/stream.rs:67` `finish` | 正常结束（EndTurn）但没有内容时按 `Transient` 重试 | 326e21f（2026-09-24）初版沿用至今。[provider-sdk-responses](../blueprints/provider-sdk-responses.md) §六（2026-10-10 批准）写明「空正文的合法终态不再猜测重试」，但代码和 [provider-openai](../blueprints/provider-openai.md) 第 14、110、148 行仍保留，两份文档互相矛盾，一处真相被破坏。删除前须确认 core 能正常落盘空 `Reply`。 |
+| A1 | `mic-provider-openai/src/stream.rs:67` `finish` | 正常结束（EndTurn）但没有内容时按 `Transient` 重试 | 326e21f（2026-09-24）初版沿用至今。[provider-sdk-responses](../blueprints/provider-sdk-responses.md) §六（2026-10-10 批准）写明「空正文的合法终态不再猜测重试」，但代码和 [provider-openai](../blueprints/archive/provider-openai.md) 第 14、110、148 行仍保留，两份文档互相矛盾，一处真相被破坏。删除前须确认 core 能正常落盘空 `Reply`。 |
 | A2 | `mic-message/src/model_view.rs:173` `header_legend()` | 每个 system prompt 都在描述 dispatched / completion 两种消息头，但这两种消息从不出现：白花 token，也可能误导模型 | 依赖 C 的决定：删脚手架就一起删；保留脚手架也应只描述实际会出现的消息头 |
 | A3 | `mic-provider-openai/src/chat.rs:240` `FinishReason::FunctionCall` | 变体只为报错而存在；去掉后 serde 照样解析失败 | — |
 | A4 | `mic-provider-openai/src/factory.rs:43` `key_env` | `.ok()?` 把配置解析错误吞成 `None` | 库内配置已由工厂 check 规范化，应 `expect` |
@@ -75,7 +75,7 @@ provider 基本干净，只有一处与蓝图矛盾；gateway 与工具类 crate
 
 - 约 25 处 `AccountError::Invalid`，重新校验模块自己在同一事务内写入的行。例：`account.rs` `find()` 交叉核对会话种类、投递目标版本与 user_id；`delivery.rs` 的 `stored()` / `recover()` 解析 plan 后丢弃。
 - 表上已有 `CHECK` 约束枚举值（`connection`、`phase`、`outcome`、`attempt_no`）；另有逐行 `plan_version` / `snapshot_version`，与 schema 迁移版本并存。
-- 但 [wechat-channel](../blueprints/wechat-channel.md) 第 198、221 行明确要求「磁盘边界一次解析成强类型」，CLAUDE.md 也把「磁盘上的库文件版本」列为外部，所以现状合规，不是 bug。
+- 但 [wechat-channel](../blueprints/archive/wechat-channel.md) 第 198、221 行明确要求「磁盘边界一次解析成强类型」，CLAUDE.md 也把「磁盘上的库文件版本」列为外部，所以现状合规，不是 bug。
 
 分歧在于这条规则的解释：
 

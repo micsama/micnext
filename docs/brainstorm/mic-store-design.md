@@ -1,6 +1,6 @@
 # B1: mic-store 设计
 
-**状态**: 历史 B1 论证；现行契约以 [`mic-store` B2](../blueprints/mic-store.md) 为准
+**状态**: 历史 B1 论证；现行契约以 [`mic-store` B2](../blueprints/archive/mic-store.md) 为准
 **创建**: 2026-08-26 · **修订**: 2026-08-26（交叉验证 7 条全部并入）
 **阅读提示**: 本文的候选、旧 Channel 例子和待办不继续维护。
 **范围**: `crates/mic-store`——sessions→queries→session_entries 三层持久化的物理

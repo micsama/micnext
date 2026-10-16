@@ -126,7 +126,7 @@
       {/snippet}
     </Composer>
   {:else if item}
-    <div class="mx-auto w-full max-w-3xl space-y-1 px-4 pb-4">
+    <div class="mx-auto w-full max-w-chat space-y-1 px-4 pb-4">
       {#if readonlyNotice}<p class="text-sm text-warning">{readonlyNotice}</p>{/if}
       <div class="flex items-center justify-between gap-3">
         <p class="text-sm text-muted-foreground">消息请在{channelName(item.channel)}发送，这里可切换模型与思考强度</p>

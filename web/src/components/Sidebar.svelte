@@ -128,12 +128,16 @@
   </div>
 {/snippet}
 
-{#if sidebar.drawer}
-  <button type="button" class="fixed inset-0 z-20 bg-black/30 md:hidden" aria-label="关闭会话列表" onclick={() => (sidebar.drawer = false)}
-  ></button>
-{/if}
+<button
+  type="button"
+  tabindex="-1"
+  class={["fixed inset-0 z-20 bg-black/30 transition-opacity duration-300 motion-reduce:transition-none md:hidden", !sidebar.drawer && "pointer-events-none opacity-0"]}
+  aria-label="关闭会话列表"
+  onclick={() => (sidebar.drawer = false)}></button>
+<!-- 宽屏收起：占位宽度立即归零，面板浮在正文上滑出。 -->
 <aside
-  class={["fixed inset-y-0 left-0 z-30 flex w-72 flex-col border-r border-border bg-muted transition-transform md:static md:translate-x-0", !sidebar.drawer && "-translate-x-full", !sidebar.docked && "md:hidden"]}>
+  class={["fixed inset-y-0 left-0 z-30 w-72 shrink-0 transition-transform duration-300 ease-apple motion-reduce:transition-none md:static md:translate-x-0", !sidebar.drawer && "-translate-x-full", !sidebar.docked && "md:w-0"]}>
+  <div class={["relative z-30 flex h-full w-72 flex-col border-r border-border bg-muted duration-300 ease-apple motion-reduce:transition-none md:transition-[transform,visibility]", !sidebar.docked && "md:invisible md:-translate-x-full"]}>
   <div class="flex h-12 shrink-0 items-center gap-2 px-3">
     <span class="flex-1 font-semibold">micnext</span>
     <button type="button" title="收起侧栏" aria-label="收起侧栏" class="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => sidebar.toggle()}>
@@ -262,5 +266,6 @@
       class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground">
       <Icon name={THEME[theme.choice].icon} />
     </button>
+  </div>
   </div>
 </aside>

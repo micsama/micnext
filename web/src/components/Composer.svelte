@@ -160,7 +160,7 @@
   }
 </script>
 
-<div class="mx-auto w-full max-w-3xl px-4 pb-4">
+<div class="mx-auto w-full max-w-chat px-4 pb-4">
   {#if error}
     <p class="mb-2 text-sm text-destructive">{error}</p>
   {:else if notice}

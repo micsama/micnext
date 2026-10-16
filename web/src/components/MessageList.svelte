@@ -173,7 +173,7 @@
 <div class="relative min-h-0 flex-1">
   <div bind:this={scroller} {onscroll} class="flex h-full flex-col-reverse overflow-y-auto [overflow-anchor:none]">
     <!-- mb-auto：内容不满一屏时靠上。 -->
-    <div bind:this={content} class="mx-auto mb-auto w-full max-w-3xl space-y-4 px-4 py-6">
+    <div bind:this={content} class="mx-auto mb-auto w-full max-w-chat space-y-4 px-4 py-6">
       <!-- 固定高度：上方变高会往视口外长，切换状态只换内容，提示才始终可见。 -->
       <div bind:this={sentinel} class="flex h-14 items-center justify-center">
         {#if view.earlier === "loading"}

@@ -88,6 +88,10 @@
 }
 
 @theme inline {
+  /* 先快后慢、收尾柔和，接近 iOS/macOS 系统转场。 */
+  --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);
+  /* 聊天正文、输入框共用的版心宽度。 */
+  --container-chat: 52rem;
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --color-background: var(--background);

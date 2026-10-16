@@ -3,12 +3,10 @@
   import type { PromptBlock, PromptPart, SystemPromptView } from "../../api/trace";
   import { CONTEXT_LABEL, contextColor } from "../../lib/context-kind";
   import Markdown from "../Markdown.svelte";
-  import CopyButton from "../CopyButton.svelte";
   import TraceCard from "./TraceCard.svelte";
   import { isLong } from "./trace-presentation";
 
-  let { view }: { view: SystemPromptView } = $props();
-  let raw = $state(false);
+  let { view, raw }: { view: SystemPromptView; raw: boolean } = $props();
 
   const BLOCK: Record<PromptBlock["kind"], [string, IconName, string]> = {
     instructions: ["内置指令", "file", "固定，不可修改"],
@@ -30,14 +28,12 @@
   }
 </script>
 
-<div class="pv">
-  <div class="pv-bar">
-    <span class="seg"><button type="button" class:on={!raw} onclick={() => raw = false}>分块</button><button type="button" class:on={raw} onclick={() => raw = true}>原文</button></span>
-    <CopyButton text={view.text} />
-  </div>
-  {#if raw}<pre class="pv-raw">{#each view.text.split("\n") as line, i (i)}{#if tags.has(line)}<span class="tag">{line}</span>{:else}{line}{/if}{"\n"}{/each}</pre>
+<div class="cards">
+  {#if raw}
+    <TraceCard icon="file" title="原文" meta="{view.text.length} 字" copy={view.text}>
+      <pre>{#each view.text.split("\n") as line, i (i)}{#if tags.has(line)}<span class="sys-tag">{line}</span>{:else}{line}{/if}{"\n"}{/each}</pre>
+    </TraceCard>
   {:else}
-    <div class="pv-scroll">
     {#each view.blocks as b (b.kind)}
       {@const [title, icon, note] = BLOCK[b.kind]}
       {@const text = body(b.parts)}
@@ -52,6 +48,5 @@
         {:else}<Markdown source={text} />{/if}
       </TraceCard>
     {/each}
-    </div>
   {/if}
 </div>

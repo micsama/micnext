@@ -65,6 +65,8 @@ impl Fixture {
             Events::new(),
             Some(wake),
             dir.clone(),
+            Arc::default(),
+            Default::default(),
         ));
         Self {
             store,
@@ -102,7 +104,13 @@ impl Fixture {
     }
 
     async fn state(&self, id: JobId) -> JobState {
-        self.store.job(id).await.unwrap().unwrap().state
+        self.store
+            .job(id)
+            .await
+            .unwrap()
+            .unwrap()
+            .tool_state()
+            .unwrap()
     }
 }
 

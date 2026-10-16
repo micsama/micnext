@@ -301,6 +301,8 @@ pub enum RunState {
     Interrupted,
     /// 用户主动停止。
     Stopped,
+    /// 子 run 超过墙钟上限被取消。
+    TimedOut,
 }
 
 impl RunState {
@@ -313,8 +315,16 @@ impl RunState {
             Self::MaxTurns => "max_turns",
             Self::Interrupted => "interrupted",
             Self::Stopped => "stopped",
+            Self::TimedOut => "timed_out",
         }
     }
+}
+
+/// 启动收尾的一个遗留 run；`report` 为子 run 给父 session 的交付。
+pub struct InterruptedRun {
+    pub run: Run,
+    pub closing: Vec<mic_message::MessageBody>,
+    pub report: Option<mic_message::ExecOutcome>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

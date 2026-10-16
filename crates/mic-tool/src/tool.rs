@@ -61,8 +61,8 @@ pub struct BackgroundTask {
     pub run: Box<dyn FnOnce(Box<dyn OutputSink>) -> BoxFuture<'static, ExecOutcome> + Send>,
 }
 
-/// 后台派出 port，由 core 按调用绑定会话、run、发起人与工具调用。
-pub trait Background: Send + Sync {
+/// 后台派出 port，由 core 按调用绑定会话、run、发起人与工具调用；core 的工具可向下转型取绑定。
+pub trait Background: std::any::Any + Send + Sync {
     /// 登记即提交；返回 exec_id。
     fn dispatch(&self, task: BackgroundTask) -> BoxFuture<'_, Result<String, ToolError>>;
 }

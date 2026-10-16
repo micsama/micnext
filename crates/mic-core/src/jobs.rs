@@ -1,26 +1,35 @@
-//! 后台任务运行时：登记、执行、计时、终止、输出落盘与回注。契约：docs/blueprints/async-jobs.md P1。
+//! 后台任务运行时：登记、执行、计时、终止、输出落盘与回注；子 agent 的派出、追问与停止。
+//! 契约：docs/blueprints/async-jobs.md。
 
+mod agent;
 mod output;
 mod tools;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mic_message::{ContentPart, ExecFailureKind, ExecOutcome, MessageBody, SessionId};
-use mic_store::{Job, JobId, JobState, NewToolJob, RunId, Session, SessionKind, Store, StoreError};
+use mic_store::{
+    Job, JobId, JobKind, JobState, NewToolJob, RunId, RunState, Session, SessionKind, Store,
+    StoreError,
+};
 use mic_tool::{Background, BackgroundTask, BoxFuture, ToolError, ToolHandle};
 use serde::Serialize;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::AbortHandle;
 
+use crate::control::{RunControl, StopBy};
 use crate::event::{Events, KernelEventKind};
 use crate::limits::{JOB_HIDE_AFTER, JOB_READ_MAX, JOB_REPORT_TAIL, JOB_VIEW_TAIL};
 use crate::run::now_ms;
 
+pub(crate) use agent::{delivery, AGENT_INTERRUPTED, AGENT_MODULES, CORE_TOOLS};
 pub use output::JobOutput;
-use output::{Tree, Writer};
+pub(crate) use output::Tree;
+use output::Writer;
 
 const INTERRUPTED: &str =
     "micnext stopped while this job was running; the external process state is unknown.";
@@ -32,6 +41,9 @@ pub(crate) struct Jobs {
     wake: Option<mpsc::Sender<SessionId>>,
     dir: PathBuf,
     running: Mutex<HashMap<JobId, Running>>,
+    control: Arc<RunControl>,
+    /// 子 agent 可用的工具名上限（白名单模块的登记工具与管理工具）。
+    agent_tools: BTreeSet<String>,
 }
 
 struct Running {
@@ -61,6 +73,8 @@ enum End {
 #[serde(rename_all = "snake_case")]
 pub enum StopJobOutcome {
     Stopped,
+    /// agent 休眠中，没有可停的执行。
+    AlreadyIdle,
     AlreadyFinished,
 }
 
@@ -71,13 +85,38 @@ pub struct JobView {
     pub tool_name: String,
     pub owner_session_id: SessionId,
     pub description: String,
-    pub state: JobState,
     pub created_at: i64,
-    pub finished_at: Option<i64>,
-    pub timeout_ms: Option<u64>,
-    pub output_bytes: u64,
-    /// 输出末尾一小段。
-    pub tail: String,
+    #[serde(flatten)]
+    pub detail: JobDetail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum JobDetail {
+    Tool {
+        state: JobState,
+        finished_at: Option<i64>,
+        timeout_ms: Option<u64>,
+        output_bytes: u64,
+        /// 输出末尾一小段。
+        tail: String,
+    },
+    Agent {
+        child_session_id: SessionId,
+        /// 有执行中的 run；否则休眠。
+        running: bool,
+        /// 最近一个已结束 run 的状态。
+        #[serde(serialize_with = "run_state")]
+        last_run: Option<RunState>,
+        last_active_at: i64,
+    },
+}
+
+fn run_state<S: serde::Serializer>(state: &Option<RunState>, s: S) -> Result<S::Ok, S::Error> {
+    match state {
+        Some(state) => s.serialize_some(state.as_str()),
+        None => s.serialize_none(),
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -88,6 +127,8 @@ pub enum JobAccessError {
     Forbidden,
     #[error("单次最多读取 {JOB_READ_MAX} 字节")]
     ReadLimit,
+    #[error("子 agent 的交付不按偏移读取")]
+    AgentOffset,
     #[error("读取任务输出失败：{0}")]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -109,6 +150,8 @@ impl Jobs {
         events: Events,
         wake: Option<mpsc::Sender<SessionId>>,
         data_dir: PathBuf,
+        control: Arc<RunControl>,
+        agent_tools: BTreeSet<String>,
     ) -> Self {
         Self {
             store,
@@ -116,6 +159,8 @@ impl Jobs {
             wake,
             dir: jobs_dir(data_dir),
             running: Mutex::default(),
+            control,
+            agent_tools,
         }
     }
 
@@ -125,12 +170,23 @@ impl Jobs {
         static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("micnext-test-{}-{n}", std::process::id()));
-        Arc::new(Self::new(store.clone(), events.clone(), None, dir))
+        Arc::new(Self::new(
+            store.clone(),
+            events.clone(),
+            None,
+            dir,
+            Arc::default(),
+            BTreeSet::new(),
+        ))
     }
 
-    /// 管理工具，绑定调用会话。
-    pub(crate) fn tools(self: &Arc<Self>, session: SessionId) -> [ToolHandle; 3] {
-        tools::handles(self, session)
+    /// core 生成的工具，绑定调用会话：管理工具；能收到交付的 Root/Triggered 会话另有 `agent`。
+    pub(crate) fn tools(self: &Arc<Self>, session: &Session) -> Vec<ToolHandle> {
+        let mut tools = tools::handles(self, session.id).to_vec();
+        if self.wake.is_some() && !matches!(session.kind, SessionKind::Task { .. }) {
+            tools.push(agent::handle(self, session));
+        }
+        tools
     }
 
     /// 登记即提交，随后立即开始执行。
@@ -303,13 +359,17 @@ impl Jobs {
         Ok(())
     }
 
-    async fn wake(&self, session: SessionId) {
+    /// 停止中的会话只记录不唤醒。
+    pub(crate) async fn wake(&self, session: SessionId) {
+        if self.control.closing(session).is_some() {
+            return;
+        }
         if let Some(wake) = &self.wake {
             let _ = wake.send(session).await;
         }
     }
 
-    fn changed(&self, tree: &Tree) {
+    pub(crate) fn changed(&self, tree: &Tree) {
         self.events
             .emit(tree.root, &tree.channel, KernelEventKind::JobsChanged);
     }
@@ -336,19 +396,41 @@ impl Jobs {
         let dir = self.dir.clone();
         Ok(tokio::task::spawn_blocking(move || {
             jobs.into_iter()
-                .map(|job| {
-                    let out = output::read(&dir.join(job.id.0.to_string()), None, JOB_VIEW_TAIL)?;
+                .map(|(job, activity)| {
+                    let detail = match (job.kind, activity) {
+                        (
+                            JobKind::Tool {
+                                timeout_ms,
+                                state,
+                                finished_at,
+                            },
+                            _,
+                        ) => {
+                            let out =
+                                output::read(&dir.join(job.id.0.to_string()), None, JOB_VIEW_TAIL)?;
+                            JobDetail::Tool {
+                                state,
+                                finished_at,
+                                timeout_ms,
+                                output_bytes: out.total_bytes,
+                                tail: out.text,
+                            }
+                        }
+                        (JobKind::Agent { child_session_id }, Some(a)) => JobDetail::Agent {
+                            child_session_id,
+                            running: a.running,
+                            last_run: a.last_run,
+                            last_active_at: a.last_active_at,
+                        },
+                        (JobKind::Agent { .. }, None) => unreachable!("agent 必有执行概况"),
+                    };
                     Ok(JobView {
                         id: job.id,
                         tool_name: job.tool_name,
                         owner_session_id: job.owner_session_id,
                         description: job.description,
-                        state: job.state,
                         created_at: job.created_at,
-                        finished_at: job.finished_at,
-                        timeout_ms: job.timeout_ms,
-                        output_bytes: out.total_bytes,
-                        tail: out.text,
+                        detail,
                     })
                 })
                 .collect::<std::io::Result<Vec<_>>>()
@@ -357,6 +439,7 @@ impl Jobs {
         .expect("读输出不 panic")?)
     }
 
+    /// tool job 按偏移读输出；agent job 返回最近一次交付（整段，不接受 `offset`）。
     pub(crate) async fn output(
         &self,
         manager: SessionId,
@@ -368,6 +451,25 @@ impl Jobs {
             return Err(JobAccessError::ReadLimit);
         }
         let job = self.managed(manager, id).await?;
+        if let JobKind::Agent { child_session_id } = job.kind {
+            if offset.is_some() {
+                return Err(JobAccessError::AgentOffset);
+            }
+            let text = match self.store.latest_agent_report(child_session_id).await? {
+                Some(m) => agent::report_text(&m.body),
+                None => String::new(),
+            };
+            let len = text.len() as u64;
+            let out = JobOutput {
+                text,
+                offset: 0,
+                next_offset: len,
+                eof: true,
+                available_from: 0,
+                total_bytes: len,
+            };
+            return Ok((job, out));
+        }
         let dir = self.dir.join(id.0.to_string());
         let out = tokio::task::spawn_blocking(move || output::read(&dir, offset, limit))
             .await
@@ -383,8 +485,18 @@ impl Jobs {
         by_user: bool,
     ) -> Result<StopJobOutcome, JobAccessError> {
         let job = self.managed(manager, id).await?;
-        if job.state != JobState::Running {
-            return Ok(StopJobOutcome::AlreadyFinished);
+        if let JobKind::Agent { child_session_id } = job.kind {
+            return Ok(self
+                .stop_agent(&job, child_session_id, StopBy { manager, by_user })
+                .await?);
+        }
+        Ok(self.stop_tool(manager, &job, by_user).await)
+    }
+
+    async fn stop_tool(&self, manager: SessionId, job: &Job, by_user: bool) -> StopJobOutcome {
+        let id = job.id;
+        if job.tool_state() != Some(JobState::Running) {
+            return StopJobOutcome::AlreadyFinished;
         }
         let entry = self
             .running
@@ -393,7 +505,7 @@ impl Jobs {
             .get_mut(&id)
             .map(|r| (r.stop.take(), r.done.clone()));
         let Some((stop, mut done)) = entry else {
-            return Ok(StopJobOutcome::AlreadyFinished);
+            return StopJobOutcome::AlreadyFinished;
         };
         if let Some(stop) = stop {
             let (won, result) = oneshot::channel();
@@ -404,12 +516,12 @@ impl Jobs {
             };
             if stop.send(request).is_ok() {
                 if let Ok(true) = result.await {
-                    return Ok(StopJobOutcome::Stopped);
+                    return StopJobOutcome::Stopped;
                 }
             }
         }
         let _ = done.wait_for(|d| *d).await;
-        Ok(StopJobOutcome::AlreadyFinished)
+        StopJobOutcome::AlreadyFinished
     }
 
     async fn managed(&self, manager: SessionId, id: JobId) -> Result<Job, JobAccessError> {
@@ -440,7 +552,7 @@ fn jobs_dir(data_dir: PathBuf) -> PathBuf {
     data_dir.join("jobs")
 }
 
-fn tree(root: &Session) -> Tree {
+pub(crate) fn tree(root: &Session) -> Tree {
     let channel = match &root.kind {
         SessionKind::Root { channel, .. } => channel.clone(),
         SessionKind::Triggered { module, .. } => module.clone(),
@@ -483,7 +595,7 @@ fn render_tail(id: JobId, out: &JobOutput) -> String {
 /// 在任何 worker 出现之前运行，不发事件。
 pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, StoreError> {
     let dir = jobs_dir(data_dir);
-    let stale = store.running_jobs().await?;
+    let stale = store.running_jobs(None).await?;
     for job in &stale {
         let tail = match output::read(&dir.join(job.id.0.to_string()), None, JOB_REPORT_TAIL) {
             Ok(out) => render_tail(job.id, &out),
@@ -529,41 +641,48 @@ impl JobPort {
         let value = rx.wait_for(Option::is_some).await.ok()?;
         value.clone().and_then(Result::ok)
     }
+
+    /// 登记在独立任务里完成，工具 future 被丢弃也不会半途而废；一个调用只能登记一次。
+    async fn register(
+        &self,
+        register: impl Future<Output = Result<JobId, String>> + Send + 'static,
+    ) -> Result<JobId, ToolError> {
+        let mut rx = {
+            let mut slot = self.registration.lock().expect("登记槽未中毒");
+            if slot.is_some() {
+                return Err(ToolError::business(
+                    "a tool call can dispatch only one background job",
+                ));
+            }
+            let (tx, rx) = watch::channel(None);
+            tokio::spawn(async move {
+                let _ = tx.send(Some(register.await));
+            });
+            *slot = Some(rx.clone());
+            rx
+        };
+        let value = rx
+            .wait_for(Option::is_some)
+            .await
+            .expect("登记任务结束前必发送结果")
+            .clone();
+        value.expect("已等到结果").map_err(ToolError::dependency)
+    }
 }
 
 impl Background for JobPort {
     fn dispatch(&self, task: BackgroundTask) -> BoxFuture<'_, Result<String, ToolError>> {
         Box::pin(async move {
-            let mut rx = {
-                let mut slot = self.registration.lock().expect("登记槽未中毒");
-                if slot.is_some() {
-                    return Err(ToolError::business(
-                        "a tool call can dispatch only one background job",
-                    ));
-                }
-                let (tx, rx) = watch::channel(None);
-                let (jobs, origin) = (self.jobs.clone(), self.origin.clone());
-                tokio::spawn(async move {
-                    let result = jobs.dispatch(origin, task).await.map_err(|e| {
+            let (jobs, origin) = (self.jobs.clone(), self.origin.clone());
+            let id = self
+                .register(async move {
+                    jobs.dispatch(origin, task).await.map_err(|e| {
                         tracing::error!(error = %e, "background job registration failed");
-                        e.to_string()
-                    });
-                    let _ = tx.send(Some(result));
-                });
-                *slot = Some(rx.clone());
-                rx
-            };
-            let value = rx
-                .wait_for(Option::is_some)
-                .await
-                .expect("登记任务结束前必发送结果")
-                .clone();
-            match value.expect("已等到结果") {
-                Ok(id) => Ok(id.0.to_string()),
-                Err(e) => Err(ToolError::dependency(format!(
-                    "failed to register the background job: {e}"
-                ))),
-            }
+                        format!("failed to register the background job: {e}")
+                    })
+                })
+                .await?;
+            Ok(id.0.to_string())
         })
     }
 }

@@ -7,6 +7,7 @@ mod channel_setup;
 mod command;
 mod compaction;
 mod context_usage;
+mod control;
 mod error;
 mod event;
 mod input;

@@ -31,7 +31,7 @@ pub use rusqlite;
 
 pub use diagnostic::{Cell, ColumnSchema, DiagnosticError, QueryResult, TableSchema};
 pub use error::{ContextCommandError, ModelSettingsError, SettingsError, StoreError};
-pub use jobs::{Job, JobId, JobState, NewToolJob};
+pub use jobs::{AgentActivity, Job, JobId, JobKind, JobState, NewAgentJob, NewToolJob};
 pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
 pub use title::reply_answer;
@@ -43,10 +43,10 @@ pub use trace::{
 pub use types::{
     ClaimedModel, ClaimedRun, CompactionSettings, CompactionState, CompactionView, ContextUsage,
     ContextView, ContextWindow, CredentialWrite, DeliveryTarget, EndpointId, EndpointView,
-    EndpointWrite, Identity, InputDisposition, MessagePage, Migration, ModelCallContext,
-    ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelPrice, ModelView, ModelWrite,
-    NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId,
-    ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState, SecretColumn, Session,
-    SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, StopReason, TitleCall,
-    TitleModelSelection, ToolScope, Usage,
+    EndpointWrite, Identity, InputDisposition, InterruptedRun, MessagePage, Migration,
+    ModelCallContext, ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelPrice,
+    ModelView, ModelWrite, NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery,
+    Person, Persona, PersonaId, ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState,
+    SecretColumn, Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings,
+    StopReason, TitleCall, TitleModelSelection, ToolScope, Usage,
 };

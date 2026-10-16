@@ -20,7 +20,7 @@
 | `kind` | 内容 |
 |---|---|
 | `instructions` | system.md + 消息头说明 |
-| `persona` | 人设 + 通用偏好 |
+| `persona` | 人设 + 通用偏好；子 agent 只有通用偏好，为空时无此块 |
 | `tools` | 工具 schema + 各工具 `prompt_hint` |
 | `environment` | 工作目录、渠道提示 |
 | `summary` | 压缩摘要 + 压缩时的文件快照 |

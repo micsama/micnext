@@ -2,7 +2,8 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use mic_message::{
@@ -19,9 +20,13 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::attempt::{stream_attempt, Caller, Facts};
+use crate::control::{RunControl, Slot};
 use crate::event::{Events, KernelEventKind};
-use crate::jobs::{JobPort, Jobs, Origin};
-use crate::limits::{MAX_MODEL_ATTEMPTS, MAX_RETRY_WAIT, MAX_TURNS_WARN_PERCENT, RETRY_BASE};
+use crate::jobs::{self, JobPort, Jobs, Origin};
+use crate::limits::{
+    AGENT_MAX_TURNS, AGENT_RUN_TIMEOUT, MAX_MODEL_ATTEMPTS, MAX_RETRY_WAIT, MAX_TURNS_WARN_PERCENT,
+    RETRY_BASE,
+};
 use crate::provider::{BuiltProvider, Factories};
 use crate::{request, ModelEvent, ModelResponse, Provider, ProviderError, StopReason};
 
@@ -40,33 +45,19 @@ pub(crate) struct Engine {
     pub(crate) jobs: Arc<Jobs>,
     /// 渠道名 → 渠道提示；只用于 Root 会话。
     pub(crate) channel_prompts: Arc<HashMap<&'static str, &'static str>>,
-    /// 执行中 run 的停止令牌，随 `run` 登记与移除。
-    pub(crate) stops: Mutex<HashMap<RunId, (SessionId, CancellationToken)>>,
+    /// 会话执行槽位与停止令牌，与 `jobs` 共用。
+    pub(crate) control: Arc<RunControl>,
 }
 
 impl Engine {
     /// 停该会话执行中的 run（给定 `run` 则只停它）；没有匹配返回 false。
     pub(crate) fn stop(&self, session: SessionId, run: Option<RunId>) -> bool {
-        let stops = self.stops.lock().expect("停止令牌表未中毒");
-        match stops
-            .iter()
-            .find(|(id, (s, _))| *s == session && run.is_none_or(|r| r == **id))
-        {
-            Some((_, (_, token))) => {
-                token.cancel();
-                true
-            }
-            None => false,
-        }
+        self.control.stop(session, run)
     }
 
-    /// 会话可用的工具：登记工具加绑定本会话的任务管理工具，按工具范围过滤。
+    /// 会话可用的工具：登记工具加绑定本会话的 core 工具，按工具范围过滤。
     pub(crate) fn scoped_tools(&self, session: &Session) -> Vec<ToolHandle> {
-        let all = self
-            .tools
-            .iter()
-            .cloned()
-            .chain(self.jobs.tools(session.id));
+        let all = self.tools.iter().cloned().chain(self.jobs.tools(session));
         match &session.tool_scope {
             ToolScope::All => all.collect(),
             ToolScope::Only(names) => all.filter(|t| names.contains(t.name())).collect(),
@@ -74,34 +65,52 @@ impl Engine {
     }
 
     /// 以认领时定下的设置与模型执行一个 run 并落盘终态；模型不可用时以 ProviderFailed 收尾。
+    /// 子 agent 的 run 另有轮次与墙钟上限，收尾时向父会话交付。
     pub(crate) async fn run(
         &self,
         session: &Session,
         channel: &str,
         claimed: ClaimedRun,
+        slot: &Slot,
     ) -> Result<RunState, StoreError> {
         let ClaimedRun {
             run,
-            settings,
+            mut settings,
             model,
             input,
         } = claimed;
+        slot.set_run(run.id);
+        let stop = slot.token();
+        let parent = match session.kind {
+            SessionKind::Task { .. } => {
+                Some(session.parent_session_id.expect("Task 会话必有父会话"))
+            }
+            _ => None,
+        };
+        let tree = match parent {
+            Some(_) => Some(jobs::tree(&self.store.session_root(session.id).await?)),
+            None => None,
+        };
+        let timed_out = Arc::new(AtomicBool::new(false));
+        let timer = parent.map(|_| {
+            settings.max_turns = settings.max_turns.min(AGENT_MAX_TURNS);
+            let (stop, timed_out) = (stop.clone(), timed_out.clone());
+            tokio::spawn(async move {
+                tokio::time::sleep(AGENT_RUN_TIMEOUT).await;
+                timed_out.store(true, Ordering::Relaxed);
+                stop.cancel();
+            })
+        });
         self.events.emit(
             session.id,
             channel,
             KernelEventKind::RunStarted { run_id: run.id },
         );
+        if let Some(tree) = &tree {
+            self.jobs.changed(tree);
+        }
         tracing::info!(session = session.id.0, run = run.id.0, "run started");
         let tools = self.scoped_tools(session);
-        let stop = CancellationToken::new();
-        let registered = Registered {
-            engine: self,
-            run: run.id,
-        };
-        self.stops
-            .lock()
-            .expect("停止令牌表未中毒")
-            .insert(run.id, (session.id, stop.clone()));
         let (model_id, context_window, images) = match &model {
             ClaimedModel::Selected {
                 id,
@@ -200,11 +209,45 @@ impl Engine {
                 }
             },
         };
-        drop(registered);
-        if state == RunState::Stopped {
-            exec.notify("已停止。".into()).await?;
+        if let Some(timer) = timer {
+            timer.abort();
         }
-        self.store.finish_run(run.id, state, now_ms()).await?;
+        let state = match state {
+            RunState::Stopped if timed_out.load(Ordering::Relaxed) => RunState::TimedOut,
+            state => state,
+        };
+        match state {
+            RunState::Stopped => exec.notify("已停止。".into()).await?,
+            RunState::TimedOut => {
+                exec.notify(format!(
+                    "子任务执行超过 {} 分钟，已停止。",
+                    AGENT_RUN_TIMEOUT.as_secs() / 60
+                ))
+                .await?
+            }
+            _ => {}
+        }
+        let report = match parent {
+            Some(parent) => jobs::delivery(
+                state,
+                &self.store.run_messages(run.id).await?,
+                self.control.closing(session.id),
+                parent,
+                session.id,
+            ),
+            None => None,
+        };
+        let delivered = {
+            let publish = self.events.publisher().await;
+            let delivered = self
+                .store
+                .finish_run(run.id, state, report, now_ms())
+                .await?;
+            if let (Some(message), Some(tree)) = (&delivered, &tree) {
+                publish.appended(message.session_id, &tree.channel, message.clone());
+            }
+            delivered
+        };
         tracing::info!(
             session = session.id.0,
             run = run.id.0,
@@ -219,22 +262,14 @@ impl Engine {
                 state,
             },
         );
+        if let Some(tree) = &tree {
+            self.jobs.changed(tree);
+        }
+        if let (Some(message), Some(parent)) = (delivered, parent) {
+            debug_assert_eq!(message.session_id, parent);
+            self.jobs.wake(parent).await;
+        }
         Ok(state)
-    }
-}
-
-struct Registered<'a> {
-    engine: &'a Engine,
-    run: RunId,
-}
-
-impl Drop for Registered<'_> {
-    fn drop(&mut self) {
-        self.engine
-            .stops
-            .lock()
-            .expect("停止令牌表未中毒")
-            .remove(&self.run);
     }
 }
 

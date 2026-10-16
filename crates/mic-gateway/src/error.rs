@@ -70,7 +70,9 @@ impl From<KernelError> for ApiError {
             },
             KernelError::BackupInvalid(reason) => Self::BadRequest(reason),
             KernelError::SessionNotFound => Self::NotFound(SESSION_NOT_FOUND),
-            KernelError::SessionNotRoot => Self::Forbidden(e.to_string()),
+            KernelError::SessionNotRoot | KernelError::TaskSessionInput => {
+                Self::Forbidden(e.to_string())
+            }
             KernelError::Workdir(e) => {
                 let hint = match &e {
                     WorkdirError::HomeMissing => "请在 设置 → 对话偏好 改用绝对路径",
@@ -121,7 +123,9 @@ impl From<KernelError> for ApiError {
             KernelError::Job(e) => match e {
                 JobAccessError::NotFound => Self::NotFound(JOB_NOT_FOUND),
                 JobAccessError::Forbidden => Self::Forbidden(e.to_string()),
-                JobAccessError::ReadLimit => Self::BadRequest(e.to_string()),
+                JobAccessError::ReadLimit | JobAccessError::AgentOffset => {
+                    Self::BadRequest(e.to_string())
+                }
                 JobAccessError::Io(_) | JobAccessError::Store(_) => {
                     Self::Internal(KernelError::Job(e))
                 }

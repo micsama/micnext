@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { InputPart, ReasoningEffort } from "../api/types";
+  import { jobActive, type InputPart, type ReasoningEffort } from "../api/types";
   import { sendMessage, setSessionModel, setSessionPersona } from "../api/client";
   import { router } from "../state/route.svelte";
   import type { SessionView } from "../state/session.svelte";
@@ -84,7 +84,7 @@
   }
 
   let jobsOpen = $state(matchMedia("(min-width: 1024px)").matches);
-  const runningJobs = $derived(view.jobs.filter((j) => j.state === "running").length);
+  const runningJobs = $derived(view.jobs.filter(jobActive).length);
 
   const channelName = (c: string) => (c === "wechat" ? "微信" : c);
 

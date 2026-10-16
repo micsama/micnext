@@ -69,7 +69,7 @@ impl Workers {
     }
 }
 
-/// 逐个执行该会话可认领的 run，直到没有。
+/// 逐个执行该会话可认领的 run，直到没有或会话进入停止。
 async fn worker(engine: Arc<Engine>, session_id: SessionId) -> Result<(), StoreError> {
     let session = engine
         .store
@@ -77,10 +77,18 @@ async fn worker(engine: Arc<Engine>, session_id: SessionId) -> Result<(), StoreE
         .await?
         .expect("被唤醒的会话必然存在");
     let channel = session_channel(&engine.store, &session).await?;
-    while let Some(claimed) = engine.store.claim_next(session_id, now_ms()).await? {
-        engine.run(&session, &channel, claimed).await?;
+    loop {
+        let Some(slot) = engine.control.enter(session_id) else {
+            return Ok(());
+        };
+        if slot.token().is_cancelled() {
+            return Ok(());
+        }
+        let Some(claimed) = engine.store.claim_next(session_id, now_ms()).await? else {
+            return Ok(());
+        };
+        engine.run(&session, &channel, claimed, &slot).await?;
     }
-    Ok(())
 }
 
 pub(crate) fn panic_message(e: tokio::task::JoinError) -> String {

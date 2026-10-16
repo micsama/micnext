@@ -139,7 +139,7 @@ pub(crate) fn build(
         tool_choice: ToolChoice::Auto,
         system: system_prompt(
             settings,
-            &session.pwd,
+            session,
             channel_prompt,
             tools,
             window.summary.as_deref(),
@@ -153,11 +153,11 @@ pub(crate) fn build(
     }
 }
 
-/// 三块顺序固定：instructions → persona → context，保证同一会话前缀稳定。
-/// 契约：docs/blueprints/system-prompt-layout.md §三。
+/// 三块顺序固定：instructions → persona → context，保证同一会话前缀稳定。子 agent 不带人设，
+/// persona 块只剩用户偏好，空则略去。契约：docs/blueprints/system-prompt-layout.md §三。
 pub(crate) fn system_prompt(
     settings: &RunSettings,
-    pwd: &str,
+    session: &mic_store::Session,
     channel_prompt: Option<&str>,
     tools: &[ToolHandle],
     summary: Option<&str>,
@@ -165,14 +165,20 @@ pub(crate) fn system_prompt(
 ) -> SystemPrompt {
     use PromptPartKind::*;
     let part = |kind, text: String| PromptPart { kind, text };
-    let mut persona = vec![part(Persona, settings.persona.prompt.clone())];
+    let mut persona = Vec::new();
+    if !matches!(session.kind, mic_store::SessionKind::Task { .. }) {
+        persona.push(part(Persona, settings.persona.prompt.clone()));
+    }
     if !settings.general_prompt.is_empty() {
         persona.push(part(
             Persona,
             format!("User preferences:\n{}", settings.general_prompt),
         ));
     }
-    let mut context = vec![part(Environment, format!("Working directory: {pwd}"))];
+    let mut context = vec![part(
+        Environment,
+        format!("Working directory: {}", session.pwd),
+    )];
     context.extend(channel_prompt.map(|p| part(Environment, p.to_owned())));
     context.extend(
         tools
@@ -200,21 +206,20 @@ pub(crate) fn system_prompt(
             format!("File snapshot at compaction time: {}\n{content}", file.path),
         ));
     }
+    let blocks = [
+        (
+            PromptBlockKind::Instructions,
+            vec![part(Instructions, INSTRUCTIONS.clone())],
+        ),
+        (PromptBlockKind::Persona, persona),
+        (PromptBlockKind::Context, context),
+    ];
     SystemPrompt {
-        blocks: vec![
-            PromptBlock {
-                kind: PromptBlockKind::Instructions,
-                parts: vec![part(Instructions, INSTRUCTIONS.clone())],
-            },
-            PromptBlock {
-                kind: PromptBlockKind::Persona,
-                parts: persona,
-            },
-            PromptBlock {
-                kind: PromptBlockKind::Context,
-                parts: context,
-            },
-        ],
+        blocks: blocks
+            .into_iter()
+            .filter(|(_, parts)| !parts.is_empty())
+            .map(|(kind, parts)| PromptBlock { kind, parts })
+            .collect(),
     }
 }
 

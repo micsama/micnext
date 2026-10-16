@@ -6,7 +6,7 @@
 
 | 状态 | 主题 | 蓝图 |
 |---|---|---|
-| 已批准；P1 已实现待人工验收，P2/P3 未开始 | 后台任务与子 agent | [B2](docs/blueprints/async-jobs.md) |
+| 已批准；P1/P2 已实现待人工验收，P3 未开始；两项低优先级交错延期 | 后台任务与子 agent | [B2](docs/blueprints/async-jobs.md) §P2.6 已知边界 |
 | 第一阶段待人工验收及导出备份；第二阶段待实施 | 设置备份与库重建 | [B2](docs/blueprints/settings-backup.md) |
 | 已实现，待人工验收 | 模型支持图片开关与会话预览 | [B2](docs/blueprints/model-image-support.md) |
 | 已实现，待服务器验收 | 微信入站文件与视频 | [B2](docs/blueprints/wechat-inbound-files.md) |

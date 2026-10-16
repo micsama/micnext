@@ -76,6 +76,8 @@ pub enum KernelError {
     SessionNotFound,
     #[error("只有主会话可以归档")]
     SessionNotRoot,
+    #[error("子任务会话只接收派出它的会话的追问，不能直接发送")]
+    TaskSessionInput,
     #[error(transparent)]
     Workdir(#[from] WorkdirError),
     #[error(transparent)]

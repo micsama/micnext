@@ -274,6 +274,7 @@ pub(crate) fn run(row: &Row<'_>) -> rusqlite::Result<Run> {
         "max_turns" => RunState::MaxTurns,
         "interrupted" => RunState::Interrupted,
         "stopped" => RunState::Stopped,
+        "timed_out" => RunState::TimedOut,
         other => return Err(corrupt(2, format!("未知 run state: {other}"))),
     };
     Ok(Run {

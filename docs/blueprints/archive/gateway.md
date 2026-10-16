@@ -132,6 +132,7 @@ impl Store {
   `resolve_root_session("web", chat, …)`，再 `append_user_input(owner, [Text])`。两步不在一个事务：
   第二步失败会留下一个没有输入的会话，它不进列表（mic-store §4.6），无害。
 - `POST …/messages`：会话须是 `Root{channel: "web"}`；其它 Channel 或非 Root → 403（Q7：只读查看）。
+  子 agent（Task）会话的输入与命令由 Kernel 统一拒绝（`KernelError::TaskSessionInput` → 403），只能由父模型经 `agent` 工具追问。
   同一判定以 `SessionItem.writable` 告诉前端，前端不自己推断。
 - `GET /api/sessions/{id}`：打开的会话页按 id 取自身信息，不依赖左栏分页是否加载到它。
 - 发消息接口只写入并唤醒，不等回复；回复从流里来。

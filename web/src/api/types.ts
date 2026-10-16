@@ -44,12 +44,15 @@ export type Occupancy = { used_tokens: number; window: number; trigger_percent: 
 export type ContextKind = "instructions" | "persona" | "tools" | "environment" | "summary" | "conversation";
 export type ContextBreakdown = Occupancy & { parts: { kind: ContextKind; tokens: number; tool_tokens: number | null }[] };
 export type JobState = "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted";
-export type JobView = {
-  id: number; tool_name: string; owner_session_id: number; description: string; state: JobState;
-  created_at: number; finished_at: number | null; timeout_ms: number | null; output_bytes: number; tail: string;
-};
+type JobBase = { id: number; tool_name: string; owner_session_id: number; description: string; created_at: number };
+type ToolJobFields = { state: JobState; finished_at: number | null; timeout_ms: number | null; output_bytes: number; tail: string };
+/** `running` 为假即休眠；`last_run` 为最近一个已结束子 run 的状态。 */
+type AgentJobFields = { child_session_id: number; running: boolean; last_run: RunState | null; last_active_at: number };
+export type ToolJobView = JobBase & { kind: "tool" } & ToolJobFields;
+export type AgentJobView = JobBase & { kind: "agent" } & AgentJobFields;
+export type JobView = ToolJobView | AgentJobView;
 export type JobOutput = { text: string; offset: number; next_offset: number; eof: boolean; available_from: number; total_bytes: number };
-export type StopJobOutcome = "stopped" | "already_finished";
+export type StopJobOutcome = "stopped" | "already_idle" | "already_finished";
 export type ContextView = { active_boundary: number | null; compactions: CompactionView[]; occupancy: Occupancy | null };
 /** 一轮的统计；聊天统计行与 trace 运行概览共用（chat-run-stats §1.1）。 */
 export type RunStats = {
@@ -185,7 +188,7 @@ export type MessagePage = { messages: Message[]; has_earlier: boolean };
 
 export type Created = { session_id: number };
 
-export type RunState = "executing" | "completed" | "provider_failed" | "max_turns" | "interrupted" | "stopped";
+export type RunState = "executing" | "completed" | "provider_failed" | "max_turns" | "interrupted" | "stopped" | "timed_out";
 
 export type LinkedChannel = {
   account_id: string;
@@ -279,7 +282,7 @@ const compactionResult: Decoder<Compaction> = obj({ summary: str, keep_from: nul
 const compaction = tagged({ Compaction: compactionResult });
 const command: Decoder<SessionCommand> = (v, at) => v === "Clear" ? v : tagged({ Compact: obj({ text: nullable(str) }), RevokeCompaction: obj({ boundary_id: num }) })(v, at);
 const compactionState: Decoder<CompactionView["state"]> = kinded<{ applied: Record<string, never>; revoked: { at: number } }>({ applied: {}, revoked: { at: num } });
-const runState: Decoder<RunState> = oneOf("executing", "completed", "provider_failed", "max_turns", "interrupted", "stopped");
+const runState: Decoder<RunState> = oneOf("executing", "completed", "provider_failed", "max_turns", "interrupted", "stopped", "timed_out");
 const occupancy: Decoder<Occupancy> = obj({ used_tokens: num, window: num, trigger_percent: num });
 const contextView: Decoder<ContextView> = obj({ active_boundary: nullable(num), compactions: arr(obj({ boundary_id: num, result: compactionResult, state: compactionState })), occupancy: nullable(occupancy) });
 const runStatsFields = {
@@ -291,14 +294,17 @@ export const runStats: Decoder<RunStats> = obj(runStatsFields);
 const chatRunStats: Decoder<ChatRunStats> = obj({ ...runStatsFields, run_id: num, state: runState, anchor_id: num });
 export const parseRunStats = (v: unknown): ChatRunStats[] => obj({ runs: arr(chatRunStats) })(v, "统计").runs;
 const jobState: Decoder<JobState> = oneOf("running", "completed", "failed", "timed_out", "cancelled", "interrupted");
-const jobView: Decoder<JobView> = obj({
-  id: num, tool_name: str, owner_session_id: num, description: str, state: jobState,
-  created_at: num, finished_at: nullable(num), timeout_ms: nullable(num), output_bytes: num, tail: str,
+const jobBase = { id: num, tool_name: str, owner_session_id: num, description: str, created_at: num };
+const jobView: Decoder<JobView> = kinded<{ tool: JobBase & ToolJobFields; agent: JobBase & AgentJobFields }>({
+  tool: { ...jobBase, state: jobState, finished_at: nullable(num), timeout_ms: nullable(num), output_bytes: num, tail: str },
+  agent: { ...jobBase, child_session_id: num, running: bool, last_run: nullable(runState), last_active_at: num },
 });
+/** 任务是否仍在活动：tool job 运行中，或 agent 有执行中的 run。 */
+export const jobActive = (j: JobView): boolean => (j.kind === "tool" ? j.state === "running" : j.running);
 const jobOutput: Decoder<JobOutput> = obj({ text: str, offset: num, next_offset: num, eof: bool, available_from: num, total_bytes: num });
 export const parseJobs = (v: unknown): JobView[] => arr(jobView)(v, "任务列表");
 export const parseJobOutput = (v: unknown): JobOutput => jobOutput(v, "任务输出");
-export const parseStopJob = (v: unknown): StopJobOutcome => obj({ outcome: oneOf("stopped", "already_finished") })(v, "终止任务").outcome;
+export const parseStopJob = (v: unknown): StopJobOutcome => obj({ outcome: oneOf("stopped", "already_idle", "already_finished") })(v, "终止任务").outcome;
 export const parseContextView = (v: unknown): ContextView => contextView(v, "上下文");
 const contextKind: Decoder<ContextKind> = oneOf("instructions", "persona", "tools", "environment", "summary", "conversation");
 const contextBreakdown: Decoder<ContextBreakdown> = obj({ used_tokens: num, window: num, trigger_percent: num, parts: arr(obj({ kind: contextKind, tokens: num, tool_tokens: nullable(num) })) });

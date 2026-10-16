@@ -1,12 +1,13 @@
-use mic_message::{Message, MessageBody, MessageId, SessionId};
+use mic_message::{ExecOutcome, Message, MessageBody, MessageId, SessionId};
 use rusqlite::{params, OptionalExtension, Transaction};
 
+use crate::jobs::run_person;
 use crate::messages::{insert_message, is_input};
 use crate::models;
 use crate::row::{self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, PERSONA_COLS, RUN_COLS, UNCLAIMED};
 use crate::settings::read_settings;
 use crate::store::Store;
-use crate::{ClaimedRun, Run, RunId, RunInput, RunSettings, RunState, StoreError};
+use crate::{ClaimedRun, InterruptedRun, Run, RunId, RunInput, RunSettings, RunState, StoreError};
 
 impl Store {
     /// 启动时原子登记遗留未认领输入为 held，并为每个受影响会话落一条待命通知；不重复处置。
@@ -200,13 +201,26 @@ impl Store {
         .await
     }
 
-    pub async fn finish_run(&self, id: RunId, state: RunState, now: i64) -> Result<(), StoreError> {
+    /// 落终态；`report` 给出时（子 run）同事务把交付写成父 session 的 Completion 并记到
+    /// `core_runs.report_message_id`，返回该消息。
+    pub async fn finish_run(
+        &self,
+        id: RunId,
+        state: RunState,
+        report: Option<ExecOutcome>,
+        now: i64,
+    ) -> Result<Option<Message>, StoreError> {
         self.call(move |conn| {
-            conn.execute(
+            let tx = conn.transaction()?;
+            tx.execute(
                 "UPDATE core_runs SET state = ?2, finished_at = ?3 WHERE id = ?1",
                 params![id.0, state.as_str(), now],
             )?;
-            Ok(())
+            let report = report
+                .map(|outcome| report_to_parent(&tx, id, outcome, now))
+                .transpose()?;
+            tx.commit()?;
+            Ok(report)
         })
         .await
     }
@@ -224,29 +238,39 @@ impl Store {
         .await
     }
 
-    /// 同一事务内写入本 run 的收尾消息并转为 `Interrupted`：要么全部生效，要么仍是 `executing` 可再收尾。
-    pub async fn interrupt_run(
+    /// 同一事务内收尾一棵会话树的遗留 run：写入各自收尾消息、子 run 的交付，转为 `Interrupted`，
+    /// 并写入 `notice`。要么全部生效，要么仍是 `executing` 可再收尾。
+    pub async fn interrupt_runs(
         &self,
-        run: &Run,
-        closing: Vec<MessageBody>,
+        runs: Vec<InterruptedRun>,
+        notice: Option<(SessionId, MessageBody)>,
         now: i64,
     ) -> Result<(), StoreError> {
         assert!(
-            closing
-                .iter()
+            runs.iter()
+                .flat_map(|r| &r.closing)
+                .chain(notice.iter().map(|(_, b)| b))
                 .all(|b| !is_input(b) && !matches!(b, MessageBody::Reply { .. })),
             "收尾只写框架产出"
         );
-        let (id, session_id) = (run.id, run.session_id);
         self.call(move |conn| {
             let tx = conn.transaction()?;
-            for body in &closing {
-                insert_message(&tx, session_id, Some(id), body, now)?;
+            for r in runs {
+                let (id, session_id) = (r.run.id, r.run.session_id);
+                for body in &r.closing {
+                    insert_message(&tx, session_id, Some(id), body, now)?;
+                }
+                tx.execute(
+                    "UPDATE core_runs SET state = ?2, finished_at = ?3 WHERE id = ?1",
+                    params![id.0, RunState::Interrupted.as_str(), now],
+                )?;
+                if let Some(outcome) = r.report {
+                    report_to_parent(&tx, id, outcome, now)?;
+                }
             }
-            tx.execute(
-                "UPDATE core_runs SET state = ?2, finished_at = ?3 WHERE id = ?1",
-                params![id.0, RunState::Interrupted.as_str(), now],
-            )?;
+            if let Some((session_id, body)) = notice {
+                insert_message(&tx, session_id, None, &body, now)?;
+            }
             tx.commit()?;
             Ok(())
         })
@@ -266,6 +290,46 @@ impl Store {
         })
         .await
     }
+}
+
+/// 子 run 的交付：父 session 的 Completion，发起人取本 run 首条输入。
+fn report_to_parent(
+    tx: &Transaction<'_>,
+    run: RunId,
+    outcome: ExecOutcome,
+    at: i64,
+) -> Result<Message, StoreError> {
+    let job = tx.query_row(
+        "SELECT j.id, j.owner_session_id, j.tool_name FROM core_jobs j
+         JOIN core_runs r ON r.session_id = j.child_session_id WHERE r.id = ?1",
+        [run.0],
+        |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                SessionId(r.get(1)?),
+                r.get::<_, String>(2)?,
+            ))
+        },
+    )?;
+    let (job_id, parent, tool_name) = job;
+    let body = MessageBody::Completion {
+        person: run_person(tx, run)?,
+        tool_name,
+        exec_id: job_id.to_string(),
+        outcome,
+    };
+    let id = insert_message(tx, parent, None, &body, at)?;
+    tx.execute(
+        "UPDATE core_runs SET report_message_id = ?2 WHERE id = ?1",
+        params![run.0, id.0],
+    )?;
+    Ok(Message {
+        id,
+        session_id: parent,
+        body,
+        created_at: at,
+        delivered_at: None,
+    })
 }
 
 /// 未认领输入按 id 排序后开头连续同 person 的一段 `(ids, person)`。

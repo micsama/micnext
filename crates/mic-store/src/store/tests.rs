@@ -169,7 +169,7 @@ fn reasoning_is_per_session_and_fixed_when_claimed() {
                 Some(E::None)
             );
             store
-                .finish_run(run_id, RunState::Completed, 4)
+                .finish_run(run_id, RunState::Completed, None, 4)
                 .await
                 .unwrap();
             store

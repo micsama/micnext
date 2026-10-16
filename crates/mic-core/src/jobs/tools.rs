@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use mic_message::{ContentPart, SessionId};
-use mic_store::JobId;
+use mic_store::{JobId, JobKind};
 use mic_tool::{Tool, ToolContext, ToolError, ToolHandle, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -37,6 +37,9 @@ fn access(e: JobAccessError) -> ToolError {
         JobAccessError::ReadLimit => {
             ToolError::input(format!("limit must be between 1 and {JOB_READ_MAX}"))
         }
+        JobAccessError::AgentOffset => {
+            ToolError::input("a sub-agent's delivery is read whole; omit offset")
+        }
         JobAccessError::Io(e) => ToolError::dependency(format!("failed to read job output: {e}")),
         JobAccessError::Store(e) => ToolError::dependency(e.to_string()),
     }
@@ -51,7 +54,7 @@ struct List(Bound);
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ListArgs {
-    /// Also list jobs that finished more than 14 days ago.
+    /// Also list jobs that finished, and sub-agents idle, for more than 14 days.
     #[serde(default)]
     include_old: bool,
 }
@@ -64,7 +67,7 @@ impl Tool for List {
     }
 
     fn description(&self) -> &str {
-        "List background jobs started by this session and its sub-sessions: running ones first, then by most recent activity. Each entry shows the job id, tool, description, state, timing, output size and the last few lines of output."
+        "List background jobs and sub-agents started by this session and its sub-sessions: active ones first, then by most recent activity. A tool job shows its state, timing, output size and last lines of output; a sub-agent shows whether it is running or sleeping and how its last run ended."
     }
 
     fn prompt_hint(&self) -> Option<&str> {
@@ -106,7 +109,7 @@ impl Tool for Output {
     }
 
     fn description(&self) -> &str {
-        "Read a background job's output, which is readable while the job runs. Without offset it returns the tail; with offset it reads forward from that byte and reports next_offset to continue. Only the most recent 1 MiB is kept: available_from is the earliest readable byte."
+        "Read a background job's output, which is readable while the job runs. Without offset it returns the tail; with offset it reads forward from that byte and reports next_offset to continue. Only the most recent 1 MiB is kept: available_from is the earliest readable byte. For a sub-agent it returns its latest delivery in full."
     }
 
     fn prompt_hint(&self) -> Option<&str> {
@@ -128,7 +131,10 @@ impl Tool for Output {
         Ok(text(format!(
             "[job {} {}; bytes {}..{} of {}; available_from={}; eof={}]\n{}",
             job.id.0,
-            job.state.as_str(),
+            match job.kind {
+                JobKind::Tool { state, .. } => state.as_str(),
+                JobKind::Agent { .. } => "agent",
+            },
             out.offset,
             out.next_offset,
             out.total_bytes,
@@ -155,7 +161,7 @@ impl Tool for Stop {
     }
 
     fn description(&self) -> &str {
-        "Stop a running background job (a bash job's whole process group is killed). Returns once the job has finished; no completion follows for a job you stop yourself."
+        "Stop a running background job (a bash job's whole process group is killed) or a sub-agent's current run (its own jobs are stopped too; it can still be followed up later). Returns once stopped; no completion follows for something you stop yourself."
     }
 
     fn prompt_hint(&self) -> Option<&str> {
@@ -172,6 +178,7 @@ impl Tool for Stop {
         Ok(text(
             match outcome {
                 StopJobOutcome::Stopped => "Stopped.",
+                StopJobOutcome::AlreadyIdle => "The sub-agent was not running.",
                 StopJobOutcome::AlreadyFinished => {
                     "The job had already finished; its result arrives (or arrived) as a completion."
                 }

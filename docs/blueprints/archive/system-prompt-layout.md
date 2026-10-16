@@ -30,7 +30,7 @@
 </instructions>
 
 <persona>
-{人设提示词}
+{人设提示词}               ← 子 agent（Task 会话）不带
 
 User preferences:          ← 通用偏好非空时
 {通用偏好}
@@ -53,6 +53,8 @@ Summary of the earlier conversation:   ← 有摘要时
 | `instructions` | 框架规则 + 消息头说明 | 只读，随二进制 |
 | `persona` | 助手怎么做事 | 用户（人设、通用偏好） |
 | `context` | 工作目录、渠道提示、可用工具提示、会话摘要 | core 组装；渠道提示由渠道声明（[channel-prompt](channel-prompt.md)），工具提示由工具定义，摘要来自会话 |
+
+子 agent 的 `persona` 块只剩通用偏好，偏好为空则整块略去；它也不带渠道提示，任务说明是首条输入（[async-jobs P2.1](async-jobs.md#p21-子-session-设置)）。
 
 块的含义靠标签名自明，`system.md` 不另作说明。三块是文本组织方式，不映射为三个 Rust 模块；段落划分随实际需求迭代。
 
@@ -111,8 +113,8 @@ Bracketed headers are added by the framework:
 - [user id=… at=…]: a user message.
 - [runtime-note]: a framework notice, not the user.
 - [notification src=… at=…]: an event from src at that time, not the user; it may no longer hold now.
-- [dispatched exec_id=…]: a background tool started; its result arrives as a completion.
-- [completion exec_id=…]: the result of that background tool.
+- [dispatched exec_id=…]: a background job or sub-agent was dispatched; its result arrives as a completion.
+- [completion exec_id=…]: the result of that background job; for a sub-agent, the delivery of one of its runs (each follow-up delivers again).
 - [failed kind=…]: the tool call failed (input: fix the arguments; business: rejected by tool rules; dependency: environment error).
 - [cancelled]: the call was cancelled or interrupted; its effect may be unknown, so check before retrying.
 ```

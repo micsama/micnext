@@ -64,7 +64,7 @@ HTTP（`/api` 下，沿用认证；越界 403、不存在 404、非法参数 400
 | `GET /sessions/{id}/jobs/{job}/output?offset=&limit=16384` | 200 `JobOutput` |
 | `POST /sessions/{id}/jobs/{job}/stop` | 200 `{outcome: stopped / already_idle / already_finished}`，收尾完成后返回；只读会话 403 |
 
-`JobView`：ID、种类（P2 起）、工具名、归属 session、描述、展示状态（tool 为终态，agent 为 `running` / `sleeping` + 最近 `RunState`）、创建/结束时间、输出字节数与受限尾部。
+`JobView`：ID、工具名、归属 session、描述、创建时间，加按 `kind` 区分的详情：`tool` 为状态、结束时间、时限、输出字节数与受限尾部；`agent` 为子 session、是否执行中、最近 `RunState`、最近活动时间。agent 的 `output` 返回最近一次交付整段，不接受 `offset`。
 
 `KernelEventKind::JobsChanged`（session_id 为所属 Root）：job 状态变化、子 run 开始/结束时发布，列表收到后重查；输出增长每秒最多通知一次。沿用 SSE 重连/ready 重查，不建可靠队列。
 
@@ -173,11 +173,12 @@ pub trait Background: Send + Sync {
 
 ### P2.3 限制与交付
 
-- 子 run `max_turns = min(全局 max_turns, 12)`；墙钟上限 30 分钟，超时取消收尾，run 记新增的 `RunState::TimedOut`（不借用表示用户主动停止的 `Stopped`）。
+- 子 run `max_turns = min(全局 max_turns, 12)`，沿用 run-execution §4.3 的计数：最多 12 轮可用工具的对话调用，用尽后额外一次无工具总结；重试与上下文压缩调用另计，不是所有上游请求合计最多 12 次。墙钟上限 30 分钟，超时取消收尾，run 记新增的 `RunState::TimedOut`（不借用表示用户主动停止的 `Stopped`）。
 - 每个子 run 收尾写一次 Completion：成功取本次 run 最后一条无工具调用的回复；空产出、失败、轮次上限、超时、停止、中断明确写状态，不拿上一轮回复冒充。终态、Completion、`report_message_id` 同事务。
 - 交付上限 32 KiB，超出带截断标记与子 session 引用。
 - 追问与后台 Completion 同时到达沿用 claim/absorb，同一 run 吸收的只回注一次。
 - `job_stop` 停 agent：关闭该子树派出/认领入口，取消当前 run，终止名下后台任务，已排队未认领输入标 held，清理期间的完成事实只记录不 Wake；完成后释放。休眠 session 不需要“杀”，之后追问照常。
+- 停止由谁发起决定交付：用户 → `Cancelled "Stopped by the user."`；owner 模型自己 `job_stop` → 不写（结果已由 `job_stop` 返回）；其他祖先 → 注明发起会话。子会话未在执行且名下无运行任务时返回 `already_idle`。停止期间入口闸门由 core 内的执行登记表持有，与执行槽位一处管理。
 - 本期不加全局并发或累计费用预算。
 
 ### P2.4 可见性
@@ -194,6 +195,21 @@ pub trait Background: Send + Sync {
 3. 不能跨兄弟操作；子 agent 工具范围不超过父、无 `agent`。
 4. 停 agent 后排队输入不复活，再追问正常执行。
 5. 旧子 session 默认隐藏、活跃的始终可见；重启聚合通知不重复，休眠 session 不误标中断。
+
+补充自动审查（2026-10-16）：3 项临时测试通过，跑完移除，不增加常驻测试或依赖。使用 `cargo test -p mic-core --features tokio/test-util review_remaining_ -- --nocapture`：
+
+- 虚拟时间推进超过 30 分钟：实际取消挂起的模型调用，子 run 落 `timed_out`，父会话收到超时交付。
+- 构造超过 14 天的任务时间戳：默认列表过滤、含旧任务查询可见；名下有运行中后台任务时仍可见。
+- 以子会话的 port 登记受控后台任务：完成后唤醒休眠子会话，再向父会话交付。验证 core 回注链路，不等于模型调用真实后台 bash 的完整端到端验收。
+
+### P2.6 已知边界（低优先级，human 2026-10-16 确认暂不处理）
+
+单进程个人 agent 当前接受以下极短窗口中的交错，不阻塞 P2 提交与验收；不为此新增回执表、锁或状态机：
+
+1. **追问写入后、父会话的 Dispatched 落盘前退出**：子会话已有追问，但恢复只能按创建调用关联 job，本次追问调用可能被闭合为 Cancelled、结果未知。父模型之后可能重复追问。此问题需要在提交窗口中退出，不代表正常追问会丢失。
+2. **停止与追问同时发生**：追问通过停止检查后，停止方先清理完排队输入；随后追问才写入，而 Wake 因仍在停止中被跳过。父模型可能收到 Dispatched，但该输入暂不执行，之后可能被另一条输入唤醒。此问题不需要重启，但要求停止与追问恰好交错。
+
+审查已用临时测试构造出上述交错，尚无日常使用中的发生频率证据。未来如实际影响使用，再评估统一提交边界；当前不以理论可发生为由扩展协调机制。
 
 ## P3：归档联动与费用范围
 

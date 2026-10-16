@@ -168,7 +168,7 @@ impl Store {
     }
 }
 
-fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, StoreError> {
+pub(crate) fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Session, StoreError> {
     let kind = row::session_kind_cols(&new.kind);
     let tool_scope = serde_json::to_string(&new.tool_scope)?;
     let target = new.delivery_target.as_ref();

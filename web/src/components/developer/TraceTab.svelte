@@ -32,7 +32,7 @@
   const hm = (at: number) => new Date(at).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
   const role = (m: TraceMessage) => m.tool ? "工具" : ({ UserInput: "用户", Reply: "AI", Command: "指令", Boundary: "压缩", Notification: "通知", HarnessNote: "系统", Completion: "完成" }[m.kind] ?? m.kind);
   const purpose = (c: TraceCall) => ({ conversation: "模型调用", compaction: "压缩调用", title: "旁路 · 标题" }[c.purpose]);
-  const stateName = (r: TraceRun) => ({ completed: "已完成", interrupted: "已中断", stopped: "用户停止", provider_failed: "调用失败", max_turns: "轮数上限" }[r.state] ?? r.state);
+  const stateName = (r: TraceRun) => ({ completed: "已完成", interrupted: "已中断", stopped: "用户停止", provider_failed: "调用失败", max_turns: "轮数上限", timed_out: "超时停止" }[r.state] ?? r.state);
   const tokens = (c: TraceCall) => c.usage ? formatTokens(c.usage.input_tokens + c.usage.output_tokens) : "—";
   const toggle = (id: number) => { const next = new Set(folded); next.has(id) ? next.delete(id) : next.add(id); folded = next; };
   const callPreview = (r: TraceRun | null, c: TraceCall) => c.error ?? r?.messages.find((m) => m.id === (c.reply_id ?? c.boundary_id))?.preview ?? c.model;

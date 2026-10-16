@@ -171,7 +171,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         factories: Arc::new(factories),
         tools: Vec::new(),
         channel_prompts: Arc::new(HashMap::new()),
-        stops: Default::default(),
+        control: Default::default(),
     });
     store
         .append_input(
@@ -188,7 +188,12 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
     let (task_engine, task_session) = (engine.clone(), session.clone());
     let task = tokio::spawn(async move {
         task_engine
-            .run(&task_session, "web", claimed)
+            .run(
+                &task_session,
+                "web",
+                claimed,
+                &task_engine.control.enter(task_session.id).unwrap(),
+            )
             .await
             .unwrap()
     });
@@ -204,7 +209,15 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         .unwrap();
     let claimed = store.claim_next(session.id, 4).await.unwrap().unwrap();
     assert_eq!(
-        engine.run(&session, "web", claimed).await.unwrap(),
+        engine
+            .run(
+                &session,
+                "web",
+                claimed,
+                &engine.control.enter(session.id).unwrap(),
+            )
+            .await
+            .unwrap(),
         RunState::Completed
     );
     store
@@ -224,7 +237,15 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         .unwrap();
     let claimed = store.claim_next(session.id, 6).await.unwrap().unwrap();
     assert_eq!(
-        engine.run(&session, "web", claimed).await.unwrap(),
+        engine
+            .run(
+                &session,
+                "web",
+                claimed,
+                &engine.control.enter(session.id).unwrap(),
+            )
+            .await
+            .unwrap(),
         RunState::Completed
     );
     assert_eq!(
@@ -377,7 +398,7 @@ impl Fixture {
             factories: Arc::new(Factories::default()),
             tools: vec![],
             channel_prompts: Arc::default(),
-            stops: Default::default(),
+            control: Default::default(),
         });
         let (titles, _worker) = crate::title::TitleRuntime::new(
             store.clone(),
@@ -424,7 +445,7 @@ impl Fixture {
     }
     async fn verify(&self, provider: &Scripted) -> Vec<mic_store::TraceCall> {
         self.store
-            .finish_run(self.claimed.run.id, RunState::Completed, now_ms())
+            .finish_run(self.claimed.run.id, RunState::Completed, None, now_ms())
             .await
             .unwrap();
         let page = self
@@ -871,7 +892,7 @@ async fn trace_paging_keeps_session_side_calls_out_of_runs() {
         .unwrap()
         .is_none());
     f.store
-        .finish_run(next.run.id, RunState::Interrupted, now + 1)
+        .finish_run(next.run.id, RunState::Interrupted, None, now + 1)
         .await
         .unwrap();
     let page = f.store.trace_runs(f.session.id, None, 1).await.unwrap();
@@ -1064,7 +1085,7 @@ async fn stop_mid_stream_keeps_partial_text_only() {
         }]]
     );
     f.store
-        .finish_run(f.claimed.run.id, RunState::Stopped, now_ms())
+        .finish_run(f.claimed.run.id, RunState::Stopped, None, now_ms())
         .await
         .unwrap();
     let page = f.store.trace_runs(f.session.id, None, 10).await.unwrap();
@@ -1139,7 +1160,13 @@ async fn stop_mid_tools_keeps_finished_results_and_cancels_the_rest() {
             if tool_call_id == "bg" && *exec_id == job.0.to_string()
     )));
     assert_eq!(
-        f.store.job(job).await.unwrap().unwrap().state,
+        f.store
+            .job(job)
+            .await
+            .unwrap()
+            .unwrap()
+            .tool_state()
+            .unwrap(),
         mic_store::JobState::Running
     );
     f.engine.jobs.shutdown().await;
@@ -1193,7 +1220,7 @@ async fn stopped_run_leaves_queued_input_for_the_next_run() {
     assert!(!exec.absorb().await.unwrap());
     assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Stopped);
     f.store
-        .finish_run(f.claimed.run.id, RunState::Stopped, now_ms())
+        .finish_run(f.claimed.run.id, RunState::Stopped, None, now_ms())
         .await
         .unwrap();
     let next = f.store.claim_next(f.session.id, now_ms()).await.unwrap();

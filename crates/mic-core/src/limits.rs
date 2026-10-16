@@ -38,3 +38,8 @@ pub(crate) const JOB_VIEW_TAIL: u64 = 1024;
 pub(crate) const JOB_NOTIFY_INTERVAL: Duration = Duration::from_secs(1);
 /// 结束超过这么久的任务默认不列出。
 pub(crate) const JOB_HIDE_AFTER: Duration = Duration::from_secs(14 * 24 * 3600);
+/// 子 run 的工具轮次上限（与全局 `max_turns` 取小；用尽后另有一次总结）与墙钟上限。
+pub(crate) const AGENT_MAX_TURNS: u32 = 12;
+pub(crate) const AGENT_RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// 子 run 交付的文本上限，超出截断并指向子会话。
+pub(crate) const AGENT_DELIVERY_MAX: usize = 32 * 1024;

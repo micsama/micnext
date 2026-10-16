@@ -215,7 +215,10 @@ stateDiagram-v2
     Executing --> MaxTurns: 轮次用尽（总结后）
     Executing --> Interrupted: 下次启动收尾
     Executing --> Stopped: 用户停止
+    Executing --> TimedOut: 子 agent 墙钟超时
 ```
+
+子 agent（Task 会话）的 run 另有轮次上限、墙钟上限，收尾时向父会话交付一次 Completion，见 [async-jobs](async-jobs.md) P2.3。
 
 v0a 没有用户取消的终态：叫停也是一条普通输入，由模型读到后自行收尾（Web 端停止按钮见 §十）。
 
@@ -338,6 +341,8 @@ loop:
 | 被内容审核截断（`ContentFilter`） | 同上 | 回复被上游内容审核截断 |
 | 重启打断（§4.6） | `Interrupted` | 上次执行已中断；有悬空工具时附加“部分工具结果未知” |
 | 用户停止（[run-stop](run-stop.md)） | `Stopped` | 已停止。 |
+| 子 agent 墙钟超时（[async-jobs](async-jobs.md) P2.3） | `TimedOut` | 子任务执行超过 30 分钟，已停止。 |
+| 重启时有子 agent 被打断（同上 P2.4） | — | 写在树根：重启前仍在执行的子任务已中断：#…。 |
 
 轮次提醒与用尽写的是 `HarnessNote`（给模型看），不是通知；用尽后由模型自己的总结告诉用户，run 记 `MaxTurns` 供事后统计（如接 langfuse）。
 

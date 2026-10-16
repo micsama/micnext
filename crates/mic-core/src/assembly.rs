@@ -13,9 +13,10 @@ use tokio::sync::mpsc;
 use tokio::task::{Id, JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
+use crate::control::{RunControl, Slot};
 use crate::event::{Events, KernelEvent};
 use crate::input::validate;
-use crate::jobs::Jobs;
+use crate::jobs::{Jobs, AGENT_MODULES, CORE_TOOLS};
 use crate::limits::WAKE_CHANNEL_CAPACITY;
 use crate::provider::Factories;
 use crate::run::{now_ms, Engine};
@@ -37,6 +38,8 @@ pub struct Assembly {
     key_file: SecretKeyFile,
     factories: Arc<Factories>,
     tools: Vec<ToolHandle>,
+    /// 子 agent 可用的工具名上限。
+    agent_tools: BTreeSet<String>,
     channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
     channel_prompts: Arc<HashMap<&'static str, &'static str>>,
 }
@@ -147,7 +150,8 @@ impl Assembly {
             }
         }
 
-        let mut owners: HashMap<&str, &'static str> = HashMap::new();
+        let mut owners: HashMap<&str, &'static str> =
+            CORE_TOOLS.iter().map(|name| (*name, "core")).collect();
         for (module, tool) in &reg.tools {
             if let Some(first) = owners.insert(tool.name(), module) {
                 return Err(AssembleError::DuplicateTool {
@@ -186,6 +190,18 @@ impl Assembly {
             owner,
             key_file: SecretKeyFile(key_file),
             factories: Arc::new(factories),
+            agent_tools: reg
+                .tools
+                .iter()
+                .filter(|(module, _)| AGENT_MODULES.contains(module))
+                .map(|(_, t)| t.name().to_owned())
+                .chain(
+                    CORE_TOOLS
+                        .iter()
+                        .filter(|n| **n != "agent")
+                        .map(|n| (*n).to_owned()),
+                )
+                .collect(),
             tools: reg.tools.into_iter().map(|(_, t)| t).collect(),
             channel_setups: Arc::new(channel_setups),
             channel_prompts: Arc::new(channel_prompts),
@@ -330,7 +346,10 @@ impl Assembly {
     ) -> Result<OnceOutcome, RunError> {
         let session_id = session.id;
         let mut task = JoinSet::new();
-        task.spawn(async move { engine.run(&session, ONCE_CHANNEL, claimed).await });
+        task.spawn(async move {
+            let slot: Slot = engine.control.enter(session.id).expect("新会话不在停止中");
+            engine.run(&session, ONCE_CHANNEL, claimed, &slot).await
+        });
         let mut show = |event: Result<KernelEvent, crate::Lagged>| match event {
             Ok(e) if e.session_id == session_id => on_event(&e),
             Ok(_) => {}
@@ -405,19 +424,22 @@ impl Assembly {
         events: Events,
         wake: Option<mpsc::Sender<SessionId>>,
     ) -> Engine {
+        let control = Arc::new(RunControl::default());
         Engine {
             jobs: Arc::new(Jobs::new(
                 store.clone(),
                 events.clone(),
                 wake,
                 self.data_dir.clone(),
+                control.clone(),
+                self.agent_tools.clone(),
             )),
             store,
             events,
             factories: self.factories.clone(),
             tools: self.tools.clone(),
             channel_prompts: self.channel_prompts.clone(),
-            stops: Default::default(),
+            control,
         }
     }
 }

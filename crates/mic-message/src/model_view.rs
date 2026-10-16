@@ -161,9 +161,11 @@ impl<'a> Header<'a> {
             Self::RuntimeNote => "a framework notice, not the user.",
             Self::Notification { .. } => "an event from src at that time, not the user; it may no longer hold now.",
             Self::Dispatched { .. } => {
-                "a background tool started; its result arrives as a completion."
+                "a background job or sub-agent was dispatched; its result arrives as a completion."
             }
-            Self::Completion { .. } => "the result of that background tool.",
+            Self::Completion { .. } => {
+                "the result of that background job; for a sub-agent, the delivery of one of its runs (each follow-up delivers again)."
+            }
             Self::Failed { .. } => {
                 "the tool call failed (input: fix the arguments; business: rejected by tool rules; dependency: environment error)."
             }

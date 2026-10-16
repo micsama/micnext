@@ -17,7 +17,7 @@ async fn held_first_text_is_eligible_but_commands_old_text_and_failed_first_are_
         factories: factories.clone(),
         tools: vec![],
         channel_prompts: Arc::default(),
-        stops: Default::default(),
+        control: Default::default(),
     });
     let kernel = Kernel::new(
         owner,
@@ -363,7 +363,7 @@ async fn manual_title_records_sources_and_side_output() {
         factories: factories.clone(),
         tools: vec![],
         channel_prompts: Arc::default(),
-        stops: Default::default(),
+        control: Default::default(),
     });
     let (handle, _runtime) = TitleRuntime::new(store.clone(), factories, Events::new());
     let kernel = crate::Kernel::new(owner, wake, Arc::new(HashMap::new()), handle, engine);

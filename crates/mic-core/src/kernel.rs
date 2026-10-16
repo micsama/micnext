@@ -253,6 +253,7 @@ impl Kernel {
             .session(session)
             .await?
             .ok_or(KernelError::SessionNotFound)?;
+        reject_task(&session)?;
         if let SessionCommand::RevokeCompaction { boundary_id } = &command {
             let view = self.store.context_view(session.id).await?;
             if !view
@@ -344,6 +345,12 @@ impl Kernel {
         person: PersonId,
         parts: Vec<IncomingPart>,
     ) -> Result<MessageId, KernelError> {
+        let session = self
+            .store
+            .session(session_id)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        reject_task(&session)?;
         let messages = append_input(
             &self.store,
             &self.events,
@@ -603,7 +610,7 @@ impl Kernel {
         };
         Ok(request::system_prompt(
             &settings,
-            &s.pwd,
+            s,
             channel_prompt,
             &self.engine.scoped_tools(s),
             window.summary.as_deref(),
@@ -1076,5 +1083,13 @@ pub(crate) async fn session_channel(
                     .expect("父会话必然存在（外键保证）");
             }
         }
+    }
+}
+
+/// 外部输入只进 Root/Triggered 会话；子 agent 只经 `agent` 工具追问。
+fn reject_task(session: &Session) -> Result<(), KernelError> {
+    match session.kind {
+        SessionKind::Task { .. } => Err(KernelError::TaskSessionInput),
+        _ => Ok(()),
     }
 }

@@ -4,7 +4,7 @@
 
   let { stats: s }: { stats: ChatRunStats } = $props();
 
-  const ENDING: Partial<Record<RunState, string>> = { stopped: "已停止", provider_failed: "调用失败", max_turns: "达到上限", interrupted: "已中断" };
+  const ENDING: Partial<Record<RunState, string>> = { stopped: "已停止", provider_failed: "调用失败", max_turns: "达到上限", interrupted: "已中断", timed_out: "超时" };
   const ge = $derived(s.usage_complete ? "" : "≥");
   const cache = $derived(
     s.usage_complete && s.cache_complete && s.input_tokens > 0 ? `缓存 ${Math.round((s.cache_read_tokens / s.input_tokens) * 100)}%` : "缓存未知",

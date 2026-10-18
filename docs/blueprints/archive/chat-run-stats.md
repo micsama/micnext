@@ -1,5 +1,7 @@
 # B2：聊天统计行与上下文占用
 
+**现行扩展（2026-10-16，P3）**：会话范围费用汇总由 [async-jobs](../async-jobs.md) P3 的 `SessionUsage` 单独查询；“包含子 session”不改变本文的聊天 run-stats、run 概览或当前会话上下文占用口径。
+
 **状态：CLOSED（2026-10-15，human 页面验收通过；fmt/clippy、store 测试、Web 检查与隔离实例 curl 验收通过）。**
 
 依据：[B1](../../brainstorm/chat-run-stats.md)。只用 [run-trace](run-trace.md) 已落盘的事实，不改 schema。修订 [gateway](gateway.md) 接口表与 [context-compaction](context-compaction.md) 的上下文接口。

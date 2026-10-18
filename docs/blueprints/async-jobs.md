@@ -223,13 +223,24 @@ pub trait Background: Send + Sync {
 ### P3.2 trace 费用范围
 
 - Store / Kernel 新增 `session_usage(session, include_children) -> SessionUsage`；HTTP `GET /trace/sessions/{id}/usage?include_children=false`。
-- 返回 input / output / cache_read tokens、complete 标志与 cost，口径与现有 trace 共用，前端不再算。开启时递归包含所有后代（含归档、隐藏的），每条调用只算一次；后台工具不产生模型费用。
-- 开关默认关，只影响此汇总；run 列表、聊天 run-stats、单次调用费用、上下文占用不变。trace 从任务入口可直接打开子 session。
+- `SessionUsage` 返回 `input_tokens`、`output_tokens`、`cache_read_tokens`、`cache_write_tokens`（已知部分之和）、`reasoning_tokens`（全未上报为 null）、`known_usage` / `unknown_usage`、`usage_complete`、`cache_complete`、`cost`、`unknown_cost`。`usage_complete` 表示所有调用均报用量；`cache_complete` 表示存在已知用量且这些调用均报缓存读，与原 trace 缓存展示一致。
+- 费用沿用现有 trace 的“已知部分合计 + 未知次数”：`cost` 在无已知费用时为 null，否则合计已知费用；单次费用仍复用 `call_cost`。汇总包括所有已记录的对话、重试、压缩、标题调用，不受 run 分页限制；前端会话汇总不再自算。开启时递归包含所有后代（含归档、隐藏的），每条调用只算一次；后台工具不产生模型费用。
+- 会话详情标题下用“用量范围：本会话｜含子任务”分段控件，切换会话默认回到“本会话”，刷新当前会话保留选择；只影响此汇总；run 列表、聊天 run-stats、单次调用费用、上下文占用不变。聊天任务面板及主会话 Trace 顶部的“子任务”列表均提供子任务 Trace 入口（使用既有 jobs 接口包含旧任务），沿用详情返回栈返回父会话，只看执行过程；普通会话详情仍只开放 Root，不新增子 agent 聊天入口。
 
 ### P3.3 验收
 
 1. 归档期间持续派出/追问/发消息，收尾后无执行或排队输入复活；重复归档成功；已归档会话写接口 409，历史可读；清标记后恢复正常发送。
 2. trace 开关只改变用量/费用汇总，不重复计算。
+
+### P3.4 延期人工验收（human 2026-10-16 确认）
+
+运行中归档属于低频操作，当前不要求人工专门制造，不阻塞本轮页面验收；保留既有实现，未人工验收，不记为已通过。以后实际遇到或主动测试时按以下例子核对：
+
+- **后台 bash 运行中归档**：临时会话让 agent 后台运行 `while true; do date; sleep 2; done`，不限时；看到输出增长后归档。检查确认提示、后台进程停止；原 URL 的历史/输出可读而不能发送，输出不再增长。
+- **子 agent 执行中归档**：临时会话让子 agent 前台执行 `sleep 120` 后回复“等待完成”，父 agent 先回复“已派出”；子任务运行时归档。检查子 run 被停止、之后不再执行或补回“等待完成”。
+- 遇到异常记会话编号、操作顺序及实际表现；如需清理临时会话，归档后目前只能手工清根会话 `archived_at` 恢复，held 输入不会补跑。
+
+P3 实现进度（2026-10-16）：归档数据库闸门、整树收尾、标题取消、归档后拒收与只读展示、递归费用汇总和子任务 Trace 入口已实现，尚未提交，页面/真实环境待 human 验收。human 要求先不写测试；实现中已运行的三项临时验收代码已移除，未增加测试依赖。
 
 ## 收尾
 

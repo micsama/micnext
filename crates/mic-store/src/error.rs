@@ -1,5 +1,9 @@
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("后台任务 #{job} 停止后未能落盘终态，请检查日志")]
+    JobStopFailed { job: i64 },
+    #[error("会话已归档，不能执行新任务")]
+    SessionArchived,
     #[error("无法解密设置备份：格式无效、主密钥不匹配或内容被改动")]
     ExportUndecryptable,
     #[error("sqlite: {0}")]

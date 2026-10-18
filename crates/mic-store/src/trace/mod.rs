@@ -116,6 +116,44 @@ pub struct RunStats {
     pub cost: Option<f64>,
 }
 
+/// 全会话用量；费用合计已知部分，未知次数单列，沿用 trace 展示口径。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SessionUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub reasoning_tokens: Option<u64>,
+    pub known_usage: u32,
+    pub unknown_usage: u32,
+    pub usage_complete: bool,
+    pub cache_complete: bool,
+    pub cost: Option<f64>,
+    pub unknown_cost: u32,
+}
+
+fn session_usage(calls: &[TraceCall]) -> SessionUsage {
+    let known: Vec<_> = calls.iter().filter_map(|c| c.usage.as_ref()).collect();
+    let priced: Vec<_> = calls.iter().filter_map(|c| c.cost).collect();
+    let unknown_usage = (calls.len() - known.len()) as u32;
+    SessionUsage {
+        input_tokens: known.iter().map(|u| u.input_tokens).sum(),
+        output_tokens: known.iter().map(|u| u.output_tokens).sum(),
+        cache_read_tokens: known.iter().filter_map(|u| u.cache_read_tokens).sum(),
+        cache_write_tokens: known.iter().filter_map(|u| u.cache_write_tokens).sum(),
+        reasoning_tokens: known
+            .iter()
+            .any(|u| u.reasoning_tokens.is_some())
+            .then(|| known.iter().filter_map(|u| u.reasoning_tokens).sum()),
+        known_usage: known.len() as u32,
+        unknown_usage,
+        usage_complete: unknown_usage == 0,
+        cache_complete: !known.is_empty() && known.iter().all(|u| u.cache_read_tokens.is_some()),
+        cost: (!priced.is_empty()).then(|| priced.iter().sum()),
+        unknown_cost: (calls.len() - priced.len()) as u32,
+    }
+}
+
 /// 聊天统计行：`anchor_id` 是该 run 最后一条消息。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ChatRunStats {
@@ -527,6 +565,25 @@ fn trace_message(m: Message) -> TraceMessage {
 }
 
 impl Store {
+    /// 所有已记录调用，包括重试、压缩、标题；子树按 session 归属查询，不重复 JOIN。
+    pub async fn session_usage(
+        &self,
+        session: SessionId,
+        include_children: bool,
+    ) -> Result<SessionUsage, StoreError> {
+        self.call(move |conn| {
+            let filter = if include_children {
+                "c.session_id IN (WITH RECURSIVE tree(id) AS (SELECT ?1 UNION ALL
+                 SELECT s.id FROM core_sessions s JOIN tree t ON s.parent_session_id = t.id)
+                 SELECT id FROM tree)"
+            } else {
+                "c.session_id = ?1"
+            };
+            Ok(session_usage(&load_calls(conn, filter, session.0)?))
+        })
+        .await
+    }
+
     /// 有已结束 run 的 Root 会话，最近有 run 的在前。
     pub async fn trace_sessions(&self) -> Result<Vec<TraceSession>, StoreError> {
         self.call(|conn| {

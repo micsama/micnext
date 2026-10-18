@@ -59,6 +59,9 @@ impl Store {
         let cipher = self.cipher();
         self.call(move |conn| {
             let tx = conn.transaction()?;
+            if crate::sessions::archived(&tx, session_id)? {
+                return Ok(None);
+            }
             let executing: bool = tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM core_runs
                                WHERE session_id = ?1 AND state = 'executing')",

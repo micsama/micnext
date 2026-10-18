@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use mic_message::{ContentPart, Message, MessageBody, ReplyBlock, SessionId};
@@ -6,8 +6,9 @@ use mic_store::{
     reply_answer, ClaimedModel, ModelCallContext, ModelCallOutcome, ModelCallPurpose, Session,
     Store, StoreError, TitleCall,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::{Id, JoinSet};
+use tokio_util::sync::CancellationToken;
 
 use crate::attempt::{stream_attempt, Caller, Facts};
 use crate::event::{Events, KernelEventKind};
@@ -36,31 +37,69 @@ pub enum TitleError {
 pub(crate) struct Job {
     session: Session,
     sources: Vec<Message>,
+    stop: CancellationToken,
+    _done: watch::Sender<()>,
+}
+
+struct ActiveTitle {
+    stop: CancellationToken,
+    done: watch::Receiver<()>,
 }
 
 #[derive(Clone)]
 pub(crate) struct TitleHandle {
     tx: mpsc::UnboundedSender<Job>,
-    active: Arc<Mutex<HashSet<SessionId>>>,
+    active: Arc<Mutex<HashMap<SessionId, ActiveTitle>>>,
     events: Events,
 }
 
 impl TitleHandle {
+    pub(crate) async fn stop(&self, session: SessionId) {
+        let task = self
+            .active
+            .lock()
+            .expect("title state poisoned")
+            .get(&session)
+            .map(|t| (t.stop.clone(), t.done.clone()));
+        if let Some((stop, mut done)) = task {
+            stop.cancel();
+            let _ = done.changed().await;
+        }
+    }
+
     pub(crate) fn generating(&self, session: SessionId) -> bool {
         self.active
             .lock()
             .expect("title state poisoned")
-            .contains(&session)
+            .contains_key(&session)
     }
 
     pub(crate) fn submit(&self, session: Session, sources: Vec<Message>) -> Result<(), TitleError> {
         let mut active = self.active.lock().expect("title state poisoned");
-        if !active.insert(session.id) {
+        if active.contains_key(&session.id) {
             return Err(TitleError::Generating);
         }
         let id = session.id;
         let channel = root_channel(&session).to_owned();
-        if self.tx.send(Job { session, sources }).is_err() {
+        let stop = CancellationToken::new();
+        let (done, rx) = watch::channel(());
+        active.insert(
+            id,
+            ActiveTitle {
+                stop: stop.clone(),
+                done: rx,
+            },
+        );
+        if self
+            .tx
+            .send(Job {
+                session,
+                sources,
+                stop,
+                _done: done,
+            })
+            .is_err()
+        {
             active.remove(&id);
             return Err(TitleError::Stopped);
         }
@@ -72,7 +111,7 @@ impl TitleHandle {
 
 pub(crate) struct TitleRuntime {
     rx: mpsc::UnboundedReceiver<Job>,
-    active: Arc<Mutex<HashSet<SessionId>>>,
+    active: Arc<Mutex<HashMap<SessionId, ActiveTitle>>>,
     store: Store,
     factories: Arc<Factories>,
     events: Events,
@@ -93,7 +132,7 @@ impl TitleRuntime {
         events: Events,
     ) -> (TitleHandle, Self) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let active = Arc::new(Mutex::new(HashSet::new()));
+        let active = Arc::new(Mutex::new(HashMap::new()));
         (
             TitleHandle {
                 tx,
@@ -122,7 +161,9 @@ impl TitleRuntime {
                     let active = self.active.clone();
                     let events = self.events.clone();
                     let task = self.tasks.spawn(async move {
-                        generate(&store, &factories, &job).await?;
+                        if store.session_root(id).await?.archived_at.is_none() && !job.stop.is_cancelled() {
+                            generate(&store, &factories, &job).await?;
+                        }
                         let mut active = active.lock().expect("title state poisoned");
                         active.remove(&id);
                         events.emit(id, root_channel(&job.session), KernelEventKind::SessionTitleChanged);
@@ -226,7 +267,13 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
         cache_key: format!("title-{}", job.session.id.0),
     };
     let mut facts = Facts::start();
-    let response = stream_attempt(provider.as_ref(), request, &mut facts, |_| {}).await;
+    let response = tokio::select! {
+        response = stream_attempt(provider.as_ref(), request, &mut facts, |_| {}) => response,
+        () = job.stop.cancelled() => {
+            facts.finished_at = now_ms();
+            Err(ProviderError::Protocol { message: "会话已归档，标题生成已停止".into() })
+        }
+    };
     let stop = response.as_ref().ok().map(|r| r.stop);
     let output = response.as_ref().ok().map(|r| {
         r.blocks

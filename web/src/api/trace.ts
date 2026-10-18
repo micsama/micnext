@@ -1,4 +1,4 @@
-import { arr, nullable, num, obj, oneOf, str, type Decoder } from "./decode";
+import { bool, arr, nullable, num, obj, oneOf, str, type Decoder } from "./decode";
 import { runStats, type ContextKind, type ReasoningEffort, type RunStats } from "./types";
 
 // 与 docs/blueprints/run-trace.md §六 及 mic-store `trace` 的 serde 形状一一对应。
@@ -202,3 +202,15 @@ export const parseSystemPrompt = (v: unknown): SystemPromptView =>
   obj({ text: str, blocks: arr(obj({ kind: oneOf("instructions", "persona", "context"), parts: arr(promptPart) })) })(v, "系统提示词");
 export const parsePeers = (v: unknown): Peers => peers(v, "同类耗时");
 export const parseDashboard = (v: unknown): Dashboard => dashboard(v, "看板");
+
+
+export type SessionUsage = {
+  input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number;
+  reasoning_tokens: number | null; known_usage: number; unknown_usage: number;
+  usage_complete: boolean; cache_complete: boolean; cost: number | null; unknown_cost: number;
+};
+export const parseSessionUsage = (v: unknown): SessionUsage => obj({
+  input_tokens: num, output_tokens: num, cache_read_tokens: num, cache_write_tokens: num,
+  reasoning_tokens: nullable(num), known_usage: num, unknown_usage: num,
+  usage_complete: bool, cache_complete: bool, cost: nullable(num), unknown_cost: num,
+})(v, "会话用量");

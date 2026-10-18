@@ -1,5 +1,7 @@
 # B2: 网关（mic-gateway，M9）
 
+**现行扩展（2026-10-16，P3）**：归档停止整树并拒绝继续执行，执行入口归档错误返回 409，列表/详情新增 `archived_at`；新增 `GET /api/trace/sessions/{id}/usage?include_children=false`，返回 `SessionUsage`。以 [async-jobs](../async-jobs.md) P3 和 [session-archive](session-archive.md) 为准。
+
 **现行扩展（2026-10-12）**：命令清单、上下文结果与撤回接口按已批准的 [context-compaction](context-compaction.md) 联合契约实施；上下文响应的 `occupancy` 与每轮统计见 [chat-run-stats](chat-run-stats.md)。
 
 **状态**: CLOSED（2026-09-24 批准并实现于 `crates/mic-gateway`；§八 1～9 用 curl/脚本与 DeepSeek 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加设置与人设接口（§4.4）、会话人设，`workdir` 移到网页设置
@@ -122,7 +124,7 @@ impl Store {
 | `POST /api/sessions` | `{"text": "…"}` | 201 `{"session_id": 3}` |
 | `POST /api/sessions/{id}/messages` | `{"text": "…"}` | 202 无响应体 |
 | `GET /api/sessions/{id}/run-stats?from=<message_id>[&to=<message_id>]` | — | 200 `{"runs": [RunStats]}`（[chat-run-stats](chat-run-stats.md) §1.2） |
-| `GET /api/sessions/{id}/jobs`、`…/jobs/{job}/output`、`POST …/jobs/{job}/stop` | — | 后台任务列表、读输出、终止（[async-jobs](async-jobs.md) 总则 §四） |
+| `GET /api/sessions/{id}/jobs`、`…/jobs/{job}/output`、`POST …/jobs/{job}/stop` | — | 后台任务列表、读输出、终止（[async-jobs](../async-jobs.md) 总则 §四） |
 | `POST /api/sessions/{id}/runs/{run_id}/stop` | — | 202；run 不在执行 409（[run-stop](run-stop.md) §2.4） |
 | `POST /api/sessions/{id}/stream-ticket` | — | 200 `{"ticket"}`（[web-sse-eventsource](web-sse-eventsource.md) §2.1） |
 | `GET /api/sessions/{id}/stream?ticket=<t>[&after=<message_id>]` | — | 200 `text/event-stream`（§五）；票据鉴权 |
@@ -197,7 +199,7 @@ mic-message 形状变化即 wire 变化，由改 mic-message 的 B2 列 M10 为�
 | `draft_discarded` | — | `{}` |
 | `run_started` | — | `{"run_id": 5}` |
 | `run_finished` | — | `{"run_id": 5, "state": "completed"}`（snake_case，同库列值） |
-| `jobs_changed` | — | `{}`：会话树后台任务有变化，重查任务列表（[async-jobs](async-jobs.md) 总则 §四） |
+| `jobs_changed` | — | `{}`：会话树后台任务有变化，重查任务列表（[async-jobs](../async-jobs.md) 总则 §四） |
 | `ready` | — | `{"executing_run": 5 \| null, "has_earlier": true \| false \| null}`：回放结束、之后都是实时；`has_earlier` 见 [web-message-paging](web-message-paging.md) §4.1 |
 
 只有 `message` 带 `id`，所以客户端记下的最后一个事件 id 恰是稳定游标，重连时作 `after` 传回。

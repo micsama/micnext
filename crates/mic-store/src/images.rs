@@ -50,6 +50,7 @@ impl Store {
     ) -> Result<Vec<Message>, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
+            crate::sessions::ensure_active(&tx, session_id)?;
             let mut out = Vec::with_capacity(parts.len());
             for part in parts {
                 out.push(match part {

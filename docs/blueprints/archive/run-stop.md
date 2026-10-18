@@ -1,5 +1,7 @@
 # B2：运行中停止
 
+**现行扩展（2026-10-16，P3）**：普通停止只停当前 run，后台任务由 `job_stop` 管理；归档才停止整棵会话树，并将未认领输入标 held、不再唤醒。归档后的执行请求返回 409。见 [async-jobs](../async-jobs.md) P3 和 [session-archive](session-archive.md)。
+
 **状态：CLOSED（2026-10-15，Web 人工验收通过；微信 `/stop` 走同一停止路径，human 认为无需单独真机验收）。**
 
 依据：[B1](../../brainstorm/run-stop.md)。本文修订 [run-execution](run-execution.md) 的 run 终态与工具批执行方式、[gateway](gateway.md) 接口表、[context-compaction](context-compaction.md) 指令表。
@@ -32,7 +34,7 @@ impl Kernel {
 }
 ```
 
-- `Engine` 持有进程内 `Mutex<HashMap<RunId, CancellationToken>>`（`tokio-util`）：`Engine::run` 开始登记、结束移除。`stop_run` 只取消令牌并返回，不等 run 收尾；收尾结果照常经 `run_finished` 推送。
+- `Engine` 与 Jobs 共用 `RunControl` 的会话执行槽位及取消令牌；worker 认领前占槽，run 结束释放。`stop_run` 只取消令牌并返回，不等 run 收尾；收尾结果照常经 `run_finished` 推送。
 - 指令解析返回统一枚举，`/stop` 不入队、不生成 run：
 
 ```rust

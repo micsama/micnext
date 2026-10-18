@@ -344,6 +344,8 @@ async fn manual_title_records_sources_and_side_output() {
         &Job {
             session: session.clone(),
             sources,
+            stop: tokio_util::sync::CancellationToken::new(),
+            _done: tokio::sync::watch::channel(()).0,
         },
     )
     .await

@@ -3,7 +3,9 @@
   import { Popover } from "bits-ui";
   import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
   import ArchiveIcon from "@lucide/svelte/icons/archive";
-  import { archiveSession } from "../api/client";
+  import { listJobs, archiveSession } from "../api/client";
+  import { jobActive } from "../api/types";
+  import { confirm } from "../state/confirm.svelte";
   import type { SessionItem } from "../api/types";
   import type { Attachment } from "svelte/attachments";
   import { groupSessions } from "../lib/format";
@@ -15,7 +17,7 @@
   import { updater } from "../state/update.svelte";
   import { sidebar } from "../state/sidebar.svelte";
 
-  let { activeSession }: { activeSession: SessionItem | null } = $props();
+  let { activeSession, executingRun }: { activeSession: SessionItem | null; executingRun: number | null } = $props();
 
   const groups = $derived(groupSessions(webSessions.items));
   const activeId = $derived(router.current.kind === "session" ? router.current.id : null);
@@ -51,6 +53,14 @@
     archiving = id;
     archiveError = null;
     try {
+      const jobs = await listJobs(id);
+      const count = jobs.filter(jobActive).length + (activeSession?.id === id && executingRun !== null ? 1 : 0);
+      const ok = await confirm.ask({
+        title: "归档会话？",
+        description: count > 0 ? `还有 ${count} 个任务在运行，归档会终止它们。历史记录会保留，归档后不能继续发送消息。` : "归档会停止会话中的执行与后台任务，保留历史记录；归档后不能继续发送消息。",
+        action: "归档",
+      });
+      if (!ok) { archiving = null; return; }
       await archiveSession(id);
       if (activeId === id) router.go("/");
       location.reload();

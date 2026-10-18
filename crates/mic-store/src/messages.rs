@@ -28,6 +28,12 @@ impl Store {
             "输入入站时未认领，run 必为 None"
         );
         self.call(move |conn| {
+            if matches!(
+                body,
+                MessageBody::UserInput { .. } | MessageBody::Command { .. }
+            ) {
+                crate::sessions::ensure_active(conn, session_id)?;
+            }
             Ok(Message {
                 id: insert_message(conn, session_id, run, &body, at)?,
                 session_id,

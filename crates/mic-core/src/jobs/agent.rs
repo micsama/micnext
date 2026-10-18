@@ -177,7 +177,7 @@ impl Jobs {
             publish.appended(child.id, &tree.channel, input);
             (job, child)
         };
-        self.wake(child.id).await;
+        self.wake(child.id).await?;
         self.changed(&tree);
         Ok(job.id)
     }
@@ -197,7 +197,7 @@ impl Jobs {
                 .await?;
             publish.appended(child, &tree.channel, input);
         }
-        self.wake(child).await;
+        self.wake(child).await?;
         Ok(())
     }
 

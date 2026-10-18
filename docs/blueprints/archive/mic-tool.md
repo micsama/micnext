@@ -27,7 +27,7 @@
 不定：
 - 具体工具的参数、描述、提示、结果形状与尺寸上限（M8，以 DSH `@deepseek-ai/dsh-tool-*` 0.1.5-rc.3 为底稿）。
 - 未知工具名、并行调用、工具 panic、按 `tool_scope` 筛选、提示拼接进 system prompt 的具体位置（M6）。
-- 后台执行：`ToolOutput`、`Background` port 与 `ToolContext` 构造已由 [async-jobs](async-jobs.md) P1.2 替代本文对应签名。
+- 后台执行：`ToolOutput`、`Background` port 与 `ToolContext` 构造已由 [async-jobs](../async-jobs.md) P1.2 替代本文对应签名。
 - 人工审批（HITL）：以后作为工具执行前的独立 port，不进本 trait（roadmap §2.3）。
 
 ## 三、公开类型与签名
@@ -216,7 +216,7 @@ pub enum AssembleError {
 
 ## 七、已知演进
 
-- **后台执行**：已落地，见 [async-jobs](async-jobs.md) P1.2。
+- **后台执行**：已落地，见 [async-jobs](../async-jobs.md) P1.2。
 - **ToolContext 扩展**：需要会话身份、person、Store 只读查询等时加字段或 port trait（依赖倒置，core 注入）；
   字段私有，加字段不改公开构造以外的签名。
 - **工具级配置**：同一模块内按工具开关（如只开 `read` 不开 `write`）出现真实需求时，由该模块自己的配置段表达。

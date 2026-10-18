@@ -1,5 +1,7 @@
 # B2: Web 前端（web/，M10）
 
+**现行扩展（2026-10-16，P3）**：归档前确认停止当前执行及后台任务，归档后显示只读提示；trace 会话用量从后端读取全部已记录调用，默认不含后代，在会话详情标题下提供“用量范围：本会话｜含子任务”分段控件，切换会话回到“本会话”；聊天任务面板及主会话 Trace 顶部“子任务”列表均可打开子任务 Trace，沿用返回栈回到父会话。普通聊天不开放子会话。见 [async-jobs](../async-jobs.md) P3。
+
 **现行扩展（2026-10-12）**：命令补全、摘要展开与撤回状态刷新按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
 
 **状态**: CLOSED（2026-09-24 批准并实现于 `web/` 与 `crates/mic-gateway/src/web.rs`；§八 1～10 已用 DeepSeek `deepseek-flash` + Playwright 实跑通过）；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加设置页（§4.3）（`/settings`）与输入框旁人设选择
@@ -103,7 +105,7 @@ mic-message 形状变化时，改它的 B2 须把本文列为调用方（gateway
 | `UserInput` | 右侧气泡；`Text` 原文（不渲染 Markdown），`File` 显示文件名小标签 |
 | `Reply` | 左侧无气泡，按 `blocks` 顺序：`Reasoning::Visible` → 折叠行"思考过程"；`Redacted` → "（推理内容已加密）"；`Text` → Markdown；`ToolCall` → 工具行 |
 | `ToolResult` | 不单独成行，并入 `tool_call_id` 相同的工具行（✓ / ✗ 与输出）；找不到对应调用时单独显示一行 |
-| `Completion` | 一行"后台任务完成：工具名"，可展开输出；任务本身见右侧任务列表（[async-jobs](async-jobs.md) P1.7；子 agent 行见 P2.4） |
+| `Completion` | 一行"后台任务完成：工具名"，可展开输出；任务本身见右侧任务列表（[async-jobs](../async-jobs.md) P1.7；子 agent 行见 P2.4） |
 | `HarnessNote` | 不显示（给模型看的备注） |
 | `Notification` | 居中的灰色系统提示 |
 | `Boundary` | 压缩：✓ 已压缩，可展开摘要/快照并撤回当前边界；失效显示已撤回；clear 显示清空分隔线 |

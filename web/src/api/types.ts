@@ -105,6 +105,7 @@ export type SessionItem = {
   workdir: string;
   /** 能否从 Web 发消息。 */
   writable: boolean;
+  archived_at: number | null;
   /** 下一轮用的人设；已删除时下一轮改用默认人设。 */
   persona_id: number;
   /** 下一轮用的模型；null = 下次取当时的默认模型。 */
@@ -351,6 +352,7 @@ const sessionFields = {
   title_error: nullable(str),
   workdir: str,
   writable: bool,
+  archived_at: nullable(num),
   persona_id: num,
   model_id: nullable(num),
   reasoning_effort: nullable(reasoningEffort),

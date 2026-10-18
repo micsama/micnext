@@ -267,7 +267,7 @@ impl Engine {
         }
         if let (Some(message), Some(parent)) = (delivered, parent) {
             debug_assert_eq!(message.session_id, parent);
-            self.jobs.wake(parent).await;
+            self.jobs.wake(parent).await?;
         }
         Ok(state)
     }

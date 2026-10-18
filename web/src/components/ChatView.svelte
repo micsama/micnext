@@ -106,7 +106,7 @@
         <Icon name="terminal" class="size-3.5" />{#if runningJobs}<span class="text-primary">{runningJobs}</span>{/if}
       </button>
     {/if}
-    <button type="button" aria-label="重新生成标题" title={titleBusy ? "正在生成标题" : "重新生成标题"} disabled={titleBusy || !view.ready || !!view.fatal} onclick={() => view.regenerateTitle()} class="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">
+    <button type="button" aria-label="重新生成标题" title={titleBusy ? "正在生成标题" : "重新生成标题"} disabled={titleBusy || !view.ready || !!view.fatal || item?.archived_at != null} onclick={() => view.regenerateTitle()} class="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">
       <Icon name={titleBusy ? "loader" : "refresh"} class="size-3.5 {titleBusy ? 'animate-spin' : ''}" />
     </button>
   {/snippet}
@@ -126,7 +126,9 @@
     <p class="bg-muted py-1 text-center text-xs text-warning">连接已断开，正在重连…</p>
   {/if}
   <MessageList {view} />
-  {#if item?.writable}
+  {#if item?.archived_at !== null && item?.archived_at !== undefined}
+    <p class="px-4 py-3 text-sm text-muted-foreground">会话已归档，历史记录仍可查看。</p>
+  {:else if item?.writable}
     <Composer onsend={send} autofocus {notice} blocked={modelSaving} onstop={view.executingRun === null ? undefined : () => view.stop()} stopping={view.stopping !== null}>
       {#snippet leading()}
         <PersonaPicker value={persona!.id} onpick={pick} />
@@ -150,5 +152,5 @@
   {/if}
 {/if}
 </div>
-{#if jobsOpen && view.jobs.length > 0}<JobsPanel {view} writable={!!item?.writable} onclose={() => (jobsOpen = false)} />{/if}
+{#if jobsOpen && view.jobs.length > 0}<JobsPanel {view} writable={!!item?.writable && item.archived_at === null} onclose={() => (jobsOpen = false)} />{/if}
 </div>

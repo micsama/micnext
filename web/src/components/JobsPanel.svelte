@@ -4,6 +4,7 @@
   import type { SessionView } from "../state/session.svelte";
   import { confirm } from "../state/confirm.svelte";
   import { formatDuration } from "../lib/format";
+  import { router } from "../state/route.svelte";
   import Icon from "../lib/Icon.svelte";
 
   let { view, writable, onclose }: { view: SessionView; writable: boolean; onclose: () => void } = $props();
@@ -131,6 +132,9 @@
             <p class="truncate text-sm" title={j.description}>{j.description}</p>
             <p class="text-muted-foreground"><span class="font-mono">{j.kind === "agent" ? `子任务 #${j.id}` : j.tool_name}</span> · <span class={st.tone}>{st.label}</span>{#if elapsed(j)} · {elapsed(j)}{/if}</p>
           </div>
+          {#if j.kind === "agent"}
+            <button type="button" aria-label="查看子任务 Trace" title="查看子任务 Trace" class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent" onclick={() => router.go(`/s/${j.child_session_id}/trace`)}><Icon name="sparkles" class="size-3.5" /></button>
+          {/if}
           {#if active && writable}
             <button type="button" aria-label="终止任务" title="终止" disabled={stopping[j.id]} class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-40" onclick={() => stop(j)}><Icon name="stop" class="size-3.5" /></button>
           {/if}

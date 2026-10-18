@@ -66,6 +66,7 @@ pub(crate) struct SessionItem {
     workdir: String,
     /// 能否从 Web 发消息。
     writable: bool,
+    archived_at: Option<i64>,
     /// 下一轮用的人设；已删除时下一轮改用默认人设。
     persona_id: PersonaId,
     /// 下一轮用的模型；`null` = 下次认领时取当时默认。
@@ -145,6 +146,7 @@ fn item(s: SessionSummary) -> Option<SessionItem> {
         preview: s.preview,
         workdir: s.session.pwd,
         writable,
+        archived_at: s.session.archived_at,
         persona_id: s.session.persona_id,
         model_id: s.session.model_id,
         reasoning_effort: s.session.reasoning_effort,

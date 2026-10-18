@@ -590,17 +590,23 @@ async fn inbound(
                 if let [mic_core::IncomingPart::Text(text)] = parts.as_slice() {
                     match mic_core::parse_command(text) {
                         Ok(Some(mic_core::ParsedCommand::Stop)) => {
-                            kernel.stop_command(account.view.session_id).await?;
+                            accept_input(
+                                &kernel,
+                                account.view.session_id,
+                                kernel.stop_command(account.view.session_id).await,
+                            )
+                            .await?;
                             continue;
                         }
                         Ok(Some(mic_core::ParsedCommand::Session(command))) => {
-                            kernel
+                            let result = kernel
                                 .append_session_command(
                                     account.view.session_id,
                                     account.person,
                                     command,
                                 )
-                                .await?;
+                                .await;
+                            accept_input(&kernel, account.view.session_id, result).await?;
                             continue;
                         }
                         Err(error) => {
@@ -625,7 +631,7 @@ async fn inbound(
                 None => {
                     kernel
                         .append_user_input(account.view.session_id, account.person, quoted)
-                        .await?
+                        .await
                 }
                 Some(notice) => {
                     kernel
@@ -636,8 +642,12 @@ async fn inbound(
                             "wechat",
                             notice,
                         )
-                        .await?
+                        .await
                 }
+            };
+            let Some(message) = accept_input(&kernel, account.view.session_id, message).await?
+            else {
+                continue;
             };
             quote::remember(
                 &kernel,
@@ -658,6 +668,24 @@ async fn inbound(
         if let Some(batch) = batch {
             account::finish_batch(&kernel, batch).await?;
         }
+    }
+}
+
+/// 归档拒收明确通知用户，其他错误仍由服务报错。
+async fn accept_input<T>(
+    kernel: &Kernel,
+    session: mic_message::SessionId,
+    result: Result<T, mic_core::KernelError>,
+) -> Result<Option<T>, BoxError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(mic_core::KernelError::Store(mic_store::StoreError::SessionArchived)) => {
+            kernel
+                .append_notification(session, "micnext", "会话已归档，不能继续发送消息。".into())
+                .await?;
+            Ok(None)
+        }
+        Err(error) => Err(error.into()),
     }
 }
 

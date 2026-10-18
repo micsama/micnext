@@ -1,12 +1,18 @@
 <script lang="ts">
-  import type { TraceCall } from "../../api/trace";
+  import type { SessionUsage, TraceCall } from "../../api/trace";
   import { usageOf } from "./trace-presentation";
   import { formatCost, formatTokens } from "../../lib/format";
   import { router } from "../../state/route.svelte";
   import { settingsStore } from "../../state/settings.svelte";
   import Icon from "../../lib/Icon.svelte";
-  let { calls }: { calls: TraceCall[] } = $props();
-  const u = $derived(usageOf(calls));
+  let { calls = [], summary }: { calls?: TraceCall[]; summary?: SessionUsage } = $props();
+  const u = $derived(summary ? {
+    input: summary.input_tokens, output: summary.output_tokens, cache: summary.cache_read_tokens,
+    cacheWrite: summary.cache_write_tokens, reasoning: summary.reasoning_tokens ?? 0,
+    reasoningKnown: summary.reasoning_tokens !== null, known: summary.known_usage,
+    unknown: summary.unknown_usage, cacheKnown: summary.cache_complete,
+    cost: summary.cost, unknownCost: summary.unknown_cost,
+  } : usageOf(calls));
   const hit = $derived(u.cacheKnown && u.input > 0 ? Math.round(u.cache / u.input * 100) : null);
   const models = $derived([...new Set(calls.map((c) => c.model_id).filter((id) => id !== null))]);
   const pct = (part: number, whole: number) => whole > 0 ? `${Math.min(100, part / whole * 100)}%` : "0%";
@@ -25,6 +31,7 @@
   const costTip = $derived.by(() => {
     const reasons = new Map<string, number>();
     for (const c of calls.filter((c) => c.cost === null)) { const r = whyUnknown(c); reasons.set(r, (reasons.get(r) ?? 0) + 1); }
+    if (summary?.unknown_cost) reasons.set("调用用量或单价未知", summary.unknown_cost);
     const head = u.cost === null ? "费用未知" : `按当前单价估算 ${formatCost(u.cost)}${reasons.size ? "（仅已知部分）" : ""}`;
     return [head, ...[...reasons].map(([r, n]) => `· ${r}${calls.length > 1 ? `（${n} 次）` : ""}`)].join("\n");
   });

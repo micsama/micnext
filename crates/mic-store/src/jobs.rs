@@ -200,6 +200,7 @@ impl Store {
     pub async fn create_tool_job(&self, new: NewToolJob) -> Result<Job, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
+            crate::sessions::ensure_active(&tx, new.owner_session_id)?;
             let person = run_person(&tx, new.origin_run_id)?;
             tx.execute(
                 "INSERT INTO core_jobs (kind, owner_session_id, person_id, origin_run_id,
@@ -230,6 +231,7 @@ impl Store {
     ) -> Result<(Job, Session, Message), StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
+            crate::sessions::ensure_active(&tx, new.owner_session_id)?;
             let person = run_person(&tx, new.origin_run_id)?;
             let (pwd, persona, model, effort) = tx.query_row(
                 "SELECT pwd, persona_id, model_id, reasoning_effort FROM core_sessions WHERE id = ?1",
@@ -294,6 +296,7 @@ impl Store {
     ) -> Result<Message, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
+            crate::sessions::ensure_active(&tx, child)?;
             let body = task_input(run_person(&tx, origin_run)?, task);
             let id = insert_message(&tx, child, None, &body, at)?;
             tx.commit()?;

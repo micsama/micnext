@@ -53,7 +53,7 @@
   </div>
 {:else}
   <div class="flex h-full">
-    <Sidebar activeSession={view?.info ?? null} />
+    <Sidebar activeSession={view?.info ?? null} executingRun={view?.executingRun ?? null} />
     <main class="flex min-w-0 flex-1 flex-col">
       {#if router.current.kind === "trace"}
         <TraceView target={router.current.id} />

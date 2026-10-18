@@ -354,19 +354,27 @@ impl Jobs {
             let _ = won.send(matches!(finished, Ok(Some(_))));
         }
         if let Some(Some(_)) = finished? {
-            self.wake(owner).await;
+            self.wake(owner).await?;
         }
         Ok(())
     }
 
     /// 停止中的会话只记录不唤醒。
-    pub(crate) async fn wake(&self, session: SessionId) {
-        if self.control.closing(session).is_some() {
-            return;
+    pub(crate) async fn wake(&self, session: SessionId) -> Result<(), StoreError> {
+        if self.control.closing(session).is_some()
+            || self
+                .store
+                .session_root(session)
+                .await?
+                .archived_at
+                .is_some()
+        {
+            return Ok(());
         }
         if let Some(wake) = &self.wake {
             let _ = wake.send(session).await;
         }
+        Ok(())
     }
 
     pub(crate) fn changed(&self, tree: &Tree) {
@@ -530,6 +538,44 @@ impl Jobs {
             return Err(JobAccessError::Forbidden);
         }
         Ok(job)
+    }
+
+    /// 根标记已经落盘：取消执行、清理后台任务，保留停止事实，不再唤醒。
+    pub(crate) async fn archive(&self, root: SessionId) -> Result<(), StoreError> {
+        let sessions = self.store.subtree_sessions(root).await?;
+        let mut closing = Vec::new();
+        for session in &sessions {
+            if let Some((guard, _)) = self
+                .control
+                .close(
+                    session.id,
+                    StopBy {
+                        manager: root,
+                        by_user: true,
+                    },
+                )
+                .await
+            {
+                closing.push(guard);
+            }
+        }
+        for session in &sessions {
+            for job in self.store.running_jobs(Some(session.id)).await? {
+                self.stop_tool(root, &job, true).await;
+                if self
+                    .store
+                    .job(job.id)
+                    .await?
+                    .is_some_and(|j| j.tool_state() == Some(JobState::Running))
+                {
+                    return Err(StoreError::JobStopFailed { job: job.id.0 });
+                }
+            }
+            self.store.hold_session_inputs(session.id, now_ms()).await?;
+        }
+        drop(closing);
+        self.changed(&tree(&self.store.session_root(root).await?));
+        Ok(())
     }
 
     /// 退出前丢弃全部后台任务（工具随之释放资源）；状态留在 `running`，下次启动收尾。

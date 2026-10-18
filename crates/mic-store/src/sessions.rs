@@ -219,6 +219,7 @@ pub(crate) fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Se
         persona_id,
         model_id,
         reasoning_effort: new.reasoning_effort,
+        archived_at: None,
     })
 }
 
@@ -249,10 +250,49 @@ fn summaries(filter: &str) -> String {
 
 fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
     Ok(SessionSummary {
-        title: r.get(18)?,
-        title_error: r.get(19)?,
+        title: r.get(19)?,
+        title_error: r.get(20)?,
         session: row::session(r)?,
-        last_activity_at: r.get(16)?,
-        preview: r.get(17)?,
+        last_activity_at: r.get(17)?,
+        preview: r.get(18)?,
     })
+}
+
+/// 归档标记只存根会话，子会话在执行边界沿祖先链检查。
+pub(crate) fn archived(conn: &rusqlite::Connection, session: SessionId) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "WITH RECURSIVE up(id, parent, archived_at) AS (
+           SELECT id, parent_session_id, archived_at FROM core_sessions WHERE id = ?1
+           UNION ALL
+           SELECT s.id, s.parent_session_id, s.archived_at FROM core_sessions s JOIN up ON s.id = up.parent
+         ) SELECT EXISTS(SELECT 1 FROM up WHERE archived_at IS NOT NULL)",
+        [session.0], |r| r.get(0),
+    )
+}
+
+pub(crate) fn ensure_active(
+    conn: &rusqlite::Connection,
+    session: SessionId,
+) -> Result<(), StoreError> {
+    if archived(conn, session)? {
+        return Err(StoreError::SessionArchived);
+    }
+    Ok(())
+}
+
+impl Store {
+    pub async fn ensure_session_active(&self, session: SessionId) -> Result<(), StoreError> {
+        self.call(move |conn| ensure_active(conn, session)).await
+    }
+
+    /// 一棵会话树；归档收尾使用，与会话列表的可见性无关。
+    pub async fn subtree_sessions(&self, root: SessionId) -> Result<Vec<Session>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn.prepare(&format!(
+                "WITH RECURSIVE tree(id) AS (SELECT ?1 UNION ALL
+                 SELECT s.id FROM core_sessions s JOIN tree t ON s.parent_session_id = t.id)
+                 SELECT {SESSION_COLS} FROM core_sessions WHERE id IN (SELECT id FROM tree) ORDER BY id"
+            ))?.query_map([root.0], row::session)?.collect::<rusqlite::Result<Vec<_>>>()?)
+        }).await
+    }
 }

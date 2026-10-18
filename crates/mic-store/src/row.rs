@@ -21,7 +21,7 @@ pub(crate) const MESSAGE_COLS: &str =
 pub(crate) const SESSION_COLS: &str =
     "id, kind, channel, chat, parent_tool_call_id, trigger_module, \
      trigger_ref, parent_session_id, delivery_channel, delivery_payload, pwd, \
-     tool_scope, created_at, persona_id, model_id, reasoning_effort";
+     tool_scope, created_at, persona_id, model_id, reasoning_effort, archived_at";
 
 pub(crate) const RUN_COLS: &str = "id, session_id, state, created_at, finished_at";
 
@@ -250,6 +250,7 @@ pub(crate) fn session(row: &Row<'_>) -> rusqlite::Result<Session> {
         persona_id: PersonaId(row.get(13)?),
         model_id: row.get::<_, Option<i64>>(14)?.map(ModelId),
         reasoning_effort: row.get(15)?,
+        archived_at: row.get(16)?,
     })
 }
 

@@ -1,13 +1,13 @@
 <script lang="ts">
   import "./trace.css";
   import { tick } from "svelte";
-  import { ApiError, getSession, getTraceCallInput, getTraceMessage, getTracePeers, getTraceRunLogs, getTraceRuns, getTraceSystem } from "../../api/client";
+  import { listJobs, getSessionUsage, ApiError, getSession, getTraceCallInput, getTraceMessage, getTracePeers, getTraceRunLogs, getTraceRuns, getTraceSystem } from "../../api/client";
   import type { StoredLogRecord } from "../../api/developer";
-  import type { Peers, SystemPromptView, TraceCall, TraceMessage, TraceRun } from "../../api/trace";
+  import type { SessionUsage, Peers, SystemPromptView, TraceCall, TraceMessage, TraceRun } from "../../api/trace";
   import { cn } from "$lib/utils";
   import { formatDuration, formatTokens } from "../../lib/format";
   import Icon from "../../lib/Icon.svelte";
-  import type { Message, SessionDetail } from "../../api/types";
+  import type { AgentJobView, Message, SessionDetail } from "../../api/types";
   import { settingsStore } from "../../state/settings.svelte";
   import { router } from "../../state/route.svelte";
   import { traceSessions } from "../../state/trace-sessions.svelte";
@@ -20,6 +20,23 @@
 
   /** target 来自地址：侧栏选会话、浏览器前进后退都经它切换。 */
   let { active, target }: { active: boolean; target: number | null } = $props();
+  let includeChildren = $state(false);
+  let sessionUsage = $state.raw<SessionUsage | null>(null);
+  let usageError = $state<string | null>(null);
+  let usageRefresh = $state(0);
+  $effect(() => {
+    const id = session;
+    const include = includeChildren;
+    void usageRefresh;
+    if (!active || id === null) return;
+    let cancelled = false;
+    sessionUsage = null;
+    usageError = null;
+    void getSessionUsage(id, include).then((value) => {
+      if (!cancelled) sessionUsage = value;
+    }).catch((e: unknown) => { if (!cancelled) usageError = String(e); });
+    return () => { cancelled = true; };
+  });
   let issuesOnly = $state(false);
   let folded = $state<Set<number>>(new Set());
   let expanded = $state(false);
@@ -44,6 +61,8 @@
   let session = $state<number | null>(null);
   let runs = $state.raw<TraceRun[]>([]);
   let titleCalls = $state.raw<TraceCall[]>([]);
+  let childJobs = $state.raw<AgentJobView[]>([]);
+  let childJobsError = $state<string | null>(null);
   let nextAfter = $state<number | null>(null);
   let peers = $state.raw<Peers>({ models: [], tools: [] });
   let pick = $state.raw<Pick | null>(null);
@@ -88,21 +107,33 @@
     remember();
     const request = ++pageRequest;
     ++detailRequest;
+    if (session !== id) includeChildren = false;
     session = id;
+    usageRefresh += 1;
     if (target !== id) router.replace(`/s/${id}/trace`);
     systemSelected = false;
     sessionSelected = false;
     selectedRun = null;
     runs = [];
     titleCalls = [];
+    childJobs = [];
+    childJobsError = null;
     nextAfter = null;
     detailError = null;
     pick = null;
     detail = null;
     loading = true;
-    const page = await guard(() => getTraceRuns(id, null));
+    const [page, jobs] = await Promise.all([
+      guard(() => getTraceRuns(id, null)),
+      listJobs(id, true).then(
+        (jobs) => ({ jobs: jobs.filter((j): j is AgentJobView => j.kind === "agent"), error: null }),
+        (e: unknown): { jobs: AgentJobView[]; error: string } => ({ jobs: [], error: String(e) }),
+      ),
+    ]);
     if (request === pageRequest) loading = false;
     if (!page || request !== pageRequest) return;
+    childJobs = jobs.jobs;
+    childJobsError = jobs.error;
     runs = page.runs;
     titleCalls = page.title_calls;
     nextAfter = page.next_after;
@@ -294,7 +325,7 @@
   }
 
   let sessionSelected = $state(false);
-  let sessionInfo = $state.raw<SessionDetail | null>(null);
+  let sessionInfo = $state.raw<SessionDetail | "trace_only" | null>(null);
   async function chooseSession() {
     if (session === null) return;
     remember();
@@ -305,11 +336,15 @@
     pick = null;
     sessionSelected = true;
     detailError = null;
-    if (sessionInfo?.id !== id) sessionInfo = null;
+    if (sessionInfo === "trace_only" || sessionInfo?.id !== id) sessionInfo = null;
     try {
       const info = await getSession(id);
       if (request === detailRequest) sessionInfo = info;
-    } catch (e) { if (request === detailRequest) detailError = String(e); }
+    } catch (e) {
+      if (request !== detailRequest) return;
+      if (e instanceof ApiError && e.status === 404) sessionInfo = "trace_only";
+      else detailError = String(e);
+    }
   }
 
   function setTab(t: DetailTab) {
@@ -467,6 +502,21 @@
       <button type="button" class="toggle" class:on={issuesOnly} title="只看失败、中断或含报错的运行" onclick={() => issuesOnly = !issuesOnly}><Icon name="error" class="size-[13px]" />只看异常<b>{badCount}</b></button><button type="button" class="iconbtn sm" title="刷新 Trace" aria-label="刷新 Trace" onclick={refresh}><Icon name="refresh" class="size-3.5" /></button>
     </div>
     <div class="panel-body stream" bind:this={stream}>
+      {#if childJobsError}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>子任务加载失败：{childJobsError}</div></div>{/if}
+      {#if childJobs.length}
+        <details class="d-sec child-traces" open>
+          <summary class="fold"><Icon name="chevron" class="size-[13px]" />子任务<span class="cap">{childJobs.length}</span><span class="child-traces-hint">查看各自的执行记录</span></summary>
+          <div class="sec-body rels">
+            {#each childJobs as job (job.id)}
+              <button type="button" class="rel" title={`查看子任务 #${job.id} 的 Trace`} onclick={() => void open(job.child_session_id)}>
+                <span class="role r-side">#{job.id}</span>
+                <span class="sum">{job.description}</span>
+                <span class="tags"><span class="cap" class:c-ai={job.running}>{job.running ? "运行中" : "休眠"}</span><Icon name="chevron" class="size-3.5" /></span>
+              </button>
+            {/each}
+          </div>
+        </details>
+      {/if}
       {#if session !== null}<button type="button" class={cn("row cols sys pinned", systemSelected && selected)} onclick={chooseSystem}><span class="role r-sys">系统</span><span class="sum"><b>系统提示</b>当前配置，非历史快照</span></button>{/if}
       {#if error}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{error}</div></div>{/if}
       {#if loading}<p class="blank">正在加载运行记录…</p>{:else if visibleEntries.length === 0}<p class="blank">{issuesOnly ? "当前已加载的运行没有异常" : "这个会话还没有已结束的运行"}</p>{/if}
@@ -519,11 +569,17 @@
   <aside class="panel inspector" class:expanded>
     {#if sessionSelected}
       {@const s = currentSession}
-      {@const info = sessionInfo?.id === session ? sessionInfo : null}
+      {@const info = sessionInfo === "trace_only" ? sessionInfo : sessionInfo?.id === session ? sessionInfo : null}
       {@const recent = runs.slice(-SPARK_RUNS)}
       {@const longest = Math.max(1, ...recent.map((r) => runMs(r) ?? 0))}
       <div class="d-head"><div><div class="d-type"><span class="role r-turn">会话</span>{#if s?.last_run_at}<time title="最近一次运行">{time(s.last_run_at)}</time>{/if}</div><div class="d-title">{s?.title ?? `会话 ${session}`}<small class="sub">{s?.channel}</small></div></div>{@render expandButton()}</div>
-      <div class="tabs"></div>
+      <div class="session-scope">
+        <span class="scope-label" title="只改变本会话的 Token 与费用汇总，运行记录不变">用量范围</span>
+        <div class="scope-options" role="group" aria-label="会话用量范围">
+          <button type="button" class:chosen={!includeChildren} aria-pressed={!includeChildren} onclick={() => includeChildren = false}>本会话</button>
+          <button type="button" class:chosen={includeChildren} aria-pressed={includeChildren} onclick={() => includeChildren = true}>含子任务</button>
+        </div>
+      </div>
       <div class="panel-body">
         {#if detailError}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{detailError}</div></div>{/if}
         <div class="metrics">
@@ -532,15 +588,20 @@
             <div class="spark" title="{runs.length > SPARK_RUNS ? `最近 ${SPARK_RUNS} 轮` : "每轮"}总耗时，点击查看">
               {#each recent as r (r.id)}<button type="button" class={cn(r.state === "completed" ? "ok" : r.state === "interrupted" || r.state === "stopped" ? "warn" : "bad")} style="height:{Math.max(8, (runMs(r) ?? 0) / longest * 100)}%" title="#{runNumber(r)} · {runMs(r) === null ? "未结束" : formatDuration(runMs(r)!)} · {stateName(r)}" aria-label="轮次 {runNumber(r)}" onclick={() => chooseRun(r)}></button>{/each}
             </div>
-            <div class="m-row"><i class="dot s-bad"></i><span>失败</span><b>{s?.failed_runs ?? 0}</b></div>
-            <div class="m-row"><i class="dot s-warn"></i><span>中断</span><b>{s?.interrupted_runs ?? 0}</b></div>
-            <div class="m-row"><i class="dot s-bad"></i><span>工具报错</span><b>{s?.tool_errors ?? 0}</b></div>
-            {#if nextAfter !== null}<p class="m-note">图表与用量只含已加载的 {runs.length} 轮</p>{/if}
+            <div class="m-row"><i class="dot s-bad"></i><span>失败</span><b>{s?.failed_runs ?? runs.filter((r) => r.state === "provider_failed").length}</b></div>
+            <div class="m-row"><i class="dot s-warn"></i><span>中断</span><b>{s?.interrupted_runs ?? runs.filter((r) => r.state === "interrupted").length}</b></div>
+            <div class="m-row"><i class="dot s-bad"></i><span>工具报错</span><b>{s?.tool_errors ?? runs.reduce((n, r) => n + r.messages.filter((m) => m.tool?.outcome === "failed").length, 0)}</b></div>
+            {#if nextAfter !== null}<p class="m-note">轮次图表只含已加载的 {runs.length} 轮</p>{/if}
           </div>
-          <TraceUsage calls={[...runs.flatMap((r) => r.calls), ...titleCalls]} />
+          <div>
+            {#if usageError}<p role="alert" class="bad">{usageError}</p>
+            {:else if sessionUsage}<TraceUsage summary={sessionUsage} />
+            {:else}<p class="hint">用量加载中…</p>{/if}
+          </div>
         </div>
         <details open class="d-sec"><summary class="fold"><Icon name="chevron" class="size-[13px]" />会话信息</summary><div class="sec-body">
-          {#if !info}<p class="hint">加载中…</p>
+          {#if info === "trace_only"}<p class="hint">此会话只提供 Trace 执行记录，子 agent 由父会话追问。</p>
+          {:else if !info}<p class="hint">加载中…</p>
           {:else}
             {@const persona = settingsStore.persona(info.persona_id)}
             {@const model = info.model_id === null ? null : settingsStore.model(info.model_id)}

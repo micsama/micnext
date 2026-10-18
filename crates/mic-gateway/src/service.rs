@@ -173,6 +173,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         )
         .route("/trace/sessions", get(trace::sessions))
         .route("/trace/sessions/{id}", get(trace::runs))
+        .route("/trace/sessions/{id}/usage", get(trace::usage))
         .route("/trace/sessions/{id}/system", get(trace::system))
         .route("/trace/messages/{id}", get(trace::message))
         .route("/trace/calls/{id}/input", get(trace::call_input))

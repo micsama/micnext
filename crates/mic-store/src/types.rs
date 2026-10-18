@@ -239,6 +239,7 @@ pub enum SessionKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
+    pub archived_at: Option<i64>,
     pub id: SessionId,
     pub kind: SessionKind,
     pub parent_session_id: Option<SessionId>,

@@ -156,6 +156,7 @@ impl Kernel {
             .session(session)
             .await?
             .ok_or(KernelError::SessionNotFound)?;
+        self.store.ensure_session_active(session).await?;
         Ok(if self.engine.stop(session, run) {
             StopOutcome::Stopping
         } else {
@@ -197,6 +198,7 @@ impl Kernel {
         job: JobId,
     ) -> Result<StopJobOutcome, KernelError> {
         self.existing(session).await?;
+        self.store.ensure_session_active(session).await?;
         Ok(self.engine.jobs.stop(session, job, true).await?)
     }
 
@@ -253,6 +255,7 @@ impl Kernel {
             .session(session)
             .await?
             .ok_or(KernelError::SessionNotFound)?;
+        self.store.ensure_session_active(session.id).await?;
         reject_task(&session)?;
         if let SessionCommand::RevokeCompaction { boundary_id } = &command {
             let view = self.store.context_view(session.id).await?;
@@ -350,6 +353,7 @@ impl Kernel {
             .session(session_id)
             .await?
             .ok_or(KernelError::SessionNotFound)?;
+        self.store.ensure_session_active(session.id).await?;
         reject_task(&session)?;
         let messages = append_input(
             &self.store,
@@ -453,7 +457,10 @@ impl Kernel {
         if !matches!(session.kind, SessionKind::Root { .. }) {
             return Err(KernelError::SessionNotRoot);
         }
-        Ok(self.store.archive_session(id, now_ms()).await?)
+        self.store.archive_session(id, now_ms()).await?;
+        self.titles.stop(id).await;
+        self.engine.jobs.archive(id).await?;
+        Ok(())
     }
 
     /// id 可能来自外部，不存在返回 `None`。
@@ -487,6 +494,7 @@ impl Kernel {
     }
 
     pub async fn generate_session_title(&self, session: SessionId) -> Result<(), KernelError> {
+        self.store.ensure_session_active(session).await?;
         let session = self
             .store
             .session(session)
@@ -713,6 +721,15 @@ impl Kernel {
         Ok(Some(messages))
     }
 
+    pub async fn session_usage(
+        &self,
+        session: SessionId,
+        include_children: bool,
+    ) -> Result<mic_store::SessionUsage, KernelError> {
+        self.existing(session).await?;
+        Ok(self.store.session_usage(session, include_children).await?)
+    }
+
     pub async fn trace_sessions(&self) -> Result<Vec<TraceSession>, KernelError> {
         Ok(self.store.trace_sessions().await?)
     }
@@ -723,6 +740,7 @@ impl Kernel {
         after: Option<RunId>,
         limit: u32,
     ) -> Result<TraceRunPage, KernelError> {
+        self.existing(session).await?;
         Ok(self.store.trace_runs(session, after, limit).await?)
     }
 

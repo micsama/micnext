@@ -16,7 +16,6 @@
   import TraceContent from "./TraceContent.svelte";
   import TraceSystem from "./TraceSystem.svelte";
   import TraceCard from "./TraceCard.svelte";
-  import CopyButton from "../CopyButton.svelte";
 
   /** target 来自地址：侧栏选会话、浏览器前进后退都经它切换。 */
   let { active, target }: { active: boolean; target: number | null } = $props();
@@ -54,7 +53,7 @@
   const badRun = (r: TraceRun) => runBad(r) || r.calls.some((c) => c.error) || r.messages.some((m) => m.tool?.outcome === "failed");
 
   type Pick = { run: TraceRun | null; call: TraceCall } | { run: TraceRun; message: TraceMessage };
-  type DetailTab = "overview" | "detail" | "input" | "logs";
+  type DetailTab = "overview" | "input" | "logs";
 
   let session = $state<number | null>(null);
   let runs = $state.raw<TraceRun[]>([]);
@@ -63,7 +62,7 @@
   let peers = $state.raw<Peers>({ models: [], tools: [] });
   let pick = $state.raw<Pick | null>(null);
   let selectedRun = $state.raw<TraceRun | null>(null);
-  // 消息概览直接放全文；工具另带发起时的参数。
+  // 概览直接放全文：消息与 AI 调用的产出；工具另带发起时的参数。
   let full = $state.raw<{ message: Message; args: string | null } | null>(null);
   // 旁路概览：输入为与生成同源的重建文本，产出为模型原文；旧调用两者皆无。
   let side = $state.raw<{ input: string | null; output: string | null } | null>(null);
@@ -80,7 +79,7 @@
   ].sort((a, b) => a.at - b.at));
 
   // 详情页签按需加载，换选中项即作废。
-  let detail = $state.raw<{ key: string; messages: Message[]; system?: string; note?: string } | { key: string; logs: StoredLogRecord[] } | null>(null);
+  let detail = $state.raw<{ key: string; messages: Message[]; system?: string } | { key: string; logs: StoredLogRecord[] } | null>(null);
   let detailError = $state<string | null>(null);
 
   async function guard<T>(f: () => Promise<T>): Promise<T | undefined> {
@@ -235,9 +234,10 @@
   const isPicked = (call?: TraceCall, message?: TraceMessage) =>
     pick !== null && (call ? "call" in pick && pick.call.id === call.id : "message" in pick && pick.message.id === message!.id);
 
-  // 详情只给有长产出的调用；标题旁路只有概览。
+  // 标题旁路只有概览。
   const tabOk = (p: Pick, t: DetailTab) =>
-    t === "overview" || (t === "logs" ? p.run !== null : "call" in p && p.call.purpose !== "title" && (t === "input" || p.call.reply_id !== null || p.call.boundary_id !== null));
+    t === "overview" || (t === "logs" ? p.run !== null : "call" in p && p.call.purpose !== "title");
+  const outputOf = (c: TraceCall) => c.reply_id ?? c.boundary_id;
 
   function choose(p: Pick) {
     remember();
@@ -260,13 +260,17 @@
     const request = ++detailRequest;
     const p = pick;
     const key = `${pickKey(p)}:${tab}`;
-    if (tab === "overview" && "call" in p && p.call.purpose !== "title") return;
+    if (tab === "overview" && "call" in p && p.call.purpose !== "title" && outputOf(p.call) === null) return;
     detailError = null;
     try {
       let result: typeof detail;
       if (tab === "overview" && "message" in p) {
         const [message, args] = await Promise.all([getTraceMessage(p.message.id), p.message.tool ? toolArgsOf(p.run, p.message) : null]);
         if (request === detailRequest) full = { message, args };
+        return;
+      } else if (tab === "overview" && "call" in p && p.call.purpose !== "title") {
+        const message = await getTraceMessage(outputOf(p.call)!);
+        if (request === detailRequest) full = { message, args: null };
         return;
       } else if (tab === "overview" && "call" in p) {
         const c = p.call;
@@ -277,9 +281,6 @@
         const text = (m: Message | null) => (m && (m.body.kind === "HarnessNote" || m.body.kind === "SideOutput") ? m.body.text : null);
         if (request === detailRequest) side = { input: text(input), output: text(output) };
         return;
-      } else if (tab === "detail") {
-        const id = "call" in p ? p.call.reply_id ?? p.call.boundary_id : p.message.id;
-        result = { key, messages: id === null ? [] : [await getTraceMessage(id)], note: id === null ? "该调用没有产出会话消息" : undefined };
       } else if (tab === "input") {
         if (!("call" in p) || p.call.purpose === "title") return;
         const [system, messages] = await Promise.all([
@@ -367,7 +368,6 @@
 
   const tabs: [DetailTab, string][] = [
     ["overview", "概览"],
-    ["detail", "详情"],
     ["input", "输入"],
     ["logs", "日志"],
   ];
@@ -674,17 +674,6 @@
             {#if c.stop === "stopped"}<div class="alert c-warn"><Icon name="stop" class="size-[15px]" /><div><b>用户停止</b><div>只保留已收到的正文，用量未知</div></div></div>{/if}
             {#if c.stop === "max_tokens" || c.stop === "content_filter"}<div class="alert c-warn"><Icon name="alert" class="size-[15px]" /><div><b>{c.stop === "max_tokens" ? "达到输出上限" : "内容被上游过滤"}</b>{#if c.stop === "max_tokens"}<div>回复可能不完整</div>{/if}</div></div>{/if}
             <div class="metrics">{@render callTime(pick.run, c)}<TraceUsage calls={tries} /></div>
-            {#if c.purpose === "title"}
-              {#if !side}<p class="hint">加载中…</p>
-              {:else if side.input === null && side.output === null}<p class="hint">旧调用，未记录输入与产出</p>
-              {:else}
-                <div class="cards">
-                  {#if side.input !== null}<TraceCard icon="user" title="输入" tone="user" meta="{side.input.length} 字" long={isLong(side.input)} copy={side.input}><pre>{side.input}</pre></TraceCard>{/if}
-                  {#if side.output !== null}<TraceCard icon="text" title="产出" tone={c.error ? "bad" : "ai"} meta={c.error ? "未采用" : ""} copy={side.output}><pre>{side.output}</pre></TraceCard>{/if}
-                </div>
-              {/if}
-            {/if}
-            {#if !c.error && pick.run && callPreview(pick.run, c) !== c.model}<details open class="d-sec"><summary class="fold"><Icon name="chevron" class="size-[13px]" />输出摘要</summary><div class="sec-copy"><CopyButton text={callPreview(pick.run, c)} /></div><div class="sec-body"><button type="button" class="excerpt" title="在「详情」中查看全文" onclick={() => setTab("detail")}>{callPreview(pick.run, c)}</button></div></details>{/if}
           {:else}
             {@const m = pick.message}
             {#if m.tool}
@@ -698,36 +687,51 @@
                 {#if peer}<p class="m-note">同类中位 {formatDuration(peer.median_ms)} · {peer.samples} 次</p>{/if}
               </div></div>{/if}
             {/if}
-            {#if !full}<p class="hint pad">加载中…</p>
+          {/if}
+          <div class="pad cards">
+            {#if "call" in pick}
+              {@const c = pick.call}
+              {#if c.purpose === "title"}
+                {#if !side}<p class="hint">加载中…</p>
+                {:else if side.input === null && side.output === null}<p class="hint">旧调用，未记录输入与产出</p>
+                {:else}
+                  {#if side.input !== null}<TraceCard icon="user" title="输入" tone="user" meta="{side.input.length} 字" long={isLong(side.input)} copy={side.input}><pre>{side.input}</pre></TraceCard>{/if}
+                  {#if side.output !== null}<TraceCard icon="text" title="产出" tone={c.error ? "bad" : "ai"} meta={c.error ? "未采用" : ""} copy={side.output}><pre>{side.output}</pre></TraceCard>{/if}
+                {/if}
+              {:else if outputOf(c) !== null}
+                {#if !full}<p class="hint">加载中…</p>{:else}<TraceContent message={full.message} usage={c.usage} />{/if}
+              {/if}
             {:else}
-              <div class="pad cards">
+              {@const m = pick.message}
+              {#if !full}<p class="hint">加载中…</p>
+              {:else}
                 {#if full.args !== null}<TraceCard icon="wrench" title="参数 · {m.tool!.name}" tone="tool" copy={full.args} long={isLong(full.args)}><pre class="hl">{@html jsonHtml(full.args)}</pre></TraceCard>{/if}
                 <TraceContent message={full.message} />
-              </div>
+              {/if}
             {/if}
-          {/if}
-          {#if pick.run}
-            {@const r = pick.run}
-            <details open class="d-sec"><summary class="fold"><Icon name="chevron" class="size-[13px]" />关联</summary><div class="sec-body rels">
-              {#each related(pick) as it}
-                {#if it.call}{@render callRel(r, it.call)}
-                {:else}{@const m = it.message!}{@const ms = toolMs(m)}<button type="button" class="rel" onclick={() => choose({ run: r, message: m })}><span class={cn("role", m.tool ? "r-tool" : "r-user")}>{role(m)}</span><span class="sum">{#if m.tool}<span class="mono">{m.tool.name}</span>&nbsp;{/if}{m.preview}</span><span class="tags">{#if m.tool?.outcome === "failed"}<span class="signal c-bad" title={m.tool.error ?? ""}><Icon name="error" class="size-[13px]" /></span>{/if}{#if m.tool}{#if ms === null}<span class="signal c-warn" title="结果未知"><Icon name="unknown" class="size-[13px]" /></span>{:else}{@render durCap(ms, "tool", toolPeer(m.tool.name))}{/if}{:else}<time>{hm(m.created_at)}</time>{/if}</span></button>{/if}
-              {/each}
-              <button type="button" class="rel" onclick={() => chooseRun(r)}><span class="role r-turn">轮次</span><span class="sum">#{runNumber(r)}</span><span class="tags">{@render durCap(runMs(r), "run")}</span></button>
-            </div></details>
-          {/if}
-          {#if "call" in pick}
-            {@const c = pick.call}
-            {@const v = speed(c)}
-            <details open class="d-sec"><summary class="fold"><Icon name="chevron" class="size-[13px]" />调用细节</summary><div class="sec-body"><ul class="kv">
-              {#if pick.run === null}<li><Icon name="layers" class="size-3.5" /><span>归属</span><b>会话旁路 · 标题生成</b></li>{/if}
-              <li><Icon name="flag" class="size-3.5" /><span>结束</span><b class:bad={c.error !== null}>{c.error ? "调用失败" : stopName(c)}</b></li>
-              {#if v !== null}<li title="输出 token ÷ 首字之后的生成时长"><Icon name="zap" class="size-3.5" /><span>输出速度</span><b>{v.toFixed(v < 10 ? 1 : 0)} tok/s</b></li>{/if}
-              <li><Icon name="clock" class="size-3.5" /><span>时间</span><b>{time(c.started_at)} → {time(c.finished_at)}</b></li>
-              {#if c.usage?.cache_write_tokens}<li><Icon name="layers" class="size-3.5" /><span>缓存写入</span><b>{formatTokens(c.usage.cache_write_tokens)}</b></li>{/if}
-              <li><Icon name="hash" class="size-3.5" /><span>编号</span><b class="mono">调用 {c.id}{c.reply_id !== null ? ` · 消息 ${c.reply_id}` : ""}{c.attempt > 1 ? ` · 第 ${c.attempt} 次尝试` : ""}</b></li>
-            </ul></div></details>
-          {/if}
+            {#if pick.run}
+              {@const r = pick.run}
+              <TraceCard icon="layers" title="关联" fold="open"><div class="rels">
+                {#each related(pick) as it}
+                  {#if it.call}{@render callRel(r, it.call)}
+                  {:else}{@const m = it.message!}{@const ms = toolMs(m)}<button type="button" class="rel" onclick={() => choose({ run: r, message: m })}><span class={cn("role", m.tool ? "r-tool" : "r-user")}>{role(m)}</span><span class="sum">{#if m.tool}<span class="mono">{m.tool.name}</span>&nbsp;{/if}{m.preview}</span><span class="tags">{#if m.tool?.outcome === "failed"}<span class="signal c-bad" title={m.tool.error ?? ""}><Icon name="error" class="size-[13px]" /></span>{/if}{#if m.tool}{#if ms === null}<span class="signal c-warn" title="结果未知"><Icon name="unknown" class="size-[13px]" /></span>{:else}{@render durCap(ms, "tool", toolPeer(m.tool.name))}{/if}{:else}<time>{hm(m.created_at)}</time>{/if}</span></button>{/if}
+                {/each}
+                <button type="button" class="rel" onclick={() => chooseRun(r)}><span class="role r-turn">轮次</span><span class="sum">#{runNumber(r)}</span><span class="tags">{@render durCap(runMs(r), "run")}</span></button>
+              </div></TraceCard>
+            {/if}
+            {#if "call" in pick}
+              {@const c = pick.call}
+              {@const v = speed(c)}
+              <TraceCard icon="info" title="调用细节" fold="closed"><ul class="kv">
+                {#if pick.run === null}<li><Icon name="layers" class="size-3.5" /><span>归属</span><b>会话旁路 · 标题生成</b></li>{/if}
+                <li><Icon name="flag" class="size-3.5" /><span>结束</span><b class:bad={c.error !== null}>{c.error ? "调用失败" : stopName(c)}</b></li>
+                {#if v !== null}<li title="输出 token ÷ 首字之后的生成时长"><Icon name="zap" class="size-3.5" /><span>输出速度</span><b>{v.toFixed(v < 10 ? 1 : 0)} tok/s</b></li>{/if}
+                <li><Icon name="clock" class="size-3.5" /><span>时间</span><b>{time(c.started_at)} → {time(c.finished_at)}</b></li>
+                {#if c.usage?.cache_write_tokens}<li><Icon name="layers" class="size-3.5" /><span>缓存写入</span><b>{formatTokens(c.usage.cache_write_tokens)}</b></li>{/if}
+                <li><Icon name="hash" class="size-3.5" /><span>编号</span><b class="mono">调用 {c.id}{c.reply_id !== null ? ` · 消息 ${c.reply_id}` : ""}{c.attempt > 1 ? ` · 第 ${c.attempt} 次尝试` : ""}</b></li>
+              </ul></TraceCard>
+            {/if}
+          </div>
         {:else if detail === null}
           <p class="hint pad">加载中…</p>
         {:else if "messages" in detail}
@@ -736,9 +740,8 @@
               <p class="hint">这次调用发给模型的内容：消息按当时记录还原；系统提示按当前设置生成，可能与当时不同；当时提供给模型的工具列表没有保存。</p>
               {#if detail.system}<button type="button" class="sys-link" onclick={chooseSystem}><Icon name="file" class="size-3.5" /><b>系统提示</b><span>{detail.system.length} 字 · 按当前配置生成</span><em>点击查看</em><Icon name="chevron" class="size-3.5" /></button>{/if}
             {/if}
-            {#if detail.note}<p class="hint">{detail.note}</p>{/if}
             <div class="cards">
-              {#each detail.messages as message, i (i)}<TraceContent {message} usage={tab === "detail" && "call" in pick ? pick.call.usage : null} bar={tab === "detail"} />{/each}
+              {#each detail.messages as message, i (i)}<TraceContent {message} />{/each}
             </div>
           </div>
         {:else}

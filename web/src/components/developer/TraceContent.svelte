@@ -4,22 +4,18 @@
   import { outcomeText, partsText } from "../outcome";
   import { isLong, jsonHtml } from "./trace-presentation";
   import Markdown from "../Markdown.svelte";
-  import CopyButton from "../CopyButton.svelte";
   import HistoryImage from "../HistoryImage.svelte";
   import TraceCard from "./TraceCard.svelte";
 
-  // `bar`：顶部给出构成与整体复制，单条详情用；输入重建里不逐条复制。
-  let { message, usage = null, bar = false }: { message: Message; usage?: Usage | null; bar?: boolean } = $props();
+  let { message, usage = null }: { message: Message; usage?: Usage | null } = $props();
   const body = $derived(message.body);
   const args = (v: unknown) => JSON.stringify(v, null, 2);
   const chars = (s: string) => `${s.length} 字`;
   const plain = (parts: ContentPart[]) => parts.map((p) => ("Text" in p ? p.Text.text : "")).filter(Boolean).join("\n");
 
-  const KIND: Record<string, string> = { UserInput: "用户输入", HarnessNote: "系统备注", Notification: "通知", ToolResult: "工具结果", Completion: "完成", Boundary: "上下文边界", Command: "指令", Reply: "回复" };
   const reply = $derived(body.kind === "Reply" ? body.blocks : []);
   const count = (f: (b: (typeof reply)[number]) => boolean) => reply.filter(f).length;
   const calls = $derived(count((b) => "ToolCall" in b));
-  const parts = $derived([count((b) => "Reasoning" in b) && "推理", count((b) => "Text" in b) && "正文", calls && `${calls} 个工具调用`].filter(Boolean));
   // token 只在能唯一对应时标：推理取上游推理数；正文仅在无工具调用且只有一段时取输出减推理。
   const thinkTok = $derived(usage?.reasoning_tokens != null && count((b) => "Reasoning" in b) === 1 ? usage.reasoning_tokens : null);
   const textTok = $derived(usage && count((b) => "Text" in b) === 1 && calls === 0 ? usage.output_tokens - (usage.reasoning_tokens ?? 0) : null);
@@ -58,14 +54,13 @@
 {/snippet}
 
 <div class="pv">
-  {#if bar}<div class="pv-bar"><span>{KIND[body.kind] ?? body.kind}{#each parts as p}<i>·</i>{p}{/each}</span><CopyButton {text} /></div>{/if}
   {#if body.kind === "Reply"}
     {#each body.blocks as block, i (i)}
       {#if "Text" in block}
         <TraceCard icon="text" title={block.Text.phase === "commentary" ? "过程说明" : "正文"} tone="ai" meta={chars(block.Text.text) + tok(textTok)} long={isLong(block.Text.text)} copy={block.Text.text}><Markdown source={block.Text.text} /></TraceCard>
       {:else if "Reasoning" in block}
         {@const visible = "Visible" in block.Reasoning ? block.Reasoning.Visible.text : null}
-        <TraceCard icon="bulb" title="推理" tone="think" meta={(visible === null ? "已加密" : chars(visible)) + tok(thinkTok)} long={visible !== null && isLong(visible)} copy={visible ?? undefined}>
+        <TraceCard icon="bulb" title="推理" tone="think" fold="closed" meta={(visible === null ? "已加密" : chars(visible)) + tok(thinkTok)} long={visible !== null && isLong(visible)} copy={visible ?? undefined}>
           {#if visible !== null}<Markdown source={visible} />{:else}<p class="muted">上游只返回了加密推理</p>{/if}
         </TraceCard>
       {:else}

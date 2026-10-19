@@ -53,3 +53,5 @@
 | 实现完成（CLOSED，2026-10-19） | 微信入站文件与视频 | [B2](docs/blueprints/archive/wechat-inbound-files.md) |
 | 实现完成（CLOSED，2026-10-19） | 会话缓存键 | [B2](docs/blueprints/archive/provider-cache-key.md) |
 | 实现完成（CLOSED，2026-10-19） | 设置备份与库版本不符时自动重建 | [B2](docs/blueprints/archive/settings-backup.md) |
+| 实现完成（CLOSED，2026-10-19），SDK 实现已由手写替代 | Responses 接入 | [B2](docs/blueprints/archive/provider-sdk-responses.md) |
+| 实现完成（CLOSED，2026-10-19） | 任务浮窗打磨：按状态分区、常驻任务、回复子 agent、单行列对齐；重启中断汇成一条通知 | [B1](docs/brainstorm/chat-jobs-card.md) |

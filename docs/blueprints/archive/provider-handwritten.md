@@ -28,7 +28,7 @@
 ## 二、不变的契约
 
 - `Provider` / `ProviderFactory` / `ModelEvent` / `StopReason` / `ProviderError` / `ProbeError`、服务商与模型配置 JSON、Web 设置：全部不变。
-- 协议映射、usage 对照、终态与错误分类、超时：沿用 [provider-sdk-responses](../provider-sdk-responses.md) §四～§六，以及 [provider-chatgpt](provider-chatgpt.md)、[provider-cache-key](../provider-cache-key.md)、[reasoning-selection](reasoning-selection.md) 的现行规则。实现完成后，这些文档里提到 SDK 的表述改为指向本文。
+- 协议映射、usage 对照、终态与错误分类、超时：沿用 [provider-sdk-responses](../provider-sdk-responses.md) §四～§六，以及 [provider-chatgpt](provider-chatgpt.md)、[provider-cache-key](provider-cache-key.md)、[reasoning-selection](reasoning-selection.md) 的现行规则。实现完成后，这些文档里提到 SDK 的表述改为指向本文。
 - 唯一有意的行为差异见 §四「未知流事件」。
 
 ## 三、依赖变更

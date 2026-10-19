@@ -6,7 +6,7 @@
 
 **现行修订（2026-10-13）**：思考强度归会话调用选择；模型 GET 下发节点，详见已批准的 [reasoning-selection](reasoning-selection.md)。
 
-**状态**：服务商/模型分层（原 A 批与 v3 修订）已实现并合并为本稿正文；图片输入（B 批）内核部分（mic-message → store → core → openai）已实现；HTTP 与 Web 部分已实现并手工验收，**CLOSED**。不支持图片的模型改由「支持图片」开关处理（[model-image-support](../model-image-support.md)）。
+**状态**：服务商/模型分层（原 A 批与 v3 修订）已实现并合并为本稿正文；图片输入（B 批）内核部分（mic-message → store → core → openai）已实现；HTTP 与 Web 部分已实现并手工验收，**CLOSED**。不支持图片的模型改由「支持图片」开关处理（[model-image-support](model-image-support.md)）。
 **方向记录**：[B1](../../brainstorm/model-settings.md)。阶段二以本稿替代 [runtime-settings.md](runtime-settings.md) §四。
 
 ## 一、决定与收窄
@@ -102,7 +102,7 @@ pub enum ClaimedModel { Missing, Deleted{..}, Selected { id, name /*服务商 / 
 | 表 | 字段与约束 |
 |---|---|
 | core_endpoints | id、name、kind、config_json、key_cipher（可空）、deleted_at、created_at、updated_at；活动名唯一 |
-| core_models | id、endpoint_id FK、name、config_json、context_window（空 = 100000）、images（默认 1，见 [model-image-support](../model-image-support.md)）、deleted_at、…；同服务商活动模型名唯一 |
+| core_models | id、endpoint_id FK、name、config_json、context_window（空 = 100000）、images（默认 1，见 [model-image-support](model-image-support.md)）、deleted_at、…；同服务商活动模型名唯一 |
 | core_settings | default_model_id 可空 FK；必须活动；零活动模型恰好 NULL |
 | core_sessions | model_id 可空 FK；reasoning_effort 可空（默认），空模型不能有具体档位；软删除不清引用 |
 | core_runs | model_id、model_name、reasoning_effort 选择快照 |
@@ -207,6 +207,6 @@ DTO 均 `deny_unknown_fields`；会话 DTO 含 `model_id`、`reasoning_effort`�
 | 文字/纯图/混合消息、重启回放 | 顺序稳定，消息与图同事务可读 |
 | 无 token、跨会话 image id、上传 path/URL | 拒绝 |
 | 超数量/字节、非法格式 | 整条拒收，无孤立 blob；前端草稿保留 |
-| 不支持图片的模型收到图 | 模型关闭「支持图片」时请求里换成文字占位（[model-image-support](../model-image-support.md)）；未关闭则普通 ProviderFailed，不改任何状态 |
+| 不支持图片的模型收到图 | 模型关闭「支持图片」时请求里换成文字占位（[model-image-support](model-image-support.md)）；未关闭则普通 ProviderFailed，不改任何状态 |
 
 收尾 `cargo fmt`、`cargo clippy -- -D warnings`；改动覆盖已有测试时跑相应测试。不默认新增测试或提交；验收后 CLOSED。

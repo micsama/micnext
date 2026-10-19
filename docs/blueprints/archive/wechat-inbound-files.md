@@ -1,6 +1,6 @@
 # B2：微信入站文件与视频
 
-**状态：已实现，待服务器验收（2026-10-10）。** 来源：[V2 B1](../brainstorm/wechat-v2.md) §二 第 3 步。仅微信模块内部，不改 core/store/message 公开契约，不新增 crate 或跨 crate 依赖。
+**状态：CLOSED（2026-10-19 human 服务器验收通过）。** 来源：[V2 B1](../../brainstorm/wechat-v2.md) §二 第 3 步。仅微信模块内部，不改 core/store/message 公开契约，不新增 crate 或跨 crate 依赖。
 
 ## 一、用户可见行为（human 已确认，2026-10-10）
 

@@ -1,6 +1,6 @@
 # B2：轻量 trace 与存储整理
 
-**现行扩展（2026-10-16，P3）**：会话汇总新增 `session_usage(session) -> { own, tree }` 和 `GET /trace/sessions/{id}/usage`（`tree` 为本会话加全部后代，无后代为 null；见 [trace-session-tree](trace-session-tree.md)），包括对话、重试、压缩、标题的全部已记录调用，不受分页限制；整树递归包含归档/隐藏后代。费用按已知部分合计并另报未知次数，单次计价不变。字段见 [async-jobs](../async-jobs.md) P3.2；子任务仅开放 Trace 执行过程。
+**现行扩展（2026-10-16，P3）**：会话汇总新增 `session_usage(session) -> { own, tree }` 和 `GET /trace/sessions/{id}/usage`（`tree` 为本会话加全部后代，无后代为 null；见 [trace-session-tree](trace-session-tree.md)），包括对话、重试、压缩、标题的全部已记录调用，不受分页限制；整树递归包含归档/隐藏后代。费用按已知部分合计并另报未知次数，单次计价不变。字段见 [async-jobs](async-jobs.md) P3.2；子任务仅开放 Trace 执行过程。
 
 **状态：CLOSED（2026-10-15 human 真实使用验收）。**
 

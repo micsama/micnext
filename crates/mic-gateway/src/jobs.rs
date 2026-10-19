@@ -1,4 +1,4 @@
-//! 会话树的后台任务：列表、读输出、终止。契约：docs/blueprints/async-jobs.md 总则 §四。
+//! 会话树的后台任务：列表、读输出、终止。契约：docs/blueprints/archive/async-jobs.md 总则 §四。
 
 use std::sync::Arc;
 

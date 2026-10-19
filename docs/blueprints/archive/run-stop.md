@@ -1,6 +1,6 @@
 # B2：运行中停止
 
-**现行扩展（2026-10-16，P3）**：普通停止只停当前 run，后台任务由 `job_stop` 管理；归档才停止整棵会话树，并将未认领输入标 held、不再唤醒。归档后的执行请求返回 409。见 [async-jobs](../async-jobs.md) P3 和 [session-archive](session-archive.md)。
+**现行扩展（2026-10-16，P3）**：普通停止只停当前 run，后台任务由 `job_stop` 管理；归档才停止整棵会话树，并将未认领输入标 held、不再唤醒。归档后的执行请求返回 409。见 [async-jobs](async-jobs.md) P3 和 [session-archive](session-archive.md)。
 
 **状态：CLOSED（2026-10-15，Web 人工验收通过；微信 `/stop` 走同一停止路径，human 认为无需单独真机验收）。**
 

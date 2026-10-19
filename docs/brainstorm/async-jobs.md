@@ -1,6 +1,6 @@
 # B1：后台任务与子 agent
 
-**状态：review 已完成，已起 [B2 草案](../blueprints/async-jobs.md)（2026-10-16），待批准。不是实现授权。**
+**状态：已收尾，契约见 [B2](../blueprints/archive/async-jobs.md)（2026-10-19 CLOSED）。**
 
 review 后 human 确认：子 agent 是可休眠、可继续 query 的 session，不以交付作为 session 终态；默认隐藏较久未活动的子 session，具体 7/14 天在 B2 定。归档停止主/子 session 的执行和后台 shell，历史保留。重启只留用户可见的中断记录，不自动唤醒；未来定时任务另定。费用在 trace 用“包含子 session”开关控制范围。下文原提案与这些决定冲突处，以此记录和 B2 为准。
 

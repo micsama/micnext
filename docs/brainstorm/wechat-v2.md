@@ -16,7 +16,7 @@ human 方向：官方 SDK / API 支持的能力尽量都接上。依据为官方
 | 上下线通知 | `ilink/bot/msg/notifystart` / `notifystop` | 未接 | 暂不接：「未连接」由微信按轮询中断自行显示，SDK 未说明通知的额外效果；实测停服后提示明显滞后再补 |
 | 入站图片 | `cdn/pic-decrypt.ts`、`media-download.ts`：CDN 下载 + AES-128-ECB | 已接，[B2](../blueprints/archive/wechat-inbound-images.md) | 非 PNG/JPEG/WebP 及超大图经 `mic-media` 规整；失败为占位并提示重发 |
 | 表情 | SDK 无表情包 item 类型 | 默认表情以 `[发呆]` 这类文本到达，随文本支持 | human 实测只有默认表情会到达，无需另接 |
-| 入站文件、视频 | `media-download.ts` | 已实现待验收，[B2](../blueprints/wechat-inbound-files.md) | 存会话工作目录 `微信文件/<日期>/`，占位带路径，模型用文件工具读；上限 100 MB，不自动清理 |
+| 入站文件、视频 | `media-download.ts` | 已实现（CLOSED），[B2](../blueprints/archive/wechat-inbound-files.md) | 存会话工作目录 `微信文件/<日期>/`，占位带路径，模型用文件工具读；上限 100 MB，不自动清理 |
 | 入站无转写语音 | `media/silk-transcode.ts`（silk → wav） | 占位 `[语音]` | 不接：正常语音均有服务端转写，缺转写属少见情况，维持占位 |
 | 引用回复（含引用 bot、部分引用） | `inbound.ts` + `partial-quote.ts` + `quote-store.ts` | 已接，[B2](../blueprints/archive/wechat-quotes.md) | 被引内容以 `[引用：…]` 前缀进文字；bot 引用复用出站分段计划；Markdown/表格部分选区精确还原为延期的已知 bug |
 | 出站图片、文件、视频、语音 | `cdn/upload.ts`、`send-media.ts`：`getuploadurl` → 加密上传 → item 引用 | 只发文本 | **接**：需模型侧「发文件」能力（工具或回复块），走 B2 |
@@ -31,7 +31,7 @@ human 方向：官方 SDK / API 支持的能力尽量都接上。依据为官方
 
 1. **引用回复**：CLOSED（2026-10-10 服务器验收）。
 2. **入站图片**：CLOSED（2026-10-10 服务器验收；GIF 仅本地冒烟）。
-3. **入站文件/视频**：已实现待服务器验收（[B2](../blueprints/wechat-inbound-files.md)）：存会话工作目录，100 MB，不自动清理。
+3. **入站文件/视频**：已实现并验收（CLOSED）（[B2](../blueprints/archive/wechat-inbound-files.md)）：存会话工作目录，100 MB，不自动清理。
 4. **出站媒体**：需要模型侧发文件能力，跨 core/tool 契约，最后做。
 5. **斜杠指令**：跨 Channel 统一，单独 B1。
 

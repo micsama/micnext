@@ -1,5 +1,5 @@
 //! 后台任务运行时：登记、执行、计时、终止、输出落盘与回注；子 agent 的派出、追问与停止。
-//! 契约：docs/blueprints/async-jobs.md。
+//! 契约：docs/blueprints/archive/async-jobs.md。
 
 mod agent;
 mod output;

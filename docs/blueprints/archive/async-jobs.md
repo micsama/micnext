@@ -1,8 +1,8 @@
 # B2：后台任务与子 agent
 
-**状态：APPROVED（2026-10-16），按 P1 → P2 → P3 顺序实施。**
+**状态：CLOSED（2026-10-19 human 验收 P1–P3 通过）。运行中归档的人工验收按 §P3.4 延期。**
 
-依据：[B1](../brainstorm/async-jobs.md) 及其 review 后 human 确认。一份文档分三期：总则为三期共用契约，P1/P2/P3 各自实现、各自验收，实现某期只需读总则加该期。批准前不覆盖现行 B2，不改代码。
+依据：[B1](../../brainstorm/async-jobs.md) 及其 review 后 human 确认。一份文档分三期：总则为三期共用契约，P1/P2/P3 各自实现、各自验收，实现某期只需读总则加该期。批准前不覆盖现行 B2，不改代码。
 
 ## 总则
 
@@ -144,7 +144,7 @@ pub trait Background: Send + Sync {
 
 ### P1.7 Web
 
-聊天页任务条（输入框上沿，形态见 [B1 chat-jobs-card](../brainstorm/chat-jobs-card.md)）：工具名、描述、状态、耗时，可终止、可展开读输出。只列当前 Root 名下任务；有运行中或结束未看的任务时整条显示，否则收成小标签；消息流派发行与完成行显示任务号，点击定位。收到 `jobs_changed` 与 `ready` 时重查。
+聊天页任务条（输入框上沿，形态见 [B1 chat-jobs-card](../../brainstorm/chat-jobs-card.md)）：工具名、描述、状态、耗时，可终止、可展开读输出。只列当前 Root 名下任务；有运行中或结束未看的任务时整条显示，否则收成小标签；消息流派发行与完成行显示任务号，点击定位。收到 `jobs_changed` 与 `ready` 时重查。
 
 ### P1.8 验收
 
@@ -222,10 +222,10 @@ pub trait Background: Send + Sync {
 
 ### P3.2 trace 费用范围
 
-- Store / Kernel 新增 `session_usage(session) -> SessionUsageView { own, tree }`；HTTP `GET /trace/sessions/{id}/usage`（2026-10-19 由 [trace-session-tree](archive/trace-session-tree.md) 修订，原 `include_children` 参数取消）。
+- Store / Kernel 新增 `session_usage(session) -> SessionUsageView { own, tree }`；HTTP `GET /trace/sessions/{id}/usage`（2026-10-19 由 [trace-session-tree](trace-session-tree.md) 修订，原 `include_children` 参数取消）。
 - `SessionUsage` 返回 `input_tokens`、`output_tokens`、`cache_read_tokens`、`cache_write_tokens`（已知部分之和）、`reasoning_tokens`（全未上报为 null）、`known_usage` / `unknown_usage`、`usage_complete`、`cache_complete`、`cost`、`unknown_cost`。`usage_complete` 表示所有调用均报用量；`cache_complete` 表示存在已知用量且这些调用均报缓存读，与原 trace 缓存展示一致。
 - 费用沿用现有 trace 的“已知部分合计 + 未知次数”：`cost` 在无已知费用时为 null，否则合计已知费用；单次费用仍复用 `call_cost`。汇总包括所有已记录的对话、重试、压缩、标题调用，不受 run 分页限制；前端会话汇总不再自算。`tree` 递归包含所有后代（含归档、隐藏的），每条调用只算一次；后台工具不产生模型费用。
-- Web 呈现由 [trace-session-tree](archive/trace-session-tree.md) 取代：Trace 左栏为会话树，子会话挂在父会话下；Token 卡显示本会话，有后代时卡底附一行整树合计；run 列表、聊天 run-stats、单次调用费用、上下文占用不变。聊天任务面板保留子任务 Trace 入口；普通会话详情仍只开放 Root，不新增子 agent 聊天入口。
+- Web 呈现由 [trace-session-tree](trace-session-tree.md) 取代：Trace 左栏为会话树，子会话挂在父会话下；Token 卡显示本会话，有后代时卡底附一行整树合计；run 列表、聊天 run-stats、单次调用费用、上下文占用不变。聊天任务面板保留子任务 Trace 入口；普通会话详情仍只开放 Root，不新增子 agent 聊天入口。
 
 ### P3.3 验收
 

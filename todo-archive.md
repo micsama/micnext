@@ -48,3 +48,7 @@
 | 实现完成（CLOSED） | Trace 会话树与整树用量 | [`trace-session-tree.md`](docs/blueprints/archive/trace-session-tree.md) |
 | 实现完成（CLOSED，2026-10-19） | Trace AI 调用概览并入完整产出，去掉详情页签 | [B1](docs/brainstorm/trace-ai-overview.md) |
 | 实现完成（CLOSED，2026-10-19） | 压缩后的保留规则：按当前历史比例保留原文、替换旧工具输出、带回用户原话 | [B1](docs/brainstorm/compaction-retention.md)；[B2](docs/blueprints/archive/compaction-retention.md) |
+| 实现完成（CLOSED，2026-10-19） | 后台任务与子 agent（P1–P3），含聊天页任务条 | [B2](docs/blueprints/archive/async-jobs.md)；[B1 任务条](docs/brainstorm/chat-jobs-card.md) |
+| 实现完成（CLOSED，2026-10-19） | 模型支持图片开关与会话预览 | [B2](docs/blueprints/archive/model-image-support.md) |
+| 实现完成（CLOSED，2026-10-19） | 微信入站文件与视频 | [B2](docs/blueprints/archive/wechat-inbound-files.md) |
+| 实现完成（CLOSED，2026-10-19） | 会话缓存键 | [B2](docs/blueprints/archive/provider-cache-key.md) |

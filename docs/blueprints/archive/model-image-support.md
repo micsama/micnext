@@ -1,8 +1,8 @@
 # B2：模型「支持图片」开关
 
-**状态：已实现（2026-10-15）；fmt/clippy、workspace 测试、Web 检查与真实库副本迁移验收通过，设置页与真实模型交 human。**
+**状态：CLOSED（2026-10-19 human 验收设置页与真实模型通过）。**已实现（2026-10-15）；fmt/clippy、workspace 测试、Web 检查与真实库副本迁移验收通过。
 
-修订 [model-settings](archive/model-settings.md) 的模型字段与 §十「不支持图片的模型收到图」一行。
+修订 [model-settings](model-settings.md) 的模型字段与 §十「不支持图片的模型收到图」一行。
 
 ## 问题
 

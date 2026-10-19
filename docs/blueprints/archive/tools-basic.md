@@ -187,7 +187,7 @@ system prompt 分节顺序一致（bash、read、write、edit、glob、grep、we
 | `description` | string | 是 | 非空；DSH 原文（5-10 词、主动语态、示例） |
 | `workdir` | string | 否 | 缺省 cwd |
 | `timeoutMs` | integer | 否 | 前台缺省 120000，超过 600000 按 600000 执行；后台见下 |
-| `background` | boolean | 否 | 缺省 false；后台缺省 600000、不截顶、0 = 不限时（[async-jobs](../async-jobs.md) P1.4） |
+| `background` | boolean | 否 | 缺省 false；后台缺省 600000、不截顶、0 = 不限时（[async-jobs](async-jobs.md) P1.4） |
 
 - 不接受 `run_in_background`：写了就是未知字段，`input`（mic-tool §一）。后台用 `background`，派出与输出见 async-jobs P1。
 - 执行：`bash -c <command>`，stdin 为空，继承进程环境；子进程自成进程组。以下三种情况都对整个进程组发 SIGKILL：

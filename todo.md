@@ -6,10 +6,6 @@
 
 | 状态 | 主题 | 蓝图 |
 |---|---|---|
-| 已实现，待人工验收 | 后台任务与子 agent（P1–P3） | [B2](docs/blueprints/async-jobs.md) |
-| 第一阶段待人工验收及导出备份；第二阶段待实施 | 设置备份与库重建 | [B2](docs/blueprints/settings-backup.md) |
-| 已实现，待人工验收 | 模型支持图片开关与会话预览 | [B2](docs/blueprints/model-image-support.md) |
-| 已实现，待服务器验收 | 微信入站文件与视频 | [B2](docs/blueprints/wechat-inbound-files.md) |
+| 第一阶段已验收；第二阶段待实施 | 设置备份与库重建 | [B2](docs/blueprints/settings-backup.md) |
 | 已实现，OpenAI API key 待验收；SDK 实现已由手写替代 | Responses 接入 | [B2](docs/blueprints/provider-sdk-responses.md) |
-| 已实现，待缓存命中验收 | 会话缓存键 | [B2](docs/blueprints/provider-cache-key.md) |
 | 延期 | 服务商分时段计价 | [B2](docs/blueprints/offpeak-pricing.md) |

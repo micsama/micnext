@@ -218,7 +218,7 @@ stateDiagram-v2
     Executing --> TimedOut: 子 agent 墙钟超时
 ```
 
-子 agent（Task 会话）的 run 另有轮次上限、墙钟上限，收尾时向父会话交付一次 Completion，见 [async-jobs](../async-jobs.md) P2.3。
+子 agent（Task 会话）的 run 另有轮次上限、墙钟上限，收尾时向父会话交付一次 Completion，见 [async-jobs](async-jobs.md) P2.3。
 
 v0a 没有用户取消的终态：叫停也是一条普通输入，由模型读到后自行收尾（Web 端停止按钮见 §十）。
 
@@ -267,7 +267,7 @@ loop:
 - 工具调用 → 结果：
   - 名字不在本会话可用工具里（未登记，或不在 `tool_scope`）→ `Failed{Input, "unknown tool `x`"}`。
   - 否则 `ToolHandle::invoke(args, ToolContext::new(session.pwd, port))`：`Ok(Completed(parts))` → `Completed{output}`，
-    `Ok(Dispatched)` → `Dispatched{exec_id}`（port 与派出交接见 [async-jobs](../async-jobs.md) P1.5），
+    `Ok(Dispatched)` → `Dispatched{exec_id}`（port 与派出交接见 [async-jobs](async-jobs.md) P1.5），
     `Err(e)` → `Failed{e.kind, e.message}`。
   - 包成 `ToolResult{tool_name, tool_call_id, ..}`。
 - HarnessNote 以 `append` 落盘（`MessageBody::HarnessNote`），模型视图为 `[runtime-note]` user 消息；
@@ -316,7 +316,7 @@ loop:
 3. 对每个遗留 run R，core 算出收尾消息，`interrupt_run` 在一个事务里写入并转为 `interrupted`：
    - `run_messages(R)` 里 `Reply` 的 `ToolCall` 块减去已有 `ToolResult`，差集各补一条（挂 R）
      `ToolResult{Terminal(Cancelled{"micnext stopped before this tool call finished; its side effects are unknown."})}`（I1）；
-     已登记后台任务的调用补 `Dispatched`（[async-jobs](../async-jobs.md) P1.6）；
+     已登记后台任务的调用补 `Dispatched`（[async-jobs](async-jobs.md) P1.6）；
    - 追加一条中断通知（§4.7，挂 R）。
    - 不重跑（I4）：该 run 已认领的输入视为已消费。
    - 收尾中途失败或停止：未提交的 run 仍是 `executing`，下次启动从头收尾，不会留下悬空调用。
@@ -341,7 +341,7 @@ loop:
 | 被内容审核截断（`ContentFilter`） | 同上 | 回复被上游内容审核截断 |
 | 重启打断（§4.6） | `Interrupted` | 上次执行已中断；有悬空工具时附加“部分工具结果未知” |
 | 用户停止（[run-stop](run-stop.md)） | `Stopped` | 已停止。 |
-| 子 agent 墙钟超时（[async-jobs](../async-jobs.md) P2.3） | `TimedOut` | 子任务执行超过 30 分钟，已停止。 |
+| 子 agent 墙钟超时（[async-jobs](async-jobs.md) P2.3） | `TimedOut` | 子任务执行超过 30 分钟，已停止。 |
 | 重启时有子 agent 被打断（同上 P2.4） | — | 写在树根：重启前仍在执行的子任务已中断：#…。 |
 
 轮次提醒与用尽写的是 `HarnessNote`（给模型看），不是通知；用尽后由模型自己的总结告诉用户，run 记 `MaxTurns` 供事后统计（如接 langfuse）。

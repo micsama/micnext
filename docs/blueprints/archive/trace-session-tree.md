@@ -1,6 +1,6 @@
 # B2：Trace 会话树与整树用量
 
-状态：CLOSED（2026-10-19 human 验收通过）。修订 [async-jobs](../async-jobs.md) P3.2 的 Web 呈现部分；后端整树汇总口径不变。
+状态：CLOSED（2026-10-19 human 验收通过）。修订 [async-jobs](async-jobs.md) P3.2 的 Web 呈现部分；后端整树汇总口径不变。
 
 ## 动机
 

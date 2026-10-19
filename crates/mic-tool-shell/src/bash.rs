@@ -29,7 +29,7 @@ const DESCRIPTION: &str = "Execute a bash command (`bash -c`) and return its std
 pub(crate) struct Args {
     /// The bash command to execute.
     command: String,
-    /// Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; "git status" → "Show working tree status"; "npm install" → "Install package dependencies".
+    /// Label shown in the UI, written in the language the user writes in. Foreground: what the command does in active voice, 5-10 words, e.g. "git status" → "Show working tree status". Background: a short name for the job, 2-5 words, e.g. "bun run dev" → "Web dev server".
     description: String,
     /// Timeout in milliseconds; the command is killed on expiry. Foreground: defaults to 120000, values above 600000 are capped at 600000. Background: defaults to 600000, no cap, 0 = no timeout (for servers).
     #[serde(rename = "timeoutMs")]

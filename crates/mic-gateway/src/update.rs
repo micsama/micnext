@@ -1,4 +1,4 @@
-//! 一键更新：原地 pull → build.sh → 请装配根 exec。契约：docs/blueprints/self-update.md。
+//! 一键更新：原地 fetch + 覆盖到 upstream → build.sh → 请装配根 exec。契约：docs/blueprints/self-update.md。
 
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
@@ -205,18 +205,27 @@ impl Updater {
     }
 
     async fn steps(&self) -> Result<(), String> {
-        let dirty = self.capture(&["status", "--porcelain"]).await?;
-        if !dirty.is_empty() {
-            self.append(&dirty);
-            return Err("工作区有未提交修改或未跟踪文件，请先在服务器上处理".into());
-        }
         self.capture(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
             .await
             .map_err(|e| format!("当前分支没有 upstream：{e}"))?;
         let from = self.capture(&["rev-parse", "HEAD"]).await?;
         tracing::info!(%from, "update pulling");
 
-        self.pull(&from).await?;
+        self.fetch(&from).await?;
+        // 服务器上不手改代码：本地改动与提交一律以 upstream 覆盖，被覆盖的列在输出里。
+        let dirty = self
+            .capture(&["status", "--porcelain", "--untracked-files=no"])
+            .await?;
+        if !dirty.is_empty() {
+            self.append(&format!("以下本地改动将被覆盖：\n{dirty}"));
+        }
+        let ahead = self.capture(&["log", "--oneline", "@{u}..HEAD"]).await?;
+        if !ahead.is_empty() {
+            self.append(&format!("以下本地提交将被丢弃：\n{ahead}"));
+        }
+        self.append("$ git reset --hard @{u}\n");
+        let reset = self.capture(&["reset", "--hard", "@{u}"]).await?;
+        self.append(&reset);
 
         let to = self.capture(&["rev-parse", "HEAD"]).await?;
         if to == from {
@@ -253,7 +262,7 @@ impl Updater {
             .map_err(|e| format!("无法通知重启：{e}"))
     }
 
-    async fn pull(&self, from: &str) -> Result<(), String> {
+    async fn fetch(&self, from: &str) -> Result<(), String> {
         // 以半次为单位计重试机会。
         let budget = PULL_TIMEOUTS.len() * 2;
         let mut spent = 0;
@@ -266,29 +275,29 @@ impl Updater {
                 attempt,
             });
             self.append(&format!(
-                "$ git pull --ff-only（第 {attempt} 次，剩余 {} 次机会）\n",
+                "$ git fetch（第 {attempt} 次，剩余 {} 次机会）\n",
                 halves(budget - spent)
             ));
             let mut git = Command::new("git");
-            git.args(["pull", "--ff-only"]);
+            git.arg("fetch");
             match tokio::time::timeout(timeout, self.stream(git)).await {
                 Ok(Ok(status)) if status.success() => return Ok(()),
                 Ok(Ok(status)) => {
                     spent += 1;
-                    self.append(&format!("git pull 失败（{status}），扣半次\n"));
+                    self.append(&format!("git fetch 失败（{status}），扣半次\n"));
                 }
                 Ok(Err(e)) => return Err(format!("无法运行 git：{e}")),
                 Err(_) => {
                     spent += 2;
                     self.append(&format!(
-                        "git pull {} 秒未完成，已终止\n",
+                        "git fetch {} 秒未完成，已终止\n",
                         timeout.as_secs()
                     ));
                 }
             }
         }
         Err(format!(
-            "git pull {} 次重试机会用完仍失败，请检查网络或启动前是否开了代理",
+            "git fetch {} 次重试机会用完仍失败，请检查网络或启动前是否开了代理",
             PULL_TIMEOUTS.len()
         ))
     }

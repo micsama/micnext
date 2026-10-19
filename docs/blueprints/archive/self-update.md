@@ -22,10 +22,9 @@
 全部子进程固定 argv、`current_dir = update_repo`、环境变量原样继承、stdin 为 null；stdout/stderr 合并进输出末尾缓冲。
 
 1. **检查**（不重试）：
-   - `git status --porcelain` 输出非空 → 失败「工作区有未提交修改或未跟踪文件」。不 stash/reset。
    - `git rev-parse --abbrev-ref --symbolic-full-name @{u}` 失败 → 失败「当前分支没有 upstream」（同时覆盖 detached HEAD/rebase 中）。
    - `git rev-parse HEAD` 记为 `from`，写入状态与终端日志。
-2. **拉取**：`git pull --ff-only`，总共最多 5 次，各次超时依次为 20s、30s、40s、50s、60s，超时杀掉 git；失败或超时立即重试，不等待；不解析 stderr。全部失败 → 失败（最坏约 3 分 20 秒）。
+2. **拉取**：`git fetch`，总共最多 5 次，各次超时依次为 20s、30s、40s、50s、60s，超时杀掉 git；失败或超时立即重试，不等待；不解析 stderr。全部失败 → 失败（最坏约 3 分 20 秒）。成功后 `git reset --hard @{u}`：服务器上不手改代码，已跟踪文件的本地改动和未推送提交一律以 upstream 覆盖，覆盖前先列入输出；未跟踪文件不动（human 2026-10-19，取代原「工作区不干净即失败、不 reset」）。
 3. `git rev-parse HEAD` 记为 `to`；`to == from` → 「已是最新」结束。
 4. **构建**：`./build.sh` 一次（无参数 = release）。非零 → 失败，不重试。源码已是新版、旧进程仍在跑，属预期。
 5. **重启**：`try_send(RestartRequest)` 给 main；失败（不应发生）→ 失败。main 收到后取消全局 stop，等 Assembly 正常停止（释放数据库、监听端口、Channel），然后 `exec <update_repo>/target/release/micnext` + 原 argv[1..]，cwd 与环境不变。
@@ -100,7 +99,7 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 | 常驻进程 | main | Running → Stopping → exec，或 外部信号/错误 → Exit |
 | 浏览器 | 页面 | 轮询 → 失败/已是最新/等待恢复；离开只停轮询 |
 
-不变量：构建成功前不停旧服务；同一时刻只一个进程持有数据库（exec 在 Assembly 停止之后）；外部信号先到则不 exec；工作区不干净不 pull；程序不处理代理、不直连兜底。
+不变量：构建成功前不停旧服务；同一时刻只一个进程持有数据库（exec 在 Assembly 停止之后）；外部信号先到则不 exec；源码一律以 upstream 为准；程序不处理代理、不直连兜底。
 
 不承诺：失败期间源码与运行版本一致；新版本若迁移了数据库，回退旧版本会 SchemaAhead，需人工处理。
 

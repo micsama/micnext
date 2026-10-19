@@ -73,22 +73,19 @@ impl Watch {
         }
         self.last = Some(now);
         self.sent += 1;
-        let what = if line.fragment {
-            format!("a {NOTIFY_LINE_BYTES}-byte piece of a long line")
-        } else {
-            "a line".to_owned()
-        };
-        let mut text = format!(
-            "{} matched notify_pattern ({what}):\n{}",
-            stream.as_str(),
-            line.text
-        );
-        if self.sent == NOTIFY_MAX {
-            text.push_str(&format!(
-                "\n[notification {NOTIFY_MAX} of {NOTIFY_MAX}; further matches will not be reported]"
-            ));
+        let mut notes = vec![format!("notice {}/{NOTIFY_MAX}", self.sent)];
+        if line.fragment {
+            notes.push(format!("a {NOTIFY_LINE_BYTES}-byte piece of a long line"));
         }
-        Some(text)
+        if self.sent == NOTIFY_MAX {
+            notes.push("further matches will not be reported".to_owned());
+        }
+        Some(format!(
+            "{} matched notify_pattern ({}):\n{}",
+            stream.as_str(),
+            notes.join("; "),
+            line.text
+        ))
     }
 }
 

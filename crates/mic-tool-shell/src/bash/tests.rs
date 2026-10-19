@@ -117,6 +117,6 @@ async fn background_notifies_matching_lines_before_exit() {
     // 第二次命中落在冷却内被丢弃。
     assert_eq!(
         sink.notices(),
-        ["stderr matched notify_pattern (a line):\nlistening on :8080"]
+        ["stderr matched notify_pattern (notice 1/10):\nlistening on :8080"]
     );
 }

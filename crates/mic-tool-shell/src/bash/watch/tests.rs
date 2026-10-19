@@ -41,7 +41,7 @@ async fn long_lines_are_matched_in_marked_pieces() {
     long.extend_from_slice(b" tail\n");
     let notice = w.feed(Stream::Stdout, &long).unwrap();
     assert!(notice.starts_with(&format!(
-        "stdout matched notify_pattern (a {NOTIFY_LINE_BYTES}-byte piece of a long line):\n"
+        "stdout matched notify_pattern (notice 1/{NOTIFY_MAX}; a {NOTIFY_LINE_BYTES}-byte piece of a long line):\n"
     )));
     assert_eq!(
         body(Some(notice)),
@@ -58,6 +58,6 @@ async fn long_lines_are_matched_in_marked_pieces() {
     assert!(notice.contains("piece of a long line") && notice.ends_with("\nxx tail"));
     tokio::time::advance(NOTIFY_COOLDOWN).await;
     let notice = w.feed(Stream::Stderr, b"short\n").unwrap();
-    assert!(notice.contains("(a line)"));
+    assert!(notice.contains("(notice 2/") && !notice.contains("piece"));
     assert!(w.finish(Stream::Stderr).is_none());
 }

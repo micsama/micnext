@@ -25,7 +25,7 @@ const DESCRIPTION: &str = "Execute a bash command (`bash -c`) and return its std
     servers): the call returns at once with an exec_id, stdout and stderr go to a log you read \
     with `job_output`, and the exit arrives later as a completion. Background commands must not \
     daemonize themselves. With `notify_pattern`, stdout and stderr lines are matched separately \
-    while the job runs (lines over 4096 bytes are matched in 4096-byte pieces) and a match \
+    while the job runs (lines over 512 bytes are matched in 512-byte pieces) and a match \
     arrives as a job-notice: at most one per 10 seconds (matches in between are dropped) and at \
     most 10 per job.";
 
@@ -64,7 +64,8 @@ impl Tool for Bash {
             "Check the [exit code: N] marker on every bash result; investigate failures before moving on. \
              A dispatched background command has only been submitted: its exit arrives later as a completion, \
              and with notify_pattern matching output arrives earlier as a job-notice. Report status from the evidence that has arrived. \
-             A job-notice only shows that the output appeared; probe a service before saying it is usable.",
+             A job-notice only shows that the output appeared; probe a service before saying it is usable. \
+             If job-notices come more often than you expected, stop the job with job_stop instead of letting it keep reporting.",
         )
     }
 

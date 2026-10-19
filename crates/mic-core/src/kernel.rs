@@ -692,10 +692,10 @@ impl Kernel {
                 return Ok(None);
             }
             let sources = self.store.messages_by_ids(sources).await?;
-            return Ok(Some(vec![crate::title::title_note(
+            return Ok(Some(crate::title::title_messages(
                 record.session_id,
                 &sources,
-            )]));
+            )));
         }
         let context = record.context;
         let window = self

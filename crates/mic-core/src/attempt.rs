@@ -12,6 +12,7 @@ use crate::run::now_ms;
 use crate::{ModelEvent, ModelRequest, ModelResponse, Provider, ProviderError};
 
 pub(crate) struct Facts {
+    pub context_at: i64,
     pub started_at: i64,
     pub first_output_at: Option<i64>,
     pub finished_at: i64,
@@ -22,6 +23,7 @@ impl Facts {
     pub(crate) fn start() -> Self {
         let now = now_ms();
         Self {
+            context_at: now,
             started_at: now,
             first_output_at: None,
             finished_at: now,
@@ -39,6 +41,7 @@ impl Facts {
         outcome: ModelCallOutcome,
     ) -> NewModelCall {
         NewModelCall {
+            context_at: self.context_at,
             purpose,
             context,
             session_id: by.session_id,

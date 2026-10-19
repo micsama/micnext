@@ -755,7 +755,6 @@ impl Store {
                 let (message, role): (i64, String) = (r.get(0)?, r.get(1)?);
                 let list = match role.as_str() {
                     "excluded" => &mut context.excluded,
-                    "tail" => &mut context.tail,
                     "elide" => &mut context.elide,
                     _ => &mut context.instruction,
                 };

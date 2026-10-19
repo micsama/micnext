@@ -34,6 +34,7 @@ async fn check_reply_stats() {
         .unwrap()
         .id;
     let call = NewModelCall {
+        context_at: 0,
         purpose: ModelCallPurpose::Conversation,
         context: ModelCallContext::default(),
         session_id: session,
@@ -56,6 +57,7 @@ async fn check_reply_stats() {
     // 失败尝试可有用量，但不属于后来产出回复的请求。
     let (_, failed_reply) = store
         .record_model_call(NewModelCall {
+            context_at: 0,
             started_at: 0,
             finished_at: 50,
             usage: Some(Usage {
@@ -85,6 +87,7 @@ async fn check_reply_stats() {
         };
         let (_, reply) = store
             .record_model_call(NewModelCall {
+                context_at: 0,
                 started_at: 1000 * i as i64 + 100,
                 finished_at: 1000 * i as i64 + 300,
                 usage: Some(usage),
@@ -126,6 +129,7 @@ async fn check_reply_stats() {
     // 停止后的部分正文没有用量，实时与回读都保留未知。
     let (_, reply) = store
         .record_model_call(NewModelCall {
+            context_at: 0,
             stop: Some(StopReason::Stopped),
             ..call
         })

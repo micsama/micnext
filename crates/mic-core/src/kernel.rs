@@ -696,11 +696,15 @@ impl Kernel {
             .collect();
         let messages = match record.purpose {
             ModelCallPurpose::Compaction => {
-                let mut messages = request::arrange(window, &[]);
+                let mut messages = request::order(window);
+                let keep_position = messages
+                    .iter()
+                    .find(|m| Some(m.id) == context.keep_from)
+                    .map(|m| (m.created_at, m.id));
                 let kept_replies = messages
                     .iter()
                     .filter(|m| matches!(m.body, MessageBody::Reply { .. }))
-                    .filter(|m| context.keep_from.is_some_and(|k| m.id >= k))
+                    .filter(|m| keep_position.is_some_and(|k| (m.created_at, m.id) >= k))
                     .count();
                 messages.drain(..context.skip as usize);
                 let instruction = self.store.messages_by_ids(context.instruction).await?;
@@ -713,7 +717,7 @@ impl Kernel {
                 ));
                 messages
             }
-            _ => request::arrange(window, &context.tail),
+            _ => request::order(window),
         };
         Ok(Some(messages))
     }

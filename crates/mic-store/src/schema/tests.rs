@@ -37,7 +37,7 @@ fn empty_database_builds_every_baseline() {
     ] {
         assert!(tables.contains(&expected.to_owned()), "缺少 {expected}");
     }
-    assert_eq!(applied_version(&conn, "core").unwrap(), Some(13));
+    assert_eq!(applied_version(&conn, "core").unwrap(), Some(14));
     assert_eq!(applied_version(&conn, "demo").unwrap(), Some(3));
 }
 
@@ -81,15 +81,15 @@ fn newer_format_is_rejected() {
     let mut conn = Connection::open_in_memory().unwrap();
     init(&mut conn, &[]).unwrap();
     conn.execute(
-        "UPDATE schema_migrations SET version = 14 WHERE module = 'core'",
+        "UPDATE schema_migrations SET version = 15 WHERE module = 'core'",
         [],
     )
     .unwrap();
     assert!(matches!(
         init(&mut conn, &[]),
         Err(StoreError::SchemaAhead {
-            db: 14,
-            known: 13,
+            db: 15,
+            known: 14,
             ..
         })
     ));

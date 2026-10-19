@@ -265,6 +265,7 @@ async fn manual_title_records_sources_and_side_output() {
     };
     let reply = |blocks: Vec<ReplyBlock>| {
         store.record_model_call(NewModelCall {
+            context_at: 0,
             session_id: session.id,
             run_id: None,
             purpose: ModelCallPurpose::Conversation,

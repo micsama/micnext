@@ -39,7 +39,8 @@
       pending = view.loadedAt.get(message.id) ?? pending;
       if (hidden(message.body)) continue;
       const previous = items.at(-1);
-      if (message.body.kind === "Notification" && previous?.[0].body.kind === "Notification") {
+      if (message.body.kind === "Notification" && previous?.[0].body.kind === "Notification" &&
+          (!view.draft || (message.id > view.draft.afterId) === (previous[0].id > view.draft.afterId))) {
         previous.push(message);
       } else {
         items.push([message]);
@@ -49,6 +50,7 @@
     }
     return { items, loaded };
   });
+  const draftIndex = $derived(view.draft ? grouped.items.findIndex((messages) => messages.some((m) => m.id > view.draft!.afterId)) : -1);
   // 滚动容器 column-reverse：scrollTop 从底部起算（0 为底，向上为负）。贴底时内容变高仍停在底部，
   // 上方插入旧页、工具结果归并、图片加载都不移动视口，无需写 scrollTop——惯性滚动中写它会被 Safari 打断。
   // 只有不贴底时下方变高（实时消息）才把视口内首条消息放回原位。
@@ -184,6 +186,9 @@
         {/if}
       </div>
       {#each grouped.items as messages, i (messages[0].id)}
+        {#if view.draft && i === draftIndex}
+          <div><DraftView draft={view.draft} /></div>
+        {/if}
         {@const loaded = grouped.loaded.get(messages[0].id)}
         {@const prev = grouped.items[i - 1]?.[0].body.kind}
         {#if loaded !== undefined}
@@ -209,7 +214,7 @@
           </div>
         {/if}
       {/each}
-      {#if view.draft}
+      {#if view.draft && draftIndex === -1}
         <div><DraftView draft={view.draft} /></div>
       {/if}
       {#if running && !view.draft}

@@ -76,14 +76,14 @@ impl Store {
                             call.run_id.map(|r| r.0),
                             call_id.0,
                             row::payload(&body)?,
-                            call.finished_at,
+                            call.context_at,
                         ],
                     )?;
                     Some(Message {
                         id: MessageId(tx.last_insert_rowid()),
                         session_id: call.session_id,
                         body,
-                        created_at: call.finished_at,
+                        created_at: call.context_at,
                         delivered_at: None,
                     })
                 }

@@ -143,7 +143,7 @@ impl Exec<'_> {
         let retention = retain(
             &req.messages,
             &carried,
-            u64::from(self.context_window) * u64::from(self.settings.compaction.keep_percent) / 100,
+            self.settings.compaction.keep_percent,
         );
         let budget = u64::from(self.context_window) * COMPACTION_BUDGET_PERCENT / 100;
         let before = req.messages.len();
@@ -434,8 +434,9 @@ pub(crate) struct Retention {
     pub quoted: Vec<MessageId>,
 }
 
-/// `messages` 为请求顺序的完整历史（不含待回答输入），`carried` 为上一边界已替换的结果。
-pub(crate) fn retain(messages: &[Message], carried: &[MessageId], budget: u64) -> Retention {
+/// `messages` 为请求顺序的完整历史（不含待回答输入），`carried` 为上一边界已替换的结果；
+/// 预算 = 替换后整段历史估算 × `percent`。
+pub(crate) fn retain(messages: &[Message], carried: &[MessageId], percent: u8) -> Retention {
     let starts: Vec<usize> = messages
         .iter()
         .enumerate()
@@ -462,6 +463,7 @@ pub(crate) fn retain(messages: &[Message], carried: &[MessageId], budget: u64) -
             })
             .sum()
     };
+    let budget = size(0..messages.len()) * u64::from(percent) / 100;
     let mut keep = starts.len();
     if let Some(&last) = starts.last() {
         keep -= 1;

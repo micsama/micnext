@@ -163,7 +163,7 @@ pub enum RunInput {
 #[serde(deny_unknown_fields)]
 pub struct CompactionSettings {
     pub trigger_percent: u8,
-    /// 压缩时保留原文占窗口的百分比；最新一步总是保留。
+    /// 压缩时保留原文占当前历史的百分比；最新一步总是保留。
     pub keep_percent: u8,
 }
 

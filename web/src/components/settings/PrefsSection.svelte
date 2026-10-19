@@ -154,7 +154,7 @@
       {@render number("compaction-percent", draft.compaction.trigger_percent, "%", 1, 80, "compaction", (v) => save("compaction", { ...draft.compaction, trigger_percent: v }))}
     </div>
     <div class="flex items-center justify-between gap-4 px-4 py-3.5">
-      {@render label("保留原文", "压缩时按窗口比例保留最近的原文，至少保留最新一步")}
+      {@render label("保留原文", "压缩时按当前上下文长度的比例保留最近的原文，至少保留最新一步")}
       {@render number("compaction-keep", draft.compaction.keep_percent, "%", 0, 50, "compaction", (v) => save("compaction", { ...draft.compaction, keep_percent: v }))}
     </div>
     {#if status.compaction?.kind === "error"}

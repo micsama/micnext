@@ -16,7 +16,7 @@
 - `CompactionSettings { trigger_percent: u8, keep_percent: u8 }`，替换 `keep_steps: u32`。
 - HTTP 设置读写体 `compaction.keep_steps` → `compaction.keep_percent`，必填；Gateway 校验 0..=50，报错「保留原文比例须在 0 到 50 之间」。
 - 设置备份同字段改名。旧备份里的 `keep_steps` 不再识别，导入报格式错误（不留兼容分支）。
-- 设置页「对话」组：「保留步数」改为「保留原文」，单位 %，说明「压缩时按窗口比例保留最近的原文，至少保留最新一步」。
+- 设置页「对话」组：「保留步数」改为「保留原文」，单位 %，说明「压缩时按当前上下文长度的比例保留最近的原文，至少保留最新一步」。
 
 ### 2.2 压缩边界
 
@@ -70,7 +70,7 @@ User messages from the compacted conversation (verbatim, oldest first):
    - **新增**：`ToolResult` / `Completion` 中结果为 `Completed`、估算超过 `ELIDE_TOOL_TOKENS` 的消息。
 
    `Failed`、`Cancelled`、`Dispatched` 不替换。
-3. **保留段**：预算 = 窗口 × `keep_percent`。最新一步始终保留；往前逐步累加（按替换后的估算大小），整步放得下才保留，放不下即停。`keep_from` = 最早保留步的 `Reply` id；历史中没有 `Reply` 时为 `None`。
+3. **保留段**：预算 = 当前有效历史（不含待回答输入、按替换后估算、裁剪前）总量 × `keep_percent`（human 2026-10-19：按当前长度而非模型窗口，手动 `/compact` 时也一定变短）。最新一步始终保留；往前逐步累加（按替换后的估算大小），整步放得下才保留，放不下即停。`keep_from` = 最早保留步的 `Reply` id；历史中没有 `Reply` 时为 `None`。
 4. `elided` = 保留段内的替换候选（沿用 + 新增）；只有新增部分要求摘要提炼，沿用部分的要点已在上一份累积摘要里。
 5. `quoted` = 有效历史中 id < `keep_from`（`None` 时为全部）的 `UserInput`，排除本次待回答的输入（它们已按原规则作为新输入执行）。取自裁剪前的历史，总结请求因超长被裁掉的早期输入也会带回。
 

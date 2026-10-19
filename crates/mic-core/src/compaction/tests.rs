@@ -66,7 +66,7 @@ fn newest_step_is_kept_even_over_budget_and_earlier_steps_only_whole() {
         reply(5),
         result(6, output(30_000)),
     ];
-    let r = retain(&history, &[], 1_000);
+    let r = retain(&history, &[], 1);
     assert_eq!(r.keep_from, Some(MessageId(5)));
     assert_eq!(r.kept_replies, 1);
     assert!(r.elided.is_empty(), "最新一步不替换");
@@ -88,9 +88,9 @@ fn newest_step_is_kept_even_over_budget_and_earlier_steps_only_whole() {
         result(7, output(300)),
     ];
     // 第一步替换后很小，整步放得下；失败结果不替换，第二步放不下。
-    let r = retain(&history, &[], 5_000);
+    let r = retain(&history, &[], 10);
     assert_eq!(r.keep_from, Some(MessageId(6)));
-    let r = retain(&history, &[], 20_000);
+    let r = retain(&history, &[], 100);
     assert_eq!(r.keep_from, Some(MessageId(2)));
     assert_eq!(r.elided, [MessageId(3)]);
     assert_eq!(

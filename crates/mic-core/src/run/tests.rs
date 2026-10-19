@@ -1315,7 +1315,10 @@ async fn compaction_elides_old_outputs_quotes_inputs_and_keeps_elision_across_co
         reply("summary"),
         reply("summary 2"),
     ]);
+    let mut settings = f.claimed.settings.clone();
+    settings.compaction.keep_percent = 100;
     let mut exec = f.exec();
+    exec.settings = &settings;
     exec.tools = vec![ToolHandle::new(BigTool)];
     assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Completed);
     exec.pending_inputs.clear();

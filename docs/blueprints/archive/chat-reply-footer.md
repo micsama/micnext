@@ -1,6 +1,6 @@
 # B2：连续聊天流的回复悬停栏
 
-**状态：已实现，自动检查通过，待 human 页面验收（2026-10-20）；方向已确认：逐回复简要统计，删除聊天专用 run 统计旧路径，trace 保留完整细节。**
+**状态：CLOSED（2026-10-20，human 页面验收通过；fmt/clippy、Core/Store/Provider 测试与 Web check/build 通过）。方向：逐回复简要统计，删除聊天专用 run 统计旧路径，trace 保留完整细节。**
 
 ## 一、方向与运行语义
 
@@ -109,4 +109,4 @@ Human 验收：
 - `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo clippy --workspace --all-targets -- -D warnings` 通过。
 - Core 34 项、Store 17 项、Provider 10 项测试通过。Store 新增功能测试覆盖实时返回与分页/回读一致、重试请求隔离、缓存零/未知、停止后的未知用量、payload 无统计副本。Provider 本地端口测试获准在沙箱外运行后通过。
 - Web `bun run check` 与 `bun run build` 通过；窄屏悬停栏保持一行，可横向滚动。
-- 待 human 验收页面观感和真实环境。尚未 CLOSED，未提交。
+- 2026-10-20 human 页面验收通过，CLOSED。

@@ -116,10 +116,11 @@ pub(crate) async fn put_settings(
     body: Result<Json<SettingsBody>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let b = json(body)?;
-    if !(1..=80).contains(&b.compaction.trigger_percent) || b.compaction.keep_steps > 100 {
-        return Err(ApiError::BadRequest(
-            "压缩触发比例须在 1 到 80 之间，保留步数须在 0 到 100 之间".into(),
-        ));
+    if !(1..=80).contains(&b.compaction.trigger_percent) {
+        return Err(ApiError::BadRequest("压缩触发比例须在 1 到 80 之间".into()));
+    }
+    if b.compaction.keep_percent > 50 {
+        return Err(ApiError::BadRequest("保留原文比例须在 0 到 50 之间".into()));
     }
     if b.general_prompt.chars().count() > PROMPT_MAX_CHARS {
         return Err(ApiError::BadRequest(format!(

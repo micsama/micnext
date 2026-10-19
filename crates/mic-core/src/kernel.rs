@@ -621,8 +621,7 @@ impl Kernel {
             s,
             channel_prompt,
             &self.engine.scoped_tools(s),
-            window.summary.as_deref(),
-            &window.files,
+            &window,
         ))
     }
 
@@ -708,11 +707,19 @@ impl Kernel {
         let messages = match record.purpose {
             ModelCallPurpose::Compaction => {
                 let mut messages = request::arrange(window, &[]);
+                let kept_replies = messages
+                    .iter()
+                    .filter(|m| matches!(m.body, MessageBody::Reply { .. }))
+                    .filter(|m| context.keep_from.is_some_and(|k| m.id >= k))
+                    .count();
                 messages.drain(..context.skip as usize);
                 let instruction = self.store.messages_by_ids(context.instruction).await?;
+                let elide = self.store.messages_by_ids(context.elide).await?;
                 messages.push(crate::compaction::instruction_note(
                     record.session_id,
                     crate::compaction::extra_text(&instruction),
+                    kept_replies,
+                    &elide,
                 ));
                 messages
             }

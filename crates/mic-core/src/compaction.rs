@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use mic_message::{
-    Compaction, ContentPart, FileSnapshot, FileSnapshotOutcome, Message, MessageBody, MessageId,
-    ModelView, ReplyBlock, SessionCommand, SessionId, SnapshotExtent,
+    Compaction, ContentPart, ExecOutcome, FileSnapshot, FileSnapshotOutcome, Message, MessageBody,
+    MessageId, ModelView, ReplyBlock, SessionCommand, SessionId, SnapshotExtent, ToolResultOutcome,
 };
 use mic_store::{
     ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
@@ -12,14 +12,15 @@ use mic_tool::{ToolContext, ToolOutput};
 use serde::Serialize;
 
 use crate::attempt::{stream_attempt, Facts};
-use crate::context_usage::estimate_tokens;
+use crate::context_usage::{estimate_tokens, message_tokens};
 use crate::limits::{
-    COMPACTION_BUDGET_PERCENT, DEFAULT_CONTEXT_WINDOW, SNAPSHOT_BYTES, SNAPSHOT_FILES,
+    COMPACTION_BUDGET_PERCENT, DEFAULT_CONTEXT_WINDOW, ELIDE_TOOL_TOKENS, SNAPSHOT_BYTES,
+    SNAPSHOT_FILES,
 };
 use crate::run::{now_ms, Engine, Exec};
 use crate::{request, ModelRequest, ModelResponse, Provider, StopReason, ToolChoice};
 
-const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Incorporate the earlier summary cumulatively. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to continuing the current task. The additional user input is for focus; it will be processed after compaction.";
+const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Copy hard facts verbatim: file paths, exact error messages, explicit user constraints, unfinished tasks. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to continuing the current task. The additional user input is for focus; it will be processed after compaction.";
 
 /// 当前上下文占用，口径同自动压缩判定。契约：docs/blueprints/chat-run-stats.md §二。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -127,19 +128,25 @@ impl Exec<'_> {
         provider: &dyn Provider,
     ) -> Result<Result<(), RunState>, StoreError> {
         let (mut req, mut context) = self.history_request().await?;
+        let carried = match context.boundary_id {
+            Some(id) => self
+                .engine
+                .store
+                .context_view(self.session.id)
+                .await?
+                .compactions
+                .into_iter()
+                .find(|c| c.boundary_id == id)
+                .map_or_else(Vec::new, |c| c.result.elided),
+            None => Vec::new(),
+        };
+        let retention = retain(
+            &req.messages,
+            &carried,
+            u64::from(self.context_window) * u64::from(self.settings.compaction.keep_percent) / 100,
+        );
         let budget = u64::from(self.context_window) * COMPACTION_BUDGET_PERCENT / 100;
         let before = req.messages.len();
-        // 刚返回、工具结果尚未到的回复原样保留，结果接上时调用仍在窗口内；裁剪前认定。
-        let open = req
-            .messages
-            .last()
-            .filter(|m| match &m.body {
-                MessageBody::Reply { blocks, .. } => blocks
-                    .iter()
-                    .any(|b| matches!(b, ReplyBlock::ToolCall { .. })),
-                _ => false,
-            })
-            .map(|m| m.id);
         while estimate_tokens(&req) > budget && !req.messages.is_empty() {
             let first_reply = req
                 .messages
@@ -158,27 +165,20 @@ impl Exec<'_> {
             req.messages.drain(..cut);
         }
         context.skip = (before - req.messages.len()) as u32;
-        let steps: Vec<_> = req
-            .messages
-            .iter()
-            .filter(|m| matches!(m.body, MessageBody::Reply { .. }))
-            .map(|m| m.id)
-            .collect();
-        let n = self.settings.compaction.keep_steps as usize;
-        let keep_from = if n == 0 {
-            None
-        } else {
-            steps.get(steps.len().saturating_sub(n)).copied()
-        };
-        let keep_from = [keep_from, open].into_iter().flatten().min();
         let pending = self
             .engine
             .store
             .messages_by_ids(self.pending_inputs.clone())
             .await?;
         context.instruction = pending.iter().map(|m| m.id).collect();
-        req.messages
-            .push(instruction_note(self.session.id, extra_text(&pending)));
+        context.keep_from = retention.keep_from;
+        context.elide = retention.elide.iter().map(|m| m.id).collect();
+        req.messages.push(instruction_note(
+            self.session.id,
+            extra_text(&pending),
+            retention.kept_replies,
+            &retention.elide,
+        ));
         req.tool_choice = ToolChoice::None;
         let caller = self.caller(provider);
         let mut attempt = 1;
@@ -225,8 +225,10 @@ impl Exec<'_> {
                                     self.run.id,
                                     Compaction {
                                         summary,
-                                        keep_from,
+                                        keep_from: retention.keep_from,
                                         files,
+                                        elided: retention.elided,
+                                        quoted: retention.quoted,
                                     },
                                     self.pending_inputs.clone(),
                                     call,
@@ -381,12 +383,36 @@ pub(crate) fn extra_text(messages: &[Message]) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
-/// 压缩请求末尾的指令消息。
-pub(crate) fn instruction_note(session: SessionId, extra: Option<String>) -> Message {
-    let text = match extra {
-        Some(text) => format!("{SUMMARY_PROMPT}\n\nAdditional user input:\n{text}"),
-        None => SUMMARY_PROMPT.into(),
-    };
+/// 压缩请求末尾的指令消息；执行与 Trace 重建共用。
+pub(crate) fn instruction_note(
+    session: SessionId,
+    extra: Option<String>,
+    kept_replies: usize,
+    elide: &[Message],
+) -> Message {
+    let mut text = String::from(SUMMARY_PROMPT);
+    if kept_replies > 0 {
+        text += &format!("\n\nThe last {kept_replies} assistant replies and their tool results will be kept verbatim after compaction; summarize what comes before them and do not restate them.");
+    }
+    if !elide.is_empty() {
+        text += "\n\nThese kept tool results will be replaced by placeholders after compaction. Extract from them what is needed to continue the work:";
+        for m in elide {
+            match &m.body {
+                MessageBody::ToolResult {
+                    tool_name,
+                    tool_call_id,
+                    ..
+                } => text += &format!("\n- {tool_name} (tool_call_id {tool_call_id})"),
+                MessageBody::Completion {
+                    tool_name, exec_id, ..
+                } => text += &format!("\n- {tool_name} (exec_id {exec_id})"),
+                _ => unreachable!("只替换工具结果"),
+            }
+        }
+    }
+    if let Some(extra) = extra {
+        text += &format!("\n\nAdditional user input:\n{extra}");
+    }
     Message {
         id: MessageId(0),
         session_id: session,
@@ -394,6 +420,102 @@ pub(crate) fn instruction_note(session: SessionId, extra: Option<String>) -> Mes
         created_at: now_ms(),
         delivered_at: None,
     }
+}
+
+/// 压缩后留下什么。契约：docs/blueprints/compaction-retention.md §三。
+#[derive(Debug)]
+pub(crate) struct Retention {
+    pub keep_from: Option<MessageId>,
+    pub kept_replies: usize,
+    /// 保留段内换成占位的结果：沿用上一边界的与本次新增的。
+    pub elided: Vec<MessageId>,
+    /// 本次新增替换的结果原文，按 id。
+    pub elide: Vec<Message>,
+    pub quoted: Vec<MessageId>,
+}
+
+/// `messages` 为请求顺序的完整历史（不含待回答输入），`carried` 为上一边界已替换的结果。
+pub(crate) fn retain(messages: &[Message], carried: &[MessageId], budget: u64) -> Retention {
+    let starts: Vec<usize> = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| matches!(m.body, MessageBody::Reply { .. }))
+        .map(|(i, _)| i)
+        .collect();
+    let newest = starts.last().copied().unwrap_or(messages.len());
+    let fresh = |i: usize| {
+        i < newest
+            && !carried.contains(&messages[i].id)
+            && completed_output(&messages[i])
+            && message_tokens(&messages[i]) > ELIDE_TOOL_TOKENS
+    };
+    let size = |range: std::ops::Range<usize>| -> u64 {
+        range
+            .map(|i| {
+                if fresh(i) {
+                    let mut m = messages[i].clone();
+                    m.elide_output();
+                    message_tokens(&m)
+                } else {
+                    message_tokens(&messages[i])
+                }
+            })
+            .sum()
+    };
+    let mut keep = starts.len();
+    if let Some(&last) = starts.last() {
+        keep -= 1;
+        let mut used = size(last..messages.len());
+        while keep > 0 {
+            let step = size(starts[keep - 1]..starts[keep]);
+            if used + step > budget {
+                break;
+            }
+            used += step;
+            keep -= 1;
+        }
+    }
+    let keep_from = starts.get(keep).map(|&i| messages[i].id);
+    let segment = starts.get(keep).map_or(messages.len(), |&i| i)..messages.len();
+    let mut elided = Vec::new();
+    let mut elide = Vec::new();
+    for i in segment {
+        if carried.contains(&messages[i].id) {
+            elided.push(messages[i].id);
+        } else if fresh(i) {
+            elided.push(messages[i].id);
+            elide.push(messages[i].clone());
+        }
+    }
+    elided.sort();
+    elide.sort_by_key(|m| m.id);
+    let mut quoted: Vec<MessageId> = messages
+        .iter()
+        .filter(|m| matches!(m.body, MessageBody::UserInput { .. }))
+        .filter(|m| keep_from.is_none_or(|k| m.id < k))
+        .map(|m| m.id)
+        .collect();
+    quoted.sort();
+    Retention {
+        keep_from,
+        kept_replies: starts.len() - keep,
+        elided,
+        elide,
+        quoted,
+    }
+}
+
+fn completed_output(message: &Message) -> bool {
+    matches!(
+        message.body,
+        MessageBody::ToolResult {
+            outcome: ToolResultOutcome::Terminal(ExecOutcome::Completed { .. }),
+            ..
+        } | MessageBody::Completion {
+            outcome: ExecOutcome::Completed { .. },
+            ..
+        }
+    )
 }
 
 fn parse_summary(response: &ModelResponse) -> Result<(String, Vec<String>), String> {
@@ -437,3 +559,6 @@ fn parse_summary(response: &ModelResponse) -> Result<(String, Vec<String>), Stri
     }
     Ok((summary, paths))
 }
+
+#[cfg(test)]
+mod tests;

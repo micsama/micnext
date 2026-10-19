@@ -53,7 +53,7 @@ async fn populated() -> Store {
             max_turns: 12,
             compaction: CompactionSettings {
                 trigger_percent: 60,
-                keep_steps: 10,
+                keep_percent: 10,
             },
         })
         .await

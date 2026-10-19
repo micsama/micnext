@@ -11,6 +11,11 @@ use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
 use serde::Serialize;
 
+use crate::context_usage::text_tokens;
+use crate::limits::{
+    ASCII_BYTES_PER_TOKEN, NON_ASCII_TOKENS, QUOTE_FULL_TOKENS, QUOTE_HEAD_TOKENS,
+    QUOTE_TAIL_TOKENS,
+};
 use crate::{ModelRequest, ToolChoice};
 
 const BASE_PROMPT: &str = include_str!("prompts/system.md");
@@ -137,15 +142,7 @@ pub(crate) fn build(
 ) -> ModelRequest {
     ModelRequest {
         tool_choice: ToolChoice::Auto,
-        system: system_prompt(
-            settings,
-            session,
-            channel_prompt,
-            tools,
-            window.summary.as_deref(),
-            &window.files,
-        )
-        .render(),
+        system: system_prompt(settings, session, channel_prompt, tools, &window).render(),
         messages: arrange(window.messages, tail),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
@@ -160,8 +157,7 @@ pub(crate) fn system_prompt(
     session: &mic_store::Session,
     channel_prompt: Option<&str>,
     tools: &[ToolHandle],
-    summary: Option<&str>,
-    files: &[mic_message::FileSnapshot],
+    window: &ContextWindow,
 ) -> SystemPrompt {
     use PromptPartKind::*;
     let part = |kind, text: String| PromptPart { kind, text };
@@ -186,13 +182,28 @@ pub(crate) fn system_prompt(
             .filter_map(|t| t.prompt_hint())
             .map(|h| part(Tools, h.to_owned())),
     );
-    if let Some(summary) = summary {
+    if let Some(summary) = &window.summary {
         context.push(part(
             Summary,
             format!("Summary of the earlier conversation:\n{summary}"),
         ));
     }
-    for file in files {
+    if !window.quoted.is_empty() {
+        let lines: Vec<String> = window
+            .quoted
+            .iter()
+            .enumerate()
+            .map(|(i, m)| format!("[{}] {}", i + 1, quote(m)))
+            .collect();
+        context.push(part(
+            Summary,
+            format!(
+                "User messages from the compacted conversation (verbatim, oldest first):\n{}",
+                lines.join("\n")
+            ),
+        ));
+    }
+    for file in &window.files {
         let content = match &file.outcome {
             mic_message::FileSnapshotOutcome::Read { text, extent } => {
                 format!("{text}\nSnapshot extent: {extent:?}")
@@ -221,6 +232,47 @@ pub(crate) fn system_prompt(
             .map(|(kind, parts)| PromptBlock { kind, parts })
             .collect(),
     }
+}
+
+/// 带回的一条用户原话：附件只写标注；超长的只留首尾。
+fn quote(message: &Message) -> String {
+    let MessageBody::UserInput { parts, .. } = &message.body else {
+        unreachable!("带回的只有 UserInput")
+    };
+    let text = parts
+        .iter()
+        .map(|p| match p {
+            ContentPart::Text { text } => text.clone(),
+            ContentPart::Image(_) => "[图片]".into(),
+            ContentPart::File(f) => format!("[文件：{}]", f.path),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if text_tokens(&text) <= QUOTE_FULL_TOKENS {
+        return text;
+    }
+    let head = token_prefix(text.chars(), QUOTE_HEAD_TOKENS);
+    let tail = token_prefix(text.chars().rev(), QUOTE_TAIL_TOKENS);
+    let (head, rest) = text.split_at(head);
+    let (middle, tail) = rest.split_at(rest.len() - tail);
+    format!("{head}……（省略约 {} token）……{tail}", text_tokens(middle))
+}
+
+/// 按估算口径，从迭代起点起不超过 `budget` token 的字节数。
+fn token_prefix(chars: impl Iterator<Item = char>, budget: u64) -> usize {
+    let (mut ascii, mut other, mut bytes) = (0u64, 0u64, 0usize);
+    for c in chars {
+        if c.is_ascii() {
+            ascii += 1;
+        } else {
+            other += 1;
+        }
+        if ascii.div_ceil(ASCII_BYTES_PER_TOKEN) + other * NON_ASCII_TOKENS > budget {
+            break;
+        }
+        bytes += c.len_utf8();
+    }
+    bytes
 }
 
 /// 请求里的消息顺序：先 `order`，再把本步待处理输入（`tail`）按原相对顺序挪到末尾。

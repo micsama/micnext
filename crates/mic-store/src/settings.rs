@@ -17,14 +17,14 @@ impl Store {
             tx.execute(
                 "UPDATE core_settings
                  SET default_persona_id = ?1, general_prompt = ?2, default_workdir = ?3,
-                     max_turns = ?4, compaction_trigger_percent = ?5, compaction_keep_steps = ?6",
+                     max_turns = ?4, compaction_trigger_percent = ?5, compaction_keep_percent = ?6",
                 params![
                     s.default_persona.0,
                     s.general_prompt,
                     s.default_workdir,
                     s.max_turns,
                     s.compaction.trigger_percent,
-                    s.compaction.keep_steps
+                    s.compaction.keep_percent
                 ],
             )?;
             tx.commit()?;
@@ -137,7 +137,7 @@ impl Store {
 
 pub(crate) fn read_settings(conn: &Connection) -> rusqlite::Result<Settings> {
     conn.query_row(
-        "SELECT default_persona_id, general_prompt, default_workdir, max_turns, compaction_trigger_percent, compaction_keep_steps FROM core_settings",
+        "SELECT default_persona_id, general_prompt, default_workdir, max_turns, compaction_trigger_percent, compaction_keep_percent FROM core_settings",
         [],
         |r| {
             Ok(Settings {
@@ -145,7 +145,7 @@ pub(crate) fn read_settings(conn: &Connection) -> rusqlite::Result<Settings> {
                 general_prompt: r.get(1)?,
                 default_workdir: r.get(2)?,
                 max_turns: r.get(3)?,
-                compaction: CompactionSettings { trigger_percent: r.get(4)?, keep_steps: r.get(5)? },
+                compaction: CompactionSettings { trigger_percent: r.get(4)?, keep_percent: r.get(5)? },
             })
         },
     )

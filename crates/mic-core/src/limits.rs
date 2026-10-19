@@ -16,6 +16,12 @@ pub(crate) const COMPACTION_BUDGET_PERCENT: u64 = 80;
 pub(crate) const ASCII_BYTES_PER_TOKEN: u64 = 3;
 pub(crate) const NON_ASCII_TOKENS: u64 = 2;
 pub(crate) const IMAGE_TOKENS: u64 = 4096;
+/// 压缩：保留段里超过此估算的完成态工具结果换成占位（最新一步除外）。
+pub(crate) const ELIDE_TOOL_TOKENS: u64 = 2_000;
+/// 压缩：带回的用户原话不超过此估算放全文，否则只留首尾。
+pub(crate) const QUOTE_FULL_TOKENS: u64 = 500;
+pub(crate) const QUOTE_HEAD_TOKENS: u64 = 300;
+pub(crate) const QUOTE_TAIL_TOKENS: u64 = 150;
 pub(crate) const SNAPSHOT_FILES: usize = 8;
 pub(crate) const SNAPSHOT_BYTES: usize = 64 * 1024;
 /// 标题取材：用户文字合计保留最近部分；每条回复保留开头。

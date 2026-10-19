@@ -766,10 +766,11 @@ impl Store {
 
     pub async fn call_record(&self, id: ModelCallId) -> Result<Option<CallRecord>, StoreError> {
         self.call(move |conn| {
-            let Some((session_id, purpose, boundary_id, through, skip, reply)) = conn
+            let Some((session_id, purpose, boundary_id, through, skip, reply, keep_from)) = conn
                 .query_row(
                     "SELECT session_id, purpose, context_boundary_id, context_through_id, context_skip,
-                       (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'Reply')
+                       (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'Reply'),
+                       context_keep_from
                      FROM core_model_calls c WHERE id = ?1",
                     [id.0],
                     |r| {
@@ -780,6 +781,7 @@ impl Store {
                             r.get::<_, Option<i64>>(3)?.map(MessageId),
                             r.get::<_, u32>(4)?,
                             r.get::<_, Option<i64>>(5)?.map(MessageId),
+                            r.get::<_, Option<i64>>(6)?.map(MessageId),
                         ))
                     },
                 )
@@ -791,6 +793,7 @@ impl Store {
                 boundary_id,
                 through,
                 skip,
+                keep_from,
                 ..Default::default()
             };
             let mut stmt =
@@ -801,6 +804,7 @@ impl Store {
                 let list = match role.as_str() {
                     "excluded" => &mut context.excluded,
                     "tail" => &mut context.tail,
+                    "elide" => &mut context.elide,
                     _ => &mut context.instruction,
                 };
                 list.push(MessageId(message));

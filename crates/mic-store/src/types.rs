@@ -163,7 +163,8 @@ pub enum RunInput {
 #[serde(deny_unknown_fields)]
 pub struct CompactionSettings {
     pub trigger_percent: u8,
-    pub keep_steps: u32,
+    /// 压缩时保留原文占窗口的百分比；最新一步总是保留。
+    pub keep_percent: u8,
 }
 
 /// 人设：名字 + 提示词。内置的只读；删除为软删除，按 id 仍可读。
@@ -346,7 +347,10 @@ pub struct ContextWindow {
     /// 当前有效压缩边界的摘要。
     pub summary: Option<String>,
     /// 当前有效历史与边界保留的输入，按 id；包含 held 输入，排除仍待调度的输入。
+    /// 边界 `elided` 的工具结果已换成占位。
     pub messages: Vec<Message>,
+    /// 当前有效压缩边界带回的用户原话，按 id。
+    pub quoted: Vec<Message>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -382,6 +386,10 @@ pub struct ModelCallContext {
     pub tail: Vec<MessageId>,
     /// 压缩附加文字的来源消息。
     pub instruction: Vec<MessageId>,
+    /// 压缩：保留段起点。
+    pub keep_from: Option<MessageId>,
+    /// 压缩：本次新增替换、要求摘要提炼的工具结果。
+    pub elide: Vec<MessageId>,
 }
 
 /// 当前有效边界下最近一次成功对话调用的上游用量。

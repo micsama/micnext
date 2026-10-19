@@ -6,6 +6,10 @@
   const compactionState = $derived(view.context?.compactions.find((c) => c.boundary_id === id)?.state);
   const revoked = $derived(compactionState?.kind === "revoked");
   const canRevoke = $derived(view.info?.writable && compactionState?.kind === "applied" && view.context?.active_boundary === id);
+  const retained = $derived([
+    result.elided.length ? `省略 ${result.elided.length} 条工具输出` : "",
+    result.quoted.length ? `带回 ${result.quoted.length} 条用户原话` : "",
+  ].filter(Boolean).join(" · "));
   let error = $state<string | null>(null);
   async function revoke() {
     error = null;
@@ -23,6 +27,7 @@
   </summary>
   <div class="mt-3 space-y-4 rounded-xl border border-border px-4 py-3">
     <Markdown source={result.summary} />
+    {#if retained}<p class="text-xs text-muted-foreground">{retained}</p>{/if}
     {#each result.files as file (file.path)}
       <details class="rounded-lg border border-border">
         <summary class="cursor-pointer px-3 py-2 font-mono text-xs">{file.path}</summary>

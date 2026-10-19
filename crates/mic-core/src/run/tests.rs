@@ -1000,7 +1000,7 @@ async fn compaction_right_after_tool_call_keeps_the_call_for_its_result() {
         reply("done"),
     ]);
     let mut settings = f.claimed.settings.clone();
-    settings.compaction.keep_steps = 0;
+    settings.compaction.keep_percent = 0;
     let mut exec = f.exec();
     exec.settings = &settings;
     exec.tools = vec![ToolHandle::new(TimedTool)];
@@ -1266,4 +1266,93 @@ async fn text_only_model_sees_image_placeholders() {
         &parts(&window)[..],
         [mic_message::ContentPart::Text { text }] if text.contains("不支持查看")
     ));
+}
+
+struct BigTool;
+impl mic_tool::Tool for BigTool {
+    type Args = HashMap<String, usize>;
+    fn name(&self) -> &str {
+        "big"
+    }
+    fn description(&self) -> &str {
+        "test output size"
+    }
+    fn prompt_hint(&self) -> Option<&str> {
+        None
+    }
+    async fn execute(
+        &self,
+        args: Self::Args,
+        _: &ToolContext,
+    ) -> Result<mic_tool::ToolOutput, mic_tool::ToolError> {
+        Ok(mic_tool::ToolOutput::Completed(vec![
+            mic_message::ContentPart::Text {
+                text: "x".repeat(args["n"]),
+            },
+        ]))
+    }
+}
+
+fn call_big(id: &str) -> Vec<Result<ModelEvent, ProviderError>> {
+    vec![Ok(ModelEvent::Finished(ModelResponse {
+        blocks: vec![ReplyBlock::ToolCall {
+            id: id.into(),
+            name: "big".into(),
+            args: serde_json::json!({ "n": 9000 }),
+        }],
+        stop: StopReason::ToolUse,
+    }))]
+}
+
+#[tokio::test]
+async fn compaction_elides_old_outputs_quotes_inputs_and_keeps_elision_across_compactions() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![
+        call_big("a"),
+        call_big("b"),
+        reply("done"),
+        failed(),
+        reply("summary"),
+        reply("summary 2"),
+    ]);
+    let mut exec = f.exec();
+    exec.tools = vec![ToolHandle::new(BigTool)];
+    assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Completed);
+    exec.pending_inputs.clear();
+    exec.compact(&provider).await.unwrap().unwrap();
+
+    let window = f.store.context_window(f.session.id).await.unwrap();
+    let results: Vec<_> = window
+        .messages
+        .iter()
+        .filter(|m| matches!(m.body, MessageBody::ToolResult { .. }))
+        .collect();
+    assert_eq!(results.len(), 2);
+    for m in &results {
+        let Some(mic_message::ModelView::Tool { output, .. }) = m.model_view() else {
+            panic!()
+        };
+        assert!(
+            matches!(&output[..], [mic_message::ContentPart::Text { text }] if text.contains("omitted at compaction (9000 chars)"))
+        );
+    }
+    let ids: Vec<_> = results.iter().map(|m| m.id).collect();
+    assert_eq!(window.quoted.len(), 1);
+    let view = f.store.context_view(f.session.id).await.unwrap();
+    assert_eq!(view.compactions[0].result.elided, ids);
+
+    exec.compact(&provider).await.unwrap().unwrap();
+    let view = f.store.context_view(f.session.id).await.unwrap();
+    assert_eq!(view.compactions[1].result.elided, ids);
+    assert!(view.compactions[1].result.quoted.is_empty());
+
+    let calls = f.verify(&provider).await;
+    let elide = |i: usize| {
+        let id = calls[i].id;
+        let store = f.store.clone();
+        async move { store.call_record(id).await.unwrap().unwrap().context.elide }
+    };
+    assert_eq!(elide(3).await, ids, "失败的压缩调用同样记下");
+    assert_eq!(elide(4).await, ids);
+    assert!(elide(5).await.is_empty(), "沿用的替换不再要求提炼");
 }

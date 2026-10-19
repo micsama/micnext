@@ -26,7 +26,30 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_JOBS,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 13,
+        sql: CORE_RETENTION,
+        secret_columns: &[],
+    },
 ];
+
+/// 压缩保留按窗口比例；调用记录补压缩指令的重建事实。
+const CORE_RETENTION: &str = "
+ALTER TABLE core_settings DROP COLUMN compaction_keep_steps;
+ALTER TABLE core_settings ADD COLUMN compaction_keep_percent INTEGER NOT NULL DEFAULT 15
+  CHECK(compaction_keep_percent BETWEEN 0 AND 50);
+ALTER TABLE core_model_calls ADD COLUMN context_keep_from INTEGER REFERENCES core_messages(id);
+CREATE TABLE core_model_call_inputs_v13 (
+  call_id     INTEGER NOT NULL REFERENCES core_model_calls(id),
+  message_id  INTEGER NOT NULL REFERENCES core_messages(id),
+  role        TEXT NOT NULL CHECK(role IN ('excluded', 'tail', 'instruction', 'elide')),
+  PRIMARY KEY (call_id, message_id, role)
+);
+INSERT INTO core_model_call_inputs_v13 SELECT call_id, message_id, role FROM core_model_call_inputs;
+DROP TABLE core_model_call_inputs;
+ALTER TABLE core_model_call_inputs_v13 RENAME TO core_model_call_inputs;
+";
 
 /// 后台任务；输出在数据目录 `jobs/<id>/`，不进库。
 const CORE_JOBS: &str = "

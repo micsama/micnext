@@ -86,6 +86,35 @@ impl Message {
     }
 }
 
+impl Message {
+    /// 压缩后保留段里的工具结果：`Completed` 输出换成一行占位，原长按字符计。
+    pub fn elide_output(&mut self) {
+        let (tool_name, output) = match &mut self.body {
+            MessageBody::ToolResult {
+                tool_name,
+                outcome: ToolResultOutcome::Terminal(ExecOutcome::Completed { output }),
+                ..
+            }
+            | MessageBody::Completion {
+                tool_name,
+                outcome: ExecOutcome::Completed { output },
+                ..
+            } => (tool_name, output),
+            _ => return,
+        };
+        let chars: usize = output
+            .iter()
+            .map(|p| match p {
+                ContentPart::Text { text } => text.chars().count(),
+                _ => 0,
+            })
+            .sum();
+        *output = vec![text(format!(
+            "[Output of {tool_name} omitted at compaction ({chars} chars). Key points are in the summary.]"
+        ))];
+    }
+}
+
 fn outcome_parts(outcome: &ExecOutcome) -> Vec<ContentPart> {
     match outcome {
         ExecOutcome::Completed { output } => output.clone(),

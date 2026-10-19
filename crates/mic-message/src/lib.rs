@@ -140,6 +140,12 @@ pub struct Compaction {
     pub summary: String,
     pub keep_from: Option<MessageId>,
     pub files: Vec<FileSnapshot>,
+    /// 保留段里换成占位的工具结果（`ToolResult` / `Completion`）。
+    #[serde(default)]
+    pub elided: Vec<MessageId>,
+    /// 压掉范围内带回原文的用户输入。
+    #[serde(default)]
+    pub quoted: Vec<MessageId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

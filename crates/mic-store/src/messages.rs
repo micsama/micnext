@@ -102,18 +102,7 @@ impl Store {
 
     /// 按 id 取消息，id 升序；不存在的 id 跳过。
     pub async fn messages_by_ids(&self, ids: Vec<MessageId>) -> Result<Vec<Message>, StoreError> {
-        self.call(move |conn| {
-            let mut stmt = conn.prepare(&format!(
-                "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.id = ?1"
-            ))?;
-            let mut out = Vec::with_capacity(ids.len());
-            for id in ids {
-                out.extend(stmt.query_row([id.0], row::message).optional()?);
-            }
-            out.sort_by_key(|m| m.id);
-            Ok(out)
-        })
-        .await
+        self.call(move |conn| read_messages(conn, &ids)).await
     }
 
     /// 稳定回放（含 `Boundary`，不含 `SideOutput`）；游标只能是消息 id，实时增量不作游标。
@@ -255,4 +244,20 @@ pub(crate) fn cut_page(
         messages: newest_first,
         has_earlier,
     }
+}
+
+/// 按 id 读消息，缺失的略过，按 id 排序。
+pub(crate) fn read_messages(
+    conn: &Connection,
+    ids: &[MessageId],
+) -> Result<Vec<Message>, StoreError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.id = ?1"
+    ))?;
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        out.extend(stmt.query_row([id.0], row::message).optional()?);
+    }
+    out.sort_by_key(|m| m.id);
+    Ok(out)
 }

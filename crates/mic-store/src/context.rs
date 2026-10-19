@@ -1,10 +1,10 @@
 use mic_message::{
-    Compaction, ContextBoundary, FileSnapshot, Message, MessageBody, MessageId, PersonId,
-    SessionCommand, SessionId,
+    Compaction, ContextBoundary, Message, MessageBody, MessageId, PersonId, SessionCommand,
+    SessionId,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::messages::insert_message;
+use crate::messages::{insert_message, read_messages};
 use crate::row::{self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, UNCLAIMED};
 use crate::{
     CompactionState, CompactionView, ContextCommandError, ContextUsage, ContextView, ContextWindow,
@@ -44,10 +44,10 @@ impl Store {
         self.call(move |conn| {
             let boundary = active_boundary(conn, session)?;
             let boundary_id = boundary.as_ref().map(|m| m.id);
-            let (start, summary, files) = window_start(boundary);
+            let start = window_start(boundary);
             let mut messages = Vec::new();
             let mut skipped = Vec::new();
-            for (message, filtered) in read_range(conn, session, start, boundary_id, None)? {
+            for (message, filtered) in read_range(conn, session, &start, boundary_id, None)? {
                 if filtered {
                     skipped.push(message.id);
                 } else {
@@ -59,12 +59,21 @@ impl Store {
                 .into_iter()
                 .filter(|id| through.is_some_and(|t| *id < t))
                 .collect();
+            let quoted = match &start.compaction {
+                Some(c) => read_messages(conn, &c.quoted)?,
+                None => Vec::new(),
+            };
+            let (summary, files) = match start.compaction {
+                Some(c) => (Some(c.summary), c.files),
+                None => (None, Vec::new()),
+            };
             Ok(ContextWindow {
                 boundary_id,
                 summary,
                 files,
                 messages,
                 filtered,
+                quoted,
             })
         })
         .await
@@ -116,8 +125,8 @@ impl Store {
                 )?),
                 None => None,
             };
-            let (start, ..) = window_start(boundary_message);
-            Ok(read_range(conn, session, start, boundary, Some(through))?
+            let start = window_start(boundary_message);
+            Ok(read_range(conn, session, &start, boundary, Some(through))?
                 .into_iter()
                 .map(|(message, _)| message)
                 .collect())
@@ -137,6 +146,7 @@ impl Store {
         self.call(move |conn| {
             let tx = conn.transaction()?;
             let call_id = insert_call(&tx, &call)?;
+            let (elided, quoted) = (result.elided.clone(), result.quoted.clone());
             let kept: u32 = match result.keep_from {
                 Some(start) => tx.query_row("SELECT count(*) FROM core_messages WHERE session_id = ?1 AND kind = 'Reply' AND id >= ?2", params![session.0, start.0], |r| r.get(0))?,
                 None => 0,
@@ -147,7 +157,14 @@ impl Store {
             for input in unanswered {
                 tx.execute("INSERT OR IGNORE INTO core_boundary_inputs VALUES (?1, ?2)", params![boundary.id.0, input.0])?;
             }
-            let notice = append(&tx, session, run, notice(format!("已压缩上下文，保留最近 {kept} 步。")), now)?;
+            let mut text = format!("已压缩上下文，保留最近 {kept} 步");
+            if !elided.is_empty() {
+                text += &format!("，省略 {} 条工具输出", elided.len());
+            }
+            if !quoted.is_empty() {
+                text += &format!("，带回 {} 条用户原话", quoted.len());
+            }
+            let notice = append(&tx, session, run, notice(text + "。"), now)?;
             tx.commit()?;
             Ok(vec![boundary, notice])
         }).await
@@ -248,8 +265,13 @@ fn notice(text: String) -> MessageBody {
     }
 }
 
-/// 起点（含）、摘要与文件快照：压缩边界按 `keep_from`，其余边界之后全部。
-fn window_start(boundary: Option<Message>) -> (i64, Option<String>, Vec<FileSnapshot>) {
+/// 窗口起点（含）与当前压缩边界：压缩边界按 `keep_from`，其余边界之后全部。
+struct WindowStart {
+    start: i64,
+    compaction: Option<Compaction>,
+}
+
+fn window_start(boundary: Option<Message>) -> WindowStart {
     match boundary {
         Some(Message {
             id,
@@ -258,33 +280,47 @@ fn window_start(boundary: Option<Message>) -> (i64, Option<String>, Vec<FileSnap
                     boundary: ContextBoundary::Compaction(result),
                 },
             ..
-        }) => (
-            result.keep_from.map_or(id.0 + 1, |m| m.0),
-            Some(result.summary),
-            result.files,
-        ),
-        Some(message) => (message.id.0 + 1, None, Vec::new()),
-        None => (0, None, Vec::new()),
+        }) => WindowStart {
+            start: result.keep_from.map_or(id.0 + 1, |m| m.0),
+            compaction: Some(result),
+        },
+        Some(message) => WindowStart {
+            start: message.id.0 + 1,
+            compaction: None,
+        },
+        None => WindowStart {
+            start: 0,
+            compaction: None,
+        },
     }
 }
 
-/// 窗口范围内的全部消息（按 id，至多到 `through`）；布尔值 = 未认领且非 held，对话窗口不可见。
+/// 窗口范围内的全部消息（按 id，至多到 `through`），边界 `elided` 已换成占位；
+/// 布尔值 = 未认领且非 held，对话窗口不可见。
 fn read_range(
     conn: &Connection,
     session: SessionId,
-    start: i64,
+    start: &WindowStart,
     boundary: Option<MessageId>,
     through: Option<MessageId>,
 ) -> Result<Vec<(Message, bool)>, StoreError> {
-    Ok(conn.prepare(&format!(
+    let mut rows = conn.prepare(&format!(
         "SELECT {MESSAGE_COLS}, ({UNCLAIMED}) AND NOT ({HELD_INPUT}) FROM {MESSAGE_FROM}
          WHERE m.session_id = ?1
            AND (m.id >= ?2 OR EXISTS (SELECT 1 FROM core_boundary_inputs b WHERE b.boundary_id = ?3 AND b.message_id = m.id))
            AND m.id <= ?4 ORDER BY m.id"
     ))?.query_map(
-        params![session.0, start, boundary.map(|id| id.0), through.map_or(i64::MAX, |id| id.0)],
+        params![session.0, start.start, boundary.map(|id| id.0), through.map_or(i64::MAX, |id| id.0)],
         |r| Ok((row::message(r)?, r.get(6)?)),
-    )?.collect::<rusqlite::Result<Vec<_>>>()?)
+    )?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if let Some(c) = &start.compaction {
+        for (message, _) in &mut rows {
+            if c.elided.contains(&message.id) {
+                message.elide_output();
+            }
+        }
+    }
+    Ok(rows)
 }
 
 pub(crate) fn insert_call(
@@ -302,17 +338,18 @@ pub(crate) fn insert_call(
         "INSERT INTO core_model_calls
            (session_id, run_id, purpose, model, model_id, reasoning_effort, error, stop,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
-            started_at, first_output_at, finished_at, context_boundary_id, context_through_id, context_skip)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+            started_at, first_output_at, finished_at, context_boundary_id, context_through_id, context_skip, context_keep_from)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
         params![call.session_id.0, call.run_id.map(|r| r.0), call.purpose, call.model, call.model_id.map(|id| id.0), call.reasoning_effort, error, call.stop,
             tokens(|u| Some(u.input_tokens)), tokens(|u| Some(u.output_tokens)), tokens(|u| u.cache_read_tokens), tokens(|u| u.cache_write_tokens), tokens(|u| u.reasoning_tokens),
-            call.started_at, call.first_output_at, call.finished_at, context.boundary_id.map(|id| id.0), context.through.map(|id| id.0), context.skip],
+            call.started_at, call.first_output_at, call.finished_at, context.boundary_id.map(|id| id.0), context.through.map(|id| id.0), context.skip, context.keep_from.map(|id| id.0)],
     )?;
     let id = ModelCallId(conn.last_insert_rowid());
     for (role, ids) in [
         ("excluded", &context.excluded),
         ("tail", &context.tail),
         ("instruction", &context.instruction),
+        ("elide", &context.elide),
     ] {
         for message in ids {
             conn.execute(

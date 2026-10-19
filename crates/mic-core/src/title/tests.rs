@@ -329,14 +329,21 @@ async fn manual_title_records_sources_and_side_output() {
         (ids[0], ids[1], ids[3], ids[4]),
         (first.id, plain.id, answer.id, last.id)
     );
-    let note = title_note(session.id, &sources);
-    let MessageBody::HarnessNote { text: note_text } = &note.body else {
-        unreachable!()
-    };
-    assert!(note_text.contains("Assistant:\n无阶段的回答"));
-    assert!(note_text.contains(&format!("Assistant:\n{}", "长".repeat(TITLE_REPLY_CHARS))));
-    assert!(!note_text.contains(&"长".repeat(TITLE_REPLY_CHARS + 1)));
-    assert!(!note_text.contains("过程") && !note_text.contains("调用工具前"));
+    let messages = title_messages(session.id, &sources);
+    assert_eq!(messages.len(), 6);
+    assert!(matches!(&messages[0].body, MessageBody::UserInput { .. }));
+    assert!(
+        matches!(&messages[1].body, MessageBody::Reply { blocks, .. }
+        if matches!(&blocks[..], [ReplyBlock::Text { text, .. }] if text == "无阶段的回答"))
+    );
+    assert!(
+        matches!(&messages[3].body, MessageBody::Reply { blocks, .. }
+        if matches!(&blocks[..], [ReplyBlock::Text { text, .. }] if text == &"长".repeat(TITLE_REPLY_CHARS)))
+    );
+    assert!(
+        matches!(&messages[5].body, MessageBody::HarnessNote { text }
+        if text.starts_with("为以上对话生成简短标题"))
+    );
 
     generate(
         &store,

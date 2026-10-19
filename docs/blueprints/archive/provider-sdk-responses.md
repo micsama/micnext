@@ -1,8 +1,8 @@
 # B2: 模型调用统一迁移 async-openai，接入 Responses
 
-**状态**：APPROVED（2026-10-10），步 1～4 已实现，fmt/clippy/Web check 通过，待 §十 实跑验收后 CLOSED。ChatGPT 订阅 Token 待验证后另行补入（§七）。
+**状态**：CLOSED（2026-10-19 human 验收 OpenAI API key 通过）。SDK 实现已由 [provider-handwritten](provider-handwritten.md) 的手写协议替代，§四～§六 协议映射仍为现行规则。
 **方向来源**：human 选择 async-openai 完整替换手写模型调用，以终为始：只要能完成 LLM 接入与用量统计；彻底重构，不留兼容代码与历史路径；SDK 不锁版本。
-**替代范围**：[provider-openai](archive/provider-openai.md) 的传输、协议类型与响应映射；[model-settings](archive/model-settings.md) 的服务商预设新增 `openai`；[provider-port](archive/provider-port.md) 不变。
+**替代范围**：[provider-openai](provider-openai.md) 的传输、协议类型与响应映射；[model-settings](model-settings.md) 的服务商预设新增 `openai`；[provider-port](provider-port.md) 不变。
 
 ## 一、职责
 
@@ -53,9 +53,9 @@
 
 ## 五、协议映射
 
-**Chat**：系统提示、user 文本/图片、assistant 文本+工具调用、tool 结果按原规则映射；DeepSeek 同模型每个 assistant 轮回传 `reasoning_content`（未思考发空串，见 [provider-openai](archive/provider-openai.md)）。不发 legacy functions。usage：标准 `cached_tokens`（Generic）/ `prompt_cache_hit_tokens`（DeepSeek）/ Ollama 无；`reasoning_tokens` 取标准字段。
+**Chat**：系统提示、user 文本/图片、assistant 文本+工具调用、tool 结果按原规则映射；DeepSeek 同模型每个 assistant 轮回传 `reasoning_content`（未思考发空串，见 [provider-openai](provider-openai.md)）。不发 legacy functions。usage：标准 `cached_tokens`（Generic）/ `prompt_cache_hit_tokens`（DeepSeek）/ Ollama 无；`reasoning_tokens` 取标准字段。
 
-**Responses**：`instructions` + typed input；`store=false`、`stream=true`、`include=[reasoning.encrypted_content]`、`reasoning.summary=auto`（有 effort 时）；工具 `strict=false`。正文/摘要 delta → TextDelta/ReasoningDelta。`response.output_item.done` 的条目是唯一内容来源（[provider-chatgpt](archive/provider-chatgpt.md) 修订：Codex 后端终态 `output` 为空）：message → Text（含 phase，refusal 转可见正文并 ContentFilter），function_call → ToolCall（`call_id` 为 id），reasoning → 见 §四；其它输出项 → Protocol。
+**Responses**：`instructions` + typed input；`store=false`、`stream=true`、`include=[reasoning.encrypted_content]`、`reasoning.summary=auto`（有 effort 时）；工具 `strict=false`。正文/摘要 delta → TextDelta/ReasoningDelta。`response.output_item.done` 的条目是唯一内容来源（[provider-chatgpt](provider-chatgpt.md) 修订：Codex 后端终态 `output` 为空）：message → Text（含 phase，refusal 转可见正文并 ContentFilter），function_call → ToolCall（`call_id` 为 id），reasoning → 见 §四；其它输出项 → Protocol。
 
 usage（终态一次转换）：
 
@@ -84,7 +84,7 @@ Responses：completed → EndTurn/ToolUse；incomplete `max_output_tokens` → M
 
 ## 七、ChatGPT 订阅（待验证）
 
-已由 [provider-chatgpt](archive/provider-chatgpt.md) 实现（结论：公开 API 不接受 Codex token，改走 Codex 后端）。原计划：先由 human 用手动 Access Token 对 `POST /v1/responses`（`store=false, stream=true`）与 `GET /v1/models` 实测，确认权限与目录格式；通过后新增预设 `chatgpt`（凭据为 Token、不读环境变量），复用 Responses 全部路径。验证前不写任何订阅代码。
+已由 [provider-chatgpt](provider-chatgpt.md) 实现（结论：公开 API 不接受 Codex token，改走 Codex 后端）。原计划：先由 human 用手动 Access Token 对 `POST /v1/responses`（`store=false, stream=true`）与 `GET /v1/models` 实测，确认权限与目录格式；通过后新增预设 `chatgpt`（凭据为 Token、不读环境变量），复用 Responses 全部路径。验证前不写任何订阅代码。
 
 ## 八、实现步骤
 

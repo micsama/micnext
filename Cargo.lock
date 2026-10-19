@@ -1362,6 +1362,7 @@ dependencies = [
 name = "mic-core"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "futures-core",
  "mic-media",
  "mic-message",

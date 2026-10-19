@@ -141,16 +141,6 @@ async fn run() -> Result<ExitCode> {
             let dir = assembly.data_dir().to_owned();
             logs.persist(&dir.join("logs"));
             if let Err(error) = assembly.run(stop).await {
-                if matches!(
-                    &error,
-                    mic_core::RunError::Store(mic_store::StoreError::SchemaRebuild { .. })
-                ) {
-                    eprintln!(
-                        "数据库格式已更新，请删除 {} 与 {} 后重启；微信需重新登录。",
-                        dir.join("micnext.db").display(),
-                        dir.join("logs").join("logs.db").display()
-                    );
-                }
                 let error = anyhow::Error::from(error);
                 tracing::error!(error = format!("{error:#}"), "stopped on failure");
                 logs.flush();

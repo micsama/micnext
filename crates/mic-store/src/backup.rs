@@ -1,4 +1,4 @@
-//! 设置备份的 core 数据与事务覆盖。契约：docs/blueprints/settings-backup.md。
+//! 设置备份的 core 数据与事务覆盖。契约：docs/blueprints/archive/settings-backup.md。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;

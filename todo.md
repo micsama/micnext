@@ -6,6 +6,5 @@
 
 | 状态 | 主题 | 蓝图 |
 |---|---|---|
-| 第一阶段已验收；第二阶段待实施 | 设置备份与库重建 | [B2](docs/blueprints/settings-backup.md) |
 | 已实现，OpenAI API key 待验收；SDK 实现已由手写替代 | Responses 接入 | [B2](docs/blueprints/provider-sdk-responses.md) |
 | 延期 | 服务商分时段计价 | [B2](docs/blueprints/offpeak-pricing.md) |

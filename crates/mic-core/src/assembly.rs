@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use mic_message::{PersonId, SessionId};
 use mic_store::{
-    InputDisposition, Migration, NewSession, RunState, SecretKeyFile, SessionKind, Store, ToolScope,
+    InputDisposition, Migration, NewSession, RunState, SecretKeyFile, SessionKind, Store,
+    StoreError, ToolScope,
 };
 use mic_tool::ToolHandle;
 use serde::Deserialize;
@@ -401,12 +402,21 @@ impl Assembly {
             }
         }
         let db = data_dir.join("micnext.db");
-        let store = Store::open(
-            &db,
-            &std::mem::take(&mut self.migrations),
-            self.key_file.clone(),
-        )
-        .await?;
+        let migrations = std::mem::take(&mut self.migrations);
+        let store = match Store::open(&db, &migrations, self.key_file.clone()).await {
+            Err(error @ (StoreError::SchemaRebuild { .. } | StoreError::SchemaAhead { .. })) => {
+                let backup = set_aside(&db).map_err(|source| RunError::DataDir {
+                    path: db.clone(),
+                    source,
+                })?;
+                tracing::warn!(
+                    "{error}；旧库已备份为 {}，已新建空库，可在设置页导入设置",
+                    backup.display()
+                );
+                Store::open(&db, &migrations, self.key_file.clone()).await?
+            }
+            opened => opened?,
+        };
         let interrupted = recovery::recover(&store, data_dir.clone()).await?;
         let held_sessions = store.hold_unclaimed_inputs(now_ms()).await?.len();
         let owner = store.ensure_person(&self.owner, now_ms()).await?;
@@ -501,4 +511,25 @@ fn home() -> Result<PathBuf, BoxError> {
         .filter(|h| !h.is_empty())
         .map(PathBuf::from)
         .ok_or_else(|| "环境变量 HOME 未设置".into())
+}
+
+/// 把库及其 `-wal`、`-shm` 改名为 `<库名>.bak-<本地时间>`，返回新库名。
+fn set_aside(db: &Path) -> std::io::Result<PathBuf> {
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let backup = db.with_file_name(format!(
+        "{}.bak-{stamp}",
+        db.file_name().expect("库路径带文件名").to_string_lossy()
+    ));
+    std::fs::rename(db, &backup)?;
+    for suffix in ["-wal", "-shm"] {
+        let mut from = db.as_os_str().to_owned();
+        from.push(suffix);
+        let mut to = backup.as_os_str().to_owned();
+        to.push(suffix);
+        match std::fs::rename(&from, &to) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+    }
+    Ok(backup)
 }

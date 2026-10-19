@@ -422,7 +422,7 @@ pub(crate) fn instruction_note(
     }
 }
 
-/// 压缩后留下什么。契约：docs/blueprints/compaction-retention.md §三。
+/// 压缩后留下什么。契约：docs/blueprints/archive/compaction-retention.md §三。
 #[derive(Debug)]
 pub(crate) struct Retention {
     pub keep_from: Option<MessageId>,

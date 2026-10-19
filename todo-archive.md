@@ -47,3 +47,4 @@
 | 实现完成（CLOSED，2026-10-16 整理归档） | v0a 模块地图与 Web 闭环 | [B2](docs/blueprints/archive/v0a-module-map.md) |
 | 实现完成（CLOSED） | Trace 会话树与整树用量 | [`trace-session-tree.md`](docs/blueprints/archive/trace-session-tree.md) |
 | 实现完成（CLOSED，2026-10-19） | Trace AI 调用概览并入完整产出，去掉详情页签 | [B1](docs/brainstorm/trace-ai-overview.md) |
+| 实现完成（CLOSED，2026-10-19） | 压缩后的保留规则：按当前历史比例保留原文、替换旧工具输出、带回用户原话 | [B1](docs/brainstorm/compaction-retention.md)；[B2](docs/blueprints/archive/compaction-retention.md) |

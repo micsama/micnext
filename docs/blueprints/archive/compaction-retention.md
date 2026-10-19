@@ -1,8 +1,8 @@
 # B2：压缩后的保留规则
 
-**状态：已批准（human 2026-10-19），已实现，自动验收通过，待 human 真实会话验收。**
+**状态：CLOSED（2026-10-19，真实会话人工验收通过）。验收中修正：保留预算改按当前历史长度；必读文件清单只认正文结尾的 `<required_files>` 块。**
 
-方向见 [B1](../brainstorm/compaction-retention.md)。修订 [context-compaction](archive/context-compaction.md) 的 §3.5「保留最近 N 个 step」与设置项；触发、请求形状、`/compact`、`/clear`、撤回、文件快照不变。
+方向见 [B1](../../brainstorm/compaction-retention.md)。修订 [context-compaction](context-compaction.md) 的 §3.5「保留最近 N 个 step」与设置项；触发、请求形状、`/compact`、`/clear`、撤回、文件快照不变。
 
 ## 一、问题
 

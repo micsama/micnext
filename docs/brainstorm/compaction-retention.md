@@ -1,6 +1,6 @@
 # B1：压缩后的保留规则
 
-状态：方向已定（human 2026-10-19），契约见 [B2](../blueprints/compaction-retention.md)。前作 [context-compaction](context-compaction.md)（B2 已 CLOSED），本篇只改「压完留下什么」，触发、`/compact`、撤回、文件快照不变。
+状态：方向已定（human 2026-10-19），契约见 [B2](../blueprints/archive/compaction-retention.md)。前作 [context-compaction](context-compaction.md)（B2 已 CLOSED），本篇只改「压完留下什么」，触发、`/compact`、撤回、文件快照不变。
 
 ## 现状与问题
 

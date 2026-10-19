@@ -12,5 +12,4 @@
 | 已实现，待服务器验收 | 微信入站文件与视频 | [B2](docs/blueprints/wechat-inbound-files.md) |
 | 已实现，OpenAI API key 待验收；SDK 实现已由手写替代 | Responses 接入 | [B2](docs/blueprints/provider-sdk-responses.md) |
 | 已实现，待缓存命中验收 | 会话缓存键 | [B2](docs/blueprints/provider-cache-key.md) |
-| 待验收 | 压缩后的保留规则：按窗口比例保留原文、替换旧工具输出、带回用户原话 | [B1](docs/brainstorm/compaction-retention.md)；[B2](docs/blueprints/compaction-retention.md) |
 | 延期 | 服务商分时段计价 | [B2](docs/blueprints/offpeak-pricing.md) |

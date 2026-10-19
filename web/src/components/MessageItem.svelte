@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Message, ToolResultOutcome } from "../api/types";
+  import type { ChatRunStats, Message, ToolResultOutcome } from "../api/types";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import HistoryImage from "./HistoryImage.svelte";
@@ -16,12 +16,15 @@
     results,
     callIds,
     running,
+    stats = [],
   }: {
     message: Message;
     view: SessionView;
     results: Map<string, ToolResultOutcome>;
     callIds: Set<string>;
     running: boolean;
+    /** 结束于本条的轮次统计；只有回复消息会传。 */
+    stats?: ChatRunStats[];
   } = $props();
 
   const body = $derived(message.body);
@@ -53,7 +56,7 @@
     {:else}撤回压缩{/if}
   </p>
 {:else if body.kind === "Reply"}
-  <ReplyView blocks={body.blocks} {results} {running} meta="{time} · {body.model}" />
+  <ReplyView blocks={body.blocks} {results} {running} meta="{time} · {body.model}" {stats} />
 {:else if body.kind === "ToolResult"}
   {#if !callIds.has(body.tool_call_id)}
     <ToolRow name={body.tool_name} result={body.outcome} />
@@ -66,7 +69,7 @@
       )}</pre>
   </details>
 {:else if body.kind === "Notification"}
-  <p class="text-sm leading-6 whitespace-pre-wrap break-words text-muted-foreground" title="{body.source} · {time}">{body.text}</p>
+  <p class="w-fit max-w-full rounded-lg bg-muted/70 px-2.5 py-1 text-xs leading-5 whitespace-pre-wrap break-words text-muted-foreground" title="{body.source} · {time}">{body.text}</p>
 {:else if body.kind === "Boundary"}
   {#if body.boundary === "UserClear"}
     <div class="flex items-center gap-3 text-xs text-muted-foreground" title={time}><div class="h-px flex-1 bg-border"></div>上下文已清空<div class="h-px flex-1 bg-border"></div></div>

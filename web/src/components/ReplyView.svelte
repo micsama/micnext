@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { ReplyBlock, ToolResultOutcome } from "../api/types";
+  import type { ChatRunStats, ReplyBlock, ToolResultOutcome } from "../api/types";
+  import RunStatsLine from "./RunStatsLine.svelte";
   import CopyButton from "./CopyButton.svelte";
   import Markdown from "./Markdown.svelte";
   import ReasoningFold from "./ReasoningFold.svelte";
@@ -10,7 +11,8 @@
     results,
     running,
     meta,
-  }: { blocks: ReplyBlock[]; results: Map<string, ToolResultOutcome>; running: boolean; meta: string } = $props();
+    stats = [],
+  }: { blocks: ReplyBlock[]; results: Map<string, ToolResultOutcome>; running: boolean; meta: string; stats?: ChatRunStats[] } = $props();
 
   const text = $derived(
     blocks
@@ -43,8 +45,9 @@
   {#if text}
     <div class="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover/reply:opacity-100 focus-within:opacity-100">
       <CopyButton {text} /><span class="text-xs text-muted-foreground">{meta}</span>
+      {#each stats as s (s.run_id)}<RunStatsLine stats={s} inline />{/each}
     </div>
   {:else}
-    <span class="pointer-events-none absolute top-full left-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover/reply:opacity-100">{meta}</span>
+    <span class="pointer-events-none absolute top-full left-0 flex items-center gap-2 text-xs text-muted-foreground opacity-0 transition-opacity group-hover/reply:opacity-100">{meta}{#each stats as s (s.run_id)}<RunStatsLine stats={s} inline />{/each}</span>
   {/if}
 </div>

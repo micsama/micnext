@@ -2,7 +2,8 @@
   import type { ChatRunStats, RunState } from "../api/types";
   import { formatCost, formatDuration, formatTokens } from "../lib/format";
 
-  let { stats: s }: { stats: ChatRunStats } = $props();
+  /** `inline` 时嵌在回复的悬停栏里，否则独占一行。 */
+  let { stats: s, inline = false }: { stats: ChatRunStats; inline?: boolean } = $props();
 
   const ENDING: Partial<Record<RunState, string>> = { stopped: "已停止", provider_failed: "调用失败", max_turns: "达到上限", interrupted: "已中断", timed_out: "超时" };
   const ge = $derived(s.usage_complete ? "" : "≥");
@@ -31,4 +32,4 @@
   );
 </script>
 
-<p class="-mt-2 w-fit cursor-default text-xs text-muted-foreground/70 tabular-nums" title={detail}>{parts.join(" · ")}</p>
+<p class="{inline ? '' : '-mt-2'} w-fit cursor-default text-xs text-muted-foreground/70 tabular-nums" title={detail}>{parts.join(" · ")}</p>

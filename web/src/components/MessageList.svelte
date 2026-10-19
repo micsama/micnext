@@ -207,18 +207,17 @@
           </div>
         {/if}
         {#if messages[0].body.kind === "Notification"}
-          <aside aria-label="系统提示" class="flex gap-2 text-muted-foreground">
-            <Icon name="alert" class="mt-1.5 size-3.5 shrink-0" />
-            <div class="space-y-1">
-              {#each messages as message (message.id)}
-                <MessageItem {view} {message} {results} {callIds} {running} />
-              {/each}
-            </div>
+          <aside aria-label="系统提示" class="flex flex-col items-center gap-1">
+            {#each messages as message (message.id)}
+              <MessageItem {view} {message} {results} {callIds} {running} />
+            {/each}
           </aside>
         {:else}
-          <MessageItem {view} message={messages[0]} {results} {callIds} {running} />
+          <MessageItem {view} message={messages[0]} {results} {callIds} {running} stats={messages[0].body.kind === "Reply" ? statsAfter.get(messages[0].id) : undefined} />
         {/if}
-        {#each statsAfter.get(messages[0].id) ?? [] as stats (stats.run_id)}<RunStatsLine {stats} />{/each}
+        {#if messages[0].body.kind !== "Reply"}
+          {#each statsAfter.get(messages[0].id) ?? [] as stats (stats.run_id)}<RunStatsLine {stats} />{/each}
+        {/if}
       {/each}
       {#if view.draft}
         <div><DraftView draft={view.draft} /></div>

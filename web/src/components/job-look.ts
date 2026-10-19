@@ -14,7 +14,7 @@ const STATE: Record<JobState, JobLook> = {
 };
 /** agent 休眠时最近一个子 run 的结局。 */
 const LAST_RUN: Partial<Record<RunState, JobLook>> = {
-  completed: { label: "上次完成", icon: "pause", tone: "text-muted-foreground", bad: false },
+  completed: { label: "上次完成", icon: "pause", tone: "text-success", bad: false },
   max_turns: { label: "上次轮数用尽", icon: "pause", tone: "text-warning", bad: true },
   provider_failed: { label: "上次调用失败", icon: "error", tone: "text-destructive", bad: true },
   timed_out: { label: "上次超时", icon: "clock", tone: "text-warning", bad: true },

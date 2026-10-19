@@ -47,7 +47,7 @@ impl Message {
                     parts.clone(),
                 ))
             }
-            MessageBody::Reply { model, blocks } => ModelView::Assistant { model, blocks },
+            MessageBody::Reply { model, blocks, .. } => ModelView::Assistant { model, blocks },
             MessageBody::ToolResult {
                 tool_call_id,
                 outcome,

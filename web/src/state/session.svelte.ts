@@ -1,6 +1,6 @@
-import { ApiError, generateTitle, getContext, listJobs, getMessages, getRunStats, revokeCompaction, getSession, stopRun } from "../api/client";
+import { ApiError, generateTitle, getContext, listJobs, getMessages, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, jobActive, type ChatRunStats, type ContextView, type JobView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
+import { ProtocolError, jobActive, type ContextView, type JobView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
 import { otherSessions, webSessions } from "./sessions.svelte";
@@ -16,8 +16,8 @@ const STREAM_FAILURE_LIMIT = 5;
 
 const FINISH_NOTICE: Partial<Record<RunState, string>> = {
   provider_failed: "模型调用失败，详情见服务日志",
-  max_turns: "已达到单轮调用上限，任务可能没有完成",
-  interrupted: "这一轮因服务停止而中断",
+  max_turns: "本次执行已达到模型调用上限，任务可能没有完成",
+  interrupted: "本次执行因服务停止而中断",
 };
 
 /** 一个打开的会话：稳定消息 + 正在生成的草稿，按 web-ui §五 归约流事件并断线重连。 */
@@ -128,25 +128,9 @@ export class SessionView {
     this.jobsOpen = true;
     this.jobFocus = { id, seq: (this.jobFocus?.seq ?? 0) + 1 };
   }
-  /** 已结束轮次的统计，按挂载的消息 id。 */
-  readonly runStats = new SvelteMap<number, ChatRunStats>();
-  statsError = $state<string | null>(null);
-
-  async #loadStats(from: number | undefined, to?: number): Promise<void> {
-    if (from === undefined) return;
-    try {
-      const runs = await getRunStats(this.id, from, to);
-      if (this.#abort.signal.aborted) return;
-      for (const r of runs) this.runStats.set(r.anchor_id, r);
-      this.statsError = null;
-    } catch (error) {
-      if (!this.#abort.signal.aborted) this.statsError = (error as Error).message;
-    }
-  }
-
   draft = $state<Draft | null>(null);
   executingRun = $state<number | null>(null);
-  /** 已对这一轮发出停止，等它收尾。 */
+  /** 已对本次执行发出停止，等它收尾。 */
   stopping = $state<number | null>(null);
 
   async stop(): Promise<void> {
@@ -196,7 +180,6 @@ export class SessionView {
       const page = await getMessages(this.id, first.id);
       if (this.#abort.signal.aborted) return;
       this.messages.unshift(...page.messages);
-      void this.#loadStats(page.messages[0]?.id, first.id - 1);
       const shown = page.messages.filter((m) => m.body.kind !== "HarnessNote").length;
       if (shown > 0) this.loadedAt.set(first.id, shown);
       this.lastLoaded = { count: shown, reachedStart: !page.has_earlier };
@@ -271,7 +254,6 @@ export class SessionView {
         this.reconnecting = false;
         if (e.data.has_earlier !== null) this.earlier = e.data.has_earlier ? "idle" : "none";
         this.executingRun = e.data.executing_run;
-        void this.#loadStats(this.messages[0]?.id);
         break;
       case "run_started":
         this.executingRun = e.data.run_id;
@@ -282,7 +264,6 @@ export class SessionView {
         this.stopping = null;
         this.notice = FINISH_NOTICE[e.data.state] ?? null;
         void webSessions.refresh();
-        void this.#loadStats(Math.max(0, ...this.runStats.keys()) + 1);
         break;
     }
   }

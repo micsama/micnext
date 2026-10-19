@@ -32,7 +32,7 @@ impl Store {
             while let Some(row) = rows.next()? {
                 let message = row::message(row)?;
                 if let MessageBody::Boundary { boundary: ContextBoundary::Compaction(result) } = message.body {
-                    let at: Option<i64> = row.get(6)?;
+                    let at: Option<i64> = row.get(10)?;
                     compactions.push(CompactionView { boundary_id: message.id, result, state: match at { Some(at) => CompactionState::Revoked { at }, None => CompactionState::Applied } });
                 }
             }
@@ -311,7 +311,7 @@ fn read_range(
            AND m.id <= ?4 ORDER BY m.id"
     ))?.query_map(
         params![session.0, start.start, boundary.map(|id| id.0), through.map_or(i64::MAX, |id| id.0)],
-        |r| Ok((row::message(r)?, r.get(6)?)),
+        |r| Ok((row::message(r)?, r.get(10)?)),
     )?.collect::<rusqlite::Result<Vec<_>>>()?;
     if let Some(c) = &start.compaction {
         for (message, _) in &mut rows {

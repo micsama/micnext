@@ -1,5 +1,7 @@
 # B2：聊天统计行与上下文占用
 
+**聊天展示替代（2026-10-20）**：聊天专用 run-stats 接口和锚点挂载已由 [逐回复悬停栏](../chat-reply-footer.md) 替代；本文的 trace 执行合计与上下文占用仍有效。
+
 **现行扩展（2026-10-16，P3）**：会话范围费用汇总由 [async-jobs](async-jobs.md) P3 的 `SessionUsage` 单独查询；“包含子 session”不改变本文的聊天 run-stats、run 概览或当前会话上下文占用口径。
 
 **状态：CLOSED（2026-10-15，human 页面验收通过；fmt/clippy、store 测试、Web 检查与隔离实例 curl 验收通过）。**

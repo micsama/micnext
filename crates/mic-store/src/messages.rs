@@ -56,6 +56,14 @@ impl Store {
             let reply = match call.outcome {
                 ModelCallOutcome::Replied { blocks, .. } if !blocks.is_empty() => {
                     let body = MessageBody::Reply {
+                        stats: mic_message::ReplyStats {
+                            model_ms: call.finished_at - call.started_at,
+                            usage: call.usage.map(|u| mic_message::ReplyUsage {
+                                input_tokens: u.input_tokens,
+                                output_tokens: u.output_tokens,
+                                cache_read_tokens: u.cache_read_tokens,
+                            }),
+                        },
                         model: call.model,
                         blocks,
                     };
@@ -168,9 +176,9 @@ impl Store {
                      ORDER BY m.id"
                 ))?
                 .query_map([channel], |r| {
-                    let target = row::delivery_target(r, 6)?.ok_or_else(|| {
+                    let target = row::delivery_target(r, 10)?.ok_or_else(|| {
                         rusqlite::Error::InvalidColumnType(
-                            6,
+                            10,
                             "delivery_channel".to_owned(),
                             rusqlite::types::Type::Null,
                         )
@@ -261,3 +269,6 @@ pub(crate) fn read_messages(
     out.sort_by_key(|m| m.id);
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests;

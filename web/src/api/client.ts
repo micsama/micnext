@@ -26,9 +26,9 @@ import {
 } from "./developer";
 import { parseMessage, parseMessages, type Message } from "./types";
 import {
-  parseContextBreakdown, parseContextView, parseCommands, parseRunStats,
+  parseContextBreakdown, parseContextView, parseCommands,
   parseJobs, parseJobOutput, parseStopJob, type JobView, type JobOutput, type StopJobOutcome,
-  type ContextBreakdown, type ContextView, type CommandSpec, type ChatRunStats,
+  type ContextBreakdown, type ContextView, type CommandSpec,
   parseCreated,
   parseEndpoints,
   parseModels,
@@ -287,15 +287,10 @@ export async function getContext(sessionId: number): Promise<ContextView> {
 export async function getContextBreakdown(sessionId: number): Promise<ContextBreakdown | null> {
   return parseContextBreakdown(await request("GET", `/sessions/${sessionId}/context/breakdown`));
 }
-/** 最后一条消息落在 [from, to] 内的已结束轮次统计。 */
-export async function getRunStats(sessionId: number, from: number, to?: number): Promise<ChatRunStats[]> {
-  const q = new URLSearchParams({ from: String(from), ...(to === undefined ? {} : { to: String(to) }) });
-  return parseRunStats(await request("GET", `/sessions/${sessionId}/run-stats?${q}`));
-}
 export async function listCommands(): Promise<CommandSpec[]> {
   return parseCommands(await request("GET", "/commands"));
 }
-/** 停止指定一轮；该轮已结束时 409。 */
+/** 停止指定执行；该执行已结束时 409。 */
 export async function stopRun(sessionId: number, runId: number): Promise<void> {
   await request("POST", `/sessions/${sessionId}/runs/${runId}/stop`);
 }

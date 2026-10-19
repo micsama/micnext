@@ -234,16 +234,6 @@ impl Kernel {
         })
     }
 
-    /// 最后一条消息落在 `[from, to]` 内的已结束 run 的统计。
-    pub async fn run_stats(
-        &self,
-        session: SessionId,
-        from: MessageId,
-        to: Option<MessageId>,
-    ) -> Result<Vec<mic_store::ChatRunStats>, KernelError> {
-        Ok(self.store.run_stats(session, from, to).await?)
-    }
-
     pub async fn append_session_command(
         &self,
         session: SessionId,

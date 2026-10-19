@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ChatRunStats, Message, ToolResultOutcome } from "../api/types";
+  import type { Message, ToolResultOutcome } from "../api/types";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import HistoryImage from "./HistoryImage.svelte";
@@ -16,15 +16,12 @@
     results,
     callIds,
     running,
-    stats = [],
   }: {
     message: Message;
     view: SessionView;
     results: Map<string, ToolResultOutcome>;
     callIds: Set<string>;
     running: boolean;
-    /** 结束于本条的轮次统计；只有回复消息会传。 */
-    stats?: ChatRunStats[];
   } = $props();
 
   const body = $derived(message.body);
@@ -56,7 +53,7 @@
     {:else}撤回压缩{/if}
   </p>
 {:else if body.kind === "Reply"}
-  <ReplyView blocks={body.blocks} {results} {running} meta="{time} · {body.model}" {stats} />
+  <ReplyView blocks={body.blocks} {results} {running} meta="{time} · {body.model}" stats={body.stats} />
 {:else if body.kind === "ToolResult"}
   {#if !callIds.has(body.tool_call_id)}
     <ToolRow name={body.tool_name} result={body.outcome} />

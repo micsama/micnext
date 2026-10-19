@@ -54,7 +54,7 @@ export type JobView = ToolJobView | AgentJobView;
 export type JobOutput = { text: string; offset: number; next_offset: number; eof: boolean; available_from: number; total_bytes: number };
 export type StopJobOutcome = "stopped" | "already_idle" | "already_finished";
 export type ContextView = { active_boundary: number | null; compactions: CompactionView[]; occupancy: Occupancy | null };
-/** 一轮的统计；聊天统计行与 trace 运行概览共用（chat-run-stats §1.1）。 */
+/** Trace 执行合计。 */
 export type RunStats = {
   total_ms: number | null;
   model_ms: number;
@@ -71,13 +71,14 @@ export type RunStats = {
   cache_complete: boolean;
   cost: number | null;
 };
-export type ChatRunStats = RunStats & { run_id: number; state: RunState; anchor_id: number };
+export type ReplyUsage = { input_tokens: number; output_tokens: number; cache_read_tokens: number | null };
+export type ReplyStats = { model_ms: number; usage: ReplyUsage | null };
 export type CommandSpec = { name: string; usage: string; description: string };
 
 export type MessageBody =
   | { kind: "Command"; person: number; command: SessionCommand }
   | { kind: "UserInput"; person: number; parts: ContentPart[] }
-  | { kind: "Reply"; model: string; blocks: ReplyBlock[] }
+  | { kind: "Reply"; model: string; blocks: ReplyBlock[]; stats: ReplyStats }
   | { kind: "ToolResult"; tool_name: string; tool_call_id: string; outcome: ToolResultOutcome; started_at: number | null }
   | { kind: "Completion"; person: number; tool_name: string; exec_id: string; outcome: ExecOutcome }
   | { kind: "HarnessNote"; text: string }
@@ -106,9 +107,9 @@ export type SessionItem = {
   /** 能否从 Web 发消息。 */
   writable: boolean;
   archived_at: number | null;
-  /** 下一轮用的人设；已删除时下一轮改用默认人设。 */
+  /** 下次执行用的人设；已删除时改用默认人设。 */
   persona_id: number;
-  /** 下一轮用的模型；null = 下次取当时的默认模型。 */
+  /** 下次执行用的模型；null = 下次取当时的默认模型。 */
   model_id: number | null;
   reasoning_effort: ReasoningEffort | null;
 };
@@ -292,8 +293,6 @@ const runStatsFields = {
   usage_complete: bool, cache_read_tokens: num, cache_complete: bool, cost: nullable(num),
 };
 export const runStats: Decoder<RunStats> = obj(runStatsFields);
-const chatRunStats: Decoder<ChatRunStats> = obj({ ...runStatsFields, run_id: num, state: runState, anchor_id: num });
-export const parseRunStats = (v: unknown): ChatRunStats[] => obj({ runs: arr(chatRunStats) })(v, "统计").runs;
 const jobState: Decoder<JobState> = oneOf("running", "completed", "failed", "timed_out", "cancelled", "interrupted");
 const jobBase = { id: num, tool_name: str, owner_session_id: num, description: str, created_at: num };
 const jobView: Decoder<JobView> = kinded<{ tool: JobBase & ToolJobFields; agent: JobBase & AgentJobFields }>({
@@ -316,7 +315,7 @@ const boundary: Decoder<ContextBoundary> = (v, at) => (v === "UserClear" ? v : c
 const messageBody: Decoder<MessageBody> = kinded({
   Command: { person: num, command },
   UserInput: { person: num, parts: arr(contentPart) },
-  Reply: { model: str, blocks: arr(replyBlock) },
+  Reply: { model: str, blocks: arr(replyBlock), stats: obj({ model_ms: num, usage: nullable(obj({ input_tokens: num, output_tokens: num, cache_read_tokens: nullable(num) })) }) },
   ToolResult: {
     tool_name: str,
     tool_call_id: str,

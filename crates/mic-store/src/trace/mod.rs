@@ -99,7 +99,7 @@ pub struct TraceRun {
     pub stats: RunStats,
 }
 
-/// 一个已结束 run 的统计；聊天统计行与 trace 运行概览共用。契约：docs/blueprints/chat-run-stats.md §1.1。
+/// Trace 的执行合计。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RunStats {
     pub total_ms: Option<i64>,
@@ -178,16 +178,6 @@ fn session_usage(calls: &[TraceCall]) -> SessionUsage {
         cost: (!priced.is_empty()).then(|| priced.iter().sum()),
         unknown_cost: (calls.len() - priced.len()) as u32,
     }
-}
-
-/// 聊天统计行：`anchor_id` 是该 run 最后一条消息。
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct ChatRunStats {
-    pub run_id: RunId,
-    pub state: &'static str,
-    pub anchor_id: MessageId,
-    #[serde(flatten)]
-    pub stats: RunStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -718,44 +708,6 @@ impl Store {
                 title_calls,
                 next_after,
             })
-        })
-        .await
-    }
-
-    /// 最后一条消息落在 `[from, to]` 内的已结束 run，按该消息升序。
-    pub async fn run_stats(
-        &self,
-        session: SessionId,
-        from: MessageId,
-        to: Option<MessageId>,
-    ) -> Result<Vec<ChatRunStats>, StoreError> {
-        let to = to.map_or(i64::MAX, |m| m.0);
-        self.call(move |conn| {
-            let runs = conn
-                .prepare(&format!(
-                    "SELECT {RUN_COLS}, anchor FROM (
-                       SELECT r.*, (SELECT max(id) FROM core_messages WHERE run_id = r.id) AS anchor
-                       FROM core_runs r
-                       WHERE r.id IN (SELECT run_id FROM core_messages
-                                      WHERE session_id = ?1 AND id BETWEEN ?2 AND ?3)
-                         AND r.state <> 'executing')
-                     WHERE anchor BETWEEN ?2 AND ?3 ORDER BY anchor"
-                ))?
-                .query_map(params![session.0, from.0, to], |r| {
-                    Ok((row::run(r)?, MessageId(r.get(5)?)))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            runs.into_iter()
-                .map(|(run, anchor_id)| {
-                    let trace = load_run(conn, run)?;
-                    Ok(ChatRunStats {
-                        run_id: trace.id,
-                        state: trace.state,
-                        anchor_id,
-                        stats: trace.stats,
-                    })
-                })
-                .collect()
         })
         .await
     }

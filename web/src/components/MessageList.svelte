@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ChatRunStats, Message, ToolResultOutcome } from "../api/types";
+  import type { Message, ToolResultOutcome } from "../api/types";
   import { untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { formatTime } from "../lib/format";
@@ -7,7 +7,6 @@
   import type { SessionView } from "../state/session.svelte";
   import DraftView from "./DraftView.svelte";
   import MessageItem from "./MessageItem.svelte";
-  import RunStatsLine from "./RunStatsLine.svelte";
 
   let { view }: { view: SessionView } = $props();
 
@@ -43,23 +42,6 @@
     }
     return { items, loaded };
   });
-  // 统计行挂在包含 anchor 的组之后：首条 id ≤ anchor 的最后一组。
-  const statsAfter = $derived.by(() => {
-    const m = new Map<number, ChatRunStats[]>();
-    const pending = [...view.runStats.values()].filter((s) => s.requests > 0).sort((a, b) => a.anchor_id - b.anchor_id);
-    const items = grouped.items;
-    items.forEach((group, i) => {
-      const next = items[i + 1]?.[0].id ?? Infinity;
-      const here = [];
-      while (pending[0] && pending[0].anchor_id < next) {
-        const s = pending.shift()!;
-        if (s.anchor_id >= group[0].id) here.push(s);
-      }
-      if (here.length) m.set(group[0].id, here);
-    });
-    return m;
-  });
-
   // 滚动容器 column-reverse：scrollTop 从底部起算（0 为底，向上为负）。贴底时内容变高仍停在底部，
   // 上方插入旧页、工具结果归并、图片加载都不移动视口，无需写 scrollTop——惯性滚动中写它会被 Safari 打断。
   // 只有不贴底时下方变高（实时消息）才把视口内首条消息放回原位。
@@ -213,10 +195,7 @@
             {/each}
           </aside>
         {:else}
-          <MessageItem {view} message={messages[0]} {results} {callIds} {running} stats={messages[0].body.kind === "Reply" ? statsAfter.get(messages[0].id) : undefined} />
-        {/if}
-        {#if messages[0].body.kind !== "Reply"}
-          {#each statsAfter.get(messages[0].id) ?? [] as stats (stats.run_id)}<RunStatsLine {stats} />{/each}
+          <MessageItem {view} message={messages[0]} {results} {callIds} {running} />
         {/if}
       {/each}
       {#if view.draft}
@@ -227,7 +206,6 @@
           <Icon name="loader" class="size-3.5 animate-spin" />处理中…
         </div>
       {/if}
-      {#if view.statsError}<p class="text-sm text-destructive">统计加载失败：{view.statsError}</p>{/if}
       {#if view.contextError}<p class="text-sm text-destructive">上下文状态加载失败：{view.contextError}</p>{/if}
       {#if view.notice}
         <p class="flex items-center gap-2 text-sm text-warning"><Icon name="alert" class="size-4" />{view.notice}</p>

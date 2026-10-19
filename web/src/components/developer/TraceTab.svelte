@@ -546,7 +546,7 @@
       {@const info = sessionInfo === "trace_only" ? sessionInfo : sessionInfo?.id === session ? sessionInfo : null}
       {@const recent = runs.slice(-SPARK_RUNS)}
       {@const longest = Math.max(1, ...recent.map((r) => runMs(r) ?? 0))}
-      <div class="d-head"><div><div class="d-type"><span class="role r-turn">会话</span>{#if s?.last_run_at}<time title="最近一次运行">{time(s.last_run_at)}</time>{/if}</div><div class="d-title">{session === null ? "" : traceSessions.title(session)}<small class="sub">{s?.kind === "task" ? `子任务 #${s.job}` : s?.channel}</small></div></div>{@render expandButton()}</div>
+      <div class="d-head"><div><div class="d-type"><span class="role r-turn">会话</span>{#if s?.last_run_at}<time title="最近一次运行">{time(s.last_run_at)}</time>{/if}</div><div class="d-title">{session === null ? "" : traceSessions.title(session)}<small class="sub">{s?.kind === "task" ? `子 agent #${s.job}` : s?.channel}</small></div></div>{@render expandButton()}</div>
       <div class="panel-body">
         {#if detailError}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{detailError}</div></div>{/if}
         <div class="metrics">
@@ -569,7 +569,7 @@
         <details open class="d-sec"><summary class="fold"><Icon name="chevron" class="size-[13px]" />会话信息</summary><div class="sec-body">
           {#if s?.kind === "task"}
             <ul class="kv">
-              <li><Icon name="bot" class="size-3.5" /><span>子任务</span><b class="mono">#{s.job}</b></li>
+              <li><Icon name="bot" class="size-3.5" /><span>子 agent</span><b class="mono">#{s.job}</b></li>
               <li><Icon name="text" class="size-3.5" /><span>说明</span><b>{s.label}</b></li>
               <li><Icon name="hash" class="size-3.5" /><span>编号</span><b class="mono">会话 {s.session}</b></li>
             </ul>
@@ -600,7 +600,7 @@
               {/if}
               {#each kids as k (k.session)}
                 {@const own = issues(k)}
-                <button type="button" class="rel" title="子任务 #{k.job} · {k.label ?? ""}" onclick={() => void open(k.session)}>
+                <button type="button" class="rel" title="子 agent #{k.job} · {k.label ?? ""}" onclick={() => void open(k.session)}>
                   <span class="role r-side">#{k.job}</span>
                   <span class="sum">{traceSessions.title(k.session)}</span>
                   <span class="tags">

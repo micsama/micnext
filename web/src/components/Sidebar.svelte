@@ -47,7 +47,7 @@
   const branch = $derived(new Set(traceId === null ? [] : traceSessions.ancestors(traceId).map((s) => s.session)));
   const expanded = (s: TraceSession) =>
     toggled.get(s.session) ?? (branch.has(s.session) || (search.trim() !== "" && traceSessions.descendants(s.session).some(hit)));
-  /** 收起时后代的异常：只给一个弱化的关联标记，悬停列出各子任务。 */
+  /** 收起时后代的异常：只给一个弱化的关联标记，悬停列出各子 agent。 */
   const hiddenIssues = (s: TraceSession) => {
     const bad = traceSessions.descendants(s.session).filter((d) => issues(d).bad + issues(d).interrupted > 0);
     return bad.length === 0 ? null : {
@@ -131,7 +131,7 @@
   {@const hidden = open ? null : hiddenIssues(s)}
   <div class={["flex items-center gap-1 rounded-md pl-1.5 hover:bg-accent", traceId === s.session && "bg-accent font-medium"]}>
     {#if kids.length > 0}
-      <button type="button" aria-label={open ? "收起子任务" : "展开子任务"} title={open ? "收起子任务" : "展开子任务"} onclick={() => toggled.set(s.session, !open)} class="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground">
+      <button type="button" aria-label={open ? "收起子 agent" : "展开子 agent"} title={open ? "收起子 agent" : "展开子 agent"} onclick={() => toggled.set(s.session, !open)} class="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground">
         <Icon name="chevron" class="size-3.5 transition-transform {open ? 'rotate-90' : ''}" />
       </button>
     {:else}
@@ -140,7 +140,7 @@
     <a
       href="/s/{s.session}/trace"
       onclick={(e) => (e.preventDefault(), go(`/s/${s.session}/trace`))}
-      title={s.kind === "task" ? `子任务 #${s.job} · ${s.label ?? ""}` : undefined}
+      title={s.kind === "task" ? `子 agent #${s.job} · ${s.label ?? ""}` : undefined}
       class="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-3 text-sm">
       <span class="min-w-0 flex-1 truncate">{traceSessions.title(s.session)}</span>
       {#if own.bad > 0}<span class="inline-flex items-center gap-0.5 text-xs text-destructive" title="调用失败 {s.failed_runs} 轮 · 工具报错 {s.tool_errors} 个"><Icon name="error" class="size-3" />{own.bad}</span>{/if}

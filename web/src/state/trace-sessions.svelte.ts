@@ -43,7 +43,7 @@ class TraceSessions {
 
   title(id: number): string {
     const s = this.byId.get(id);
-    return s?.label ?? (s?.kind === "task" ? `子任务 #${s.job}` : `会话 ${id}`);
+    return s?.label ?? (s?.kind === "task" ? `子 agent #${s.job}` : `会话 ${id}`);
   }
 }
 

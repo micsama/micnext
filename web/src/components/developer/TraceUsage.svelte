@@ -11,7 +11,7 @@
     if (!tree) return "";
     const t = tree.usage;
     return [
-      `本会话与 ${tree.descendants} 个子任务合计`,
+      `本会话与 ${tree.descendants} 个子 agent 合计`,
       `输入 ${formatTokens(t.input_tokens)} · 缓存读取 ${t.cache_complete ? formatTokens(t.cache_read_tokens) : "—"} · 缓存写入 ${formatTokens(t.cache_write_tokens)}`,
       `输出 ${formatTokens(t.output_tokens)}${t.reasoning_tokens === null ? "" : ` · 推理 ${formatTokens(t.reasoning_tokens)}`}`,
       t.unknown_usage ? `另 ${t.unknown_usage} 次用量未知` : "",
@@ -68,6 +68,6 @@
   </div>
   {#if tree}
     {@const t = tree.usage}
-    <div class="tree-sum" title={treeTip}><span>含 {tree.descendants} 个子任务合计</span><b>{t.known_usage ? `${formatTokens(t.input_tokens + t.output_tokens)} tok` : "用量未知"}{t.cost === null ? "" : ` · ≈${formatCost(t.cost)}`}</b></div>
+    <div class="tree-sum" title={treeTip}><span>含 {tree.descendants} 个子 agent 合计</span><b>{t.known_usage ? `${formatTokens(t.input_tokens + t.output_tokens)} tok` : "用量未知"}{t.cost === null ? "" : ` · ≈${formatCost(t.cost)}`}</b></div>
   {/if}
 </div>

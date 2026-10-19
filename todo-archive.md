@@ -53,3 +53,4 @@
 | 实现完成（CLOSED，2026-10-19） | 微信入站文件与视频 | [B2](docs/blueprints/archive/wechat-inbound-files.md) |
 | 实现完成（CLOSED，2026-10-19） | 会话缓存键 | [B2](docs/blueprints/archive/provider-cache-key.md) |
 | 实现完成（CLOSED，2026-10-19） | 设置备份与库版本不符时自动重建 | [B2](docs/blueprints/archive/settings-backup.md) |
+| 实现完成（CLOSED，2026-10-20） | 前端 Markdown CJK 强调修正 | [B2](docs/blueprints/archive/frontend-markdown.md) |

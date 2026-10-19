@@ -8,6 +8,7 @@
         "highlight.js": "^11.12.0",
         "katex": "^0.18.9",
         "markdown-it": "^15.0.2",
+        "markdown-it-cjk-friendly": "^3.0.0",
         "markdown-it-texmath": "^1.0.0",
       },
       "devDependencies": {
@@ -173,6 +174,8 @@
 
     "fsevents": ["fsevents@2.3.3", "https://registry.npmmirror.com/fsevents/-/fsevents-2.3.3.tgz", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
 
+    "get-east-asian-width": ["get-east-asian-width@1.7.0", "https://registry.npmmirror.com/get-east-asian-width/-/get-east-asian-width-1.7.0.tgz", {}, "sha512-XjH1AECxf0giL2V1aU8vKyRR2ppRUb5c0EvT7zuJTokQ74bNo52zOtghqdWIqrhUD79fo3x0WfKZdOqxF6LG1Q=="],
+
     "graceful-fs": ["graceful-fs@4.2.11", "https://registry.npmmirror.com/graceful-fs/-/graceful-fs-4.2.11.tgz", {}, "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="],
 
     "highlight.js": ["highlight.js@11.12.0", "https://registry.npmmirror.com/highlight.js/-/highlight.js-11.12.0.tgz", {}, "sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg=="],
@@ -218,6 +221,8 @@
     "magic-string": ["magic-string@1.4.1", "https://registry.npmmirror.com/magic-string/-/magic-string-1.4.1.tgz", { "dependencies": { "@jridgewell/sourcemap-codec": "1.6.0" } }, "sha512-8lyCu36ErXR0J9uaGKlKQoiLZKmtI63YGLE8G2o9jyRPdr4X47LusSOwgOJOzcVtp81fTAAjxR7BwKz682Jhow=="],
 
     "markdown-it": ["markdown-it@15.0.2", "https://registry.npmmirror.com/markdown-it/-/markdown-it-15.0.2.tgz", { "dependencies": { "argparse": "3.0.2", "entities": "8.1.0", "linkify-it": "6.1.0", "mdurl": "2.1.0", "punycode.js": "2.3.1", "uc.micro": "3.0.0" }, "bin": { "markdown-it": "bin/markdown-it.mjs" } }, "sha512-q4IGxMv56jCqT4OCRCADBoDP3LO4MhmTXjFbphHPXs4g3j9Xg5RDnxqN8IF/3vIWEU+VCnUq+7JUg/cfy2E6Qw=="],
+
+    "markdown-it-cjk-friendly": ["markdown-it-cjk-friendly@3.0.0", "https://registry.npmmirror.com/markdown-it-cjk-friendly/-/markdown-it-cjk-friendly-3.0.0.tgz", { "dependencies": { "get-east-asian-width": "^1.4.0" }, "peerDependencies": { "@types/markdown-it": ">=14.2.0", "markdown-it": "*" }, "optionalPeers": ["@types/markdown-it"] }, "sha512-y4OkqwenFXmb1i3w7qfh9E60qNX6U4KzECke8N/7io9SARFSvbR/wde0q/l6/Az9doieLOIw7ZsbDSgl27DR4g=="],
 
     "markdown-it-texmath": ["markdown-it-texmath@1.0.0", "https://registry.npmmirror.com/markdown-it-texmath/-/markdown-it-texmath-1.0.0.tgz", {}, "sha512-4hhkiX8/gus+6e53PLCUmUrsa6ZWGgJW2XCW6O0ASvZUiezIK900ZicinTDtG3kAO2kon7oUA/ReWmpW2FByxg=="],
 

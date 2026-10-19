@@ -513,6 +513,18 @@ async fn recovery_interrupts_running_agents_with_one_notice() {
     .await;
     // 先等快的交付并让根会话收尾，再等两个慢的都挂在模型调用上。
     fx.settle_running(1, 2).await;
+    // 三个派发并发执行，任务号不按调用顺序；被中断的是快的之外的两个。
+    let quick = fx.completions().await.remove(0).0;
+    let mut slow: Vec<_> = fx
+        .store
+        .subtree_jobs(fx.root, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|(job, _)| job.id.0)
+        .filter(|id| id.to_string() != quick)
+        .collect();
+    slow.sort();
     fx.scheduler.abort();
     let _ = (&mut { fx.scheduler }).await;
     let (store, root) = (fx.store, fx.root);
@@ -533,7 +545,10 @@ async fn recovery_interrupts_running_agents_with_one_notice() {
         })
         .collect();
     interrupted.sort();
-    assert_eq!(interrupted, ["2", "3"]);
+    assert_eq!(
+        interrupted,
+        slow.iter().map(ToString::to_string).collect::<Vec<_>>()
+    );
     let notices: Vec<_> = messages
         .iter()
         .filter_map(|m| match &m.body {
@@ -541,7 +556,13 @@ async fn recovery_interrupts_running_agents_with_one_notice() {
             _ => None,
         })
         .collect();
-    assert_eq!(notices, ["重启前仍在执行的子任务已中断：#2、#3。"]);
+    assert_eq!(
+        notices,
+        [format!(
+            "重启前仍在执行的子任务已中断：#{}、#{}。",
+            slow[0], slow[1]
+        )]
+    );
     assert!(messages.iter().all(|m| !matches!(
         &m.body,
         MessageBody::ToolResult {

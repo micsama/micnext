@@ -1,31 +1,69 @@
-# micnext（占位名，待定）
+# micnext
 
-单进程个人 agent 工具，micbot 的下一代重写。全新独立仓库，不复用 micbot 的
-git 历史；micbot 保留作代码参考。
+单进程个人 Rust agent：常驻 Gateway（内嵌 Web）与 Channel，也可用 `-p` 一次性调试。
 
-- 设计蓝图：[`docs/brainstorm/next-gen-architecture.md`](docs/brainstorm/next-gen-architecture.md)
-  （B1 头脑风暴，从 micbot 仓库同步过来，后续在本仓库继续演进）。
-- 当前状态：v0a 进行中，Web 闭环已打通（网关 + 内嵌前端 + `-p` 调试调用）。进度与模块划分见
-  [`docs/blueprints/archive/v0a-module-map.md`](docs/blueprints/archive/v0a-module-map.md)，待办见 [`todo.md`](todo.md)。
+## 启动
 
-## 起步方式
+需要 Rust 和 Bun，在仓库根目录运行：
 
-沿用 micbot 的 Semantic Blueprint Protocol：Blueprint → Implementation 不可跳。
-每个 crate 真正动工（定义公开类型/trait/签名）前，先写一份 `docs/blueprints/<topic>.md`
-说清楚签名、错误、强类型契约、副作用，人工批准后再实现。强制约束见根目录
-[`CLAUDE.md`](CLAUDE.md)（从 micbot 裁剪，去掉了 TUI 依赖、旧 crate 名和历史 BP
-编号，保留通用部分）。
+```sh
+./build.sh                         # 构建前端与 release 二进制
+./target/release/micnext            # 常驻，终端打印带 token 的 Web 地址
+./target/release/micnext -p '你好'   # 一次性调试
+```
 
-## 查看 release 体积
+首次启动自动生成 `~/.config/micnext/config.toml`（支持 `XDG_CONFIG_HOME`）；也可用
+`--config <路径>` 指定已有配置。默认监听 `127.0.0.1:7878`。
+在 Web「设置 → 服务商与模型」添加服务商、凭据和模型后开始对话。
 
-构建后运行 `./scripts/size.sh`，查看 `target/release/micnext` 的文件大小、segment/section
-组成、临时副本 strip 后的大小，以及当前前端资源大小。默认只分析现有文件，不重新构建，
-不修改原二进制；需要 macOS Command Line Tools 和 Python 3，仅支持单架构 64 位 Mach-O。
+## 基础功能与入口
 
-运行 `./scripts/size.sh --bloat` 额外查看前 20 个 crate 和大函数；先安装
-`cargo install cargo-bloat --locked`。此选项会按默认 features 重新构建 release，
-报告针对重新构建后的产物；crate 归因只覆盖机器码，不代表整个文件占比。
+| 功能 | 入口与用途 |
+|---|---|
+| 对话 | Web 新建会话，选择模型、人设和推理强度；支持图片、流式回复、工具结果、历史分页与会话归档 |
+| 上下文 | 自动压缩；`/compact [文字]` 手动压缩并处理附带文字，`/clear` 清空模型上下文但保留聊天记录，`/stop` 停止当前回答 |
+| 工具与后台任务 | 文件读写、编辑、搜索，Bash、网页抓取与子 agent；后台任务条查看输出、停止任务或继续向子 agent 发消息 |
+| 模型 | OpenAI / ChatGPT 订阅走 Responses；DeepSeek、Ollama 与通用兼容服务走 Chat Completions |
+| 微信 | 「设置 → 微信」扫码配置；默认构建启用，支持文字、图片和文件入站 |
+| 设置 | Web 管理对话偏好、人设、服务商与模型；「设置备份」导出、导入加密设置，包含 Channel 账号，不是聊天数据库备份 |
+| Trace 与看板 | 侧栏切换「Trace」，查看会话树、运行、模型调用、工具执行和请求消息重建；「看板」查看用量、费用与耗时统计 |
+| 日志 | 侧栏底部「开发者诊断 → 日志」，查看框架运行信息与错误 |
+| SQL | 「开发者诊断 → SQL」（`/developer/sql`），直接查询业务 SQLite，查看表结构，复制结果为 Markdown 或下载 CSV |
+| 更新 | 配置 `gateway.update_repo` 后，在「开发者诊断 → 更新」检查更新，以 upstream 覆盖部署仓库后构建并重启 |
 
-## 项目名
+## SQL 排查约定
 
-`micnext` 是占位名，还没定下来，之后随时可改（改名不影响 crate 内部结构）。
+**排查消息、任务、模型调用和压缩事实，优先使用现有 Web SQL 页面。**
+每次执行一条完整的只读 SQLite SQL，可用 `WITH … SELECT …`；不要混入
+`.headers`、`.mode`、`.parameter` 等 sqlite3 命令行指令，也不要依赖前一条语句设置变量。
+使用 Ctrl/⌘ + Enter 执行，结果最多返回 200 行 / 1 MiB，查询超时为 2 秒，凭据列读作 `NULL`。
+
+会话时间线按 `(created_at, id)` 排；`id` 表示写入先后，不能代替时间线顺序。
+例如查看某个会话的最近 30 条聊天消息（把 `1` 换成会话 id）：
+
+```sql
+SELECT id, kind, created_at, payload
+FROM (
+    SELECT id, kind, created_at, payload
+    FROM core_messages
+    WHERE session_id = 1 AND kind <> 'SideOutput'
+    ORDER BY id DESC LIMIT 30
+)
+ORDER BY created_at, id;
+```
+
+## 配置与数据
+
+- `config.toml` 只放启动项；日常用户设置存 SQLite，经 Web 修改。
+- 业务库默认 `~/.local/share/micnext/micnext.db`，可用 `core.data_dir` 调整；框架日志使用数据目录下独立的 `logs/` 数据库。
+- API key 加密存库，主密钥默认在配置文件旁的 `master.key`；迁移数据时需一并保留。
+
+## 开发
+
+`./build.sh debug run` 构建并启动调试版。收尾运行 `cargo fmt`、`cargo clippy -- -D warnings`；
+改前端再到 `web/` 下运行 `bun run check`。按变化选必要的功能测试，页面观感和真实环境由人工验收。
+
+公开契约变更先写蓝图，批准后实现，流程见 [CLAUDE.md](CLAUDE.md)；
+未关闭事项见 [todo.md](todo.md)，已完成事项见 [todo-archive.md](todo-archive.md)。
+构建后可用 `./scripts/size.sh` 查看 release 体积（仅支持 macOS 单架构 64 位 Mach-O）；
+`--bloat` 额外分析 crate 和大函数，需先安装 `cargo-bloat`。

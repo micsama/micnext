@@ -144,7 +144,7 @@ pub trait Background: Send + Sync {
 
 ### P1.7 Web
 
-聊天页右侧任务列表：工具名、描述、状态、耗时、输出尾部，可终止、可展开读输出。只列当前 Root 名下任务；有任务时标题栏出现开关，宽屏默认展开，窄屏浮层。收到 `jobs_changed` 与 `ready` 时重查。
+聊天页任务条（输入框上沿，形态见 [B1 chat-jobs-card](../brainstorm/chat-jobs-card.md)）：工具名、描述、状态、耗时，可终止、可展开读输出。只列当前 Root 名下任务；有运行中或结束未看的任务时整条显示，否则收成小标签；消息流派发行与完成行显示任务号，点击定位。收到 `jobs_changed` 与 `ready` 时重查。
 
 ### P1.8 验收
 
@@ -184,7 +184,7 @@ pub trait Background: Send + Sync {
 ### P2.4 可见性
 
 - 超过 14 天无活动、休眠且无活跃后代任务的子 session 默认不列出；`include_old` 列全部；按 ID 追问不受影响。已结束 tool job 同窗口过滤。不删除任何历史。最近活动由已有输入/run/job 事实查询，不另维护时钟。
-- Task 不进侧栏；Web 普通发送接口拒绝 Task。任务列表里 agent 显示描述、运行/休眠、最近结果，不提供进入会话或追问；子会话过程在 trace 可查。
+- Task 不进会话侧栏；Web 普通发送接口拒绝 Task。任务列表里 agent 显示描述、运行/休眠、最近结果，不提供进入会话或追问；子会话过程在 trace 可查。
 - 重启：遗留子 run 按 P1.6 收尾，并在所属 Root 追加一条聚合通知列出相关 job ID（与收尾同事务，不重复）；休眠子 session 不标中断。
 - `-p` 不暴露 `agent`（派出的子 agent 必然收不到交付）。
 

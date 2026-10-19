@@ -13,6 +13,8 @@
     leading,
     trailing,
     notice = null,
+    dock,
+    readonly = null,
     blocked = false,
     onstop,
     stopping = false,
@@ -26,6 +28,10 @@
     trailing?: Snippet;
     /** 输入框上方的提示。 */
     notice?: string | null;
+    /** 贴在输入框上沿的内容（如后台任务条）。 */
+    dock?: Snippet;
+    /** 不可输入时的说明，替代占位文字；附件与发送随之隐藏。 */
+    readonly?: string | null;
     /** 暂不能发送（原因见 notice）。 */
     blocked?: boolean;
     /** 有一轮在执行时传入：输入为空时发送键变为停止，Esc 同效。 */
@@ -75,7 +81,7 @@
   $effect(() => () => attachments.forEach((a) => URL.revokeObjectURL(a.url)));
 
   function attach(files: File[]) {
-    if (!limits) return;
+    if (!limits || readonly !== null) return;
     const images = files.filter((f) => f.type.startsWith("image/"));
     if (images.length === 0) return;
     error = null;
@@ -166,6 +172,7 @@
   {:else if notice}
     <p class="mb-2 text-sm text-warning">{notice}</p>
   {/if}
+  {@render dock?.()}
   <div
     role="group"
     ondragover={(e) => {
@@ -174,7 +181,7 @@
     }}
     ondragleave={() => (dragging = false)}
     {ondrop}
-    class="rounded-3xl border bg-card p-2 shadow-sm transition-colors focus-within:border-ring {dragging
+    class="relative z-20 rounded-3xl border bg-card p-2 shadow-sm transition-colors focus-within:border-ring {dragging
       ? 'border-primary'
       : 'border-border'}">
     {#if attachments.length > 0}
@@ -208,10 +215,10 @@
       bind:value={text}
       {onkeydown}
       {onpaste}
-      {placeholder}
-      disabled={posting}
+      placeholder={readonly ?? placeholder}
+      disabled={posting || readonly !== null}
       rows="1"
-      class="block max-h-60 min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base outline-none placeholder:text-muted-foreground disabled:opacity-60"
+      class="block max-h-60 min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base outline-none placeholder:text-muted-foreground {posting ? 'opacity-60' : ''}"
     ></textarea>
     <div class="flex items-center gap-1">
       <input
@@ -224,7 +231,7 @@
           attach([...(picker.files ?? [])]);
           picker.value = "";
         }} />
-      {#if limits}
+      {#if limits && readonly === null}
         <button
           type="button"
           onclick={() => picker.click()}
@@ -238,7 +245,7 @@
       {@render leading?.()}
       <div class="flex-1"></div>
       {@render trailing?.()}
-      {#if stopMode}
+      {#if readonly !== null}{:else if stopMode}
         <button
           type="button"
           onclick={stop}

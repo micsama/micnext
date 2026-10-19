@@ -105,7 +105,7 @@ mic-message 形状变化时，改它的 B2 须把本文列为调用方（gateway
 | `UserInput` | 右侧气泡；`Text` 原文（不渲染 Markdown），`File` 显示文件名小标签 |
 | `Reply` | 左侧无气泡，按 `blocks` 顺序：`Reasoning::Visible` → 折叠行"思考过程"；`Redacted` → "（推理内容已加密）"；`Text` → Markdown；`ToolCall` → 工具行 |
 | `ToolResult` | 不单独成行，并入 `tool_call_id` 相同的工具行（✓ / ✗ 与输出）；找不到对应调用时单独显示一行 |
-| `Completion` | 一行"后台任务完成：工具名"，可展开输出；任务本身见右侧任务列表（[async-jobs](../async-jobs.md) P1.7；子 agent 行见 P2.4） |
+| `Completion` | 一行"后台任务完成：工具名"，可展开输出；带任务号，点击在输入框上沿的任务条中定位（[async-jobs](../async-jobs.md) P1.7；子 agent 行见 P2.4） |
 | `HarnessNote` | 不显示（给模型看的备注） |
 | `Notification` | 居中的灰色系统提示 |
 | `Boundary` | 压缩：✓ 已压缩，可展开摘要/快照并撤回当前边界；失效显示已撤回；clear 显示清空分隔线 |

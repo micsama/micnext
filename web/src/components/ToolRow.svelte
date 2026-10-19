@@ -2,6 +2,7 @@
   import type { ExecOutcome, ToolResultOutcome } from "../api/types";
   import { argsSummary, prettyArgs } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
+  import JobRef from "./JobRef.svelte";
   import { outcomeText } from "./outcome";
 
   let {
@@ -31,8 +32,8 @@
       <Icon name="check" class="size-3.5 shrink-0 text-green-600" />
     {:else if status === "fail"}
       <Icon name="x" class="size-3.5 shrink-0 text-destructive" />
-    {:else if status === "dispatched"}
-      <span class="shrink-0 text-xs text-muted-foreground">后台执行中</span>
+    {:else if result && "Dispatched" in result}
+      <JobRef id={result.Dispatched.exec_id} />
     {/if}
     <Icon name="chevron" class="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/tool:rotate-90" />
   </summary>

@@ -8,6 +8,7 @@
   import ContextBoundaryView from "./ContextBoundaryView.svelte";
   import ReplyView from "./ReplyView.svelte";
   import ToolRow from "./ToolRow.svelte";
+  import JobRef from "./JobRef.svelte";
 
   let {
     message,
@@ -59,7 +60,7 @@
   {/if}
 {:else if body.kind === "Completion"}
   <details class="rounded-lg border border-border text-sm">
-    <summary class="cursor-pointer px-3 py-1.5 text-muted-foreground select-none">后台任务完成：{body.tool_name}</summary>
+    <summary class="cursor-pointer px-3 py-1.5 text-muted-foreground select-none">后台任务完成：{body.tool_name} <JobRef id={body.exec_id} /></summary>
     <pre class="max-h-80 overflow-auto border-t border-border px-3 py-2 font-mono text-xs whitespace-pre-wrap">{outcomeText(
         body.outcome,
       )}</pre>

@@ -1,7 +1,7 @@
 import { ApiError, generateTitle, getContext, listJobs, getMessages, getRunStats, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, type ChatRunStats, type ContextView, type JobView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
-import { SvelteMap } from "svelte/reactivity";
+import { ProtocolError, jobActive, type ChatRunStats, type ContextView, type JobView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
+import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
 import { otherSessions, webSessions } from "./sessions.svelte";
 
@@ -97,6 +97,7 @@ export class SessionView {
         try {
           const jobs = await listJobs(this.id);
           if (this.#abort.signal.aborted) return;
+          this.#trackUnseen(jobs);
           this.jobs = jobs;
           this.jobsError = null;
         } catch (error) {
@@ -104,6 +105,23 @@ export class SessionView {
         }
       }
     })().finally(() => { this.#jobsRefresh = null; });
+  }
+  /** 本页打开后结束、还没展开看过的任务；首次加载时已结束的算看过。 */
+  readonly unseenJobs = new SvelteSet<number>();
+  #jobsActive: Map<number, boolean> | null = null;
+
+  #trackUnseen(jobs: JobView[]): void {
+    const before = this.#jobsActive;
+    this.#jobsActive = new Map(jobs.map((j) => [j.id, jobActive(j)]));
+    if (before) for (const j of jobs) if (!jobActive(j) && before.get(j.id) !== false) this.unseenJobs.add(j.id);
+  }
+  /** 任务条是否展开；`jobFocus` 是消息流里点任务号要定位的任务，`seq` 让重复点击也生效。 */
+  jobsOpen = $state(false);
+  jobFocus = $state<{ id: number; seq: number } | null>(null);
+
+  revealJob(id: number): void {
+    this.jobsOpen = true;
+    this.jobFocus = { id, seq: (this.jobFocus?.seq ?? 0) + 1 };
   }
   /** 已结束轮次的统计，按挂载的消息 id。 */
   readonly runStats = new SvelteMap<number, ChatRunStats>();

@@ -6,6 +6,8 @@ import { sleep } from "../lib/sleep";
 import { otherSessions, webSessions } from "./sessions.svelte";
 
 export type Draft = { reasoning: string; text: string };
+/** 输入框的回复引用：`label` 显示在输入框内，发送时 `quote` 以引用块前置到正文。 */
+export type ComposerReply = { label: string; quote: string };
 
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 10_000;
@@ -118,6 +120,9 @@ export class SessionView {
   /** 任务条是否展开；`jobFocus` 是消息流里点任务号要定位的任务，`seq` 让重复点击也生效。 */
   jobsOpen = $state(false);
   jobFocus = $state<{ id: number; seq: number } | null>(null);
+
+  /** 输入框当前的回复引用。 */
+  reply = $state<ComposerReply | null>(null);
 
   revealJob(id: number): void {
     this.jobsOpen = true;

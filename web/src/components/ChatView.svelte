@@ -127,7 +127,7 @@
   {/if}
   <MessageList {view} />
   {#if item?.writable && item.archived_at === null}
-    <Composer onsend={send} autofocus {notice} dock={view.jobs.length > 0 ? jobsDock : undefined} blocked={modelSaving} onstop={view.executingRun === null ? undefined : () => view.stop()} stopping={view.stopping !== null} trailing={modelControls}>
+    <Composer onsend={send} autofocus bind:reply={view.reply} {notice} dock={view.jobs.length > 0 ? jobsDock : undefined} blocked={modelSaving} onstop={view.executingRun === null ? undefined : () => view.stop()} stopping={view.stopping !== null} trailing={modelControls}>
       {#snippet leading()}
         <PersonaPicker value={persona!.id} onpick={pick} />
       {/snippet}

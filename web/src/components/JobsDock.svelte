@@ -1,7 +1,8 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
+  import { slide } from "svelte/transition";
   import { ApiError, jobOutput, stopJob } from "../api/client";
-  import { jobActive, type JobOutput, type JobView } from "../api/types";
+  import { jobActive, type AgentJobView, type JobOutput, type JobView } from "../api/types";
   import type { SessionView } from "../state/session.svelte";
   import { confirm } from "../state/confirm.svelte";
   import { formatDuration } from "../lib/format";
@@ -10,23 +11,42 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import { jobLook } from "./job-look";
 
-  /** 贴在输入框上沿的后台任务条：有运行中或结束未看的任务时整条显示，否则收成小标签。 */
+  /** 贴在输入框上沿的后台任务条：收起为胶囊，展开按「正在执行 / 可追问 / 已结束」分区。 */
   let { view, writable }: { view: SessionView; writable: boolean } = $props();
 
   /** 展开时一次向前多读的字节数。 */
   const PAGE = 16_384;
 
-  const prominent = (j: JobView) => jobActive(j) || view.unseenJobs.has(j.id);
-  const lead = $derived(view.jobs.filter(prominent));
-  const ended = $derived(view.jobs.filter((j) => !prominent(j)));
-  const runningCount = $derived(view.jobs.filter(jobActive).length);
-  const fresh = $derived(lead.filter((j) => !jobActive(j)));
-  const freshBad = $derived(fresh.filter((j) => jobLook(j).bad).length);
-  const quiet = $derived(!view.jobsOpen && lead.length === 0);
+  /** 不限时的后台命令（如 dev server）：常驻运行，不算「在做事」。 */
+  const resident = (j: JobView) => j.kind === "tool" && j.timeout_ms === null && j.state === "running";
+  const running = $derived(view.jobs.filter((j) => jobActive(j) && !resident(j)));
+  const residents = $derived(view.jobs.filter(resident));
+  const idle = $derived(view.jobs.filter((j) => j.kind === "agent" && !j.running));
+  const ended = $derived(view.jobs.filter((j) => j.kind === "tool" && !jobActive(j)));
+  const sections = $derived([
+    { title: "正在执行", jobs: running },
+    { title: "常驻", jobs: residents },
+    { title: "可追问", jobs: idle },
+    { title: "已结束", jobs: ended },
+  ].filter((s) => s.jobs.length > 0));
+  /** 收起时值得提示的任务：运行中（含常驻）或结束未看。 */
+  const lead = $derived(view.jobs.filter((j) => jobActive(j) || view.unseenJobs.has(j.id)));
+  const freshBad = $derived(lead.some((j) => !jobActive(j) && jobLook(j).bad));
+  const succeeded = (j: JobView) => j.kind === "tool" ? j.state === "completed" : j.last_run === "completed";
+  /** 胶囊颜色取最需要留意的一项：新失败 > 运行中 > 新完成；常驻不着色。 */
+  const dockState = $derived(freshBad ? "failed" : running.length ? "running" : lead.some(succeeded) ? "success" : "idle");
+  let panel: HTMLDivElement;
+
+  function dismissOutside(event: PointerEvent) {
+    const path = event.composedPath();
+    const inComposer = path.some((node) => node instanceof HTMLElement && node.hasAttribute("data-composer-input"));
+    if (view.jobsOpen && full === null && !confirm.pending && !path.includes(panel) && !inComposer) view.jobsOpen = false;
+  }
+
 
   let now = $state(Date.now());
   $effect(() => {
-    if (runningCount === 0) return;
+    if (running.length + residents.length === 0) return;
     const timer = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(timer);
   });
@@ -34,6 +54,7 @@
   function elapsed(j: JobView): string {
     if (j.kind === "agent") return j.running ? "" : `${formatDuration(Math.max(0, now - j.last_active_at))}前`;
     const ms = (j.finished_at ?? now) - j.created_at;
+    if (resident(j)) return `已运行 ${formatDuration(Math.max(0, ms))}`;
     return j.state === "running" && ms < 60_000 ? `${Math.max(0, Math.floor(ms / 1000))} s` : formatDuration(Math.max(0, ms));
   }
 
@@ -114,7 +135,7 @@
 
   async function stop(j: JobView) {
     const ok = await confirm.ask(j.kind === "agent"
-      ? { title: "终止这个子任务？", description: `${j.description}（之后仍可由会话追问）`, action: "终止" }
+      ? { title: "终止这个子 agent？", description: `${j.description}（之后仍可由会话追问）`, action: "终止" }
       : { title: "终止这个任务？", description: `${j.tool_name}：${j.description}`, action: "终止" });
     if (!ok) return;
     stopping[j.id] = true;
@@ -124,8 +145,14 @@
     finally { delete stopping[j.id]; view.refreshJobs(); }
   }
 
+  function replyTo(j: AgentJobView) {
+    view.reply = { label: `回复 agent #${j.id} · ${j.description}`, quote: `回复子 agent #${j.id}（${j.description}）` };
+  }
+
   const fullJob = $derived(full === null ? undefined : view.jobs.find((j) => j.id === full));
 </script>
+
+<svelte:window onpointerdown={dismissOutside} />
 
 {#snippet output(j: JobView, o: Opened, pre: string)}
   {#if o.out && o.out.offset > o.out.available_from}
@@ -139,31 +166,42 @@
       : o.out ? o.out.text || "（无输出）" : "读取中…"}</pre>
 {/snippet}
 
-{#snippet row(j: JobView, low: boolean)}
+{#snippet row(j: JobView)}
   {@const look = jobLook(j)}
   {@const active = jobActive(j)}
+  {@const steady = resident(j)}
+  {@const done = j.kind === "tool" && !active}
   {@const o = opened[j.id]}
-  <li bind:this={rows[j.id]} class="group rounded-xl {flash === j.id ? 'flash' : ''}">
-    <div class="flex items-center gap-1 rounded-xl pr-1 hover:bg-muted">
-      <button type="button" class="grid min-w-0 flex-1 grid-cols-[14px_minmax(0,1fr)] items-center gap-2 py-1.5 pl-2 text-left" aria-expanded={!!o} onclick={() => toggle(j)}>
-        <Icon name={look.icon} class="size-3.5 {look.tone} {active ? 'animate-spin' : ''} {low ? 'opacity-60' : ''}" />
+  {@const status = active ? null : j.kind === "tool" || look.bad ? look.label : null}
+  <li bind:this={rows[j.id]} class="group rounded-lg {flash === j.id ? 'flash' : ''}">
+    <div class="flex items-center gap-1 rounded-lg pr-1.5 transition-colors hover:bg-muted {o ? 'bg-muted/60' : ''}">
+      <button type="button" class="grid min-w-0 flex-1 grid-cols-[24px_minmax(0,1fr)] items-center gap-2.5 rounded-lg py-2 pl-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-expanded={!!o} onclick={() => toggle(j)}>
+        <span class="type-chip relative grid size-6 place-items-center rounded-md {steady ? 'text-success' : active ? 'text-primary' : look.bad ? look.tone : done ? 'text-muted-foreground' : 'text-foreground/70'}" title={j.kind === "agent" ? "子 agent" : "后台任务"}>
+          <Icon name={j.kind === "agent" ? "bot" : "terminal"} class="size-3.5" />
+          {#if steady}<span class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-success ring-2 ring-card" title="常驻运行中"></span>
+          {:else if active}<span class="absolute -top-0.5 -right-0.5 size-2 animate-pulse rounded-full bg-primary ring-2 ring-card motion-reduce:animate-none"></span>
+          {:else if view.unseenJobs.has(j.id)}<span class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary ring-2 ring-card" title="结束后未查看"></span>{/if}
+        </span>
         <span class="min-w-0">
-          <span class="block truncate text-[13px] {low ? 'text-muted-foreground' : ''}" title={j.description}>{j.description}</span>
-          <span class="block text-xs {low ? 'text-muted-foreground/70' : 'text-muted-foreground'}"><span class="font-mono">{j.kind === "agent" ? `子任务 #${j.id}` : `${j.tool_name} #${j.id}`}</span> · <span class={low ? "" : look.tone}>{look.label}</span>{#if elapsed(j)} · {elapsed(j)}{/if}</span>
+          <span class="block truncate text-[13px] leading-5 {done && !look.bad ? 'text-muted-foreground' : ''}" title={j.description}>{j.description}</span>
+          <span class="block text-[11px] leading-4 text-muted-foreground"><span class="font-mono">{j.kind === "agent" ? "agent" : j.tool_name} #{j.id}</span>{#if status} · <span class={look.tone}>{status}</span>{/if}{#if elapsed(j)} · <span class="tabular-nums">{elapsed(j)}</span>{/if}</span>
         </span>
       </button>
       <span class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 {o ? 'opacity-100' : ''}">
         {#if j.kind === "agent"}
+          {#if writable}
+            <button type="button" aria-label="回复" title={active ? "回复（本轮结束后处理）" : "回复"} class="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => replyTo(j)}><Icon name="reply" class="size-3.5" /></button>
+          {/if}
           <button type="button" aria-label="在 Trace 中查看" title="在 Trace 中查看" class="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => router.go(`/s/${j.child_session_id}/trace`)}><Icon name="external" class="size-3.5" /></button>
         {/if}
         {#if active && writable}
           <button type="button" aria-label="终止任务" title="终止" disabled={stopping[j.id]} class="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-40" onclick={() => stop(j)}><Icon name="stop" class="size-3.5" /></button>
         {/if}
       </span>
-      {#if view.unseenJobs.has(j.id)}<span class="mr-1.5 size-1.5 shrink-0 rounded-full bg-primary" title="结束后未查看"></span>{/if}
+      <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground/60 transition-transform {o ? 'rotate-90' : ''}" />
     </div>
     {#if o}
-      <div class="space-y-1 pr-2 pb-2 pl-8 text-xs">
+      <div class="space-y-2 pr-3 pb-3 pl-11 text-xs">
         {@render output(j, o, "max-h-48")}
         {#if hasOutput(j)}<button type="button" class="text-muted-foreground hover:text-foreground" onclick={() => (full = j.id)}>全屏查看</button>{/if}
       </div>
@@ -171,42 +209,41 @@
   </li>
 {/snippet}
 
-<div class="relative z-10 mx-[18px] -mb-px h-8">
-  <div class="absolute inset-x-0 bottom-0 overflow-hidden rounded-t-2xl border border-b-0 {view.jobsOpen
-      ? 'border-border bg-card shadow-[0_-6px_24px_#0000000f] dark:shadow-[0_-6px_24px_#00000059]'
-      : quiet ? 'right-auto border-transparent' : 'border-border bg-muted'}">
+<div class="relative z-10 mx-3 h-10">
+  <div bind:this={panel} data-state={dockState} data-open={view.jobsOpen || undefined} class="jobs-panel absolute inset-x-0 bottom-1 overflow-hidden border {view.jobsOpen
+      ? 'rounded-2xl bg-card shadow-lg'
+      : 'right-auto max-w-full rounded-full bg-card'}">
     <button
       type="button"
-      title={view.jobsOpen ? "收起" : "展开后台任务"}
+      title={view.jobsOpen ? "收起后台任务" : "展开后台任务"}
       aria-expanded={view.jobsOpen}
-      class="flex w-full items-center gap-2 text-left text-xs hover:text-foreground {quiet ? 'mt-1.5 h-[26px] px-2 text-muted-foreground/70' : 'h-8 px-3 text-muted-foreground'}"
+      class="flex h-8 w-full items-center gap-2 rounded-[inherit] px-3 text-left text-xs text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       onclick={() => (view.jobsOpen = !view.jobsOpen)}>
-      {#if view.jobsOpen}
-        <span class="min-w-0 flex-1 truncate"><b class="font-medium text-foreground">后台任务</b> · {view.jobs.length}</span>
-      {:else if quiet}
-        <Icon name="terminal" class="size-3.5" /><span>{view.jobs.length} 个后台任务</span>
-      {:else}
-        <span class="inline-flex gap-[3px]">
-          {#each lead as j (j.id)}
+      <Icon name={running.length ? "loader" : freshBad ? "alert" : "layers"} class="size-3.5 shrink-0 {running.length ? 'animate-spin motion-reduce:animate-none' : ''} {freshBad ? 'text-destructive' : running.length ? 'text-primary' : ''}" />
+      <span class="shrink-0 font-medium {view.jobsOpen ? 'text-foreground' : ''}">后台任务</span>
+      <span class="rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none tabular-nums">{view.jobs.length}</span>
+      {#if !view.jobsOpen && lead.length}
+        <span class="flex shrink-0 items-center gap-1" aria-label="任务状态">
+          {#each lead.slice(0, 5) as j (j.id)}
             {@const look = jobLook(j)}
-            <i class="size-1.5 rounded-full {jobActive(j) ? 'animate-pulse bg-primary' : look.bad ? 'bg-destructive' : 'bg-success'}"></i>
+            <span title={`${j.description} · ${resident(j) ? "常驻运行中" : look.label}`} class="size-1.5 rounded-full {resident(j) ? 'bg-success' : jobActive(j) ? 'bg-primary animate-pulse motion-reduce:animate-none' : look.bad ? 'bg-destructive' : succeeded(j) ? 'bg-success' : 'bg-muted-foreground/50'}"></span>
           {/each}
-        </span>
-        <span class="min-w-0 flex-1 truncate">
-          {#if runningCount}<b class="font-medium text-foreground">{runningCount}</b> 个运行中{/if}{#if runningCount && fresh.length} · {/if}{#if fresh.length}{fresh.length} 个刚结束{#if freshBad}，<span class="text-destructive">{freshBad} 个异常</span>{/if}{/if}
+          {#if lead.length > 5}<span class="text-[10px] tabular-nums">+{lead.length - 5}</span>{/if}
         </span>
       {/if}
-      <Icon name="chevron" class="size-3.5 transition-transform {view.jobsOpen ? 'rotate-90' : '-rotate-90'}" />
+      <span class="flex-1"></span>
+      <Icon name="chevron" class="size-3 shrink-0 text-muted-foreground/70 transition-transform motion-reduce:transition-none {view.jobsOpen ? 'rotate-90' : '-rotate-90'}" />
     </button>
     {#if view.jobsOpen}
+      <div transition:slide={{ duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180 }}>
       {#if view.jobsError ?? actionError}<p role="alert" class="border-t border-border px-3 py-1.5 text-xs text-destructive">{actionError ?? view.jobsError}</p>{/if}
-      <ul class="max-h-[40vh] overflow-y-auto border-t border-border p-1">
-        {#each lead as j (j.id)}{@render row(j, false)}{/each}
-        {#if ended.length}
-          {#if lead.length}<li class="flex items-center gap-2 px-2 pt-2 pb-1 text-[11px] text-muted-foreground/70"><span class="h-px flex-1 bg-border"></span>已结束<span class="h-px flex-1 bg-border"></span></li>{/if}
-          {#each ended as j (j.id)}{@render row(j, true)}{/each}
-        {/if}
+      <ul class="max-h-[40vh] overscroll-contain overflow-y-auto border-t border-border/70 p-1.5">
+        {#each sections as s (s.title)}
+          {#if sections.length > 1}<li class="px-2.5 pt-2 pb-1 text-[11px] font-medium text-muted-foreground first:pt-1">{s.title}<span class="ml-1.5 font-normal tabular-nums opacity-70">{s.jobs.length}</span></li>{/if}
+          {#each s.jobs as j (j.id)}{@render row(j)}{/each}
+        {/each}
       </ul>
+      </div>
     {/if}
   </div>
 </div>
@@ -224,6 +261,25 @@
 </Dialog.Root>
 
 <style>
+  /* 收起与展开同一套状态色；呼吸只在收起时。 */
+  .jobs-panel {
+    --job-color: var(--border);
+    border-color: color-mix(in srgb, var(--job-color) 35%, var(--border));
+    background-image: linear-gradient(color-mix(in srgb, var(--job-color) 5%, transparent), color-mix(in srgb, var(--job-color) 5%, transparent));
+  }
+  .jobs-panel[data-state="running"] { --job-color: var(--primary); }
+  .jobs-panel[data-state="success"] { --job-color: var(--success); }
+  .jobs-panel[data-state="failed"] { --job-color: var(--destructive); }
+  .jobs-panel[data-state="running"]:not([data-open]) { animation: breathe 2.8s ease-in-out infinite; }
+  .type-chip { background: color-mix(in srgb, currentColor 10%, transparent); }
+  @keyframes breathe {
+    0%, 100% { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); box-shadow: 0 0 0 0 transparent; }
+    50% { border-color: color-mix(in srgb, var(--primary) 75%, var(--border)); box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 16%, transparent); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .jobs-panel[data-state="running"] { animation: none; }
+  }
+
   .flash {
     animation: flash 1.2s ease-out;
   }

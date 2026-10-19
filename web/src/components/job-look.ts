@@ -12,16 +12,16 @@ const STATE: Record<JobState, JobLook> = {
   cancelled: { label: "已终止", icon: "stop", tone: "text-muted-foreground", bad: false },
   interrupted: { label: "已中断", icon: "alert", tone: "text-warning", bad: true },
 };
-/** agent 最近一个子 run 的结局；休眠时显示。 */
+/** agent 休眠时最近一个子 run 的结局。 */
 const LAST_RUN: Partial<Record<RunState, JobLook>> = {
-  completed: { label: "休眠 · 上次完成", icon: "pause", tone: "text-muted-foreground", bad: false },
-  max_turns: { label: "休眠 · 上次轮数用尽", icon: "pause", tone: "text-warning", bad: true },
-  provider_failed: { label: "休眠 · 上次调用失败", icon: "error", tone: "text-destructive", bad: true },
-  timed_out: { label: "休眠 · 上次超时", icon: "clock", tone: "text-warning", bad: true },
-  stopped: { label: "休眠 · 上次被终止", icon: "stop", tone: "text-muted-foreground", bad: false },
-  interrupted: { label: "休眠 · 上次中断", icon: "alert", tone: "text-warning", bad: true },
+  completed: { label: "上次完成", icon: "pause", tone: "text-muted-foreground", bad: false },
+  max_turns: { label: "上次轮数用尽", icon: "pause", tone: "text-warning", bad: true },
+  provider_failed: { label: "上次调用失败", icon: "error", tone: "text-destructive", bad: true },
+  timed_out: { label: "上次超时", icon: "clock", tone: "text-warning", bad: true },
+  stopped: { label: "上次被终止", icon: "stop", tone: "text-muted-foreground", bad: false },
+  interrupted: { label: "上次中断", icon: "alert", tone: "text-warning", bad: true },
 };
-const IDLE: JobLook = { label: "休眠", icon: "pause", tone: "text-muted-foreground", bad: false };
+const IDLE: JobLook = { label: "待命", icon: "pause", tone: "text-muted-foreground", bad: false };
 
 export function jobLook(j: JobView): JobLook {
   if (j.kind === "tool") return STATE[j.state];

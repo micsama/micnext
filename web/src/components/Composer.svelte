@@ -5,6 +5,7 @@
   import type { InputPart } from "../api/types";
   import Icon from "../lib/Icon.svelte";
   import { settingsStore } from "../state/settings.svelte";
+  import type { ComposerReply } from "../state/session.svelte";
 
   let {
     onsend,
@@ -18,6 +19,7 @@
     blocked = false,
     onstop,
     stopping = false,
+    reply = $bindable(null),
   }: {
     onsend: (parts: InputPart[]) => Promise<void>;
     placeholder?: string;
@@ -37,6 +39,8 @@
     /** 有一轮在执行时传入：输入为空时发送键变为停止，Esc 同效。 */
     onstop?: () => Promise<void>;
     stopping?: boolean;
+    /** 回复引用；发送成功后清空。 */
+    reply?: ComposerReply | null;
   } = $props();
 
   const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -75,7 +79,7 @@
     input.style.height = `${Math.min(input.scrollHeight, MAX_HEIGHT_PX)}px`;
   });
   $effect(() => {
-    if (autofocus) input.focus();
+    if (autofocus || reply) input.focus();
   });
 
   $effect(() => () => attachments.forEach((a) => URL.revokeObjectURL(a.url)));
@@ -130,12 +134,13 @@
     error = null;
     try {
       const parts: InputPart[] = [];
-      if (text.trim() !== "") parts.push({ kind: "text", text });
+      if (text.trim() !== "") parts.push({ kind: "text", text: reply ? `${reply.quote.replace(/^/gm, "> ")}\n\n${text}` : text });
       for (const a of attachments) parts.push({ kind: "image", base64: await toBase64(a.file) });
       await onsend(parts);
       attachments.forEach((a) => URL.revokeObjectURL(a.url));
       attachments = [];
       text = "";
+      reply = null;
     } catch (e) {
       error = (e as Error).message;
     } finally {
@@ -175,6 +180,7 @@
   {@render dock?.()}
   <div
     role="group"
+    data-composer-input
     ondragover={(e) => {
       e.preventDefault();
       dragging = true;
@@ -199,6 +205,13 @@
             </button>
           </div>
         {/each}
+      </div>
+    {/if}
+    {#if reply}
+      <div class="mx-2 mt-1 flex items-center gap-1.5 rounded-lg bg-muted py-1 pr-1 pl-2 text-xs text-muted-foreground">
+        <Icon name="reply" class="size-3.5 shrink-0" />
+        <span class="min-w-0 flex-1 truncate" title={reply.quote}>{reply.label}</span>
+        <button type="button" aria-label="取消回复" title="取消回复" disabled={posting} class="grid size-5 shrink-0 place-items-center rounded hover:bg-accent hover:text-foreground" onclick={() => (reply = null)}><Icon name="x" class="size-3" /></button>
       </div>
     {/if}
     {#if suggestions.length > 0}

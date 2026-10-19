@@ -2,6 +2,7 @@
   import type { Compaction } from "../api/types";
   import type { SessionView } from "../state/session.svelte";
   import Markdown from "./Markdown.svelte";
+  import CopyButton from "./CopyButton.svelte";
   import CheckIcon from "@lucide/svelte/icons/check";
   import Undo2Icon from "@lucide/svelte/icons/undo-2";
   let { id, result, view }: { id: number; result: Compaction; view: SessionView } = $props();
@@ -13,6 +14,11 @@
     result.quoted.length ? `带回 ${result.quoted.length} 条用户原话` : "",
   ].filter(Boolean).join(" · "));
   let error = $state<string | null>(null);
+  let el: HTMLDetailsElement;
+  // 收起后把分隔条拉回视野，避免下方内容上跳后找不到读到哪。
+  function ontoggle() {
+    if (!el.open) el.scrollIntoView({ block: "nearest" });
+  }
   async function revoke() {
     error = null;
     try { await view.revoke(id); }
@@ -20,18 +26,18 @@
   }
 </script>
 
-<details class="group/compact text-sm">
-  <summary class="flex cursor-pointer list-none items-center gap-3 text-xs text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+<details class="group/compact text-sm" bind:this={el} {ontoggle}>
+  <summary class="sticky top-0 z-10 flex cursor-pointer list-none items-center gap-3 bg-background py-1 text-xs text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
     <div class="h-px flex-1 bg-border"></div>
     <span class="inline-flex items-center gap-1">
-      {#if revoked}<Undo2Icon class="size-3.5" />已撤回压缩{:else}<CheckIcon class="size-3.5 text-emerald-600 dark:text-emerald-400" />已压缩{/if} ·
+      {#if revoked}<Undo2Icon class="size-3.5" />已撤回压缩{:else}<CheckIcon class="size-3.5 text-emerald-600 dark:text-emerald-400" />已压缩{/if}{#if retained} · {retained}{/if} ·
     </span>
     <span class="group-open/compact:hidden">查看摘要</span><span class="hidden group-open/compact:inline">收起</span>
+    <span class="hidden group-open/compact:inline-flex" role="presentation" onclick={(e) => e.preventDefault()}><CopyButton text={result.summary} /></span>
     <div class="h-px flex-1 bg-border"></div>
   </summary>
-  <div class="mt-3 space-y-4 rounded-xl border border-border px-4 py-3">
+  <div class="mt-2 space-y-4 rounded-xl border border-border px-4 py-3">
     <Markdown source={result.summary} />
-    {#if retained}<p class="text-xs text-muted-foreground">{retained}</p>{/if}
     {#each result.files as file (file.path)}
       <details class="rounded-lg border border-border">
         <summary class="cursor-pointer px-3 py-2 font-mono text-xs">{file.path}</summary>
@@ -43,9 +49,9 @@
         {/if}
       </details>
     {/each}
+    {#if error}<p class="text-xs text-destructive">{error}</p>{/if}
     {#if canRevoke}
       <button type="button" class="rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50" disabled={view.revoking !== null} onclick={revoke}>{view.revoking === id ? "撤回排队中…" : "撤回压缩"}</button>
     {/if}
-    {#if error}<p class="text-xs text-destructive">{error}</p>{/if}
   </div>
 </details>

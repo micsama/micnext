@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Message, ToolResultOutcome } from "../api/types";
+  import type { ExecOutcome, Message, ToolResultOutcome } from "../api/types";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import HistoryImage from "./HistoryImage.svelte";
@@ -7,26 +7,26 @@
   import type { SessionView } from "../state/session.svelte";
   import ContextBoundaryView from "./ContextBoundaryView.svelte";
   import ReplyView from "./ReplyView.svelte";
-  import ToolRow from "./ToolRow.svelte";
+  import ToolRow, { STEP_NAME, STEP_ROW } from "./ToolRow.svelte";
   import JobRef from "./JobRef.svelte";
 
   let {
     message,
     view,
     results,
-    callIds,
     running,
   }: {
     message: Message;
     view: SessionView;
     results: Map<string, ToolResultOutcome>;
-    callIds: Set<string>;
     running: boolean;
   } = $props();
 
   const body = $derived(message.body);
   const time = $derived(formatTime(message.created_at));
   const basename = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
+  const VERDICT = { Completed: "完成", Failed: "失败", Cancelled: "取消" } as const;
+  const outcomeKind = (o: ExecOutcome) => ("Completed" in o ? "Completed" : "Failed" in o ? "Failed" : "Cancelled");
 </script>
 
 {#if body.kind === "UserInput"}
@@ -55,13 +55,19 @@
 {:else if body.kind === "Reply"}
   <ReplyView blocks={body.blocks} {results} {running} meta="{time} · {body.model}" stats={body.stats} />
 {:else if body.kind === "ToolResult"}
-  {#if !callIds.has(body.tool_call_id)}
-    <ToolRow name={body.tool_name} result={body.outcome} />
-  {/if}
+  <ToolRow name={body.tool_name} result={body.outcome} />
 {:else if body.kind === "Completion"}
-  <details class="rounded-lg border border-border text-sm">
-    <summary class="cursor-pointer px-3 py-1.5 text-muted-foreground select-none">后台任务完成：{body.tool_name} <JobRef id={body.exec_id} /></summary>
-    <pre class="max-h-80 overflow-auto border-t border-border px-3 py-2 font-mono text-xs whitespace-pre-wrap">{outcomeText(
+  <!-- 后台回报不是本轮调用：虚线框与工具胶囊区分。 -->
+  {@const job = view.jobs.find((j) => String(j.id) === body.exec_id)}
+  <details class="rounded-lg border border-dashed border-border text-xs">
+    <summary class="{STEP_ROW} rounded-lg hover:bg-muted">
+      <Icon name="layers" class="size-3.5 shrink-0 text-muted-foreground" />
+      <span class={STEP_NAME}>{body.tool_name}</span>
+      <span class="shrink-0 text-muted-foreground">后台{VERDICT[outcomeKind(body.outcome)]}</span>
+      <span class="min-w-0 flex-1 truncate">{job?.description ?? ""}</span>
+      <JobRef id={body.exec_id} />
+    </summary>
+    <pre class="max-h-80 overflow-auto border-t border-dashed border-border px-2.5 py-2 font-mono whitespace-pre-wrap" class:text-destructive={!("Completed" in body.outcome)}>{outcomeText(
         body.outcome,
       )}</pre>
   </details>

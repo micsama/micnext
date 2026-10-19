@@ -5,6 +5,7 @@
   import Markdown from "./Markdown.svelte";
   import ReasoningFold from "./ReasoningFold.svelte";
   import ToolRow from "./ToolRow.svelte";
+  import Icon from "../lib/Icon.svelte";
 
   let {
     blocks,
@@ -38,7 +39,7 @@
           <ReasoningFold text={block.Reasoning.Visible.text.trim()} />
         {/if}
       {:else}
-        <p class="my-1 text-sm text-muted-foreground">已思考（无摘要）</p>
+        <p class="my-1 flex items-center gap-1.5 text-xs text-muted-foreground" title="模型未提供思考摘要"><Icon name="bulb" class="size-3.5" />已思考</p>
       {/if}
     {:else if "Text" in block}
       <Markdown source={block.Text.text} />

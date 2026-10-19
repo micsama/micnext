@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Message, ToolResultOutcome } from "../api/types";
+  import type { Message, MessageBody, ToolResultOutcome } from "../api/types";
   import { untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { formatTime } from "../lib/format";
@@ -22,6 +22,13 @@
     return s;
   });
   const running = $derived(view.executingRun !== null);
+  /** 不渲染任何内容的消息：已并入调用行的工具结果、只有空思考的回复。 */
+  const hidden = (body: MessageBody) =>
+    body.kind === "HarnessNote" ||
+    (body.kind === "ToolResult" && callIds.has(body.tool_call_id)) ||
+    (body.kind === "Reply" && body.blocks.every((b) => "Reasoning" in b && "Visible" in b.Reasoning && !b.Reasoning.Visible.text.trim()));
+  /** 同属 agent 一侧的连续条目收紧间距。 */
+  const AGENT_SIDE = new Set<MessageBody["kind"]>(["Reply", "ToolResult", "Completion"]);
   const startedAt = $derived(view.messages[0]?.created_at);
   // `loaded`：组首条 id → 在这组之前刚加载进来的条数，交界落在被跳过或并入的消息上时顺延到下一组。
   const grouped = $derived.by(() => {
@@ -30,7 +37,7 @@
     let pending: number | undefined;
     for (const message of view.messages) {
       pending = view.loadedAt.get(message.id) ?? pending;
-      if (message.body.kind === "HarnessNote") continue;
+      if (hidden(message.body)) continue;
       const previous = items.at(-1);
       if (message.body.kind === "Notification" && previous?.[0].body.kind === "Notification") {
         previous.push(message);
@@ -176,8 +183,9 @@
           </p>
         {/if}
       </div>
-      {#each grouped.items as messages (messages[0].id)}
+      {#each grouped.items as messages, i (messages[0].id)}
         {@const loaded = grouped.loaded.get(messages[0].id)}
+        {@const prev = grouped.items[i - 1]?.[0].body.kind}
         {#if loaded !== undefined}
           <!-- 只动透明度不动高度：交界常在视口内，改高度会推动上方内容。 -->
           <div class="loaded-divider flex items-center gap-3">
@@ -191,11 +199,14 @@
         {#if messages[0].body.kind === "Notification"}
           <aside aria-label="系统提示" class="flex flex-col items-center gap-1">
             {#each messages as message (message.id)}
-              <MessageItem {view} {message} {results} {callIds} {running} />
+              <MessageItem {view} {message} {results} {running} />
             {/each}
           </aside>
         {:else}
-          <MessageItem {view} message={messages[0]} {results} {callIds} {running} />
+          <!-- 负外边距与上一条的 space-y 合并，实际间距收为 2。 -->
+          <div class={loaded === undefined && prev !== undefined && AGENT_SIDE.has(prev) && AGENT_SIDE.has(messages[0].body.kind) ? "-mt-2" : ""}>
+            <MessageItem {view} message={messages[0]} {results} {running} />
+          </div>
         {/if}
       {/each}
       {#if view.draft}

@@ -233,6 +233,11 @@ impl Updater {
             self.set(Phase::UpToDate { commit: to });
             return Ok(());
         }
+        let mut diff = Command::new("git");
+        diff.args(["diff", "--stat", &from, &to]);
+        self.stream(diff)
+            .await
+            .map_err(|e| format!("无法运行 git：{e}"))?;
 
         self.set(Phase::Building {
             from: from.clone(),

@@ -14,12 +14,18 @@ const UNKNOWN_RESULT: &str =
     "micnext stopped before this tool call finished; its side effects are unknown.";
 
 /// 遗留 `Executing` → `Interrupted`，补齐悬空工具调用并通知；不重跑。已登记后台任务的调用闭合为
-/// `Dispatched`，子 run 向父会话交付中断，树根另收一条汇总通知；随后遗留的后台任务记中断并回注。
+/// `Dispatched`，子 run 向父会话交付中断；随后遗留的后台任务记中断并回注。被中断的子 agent 与
+/// 后台任务在树根汇成一条通知。
 /// 每棵会话树原子收尾，中途停止则下次启动从未收尾处继续。
 pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, StoreError> {
     let stale = store.executing_runs().await?;
     let count = stale.len();
-    let mut trees: BTreeMap<SessionId, (Vec<InterruptedRun>, Vec<i64>)> = BTreeMap::new();
+    let mut trees: BTreeMap<SessionId, Tree> = BTreeMap::new();
+    for job in store.running_jobs(None).await? {
+        let root = store.session_root(job.owner_session_id).await?.id;
+        let label = format!("{} #{}", job.tool_name, job.id.0);
+        trees.entry(root).or_default().jobs.push((job.id.0, label));
+    }
     for run in stale {
         let mut open: Vec<(String, String)> = Vec::new();
         for m in store.run_messages(run.id).await? {
@@ -67,14 +73,14 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
             .await?
             .expect("run 的会话必然存在");
         let root = store.session_root(session.id).await?.id;
-        let (runs, agents) = trees.entry(root).or_default();
+        let Tree { runs, jobs: agents } = trees.entry(root).or_default();
         let report = match session.kind {
             SessionKind::Task { .. } => {
                 let job = store
                     .agent_job(session.id)
                     .await?
                     .expect("Task 会话必有 agent job");
-                agents.push(job.id.0);
+                agents.push((job.id.0, format!("子 agent #{}", job.id.0)));
                 Some(ExecOutcome::Cancelled {
                     message: AGENT_INTERRUPTED.into(),
                 })
@@ -87,15 +93,15 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
             report,
         });
     }
-    for (root, (runs, mut agents)) in trees {
-        agents.sort_unstable();
-        let notice = (!agents.is_empty()).then(|| {
-            let ids: Vec<String> = agents.iter().map(|id| format!("#{id}")).collect();
+    for (root, Tree { runs, mut jobs }) in trees {
+        jobs.sort_unstable();
+        let notice = (!jobs.is_empty()).then(|| {
+            let labels: Vec<&str> = jobs.iter().map(|(_, label)| label.as_str()).collect();
             (
                 root,
                 MessageBody::Notification {
                     source: NOTIFICATION_SOURCE.into(),
-                    text: format!("重启前仍在执行的子任务已中断：{}。", ids.join("、")),
+                    text: format!("重启前仍在运行的后台任务已中断：{}。", labels.join("、")),
                 },
             )
         });
@@ -103,4 +109,11 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
     }
     crate::jobs::recover(store, data_dir).await?;
     Ok(count)
+}
+
+/// 一棵会话树的收尾：要收尾的 run，与被中断的子 agent、后台任务（任务号, 显示名）。
+#[derive(Default)]
+struct Tree {
+    runs: Vec<InterruptedRun>,
+    jobs: Vec<(i64, String)>,
 }

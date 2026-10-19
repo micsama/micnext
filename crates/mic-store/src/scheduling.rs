@@ -10,14 +10,15 @@ use crate::store::Store;
 use crate::{ClaimedRun, InterruptedRun, Run, RunId, RunInput, RunSettings, RunState, StoreError};
 
 impl Store {
-    /// 启动时原子登记遗留未认领输入为 held，并为每个受影响会话落一条待命通知；不重复处置。
+    /// 启动时原子登记遗留未认领输入为 held；有用户消息或命令被搁置的会话落一条通知（回注由中断通知说明）。不重复处置。
     pub async fn hold_unclaimed_inputs(&self, at: i64) -> Result<Vec<Message>, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
             let sessions = tx
                 .prepare(&format!(
                     "SELECT DISTINCT m.session_id FROM core_messages m
-                     WHERE {UNCLAIMED} AND NOT ({HELD_INPUT}) ORDER BY m.session_id"
+                     WHERE {UNCLAIMED} AND NOT ({HELD_INPUT}) AND m.kind != 'Completion'
+                     ORDER BY m.session_id"
                 ))?
                 .query_map([], |r| Ok(SessionId(r.get(0)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -33,7 +34,7 @@ impl Store {
             for session_id in sessions {
                 let body = MessageBody::Notification {
                     source: "micnext".to_owned(),
-                    text: "上次有消息未执行。".to_owned(),
+                    text: "重启前有消息还没处理，发新消息时会一并交给 agent。".to_owned(),
                 };
                 notifications.push(Message {
                     id: insert_message(&tx, session_id, None, &body, at)?,

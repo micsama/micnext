@@ -559,7 +559,7 @@ async fn recovery_interrupts_running_agents_with_one_notice() {
     assert_eq!(
         notices,
         [format!(
-            "重启前仍在执行的子任务已中断：#{}、#{}。",
+            "重启前仍在运行的后台任务已中断：子 agent #{}、子 agent #{}。",
             slow[0], slow[1]
         )]
     );

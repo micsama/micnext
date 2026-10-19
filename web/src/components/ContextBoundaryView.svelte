@@ -2,6 +2,8 @@
   import type { Compaction } from "../api/types";
   import type { SessionView } from "../state/session.svelte";
   import Markdown from "./Markdown.svelte";
+  import CheckIcon from "@lucide/svelte/icons/check";
+  import Undo2Icon from "@lucide/svelte/icons/undo-2";
   let { id, result, view }: { id: number; result: Compaction; view: SessionView } = $props();
   const compactionState = $derived(view.context?.compactions.find((c) => c.boundary_id === id)?.state);
   const revoked = $derived(compactionState?.kind === "revoked");
@@ -21,7 +23,9 @@
 <details class="group/compact text-sm">
   <summary class="flex cursor-pointer list-none items-center gap-3 text-xs text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
     <div class="h-px flex-1 bg-border"></div>
-    <span class={revoked ? "" : "text-emerald-600 dark:text-emerald-400"}>{revoked ? "↶" : "✓"}</span>{revoked ? "已撤回压缩" : "已压缩"} ·
+    <span class="inline-flex items-center gap-1">
+      {#if revoked}<Undo2Icon class="size-3.5" />已撤回压缩{:else}<CheckIcon class="size-3.5 text-emerald-600 dark:text-emerald-400" />已压缩{/if} ·
+    </span>
     <span class="group-open/compact:hidden">查看摘要</span><span class="hidden group-open/compact:inline">收起</span>
     <div class="h-px flex-1 bg-border"></div>
   </summary>

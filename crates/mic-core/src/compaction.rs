@@ -20,7 +20,7 @@ use crate::limits::{
 use crate::run::{now_ms, Engine, Exec};
 use crate::{request, ModelRequest, ModelResponse, Provider, StopReason, ToolChoice};
 
-const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Copy hard facts verbatim: file paths, exact error messages, explicit user constraints, unfinished tasks. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to continuing the current task. The additional user input is for focus; it will be processed after compaction.";
+const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Output only the summary itself, without analysis or preamble. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Copy hard facts verbatim: file paths, exact error messages, explicit user constraints, unfinished tasks. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to continuing the current task. The additional user input is for focus; it will be processed after compaction.";
 
 /// 当前上下文占用，口径同自动压缩判定。契约：docs/blueprints/chat-run-stats.md §二。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -540,12 +540,19 @@ fn parse_summary(response: &ModelResponse) -> Result<(String, Vec<String>), Stri
     if text.trim().is_empty() {
         return Err("总结正文为空".into());
     }
-    let paths = match text.find("<required_files>") {
-        Some(start) => {
-            let rest = &text[start + "<required_files>".len()..];
-            let end = rest.find("</required_files>").ok_or("必读文件清单未闭合")?;
+    // 清单只认结尾的那一块；正文里提到标签名不算。
+    let body = text.trim_end();
+    let paths = match body
+        .strip_suffix("</required_files>")
+        .and_then(|head| head.rfind("<required_files>").map(|start| (head, start)))
+    {
+        Some((head, start)) => {
             let mut paths = Vec::new();
-            for path in rest[..end].lines().map(str::trim).filter(|p| !p.is_empty()) {
+            for path in head[start + "<required_files>".len()..]
+                .lines()
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+            {
                 if !paths.iter().any(|p| p == path) {
                     paths.push(path.to_owned());
                 }

@@ -45,3 +45,4 @@
 | B2 CLOSED（2026-10-12）；fmt/clippy、Web 检查/构建与 12 项隔离链路验收通过；human 接手真实使用验收，OpenAI key 401 待补 | 上下文压缩与 `/compact`、`/clear`：每次模型返回后按其上游用量判定，默认 80% 触发，压完再接上工具结果或新输入；只读最新有效 Boundary，clear 后排队输入正常执行；快照走 read；Web 展示结果并可将当前压缩边界置为失效撤回，保留审计记录 | [B1](docs/brainstorm/context-compaction.md)；[B2](docs/blueprints/archive/context-compaction.md) |
 | 实现完成（CLOSED，2026-10-10 服务器验收） | 微信引用与入站图片 | [图片 B2](docs/blueprints/archive/wechat-inbound-images.md)；[引用 B2](docs/blueprints/archive/wechat-quotes.md)；[V2 B1](docs/brainstorm/wechat-v2.md) §二 |
 | 实现完成（CLOSED，2026-10-16 整理归档） | v0a 模块地图与 Web 闭环 | [B2](docs/blueprints/archive/v0a-module-map.md) |
+| 实现完成（CLOSED） | Trace 会话树与整树用量 | [`trace-session-tree.md`](docs/blueprints/archive/trace-session-tree.md) |

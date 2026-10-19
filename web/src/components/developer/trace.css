@@ -70,6 +70,12 @@
 /* 中：执行流 */
 .trace-layout .stream-head { flex-wrap: wrap; }
 .trace-layout .stream-head h2 { min-width: 0; }
+.trace-layout .crumbs { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 0 1 auto; }
+.trace-layout .crumb { flex: 0 1 auto; min-width: 2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14em; padding: 2px 4px; border-radius: 5px; color: var(--t-muted); font-size: 13px; }
+.trace-layout .crumb:hover { color: var(--t-text); background: var(--t-hover); }
+.trace-layout .crumb-sep { flex: none; color: var(--t-faint); }
+.trace-layout .tree-sum { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--t-line2); font-size: 11px; color: var(--t-muted); cursor: default; }
+.trace-layout .tree-sum b { font-weight: 500; color: var(--t-sub); font-variant-numeric: tabular-nums; }
 .trace-layout .s-head { display: flex; align-items: center; gap: 6px; min-width: 0; margin: -3px -6px; padding: 3px 6px; border-radius: 7px; text-align: left; }
 .trace-layout .s-head > svg { flex: none; color: var(--t-faint); opacity: 0; transition: opacity .15s; }
 .trace-layout .s-head:not(:disabled):hover { background: var(--t-hover); }
@@ -149,12 +155,6 @@
 .trace-layout .d-title { font-size: 16px; font-weight: 600; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-top: 6px; overflow-wrap: anywhere; }
 .trace-layout .d-title .sub { font-size: 12px; font-weight: 400; color: var(--t-muted); }
 /* 会话详情的用量范围，不影响运行记录。 */
-.trace-layout .session-scope { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px 12px; border-bottom: 1px solid var(--t-line); flex: none; }
-.trace-layout .scope-label { font-size: 12px; color: var(--t-muted); }
-.trace-layout .scope-options { display: inline-flex; gap: 2px; padding: 3px; border-radius: 8px; background: var(--t-chip); }
-.trace-layout .scope-options button { padding: 3px 11px; border-radius: 6px; font-size: 12px; line-height: 20px; color: var(--t-muted); white-space: nowrap; transition: color .15s, background .15s, box-shadow .15s; }
-.trace-layout .scope-options button:hover { color: var(--t-text); }
-.trace-layout .scope-options button.chosen { color: var(--t-text); background: var(--t-panel); font-weight: 500; box-shadow: 0 1px 3px #00000014; }
 .trace-layout .tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--t-line); flex: none; }
 .trace-layout .tab { padding: 6px 8px; font-size: 13px; color: var(--t-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .trace-layout .tab:hover { color: var(--t-text); }
@@ -230,9 +230,6 @@
 .trace-layout .hint.pad { margin: 0; }
 .trace-layout .excerpt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; width: 100%; font-size: 13px; line-height: 1.7; color: var(--t-sub); white-space: pre-line; overflow-wrap: anywhere; }
 .trace-layout .excerpt:hover { color: var(--t-text); }
-.trace-layout .child-traces { border-bottom: 1px solid var(--t-line); padding-bottom: 10px; }
-.trace-layout .child-traces .fold { padding-top: 12px; padding-bottom: 6px; }
-.trace-layout .child-traces-hint { margin-left: auto; color: var(--t-faint); font-size: 11px; font-weight: 400; }
 .trace-layout .rels { display: flex; flex-direction: column; padding-left: 10px; padding-right: 10px; }
 .trace-layout .rel { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 3px 6px; border-radius: 7px; font-size: 13px; }
 .trace-layout .rel:hover { background: var(--t-hover); }

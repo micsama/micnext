@@ -176,7 +176,7 @@ pub(crate) fn session_kind_cols(kind: &SessionKind) -> SessionKindCols<'_> {
     }
 }
 
-fn corrupt(idx: usize, msg: String) -> rusqlite::Error {
+pub(crate) fn corrupt(idx: usize, msg: String) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, msg.into())
 }
 

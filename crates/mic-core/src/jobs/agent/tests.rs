@@ -406,6 +406,20 @@ async fn each_run_delivers_once_and_follow_up_delivers_again() {
         assert!(call.tools.iter().any(|t| t == "jobs"));
         assert!(!call.system.contains(&persona));
     }
+
+    // trace 会话树与整树用量：跨 store/kernel 的递归 SQL。
+    let task = fx.store.trace_sessions().await.unwrap();
+    let task = task.iter().find(|s| s.session == child).unwrap();
+    assert_eq!(task.parent, Some(job.owner_session_id));
+    assert_eq!(task.label.as_deref(), Some(job.description.as_str()));
+    let root = fx.store.session_usage(job.owner_session_id).await.unwrap();
+    let own = fx.store.session_usage(child).await.unwrap().own;
+    let tree = root.tree.unwrap();
+    assert_eq!(tree.descendants, 1);
+    assert_eq!(
+        tree.usage.input_tokens,
+        root.own.input_tokens + own.input_tokens
+    );
     fx.scheduler.abort();
 }
 

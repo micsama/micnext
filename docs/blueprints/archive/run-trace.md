@@ -1,6 +1,6 @@
 # B2：轻量 trace 与存储整理
 
-**现行扩展（2026-10-16，P3）**：会话汇总新增 `session_usage(session, include_children) -> SessionUsage` 和 `GET /trace/sessions/{id}/usage?include_children=false`，包括对话、重试、压缩、标题的全部已记录调用，不受分页限制；可递归包含归档/隐藏后代。费用按已知部分合计并另报未知次数，单次计价不变。字段见 [async-jobs](../async-jobs.md) P3.2；子任务仅开放 Trace 执行过程。
+**现行扩展（2026-10-16，P3）**：会话汇总新增 `session_usage(session) -> { own, tree }` 和 `GET /trace/sessions/{id}/usage`（`tree` 为本会话加全部后代，无后代为 null；见 [trace-session-tree](trace-session-tree.md)），包括对话、重试、压缩、标题的全部已记录调用，不受分页限制；整树递归包含归档/隐藏后代。费用按已知部分合计并另报未知次数，单次计价不变。字段见 [async-jobs](../async-jobs.md) P3.2；子任务仅开放 Trace 执行过程。
 
 **状态：CLOSED（2026-10-15 human 真实使用验收）。**
 
@@ -81,7 +81,7 @@ Store 函数经 Kernel 同名转发。未知值一律 `null`（不用 0）；时
 
 | 接口 | Store / Kernel | 返回 |
 |---|---|---|
-| `GET /trace/sessions` | `trace_sessions()` | `[{ session, channel, title, last_run_at, failed_runs, interrupted_runs, tool_errors }]`，Root 会话 |
+| `GET /trace/sessions` | `trace_sessions()` | `[{ session, kind, parent, label, job, channel, last_run_at, failed_runs, interrupted_runs, tool_errors }]`，有已结束 run 的会话及其祖先，扁平返回由前端按 `parent` 建树；统计只算自身（2026-10-19 [trace-session-tree](trace-session-tree.md)） |
 | `GET /trace/sessions/{id}?after=<run_id>&limit=` | `trace_runs(session, after, limit)` | `{ runs, title_calls, next_after }`。run：`{ id, state, created_at, finished_at, calls, messages }`；call：`{ id, purpose, model_id, model, reasoning_effort, started_at, first_output_at, finished_at, stop, error, usage, reply_id, boundary_id }`；message：`{ id, kind, created_at, preview（≤200 字）, tool?: { name, call_id, started_at, outcome, error } }`。按完整 run 旧到新，`next_after` 为 `null` 即到底；`title_calls` 只在首页 |
 | `GET /trace/sessions/{id}/system` | `system_prompt(session)` | 当前配置下的系统提示 `{ text, blocks }`，结构见 [context-breakdown §四](context-breakdown.md#四接口) |
 | `GET /trace/messages/{id}` | `message(id)` | 完整消息（现有消息 DTO） |

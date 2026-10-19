@@ -724,10 +724,9 @@ impl Kernel {
     pub async fn session_usage(
         &self,
         session: SessionId,
-        include_children: bool,
-    ) -> Result<mic_store::SessionUsage, KernelError> {
+    ) -> Result<mic_store::SessionUsageView, KernelError> {
         self.existing(session).await?;
-        Ok(self.store.session_usage(session, include_children).await?)
+        Ok(self.store.session_usage(session).await?)
     }
 
     pub async fn trace_sessions(&self) -> Result<Vec<TraceSession>, KernelError> {

@@ -17,8 +17,13 @@ export type Usage = {
 
 export type TraceSession = {
   session: number;
+  kind: "root" | "task" | "triggered";
+  parent: number | null;
+  /** root：会话标题；task：任务说明。 */
+  label: string | null;
+  job: number | null;
+  /** 根祖先的 Channel；Triggered 根取触发模块名。 */
   channel: string;
-  title: string | null;
   last_run_at: number | null;
   failed_runs: number;
   interrupted_runs: number;
@@ -108,8 +113,11 @@ const usage: Decoder<Usage> = obj({
 
 const traceSession: Decoder<TraceSession> = obj({
   session: num,
+  kind: oneOf("root", "task", "triggered"),
+  parent: nullable(num),
+  label: nullable(str),
+  job: nullable(num),
   channel: str,
-  title: nullable(str),
   last_run_at: nullable(num),
   failed_runs: num,
   interrupted_runs: num,
@@ -209,8 +217,12 @@ export type SessionUsage = {
   reasoning_tokens: number | null; known_usage: number; unknown_usage: number;
   usage_complete: boolean; cache_complete: boolean; cost: number | null; unknown_cost: number;
 };
-export const parseSessionUsage = (v: unknown): SessionUsage => obj({
+/** `own` 为本会话；`tree` 为本会话加全部后代，无后代为 null。 */
+export type SessionUsageView = { own: SessionUsage; tree: { descendants: number; usage: SessionUsage } | null };
+const sessionUsage: Decoder<SessionUsage> = obj({
   input_tokens: num, output_tokens: num, cache_read_tokens: num, cache_write_tokens: num,
   reasoning_tokens: nullable(num), known_usage: num, unknown_usage: num,
   usage_complete: bool, cache_complete: bool, cost: nullable(num), unknown_cost: num,
-})(v, "会话用量");
+});
+export const parseSessionUsage = (v: unknown): SessionUsageView =>
+  obj({ own: sessionUsage, tree: nullable(obj({ descendants: num, usage: sessionUsage })) })(v, "会话用量");

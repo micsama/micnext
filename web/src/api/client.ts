@@ -2,7 +2,7 @@ import { auth } from "../state/auth.svelte";
 import { obj, str } from "./decode";
 import { parseStoredLogs, type StoredLogRecord } from "./developer";
 import {
-  parseSessionUsage, type SessionUsage,
+  parseSessionUsage, type SessionUsageView,
   parseDashboard,
   parsePeers,
   parseSystemPrompt,
@@ -356,6 +356,6 @@ export async function importSettings(text: string): Promise<void> {
 }
 
 
-export async function getSessionUsage(session: number, includeChildren: boolean): Promise<SessionUsage> {
-  return parseSessionUsage(await request("GET", `/trace/sessions/${session}/usage?include_children=${includeChildren}`));
+export async function getSessionUsage(session: number): Promise<SessionUsageView> {
+  return parseSessionUsage(await request("GET", `/trace/sessions/${session}/usage`));
 }

@@ -1,16 +1,16 @@
 <script lang="ts">
   import "./trace.css";
   import { tick } from "svelte";
-  import { listJobs, getSessionUsage, ApiError, getSession, getTraceCallInput, getTraceMessage, getTracePeers, getTraceRunLogs, getTraceRuns, getTraceSystem } from "../../api/client";
+  import { getSessionUsage, ApiError, getSession, getTraceCallInput, getTraceMessage, getTracePeers, getTraceRunLogs, getTraceRuns, getTraceSystem } from "../../api/client";
   import type { StoredLogRecord } from "../../api/developer";
-  import type { SessionUsage, Peers, SystemPromptView, TraceCall, TraceMessage, TraceRun } from "../../api/trace";
+  import type { SessionUsageView, Peers, SystemPromptView, TraceCall, TraceMessage, TraceRun } from "../../api/trace";
   import { cn } from "$lib/utils";
   import { formatDuration, formatTokens } from "../../lib/format";
   import Icon from "../../lib/Icon.svelte";
-  import type { AgentJobView, Message, SessionDetail } from "../../api/types";
+  import type { Message, SessionDetail } from "../../api/types";
   import { settingsStore } from "../../state/settings.svelte";
   import { router } from "../../state/route.svelte";
-  import { traceSessions } from "../../state/trace-sessions.svelte";
+  import { issues, traceSessions } from "../../state/trace-sessions.svelte";
   import { attempts, steps, owner, toolsFor, stepOf, bar, usageOf, heat, toolMs, jsonHtml, isLong } from "./trace-presentation";
   import TraceUsage from "./TraceUsage.svelte";
   import TraceContent from "./TraceContent.svelte";
@@ -20,19 +20,17 @@
 
   /** target 来自地址：侧栏选会话、浏览器前进后退都经它切换。 */
   let { active, target }: { active: boolean; target: number | null } = $props();
-  let includeChildren = $state(false);
-  let sessionUsage = $state.raw<SessionUsage | null>(null);
+  let sessionUsage = $state.raw<SessionUsageView | null>(null);
   let usageError = $state<string | null>(null);
   let usageRefresh = $state(0);
   $effect(() => {
     const id = session;
-    const include = includeChildren;
     void usageRefresh;
     if (!active || id === null) return;
     let cancelled = false;
     sessionUsage = null;
     usageError = null;
-    void getSessionUsage(id, include).then((value) => {
+    void getSessionUsage(id).then((value) => {
       if (!cancelled) sessionUsage = value;
     }).catch((e: unknown) => { if (!cancelled) usageError = String(e); });
     return () => { cancelled = true; };
@@ -61,8 +59,6 @@
   let session = $state<number | null>(null);
   let runs = $state.raw<TraceRun[]>([]);
   let titleCalls = $state.raw<TraceCall[]>([]);
-  let childJobs = $state.raw<AgentJobView[]>([]);
-  let childJobsError = $state<string | null>(null);
   let nextAfter = $state<number | null>(null);
   let peers = $state.raw<Peers>({ models: [], tools: [] });
   let pick = $state.raw<Pick | null>(null);
@@ -107,7 +103,6 @@
     remember();
     const request = ++pageRequest;
     ++detailRequest;
-    if (session !== id) includeChildren = false;
     session = id;
     usageRefresh += 1;
     if (target !== id) router.replace(`/s/${id}/trace`);
@@ -116,24 +111,14 @@
     selectedRun = null;
     runs = [];
     titleCalls = [];
-    childJobs = [];
-    childJobsError = null;
     nextAfter = null;
     detailError = null;
     pick = null;
     detail = null;
     loading = true;
-    const [page, jobs] = await Promise.all([
-      guard(() => getTraceRuns(id, null)),
-      listJobs(id, true).then(
-        (jobs) => ({ jobs: jobs.filter((j): j is AgentJobView => j.kind === "agent"), error: null }),
-        (e: unknown): { jobs: AgentJobView[]; error: string } => ({ jobs: [], error: String(e) }),
-      ),
-    ]);
+    const page = await guard(() => getTraceRuns(id, null));
     if (request === pageRequest) loading = false;
     if (!page || request !== pageRequest) return;
-    childJobs = jobs.jobs;
-    childJobsError = jobs.error;
     runs = page.runs;
     titleCalls = page.title_calls;
     nextAfter = page.next_after;
@@ -337,6 +322,7 @@
     sessionSelected = true;
     detailError = null;
     if (sessionInfo === "trace_only" || sessionInfo?.id !== id) sessionInfo = null;
+    if (traceSessions.byId.get(id)?.kind === "task") return;
     try {
       const info = await getSession(id);
       if (request === detailRequest) sessionInfo = info;
@@ -386,7 +372,7 @@
     ["logs", "日志"],
   ];
 
-  const currentSession = $derived(traceSessions.items.find((s) => s.session === session));
+  const currentSession = $derived(session === null ? undefined : traceSessions.byId.get(session));
   const isBad = (e: Entry) => e.kind === "run" ? badRun(e.run) : e.call.error !== null;
   const visibleEntries = $derived(entries.filter((e) => !issuesOnly || isBad(e)));
   const badCount = $derived(entries.filter(isBad).length);
@@ -497,26 +483,14 @@
 <div class="trace-layout">
   <section class="panel">
     <div class="panel-head stream-head">
-      <button type="button" class={cn("s-head", sessionSelected && "on")} disabled={session === null} title="查看会话详情" onclick={chooseSession}><h2 class="truncate">{currentSession?.title ?? (session === null ? "Trace" : `会话 ${session}`)}</h2><Icon name="info" class="size-3.5" /></button>
+      <div class="crumbs">
+        {#if session !== null}{#each traceSessions.ancestors(session) as a (a.session)}<button type="button" class="crumb" title="打开父会话" onclick={() => void open(a.session)}>{traceSessions.title(a.session)}</button><span class="crumb-sep">›</span>{/each}{/if}
+        <button type="button" class={cn("s-head", sessionSelected && "on")} disabled={session === null} title="查看会话详情" onclick={chooseSession}><h2 class="truncate">{session === null ? "Trace" : traceSessions.title(session)}</h2><Icon name="info" class="size-3.5" /></button>
+      </div>
       <div class="caps"><span class="cap">{runs.length} 轮</span><span class="cap">{runs.reduce((n, r) => n + r.calls.length, 0)} 次调用</span><span class="cap">{tokensOf(runs.flatMap((r) => r.calls))} token</span></div>
       <button type="button" class="toggle" class:on={issuesOnly} title="只看失败、中断或含报错的运行" onclick={() => issuesOnly = !issuesOnly}><Icon name="error" class="size-[13px]" />只看异常<b>{badCount}</b></button><button type="button" class="iconbtn sm" title="刷新 Trace" aria-label="刷新 Trace" onclick={refresh}><Icon name="refresh" class="size-3.5" /></button>
     </div>
     <div class="panel-body stream" bind:this={stream}>
-      {#if childJobsError}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>子任务加载失败：{childJobsError}</div></div>{/if}
-      {#if childJobs.length}
-        <details class="d-sec child-traces" open>
-          <summary class="fold"><Icon name="chevron" class="size-[13px]" />子任务<span class="cap">{childJobs.length}</span><span class="child-traces-hint">查看各自的执行记录</span></summary>
-          <div class="sec-body rels">
-            {#each childJobs as job (job.id)}
-              <button type="button" class="rel" title={`查看子任务 #${job.id} 的 Trace`} onclick={() => void open(job.child_session_id)}>
-                <span class="role r-side">#{job.id}</span>
-                <span class="sum">{job.description}</span>
-                <span class="tags"><span class="cap" class:c-ai={job.running}>{job.running ? "运行中" : "休眠"}</span><Icon name="chevron" class="size-3.5" /></span>
-              </button>
-            {/each}
-          </div>
-        </details>
-      {/if}
       {#if session !== null}<button type="button" class={cn("row cols sys pinned", systemSelected && selected)} onclick={chooseSystem}><span class="role r-sys">系统</span><span class="sum"><b>系统提示</b>当前配置，非历史快照</span></button>{/if}
       {#if error}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{error}</div></div>{/if}
       {#if loading}<p class="blank">正在加载运行记录…</p>{:else if visibleEntries.length === 0}<p class="blank">{issuesOnly ? "当前已加载的运行没有异常" : "这个会话还没有已结束的运行"}</p>{/if}
@@ -572,14 +546,7 @@
       {@const info = sessionInfo === "trace_only" ? sessionInfo : sessionInfo?.id === session ? sessionInfo : null}
       {@const recent = runs.slice(-SPARK_RUNS)}
       {@const longest = Math.max(1, ...recent.map((r) => runMs(r) ?? 0))}
-      <div class="d-head"><div><div class="d-type"><span class="role r-turn">会话</span>{#if s?.last_run_at}<time title="最近一次运行">{time(s.last_run_at)}</time>{/if}</div><div class="d-title">{s?.title ?? `会话 ${session}`}<small class="sub">{s?.channel}</small></div></div>{@render expandButton()}</div>
-      <div class="session-scope">
-        <span class="scope-label" title="只改变本会话的 Token 与费用汇总，运行记录不变">用量范围</span>
-        <div class="scope-options" role="group" aria-label="会话用量范围">
-          <button type="button" class:chosen={!includeChildren} aria-pressed={!includeChildren} onclick={() => includeChildren = false}>本会话</button>
-          <button type="button" class:chosen={includeChildren} aria-pressed={includeChildren} onclick={() => includeChildren = true}>含子任务</button>
-        </div>
-      </div>
+      <div class="d-head"><div><div class="d-type"><span class="role r-turn">会话</span>{#if s?.last_run_at}<time title="最近一次运行">{time(s.last_run_at)}</time>{/if}</div><div class="d-title">{session === null ? "" : traceSessions.title(session)}<small class="sub">{s?.kind === "task" ? `子任务 #${s.job}` : s?.channel}</small></div></div>{@render expandButton()}</div>
       <div class="panel-body">
         {#if detailError}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{detailError}</div></div>{/if}
         <div class="metrics">
@@ -595,12 +562,18 @@
           </div>
           <div>
             {#if usageError}<p role="alert" class="bad">{usageError}</p>
-            {:else if sessionUsage}<TraceUsage summary={sessionUsage} />
+            {:else if sessionUsage}<TraceUsage summary={sessionUsage.own} tree={sessionUsage.tree} />
             {:else}<p class="hint">用量加载中…</p>{/if}
           </div>
         </div>
         <details open class="d-sec"><summary class="fold"><Icon name="chevron" class="size-[13px]" />会话信息</summary><div class="sec-body">
-          {#if info === "trace_only"}<p class="hint">此会话只提供 Trace 执行记录，子 agent 由父会话追问。</p>
+          {#if s?.kind === "task"}
+            <ul class="kv">
+              <li><Icon name="bot" class="size-3.5" /><span>子任务</span><b class="mono">#{s.job}</b></li>
+              <li><Icon name="text" class="size-3.5" /><span>说明</span><b>{s.label}</b></li>
+              <li><Icon name="hash" class="size-3.5" /><span>编号</span><b class="mono">会话 {s.session}</b></li>
+            </ul>
+          {:else if info === "trace_only"}<p class="hint">此会话只提供 Trace 执行记录。</p>
           {:else if !info}<p class="hint">加载中…</p>
           {:else}
             {@const persona = settingsStore.persona(info.persona_id)}
@@ -617,6 +590,29 @@
             </ul>
           {/if}
         </div></details>
+        {#if session !== null}
+          {@const parent = traceSessions.ancestors(session).at(-1)}
+          {@const kids = traceSessions.children(session)}
+          {#if parent || kids.length}
+            <details open class="d-sec"><summary class="fold"><Icon name="chevron" class="size-[13px]" />关联<span class="cap">{(parent ? 1 : 0) + kids.length}</span></summary><div class="sec-body rels">
+              {#if parent}
+                <button type="button" class="rel" title="打开父会话" onclick={() => void open(parent.session)}><span class="role r-turn">父级</span><span class="sum">{traceSessions.title(parent.session)}</span><span class="tags"><Icon name="chevron" class="size-3.5" /></span></button>
+              {/if}
+              {#each kids as k (k.session)}
+                {@const own = issues(k)}
+                <button type="button" class="rel" title="子任务 #{k.job} · {k.label ?? ""}" onclick={() => void open(k.session)}>
+                  <span class="role r-side">#{k.job}</span>
+                  <span class="sum">{traceSessions.title(k.session)}</span>
+                  <span class="tags">
+                    {#if own.bad}<span class="cap ic c-bad" title="调用失败 {k.failed_runs} 轮 · 工具报错 {k.tool_errors} 个"><Icon name="error" class="size-3" />{own.bad}</span>{/if}
+                    {#if own.interrupted}<span class="cap ic c-warn" title="中断 {own.interrupted} 轮"><Icon name="pause" class="size-3" />{own.interrupted}</span>{/if}
+                    <Icon name="chevron" class="size-3.5" />
+                  </span>
+                </button>
+              {/each}
+            </div></details>
+          {/if}
+        {/if}
       </div>
     {:else if systemSelected}
       <div class="d-head"><div><div class="d-type"><span class="role r-sys">系统</span></div><div class="d-title">系统提示<small class="sub">当前配置 · 非历史快照</small></div></div>{@render expandButton()}</div>

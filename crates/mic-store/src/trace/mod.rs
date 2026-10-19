@@ -21,8 +21,13 @@ const PREVIEW_CHARS: usize = 200;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TraceSession {
     pub session: SessionId,
+    pub kind: TraceSessionKind,
+    pub parent: Option<SessionId>,
+    /// root：会话标题；task：任务说明。
+    pub label: Option<String>,
+    pub job: Option<i64>,
+    /// 根祖先的 Channel；Triggered 根取触发模块名。
     pub channel: String,
-    pub title: Option<String>,
     pub last_run_at: Option<i64>,
     pub failed_runs: u32,
     pub interrupted_runs: u32,
@@ -114,6 +119,27 @@ pub struct RunStats {
     /// 有调用缺用量或未报缓存读取时为 false。
     pub cache_complete: bool,
     pub cost: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TraceSessionKind {
+    Root,
+    Task,
+    Triggered,
+}
+
+/// `tree` 为本会话加全部后代；无后代时为 None。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SessionUsageView {
+    pub own: SessionUsage,
+    pub tree: Option<TreeUsage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TreeUsage {
+    pub descendants: u32,
+    pub usage: SessionUsage,
 }
 
 /// 全会话用量；费用合计已知部分，未知次数单列，沿用 trace 展示口径。
@@ -565,50 +591,90 @@ fn trace_message(m: Message) -> TraceMessage {
 }
 
 impl Store {
-    /// 所有已记录调用，包括重试、压缩、标题；子树按 session 归属查询，不重复 JOIN。
-    pub async fn session_usage(
-        &self,
-        session: SessionId,
-        include_children: bool,
-    ) -> Result<SessionUsage, StoreError> {
+    /// 所有已记录调用，包括重试、压缩、标题；整树递归含归档、隐藏后代。
+    pub async fn session_usage(&self, session: SessionId) -> Result<SessionUsageView, StoreError> {
         self.call(move |conn| {
-            let filter = if include_children {
-                "c.session_id IN (WITH RECURSIVE tree(id) AS (SELECT ?1 UNION ALL
-                 SELECT s.id FROM core_sessions s JOIN tree t ON s.parent_session_id = t.id)
-                 SELECT id FROM tree)"
+            let own = session_usage(&load_calls(conn, "c.session_id = ?1", session.0)?);
+            let descendants: u32 = conn.query_row(
+                "WITH RECURSIVE tree(id) AS (SELECT id FROM core_sessions WHERE parent_session_id = ?1
+                 UNION ALL SELECT s.id FROM core_sessions s JOIN tree t ON s.parent_session_id = t.id)
+                 SELECT count(*) FROM tree",
+                [session.0],
+                |r| r.get(0),
+            )?;
+            let tree = if descendants == 0 {
+                None
             } else {
-                "c.session_id = ?1"
+                let calls = load_calls(
+                    conn,
+                    "c.session_id IN (WITH RECURSIVE tree(id) AS (SELECT ?1 UNION ALL
+                     SELECT s.id FROM core_sessions s JOIN tree t ON s.parent_session_id = t.id)
+                     SELECT id FROM tree)",
+                    session.0,
+                )?;
+                Some(TreeUsage {
+                    descendants,
+                    usage: session_usage(&calls),
+                })
             };
-            Ok(session_usage(&load_calls(conn, filter, session.0)?))
+            Ok(SessionUsageView { own, tree })
         })
         .await
     }
 
-    /// 有已结束 run 的 Root 会话，最近有 run 的在前。
+    /// 有已结束 run 的会话及其祖先，扁平返回，前端按 `parent` 建树；统计只算会话自身。
     pub async fn trace_sessions(&self) -> Result<Vec<TraceSession>, StoreError> {
         self.call(|conn| {
             Ok(conn
                 .prepare(
-                    "SELECT s.id, s.channel, s.title,
-                        max(r.created_at),
-                        count(CASE WHEN r.state = 'provider_failed' THEN 1 END),
-                        count(CASE WHEN r.state = 'interrupted' THEN 1 END),
-                        (SELECT count(*) FROM core_messages m
-                          WHERE m.session_id = s.id AND m.kind = 'ToolResult'
-                            AND json_extract(m.payload, '$.outcome.Terminal.Failed') IS NOT NULL)
-                     FROM core_sessions s JOIN core_runs r ON r.session_id = s.id AND r.state <> 'executing'
-                     WHERE s.kind = 'root'
-                     GROUP BY s.id ORDER BY max(r.created_at) DESC",
+                    "WITH RECURSIVE
+                     stats AS (
+                       SELECT session_id AS id, max(created_at) AS last_run_at,
+                         count(CASE WHEN state = 'provider_failed' THEN 1 END) AS failed,
+                         count(CASE WHEN state = 'interrupted' THEN 1 END) AS interrupted
+                       FROM core_runs WHERE state <> 'executing' GROUP BY session_id),
+                     shown(id) AS (
+                       SELECT id FROM stats
+                       UNION SELECT s.parent_session_id FROM core_sessions s JOIN shown ON s.id = shown.id
+                       WHERE s.parent_session_id IS NOT NULL),
+                     top(id, top) AS (
+                       SELECT id, id FROM shown
+                       UNION SELECT top.id, s.parent_session_id FROM top
+                       JOIN core_sessions s ON s.id = top.top WHERE s.parent_session_id IS NOT NULL)
+                     SELECT s.id, s.kind, s.parent_session_id,
+                       CASE s.kind WHEN 'root' THEN s.title WHEN 'task' THEN j.description END,
+                       j.id, CASE t.kind WHEN 'triggered' THEN t.trigger_module ELSE t.channel END,
+                       st.last_run_at, coalesce(st.failed, 0), coalesce(st.interrupted, 0),
+                       (SELECT count(*) FROM core_messages m
+                         WHERE m.session_id = s.id AND m.kind = 'ToolResult'
+                           AND json_extract(m.payload, '$.outcome.Terminal.Failed') IS NOT NULL)
+                     FROM shown JOIN core_sessions s ON s.id = shown.id
+                     JOIN top ON top.id = s.id
+                       AND NOT EXISTS (SELECT 1 FROM core_sessions p WHERE p.id = top.top AND p.parent_session_id IS NOT NULL)
+                     JOIN core_sessions t ON t.id = top.top
+                     LEFT JOIN core_jobs j ON j.child_session_id = s.id
+                     LEFT JOIN stats st ON st.id = s.id
+                     ORDER BY st.last_run_at DESC",
                 )?
                 .query_map([], |r| {
                     Ok(TraceSession {
                         session: SessionId(r.get(0)?),
-                        channel: r.get(1)?,
-                        title: r.get(2)?,
-                        last_run_at: r.get(3)?,
-                        failed_runs: r.get(4)?,
-                        interrupted_runs: r.get(5)?,
-                        tool_errors: r.get(6)?,
+                        kind: match r.get_ref(1)?.as_str()? {
+                            "root" => TraceSessionKind::Root,
+                            "task" => TraceSessionKind::Task,
+                            "triggered" => TraceSessionKind::Triggered,
+                            other => {
+                                return Err(row::corrupt(1, format!("未知 session kind: {other}")))
+                            }
+                        },
+                        parent: r.get::<_, Option<i64>>(2)?.map(SessionId),
+                        label: r.get(3)?,
+                        job: r.get(4)?,
+                        channel: r.get(5)?,
+                        last_run_at: r.get(6)?,
+                        failed_runs: r.get(7)?,
+                        interrupted_runs: r.get(8)?,
+                        tool_errors: r.get(9)?,
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?)

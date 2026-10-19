@@ -27,23 +27,12 @@ pub(crate) async fn sessions(
     Ok(Json(app.kernel.trace_sessions().await?))
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct UsageQuery {
-    #[serde(default)]
-    include_children: bool,
-}
-
 pub(crate) async fn usage(
     State(app): State<Arc<App>>,
     session: Id,
-    query: Result<Query<UsageQuery>, QueryRejection>,
-) -> Result<Json<mic_store::SessionUsage>, ApiError> {
-    let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
+) -> Result<Json<mic_store::SessionUsageView>, ApiError> {
     Ok(Json(
-        app.kernel
-            .session_usage(SessionId(id(session)?), q.include_children)
-            .await?,
+        app.kernel.session_usage(SessionId(id(session)?)).await?,
     ))
 }
 

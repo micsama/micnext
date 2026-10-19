@@ -12,7 +12,9 @@
   import Icon, { type IconName } from "../lib/Icon.svelte";
   import { router } from "../state/route.svelte";
   import { otherSessions, webSessions, type SessionList } from "../state/sessions.svelte";
-  import { traceSessions } from "../state/trace-sessions.svelte";
+  import { SvelteMap } from "svelte/reactivity";
+  import type { TraceSession } from "../api/trace";
+  import { issues, traceSessions } from "../state/trace-sessions.svelte";
   import { theme, type ThemeChoice } from "../state/theme.svelte";
   import { updater } from "../state/update.svelte";
   import { sidebar } from "../state/sidebar.svelte";
@@ -32,13 +34,30 @@
   let search = $state("");
   let channel = $state("");
   const channelName = (c: string) => (c === "wechat" ? "微信" : c);
+  // 会话树：Root 按最近运行排在渠道下，子会话挂在父会话下；搜索命中后代时保留并展开祖先。
+  const hit = (s: TraceSession) => traceSessions.title(s.session).toLowerCase().includes(search.trim().toLowerCase());
+  const shown = (s: TraceSession): boolean => hit(s) || traceSessions.descendants(s.session).some(hit);
   const traceGroups = $derived.by(() => {
-    const q = search.trim().toLowerCase();
-    const by = new Map<string, typeof traceSessions.items>();
+    const by = new Map<string, TraceSession[]>();
     for (const s of traceSessions.items)
-      if ((!channel || s.channel === channel) && (s.title ?? `会话 ${s.session}`).toLowerCase().includes(q)) by.set(s.channel, [...(by.get(s.channel) ?? []), s]);
+      if (s.parent === null && (!channel || s.channel === channel) && shown(s)) by.set(s.channel, [...(by.get(s.channel) ?? []), s]);
     return [...by];
   });
+  const toggled = new SvelteMap<number, boolean>();
+  const branch = $derived(new Set(traceId === null ? [] : traceSessions.ancestors(traceId).map((s) => s.session)));
+  const expanded = (s: TraceSession) =>
+    toggled.get(s.session) ?? (branch.has(s.session) || (search.trim() !== "" && traceSessions.descendants(s.session).some(hit)));
+  /** 收起时后代的异常：只给一个弱化的关联标记，悬停列出各子任务。 */
+  const hiddenIssues = (s: TraceSession) => {
+    const bad = traceSessions.descendants(s.session).filter((d) => issues(d).bad + issues(d).interrupted > 0);
+    return bad.length === 0 ? null : {
+      count: bad.length,
+      tip: bad.map((d) => {
+        const { bad, interrupted } = issues(d);
+        return `${traceSessions.title(d.session)}：${[bad && `异常 ${bad}`, interrupted && `中断 ${interrupted}`].filter(Boolean).join(" · ")}`;
+      }).join("\n"),
+    };
+  };
   const lastRun = (at: number) => {
     const d = new Date(at);
     return d.toDateString() === new Date().toDateString()
@@ -104,6 +123,38 @@
       return () => io.disconnect();
     };
 </script>
+
+{#snippet traceNode(s: TraceSession)}
+  {@const kids = hit(s) ? traceSessions.children(s.session) : traceSessions.children(s.session).filter(shown)}
+  {@const open = kids.length > 0 && expanded(s)}
+  {@const own = issues(s)}
+  {@const hidden = open ? null : hiddenIssues(s)}
+  <div class={["flex items-center gap-1 rounded-md pl-1.5 hover:bg-accent", traceId === s.session && "bg-accent font-medium"]}>
+    {#if kids.length > 0}
+      <button type="button" aria-label={open ? "收起子任务" : "展开子任务"} title={open ? "收起子任务" : "展开子任务"} onclick={() => toggled.set(s.session, !open)} class="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground">
+        <Icon name="chevron" class="size-3.5 transition-transform {open ? 'rotate-90' : ''}" />
+      </button>
+    {:else}
+      <span class="flex size-4 shrink-0 items-center justify-center text-muted-foreground">{#if s.kind === "task"}<Icon name="bot" class="size-3.5" />{/if}</span>
+    {/if}
+    <a
+      href="/s/{s.session}/trace"
+      onclick={(e) => (e.preventDefault(), go(`/s/${s.session}/trace`))}
+      title={s.kind === "task" ? `子任务 #${s.job} · ${s.label ?? ""}` : undefined}
+      class="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-3 text-sm">
+      <span class="min-w-0 flex-1 truncate">{traceSessions.title(s.session)}</span>
+      {#if own.bad > 0}<span class="inline-flex items-center gap-0.5 text-xs text-destructive" title="调用失败 {s.failed_runs} 轮 · 工具报错 {s.tool_errors} 个"><Icon name="error" class="size-3" />{own.bad}</span>{/if}
+      {#if own.interrupted > 0}<span class="inline-flex items-center gap-0.5 text-xs text-amber-600 dark:text-amber-400" title="中断 {own.interrupted} 轮"><Icon name="pause" class="size-3" />{own.interrupted}</span>{/if}
+      {#if hidden}<span class="inline-flex items-center gap-0.5 text-xs text-muted-foreground/70" title={hidden.tip}><Icon name="bot" class="size-3" />{hidden.count}</span>{/if}
+      {#if s.last_run_at !== null}<time class="w-9 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{lastRun(s.last_run_at)}</time>{/if}
+    </a>
+  </div>
+  {#if open}
+    <div class="ml-3.5 border-l border-border pl-1">
+      {#each kids as k (k.session)}{@render traceNode(k)}{/each}
+    </div>
+  {/if}
+{/snippet}
 
 {#snippet list(items: SessionList)}
   {#if items.next}
@@ -191,20 +242,7 @@
       {#if traceSessions.error}<p class="px-3 py-1 text-xs text-destructive">{traceSessions.error}</p>{/if}
       {#each traceGroups as [ch, items] (ch)}
         <p class="flex px-3 pt-3 pb-1 text-xs text-muted-foreground"><span class="flex-1">{channelName(ch)}</span>{items.length}</p>
-        {#each items as s (s.session)}
-          {@const bad = s.failed_runs + s.tool_errors}
-          <a
-            href="/s/{s.session}/trace"
-            onclick={(e) => (e.preventDefault(), go(`/s/${s.session}/trace`))}
-            class="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-accent"
-            class:bg-accent={traceId === s.session}
-            class:font-medium={traceId === s.session}>
-            <span class="min-w-0 flex-1 truncate">{s.title ?? `会话 ${s.session}`}</span>
-            {#if bad > 0}<span class="inline-flex items-center gap-0.5 text-xs text-destructive" title="调用失败 {s.failed_runs} 轮 · 工具报错 {s.tool_errors} 个"><Icon name="error" class="size-3" />{bad}</span>{/if}
-            {#if s.interrupted_runs > 0}<span class="inline-flex items-center gap-0.5 text-xs text-amber-600 dark:text-amber-400" title="中断 {s.interrupted_runs} 轮"><Icon name="pause" class="size-3" />{s.interrupted_runs}</span>{/if}
-            {#if s.last_run_at !== null}<time class="w-9 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{lastRun(s.last_run_at)}</time>{/if}
-          </a>
-        {/each}
+        {#each items as s (s.session)}{@render traceNode(s)}{/each}
       {/each}
       {#if traceSessions.loaded && traceGroups.length === 0}<p class="px-3 pt-3 text-xs text-muted-foreground">没有匹配的会话</p>{/if}
       <p class="px-3 pt-4 text-xs text-muted-foreground">仅列出有已结束运行的会话</p>

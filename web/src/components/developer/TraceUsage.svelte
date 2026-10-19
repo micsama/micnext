@@ -5,7 +5,19 @@
   import { router } from "../../state/route.svelte";
   import { settingsStore } from "../../state/settings.svelte";
   import Icon from "../../lib/Icon.svelte";
-  let { calls = [], summary }: { calls?: TraceCall[]; summary?: SessionUsage } = $props();
+  /** `tree`：本会话加全部后代的合计，卡底附一行。 */
+  let { calls = [], summary, tree = null }: { calls?: TraceCall[]; summary?: SessionUsage; tree?: { descendants: number; usage: SessionUsage } | null } = $props();
+  const treeTip = $derived.by(() => {
+    if (!tree) return "";
+    const t = tree.usage;
+    return [
+      `本会话与 ${tree.descendants} 个子任务合计`,
+      `输入 ${formatTokens(t.input_tokens)} · 缓存读取 ${t.cache_complete ? formatTokens(t.cache_read_tokens) : "—"} · 缓存写入 ${formatTokens(t.cache_write_tokens)}`,
+      `输出 ${formatTokens(t.output_tokens)}${t.reasoning_tokens === null ? "" : ` · 推理 ${formatTokens(t.reasoning_tokens)}`}`,
+      t.unknown_usage ? `另 ${t.unknown_usage} 次用量未知` : "",
+      t.unknown_cost ? `${t.unknown_cost} 次费用未知` : "",
+    ].filter(Boolean).join("\n");
+  });
   const u = $derived(summary ? {
     input: summary.input_tokens, output: summary.output_tokens, cache: summary.cache_read_tokens,
     cacheWrite: summary.cache_write_tokens, reasoning: summary.reasoning_tokens ?? 0,
@@ -54,4 +66,8 @@
     <b class:muted={u.cost === null} class="tip">{u.cost === null ? "未知" : `≈ ${formatCost(u.cost)}`}{#if u.unknownCost && u.cost !== null}<small> +{u.unknownCost} 次未知</small>{/if}</b>
     {#if models.length === 1}<button type="button" class="iconbtn xs" title="设置该模型单价" aria-label="设置该模型单价" onclick={() => router.go(`/settings/models/${models[0]}`)}><Icon name="settings" class="size-3.5" /></button>{/if}
   </div>
+  {#if tree}
+    {@const t = tree.usage}
+    <div class="tree-sum" title={treeTip}><span>含 {tree.descendants} 个子任务合计</span><b>{t.known_usage ? `${formatTokens(t.input_tokens + t.output_tokens)} tok` : "用量未知"}{t.cost === null ? "" : ` · ≈${formatCost(t.cost)}`}</b></div>
+  {/if}
 </div>

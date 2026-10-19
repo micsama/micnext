@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use mic_message::SessionId;
-use mic_tool::{BoxFuture, OutputSink};
 use serde::Serialize;
 
 use crate::event::{Events, KernelEventKind};
@@ -137,7 +136,7 @@ pub(crate) struct Tree {
     pub(crate) channel: String,
 }
 
-/// core 交给后台任务的 sink。
+/// 后台任务输出日志的写端。
 pub(crate) struct Writer {
     segments: Arc<Mutex<Segments>>,
     notifier: Arc<Notifier>,
@@ -270,19 +269,15 @@ impl Segments {
     }
 }
 
-impl OutputSink for Writer {
-    fn write<'a>(&'a mut self, bytes: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
-        Box::pin(async move {
-            let segments = self.segments.clone();
-            let buf = bytes.to_vec();
-            tokio::task::spawn_blocking(move || {
-                segments.lock().expect("输出段未中毒").append(&buf)
-            })
+impl Writer {
+    pub(crate) async fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
+        let segments = self.segments.clone();
+        let buf = bytes.to_vec();
+        tokio::task::spawn_blocking(move || segments.lock().expect("输出段未中毒").append(&buf))
             .await
             .map_err(io::Error::other)??;
-            self.notifier.grew();
-            Ok(())
-        })
+        self.notifier.grew();
+        Ok(())
     }
 }
 

@@ -81,6 +81,8 @@ export type MessageBody =
   | { kind: "Reply"; model: string; blocks: ReplyBlock[]; stats: ReplyStats }
   | { kind: "ToolResult"; tool_name: string; tool_call_id: string; outcome: ToolResultOutcome; started_at: number | null }
   | { kind: "Completion"; person: number; tool_name: string; exec_id: string; outcome: ExecOutcome }
+  /** 运行中的后台任务给模型的中途通知，不投递给用户。 */
+  | { kind: "JobNotice"; person: number; tool_name: string; exec_id: string; text: string }
   | { kind: "HarnessNote"; text: string }
   | { kind: "Notification"; source: string; text: string }
   | { kind: "Boundary"; boundary: ContextBoundary }
@@ -323,6 +325,7 @@ const messageBody: Decoder<MessageBody> = kinded({
     started_at: nullable(num),
   },
   Completion: { person: num, tool_name: str, exec_id: str, outcome: execOutcome },
+  JobNotice: { person: num, tool_name: str, exec_id: str, text: str },
   HarnessNote: { text: str },
   Notification: { source: str, text: str },
   Boundary: { boundary },

@@ -115,9 +115,16 @@ impl rusqlite::types::FromSql for ReasoningEffort {
     }
 }
 
+/// run 输入的 kind 列表，与 `messages::is_input` 一致。
+macro_rules! input_kinds {
+    () => {
+        "('UserInput', 'Completion', 'Command', 'JobNotice')"
+    };
+}
+pub(crate) use input_kinds;
+
 /// 未认领输入谓词，`m` 为 core_messages 别名。
-pub(crate) const UNCLAIMED: &str =
-    "m.run_id IS NULL AND m.kind IN ('UserInput', 'Completion', 'Command')";
+pub(crate) const UNCLAIMED: &str = concat!("m.run_id IS NULL AND m.kind IN ", input_kinds!());
 
 /// 已处置为待命的输入谓词，`m` 为 core_messages 别名。
 pub(crate) const HELD_INPUT: &str =

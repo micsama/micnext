@@ -211,6 +211,7 @@ pub(crate) fn is_input(body: &MessageBody) -> bool {
         MessageBody::UserInput { .. }
             | MessageBody::Completion { .. }
             | MessageBody::Command { .. }
+            | MessageBody::JobNotice { .. }
     )
 }
 

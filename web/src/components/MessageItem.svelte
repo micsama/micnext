@@ -71,6 +71,18 @@
         body.outcome,
       )}</pre>
   </details>
+{:else if body.kind === "JobNotice"}
+  {@const job = view.jobs.find((j) => String(j.id) === body.exec_id)}
+  <details class="rounded-lg border border-dashed border-border text-xs">
+    <summary class="{STEP_ROW} rounded-lg hover:bg-muted">
+      <Icon name="layers" class="size-3.5 shrink-0 text-muted-foreground" />
+      <span class={STEP_NAME}>{body.tool_name}</span>
+      <span class="shrink-0 text-muted-foreground">后台通知</span>
+      <span class="min-w-0 flex-1 truncate">{job?.description ?? ""}</span>
+      <JobRef id={body.exec_id} />
+    </summary>
+    <pre class="max-h-80 overflow-auto border-t border-dashed border-border px-2.5 py-2 font-mono whitespace-pre-wrap">{body.text}</pre>
+  </details>
 {:else if body.kind === "Notification"}
   <p class="w-fit max-w-full rounded-lg bg-muted/70 px-2.5 py-1 text-xs leading-5 whitespace-pre-wrap break-words text-muted-foreground" title="{body.source} · {time}">{body.text}</p>
 {:else if body.kind === "Boundary"}

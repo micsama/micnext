@@ -7,12 +7,14 @@ use mic_message::{ContentPart, ExecOutcome};
 use mic_tool::{BackgroundTask, OutputSink, Tool, ToolContext, ToolError, ToolOutput};
 use nix::sys::signal::{killpg, Signal};
 use nix::unistd::Pid;
+use regex::Regex;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 
 use crate::limits::{BACKGROUND_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, MAX_OUTPUT_BYTES, MAX_TIMEOUT_MS};
+use watch::{Stream, Watch};
 
 pub(crate) struct Bash;
 
@@ -22,7 +24,10 @@ const DESCRIPTION: &str = "Execute a bash command (`bash -c`) and return its std
     Long output is truncated to its tail. Set `background` for long-running work (builds, \
     servers): the call returns at once with an exec_id, stdout and stderr go to a log you read \
     with `job_output`, and the exit arrives later as a completion. Background commands must not \
-    daemonize themselves.";
+    daemonize themselves. With `notify_pattern`, stdout and stderr lines are matched separately \
+    while the job runs (lines over 4096 bytes are matched in 4096-byte pieces) and a match \
+    arrives as a job-notice: at most one per 10 seconds (matches in between are dropped) and at \
+    most 10 per job.";
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -39,6 +44,8 @@ pub(crate) struct Args {
     /// Run in the background and return immediately. Defaults to false.
     #[serde(default)]
     background: bool,
+    /// Background only. A Rust regex (no lookaround or backreferences) matched against each output line while the job runs, e.g. "Listening on|ERROR"; a match is sent to you early as a job-notice.
+    notify_pattern: Option<String>,
 }
 
 impl Tool for Bash {
@@ -55,7 +62,9 @@ impl Tool for Bash {
     fn prompt_hint(&self) -> Option<&str> {
         Some(
             "Check the [exit code: N] marker on every bash result; investigate failures before moving on. \
-             A dispatched background command is not yet ready: read its output or probe it before telling the user it has started.",
+             A dispatched background command has only been submitted: its exit arrives later as a completion, \
+             and with notify_pattern matching output arrives earlier as a job-notice. Report status from the evidence that has arrived. \
+             A job-notice only shows that the output appeared; probe a service before saying it is usable.",
         )
     }
 
@@ -67,6 +76,7 @@ impl Tool for Bash {
             return Err(ToolError::input("description must be a non-empty string"));
         }
         let timeout = parse_timeout(args.timeout_ms, args.background)?;
+        let watch = parse_pattern(args.notify_pattern, args.background)?;
         let workdir = match args.workdir {
             Some(dir) => ctx.cwd().join(dir),
             None => ctx.cwd().to_path_buf(),
@@ -90,7 +100,7 @@ impl Tool for Bash {
             .dispatch(BackgroundTask {
                 description: args.description,
                 timeout: timeout.map(Duration::from_millis),
-                run: Box::new(move |sink| Box::pin(run_background(command, workdir, sink))),
+                run: Box::new(move |sink| Box::pin(run_background(command, workdir, watch, sink))),
             })
             .await?;
         Ok(ToolOutput::Dispatched { exec_id })
@@ -107,6 +117,21 @@ fn parse_timeout(timeout_ms: Option<u64>, background: bool) -> Result<Option<u64
         (Some(ms), false) => Some(ms.min(MAX_TIMEOUT_MS)),
         (Some(ms), true) => Some(ms),
     })
+}
+
+fn parse_pattern(pattern: Option<String>, background: bool) -> Result<Option<Watch>, ToolError> {
+    let Some(pattern) = pattern else {
+        return Ok(None);
+    };
+    if !background {
+        return Err(ToolError::input("notify_pattern requires background=true"));
+    }
+    if pattern.is_empty() {
+        return Err(ToolError::input("notify_pattern must be a non-empty regex"));
+    }
+    let pattern = Regex::new(&pattern)
+        .map_err(|e| ToolError::input(format!("invalid notify_pattern: {e}")))?;
+    Ok(Some(Watch::new(pattern)))
 }
 
 struct Run {
@@ -195,6 +220,7 @@ async fn run(command: &str, workdir: PathBuf, timeout_ms: u64) -> Result<Run, To
 async fn run_background(
     command: String,
     workdir: PathBuf,
+    watch: Option<Watch>,
     mut sink: Box<dyn OutputSink>,
 ) -> ExecOutcome {
     let Spawned {
@@ -207,7 +233,7 @@ async fn run_background(
         Err(e) => return failed(e),
     };
     let pumped = async {
-        let result = pump(stdout, stderr, &mut *sink).await;
+        let result = pump(stdout, stderr, watch, &mut *sink).await;
         if result.is_err() {
             group.kill();
         }
@@ -238,24 +264,36 @@ fn failed(e: ToolError) -> ExecOutcome {
     }
 }
 
-/// 读错误视同 EOF，同前台。
+/// 读错误视同 EOF，同前台。先写日志再匹配；通知落盘后才继续读。
 async fn pump(
     mut stdout: ChildStdout,
     mut stderr: ChildStderr,
+    mut watch: Option<Watch>,
     sink: &mut dyn OutputSink,
 ) -> std::io::Result<()> {
     let (mut out_buf, mut err_buf) = ([0u8; 8192], [0u8; 8192]);
     let (mut out_open, mut err_open) = (true, true);
     while out_open || err_open {
-        tokio::select! {
-            r = stdout.read(&mut out_buf), if out_open => match r {
-                Ok(n) if n > 0 => sink.write(&out_buf[..n]).await?,
-                _ => out_open = false,
-            },
-            r = stderr.read(&mut err_buf), if err_open => match r {
-                Ok(n) if n > 0 => sink.write(&err_buf[..n]).await?,
-                _ => err_open = false,
-            },
+        let (stream, read) = tokio::select! {
+            r = stdout.read(&mut out_buf), if out_open => (Stream::Stdout, r),
+            r = stderr.read(&mut err_buf), if err_open => (Stream::Stderr, r),
+        };
+        let (buf, open) = match stream {
+            Stream::Stdout => (&out_buf, &mut out_open),
+            Stream::Stderr => (&err_buf, &mut err_open),
+        };
+        let notice = match read {
+            Ok(n) if n > 0 => {
+                sink.write(&buf[..n]).await?;
+                watch.as_mut().and_then(|w| w.feed(stream, &buf[..n]))
+            }
+            _ => {
+                *open = false;
+                watch.as_mut().and_then(|w| w.finish(stream))
+            }
+        };
+        if let Some(text) = notice {
+            sink.notify(&text).await?;
         }
     }
     Ok(())
@@ -365,6 +403,8 @@ fn exit_marker(status: ExitStatus) -> Option<String> {
 fn signal_name(sig: i32) -> String {
     Signal::try_from(sig).map_or_else(|_| sig.to_string(), |s| s.as_str().to_owned())
 }
+
+mod watch;
 
 #[cfg(test)]
 mod tests;

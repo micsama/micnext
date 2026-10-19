@@ -271,3 +271,66 @@ async fn shutdown_leaves_running_for_recovery() {
     assert_eq!(recover(&f.store, f.dir.clone()).await.unwrap(), 0);
     let _ = std::fs::remove_dir_all(&f.dir);
 }
+
+#[tokio::test]
+async fn notices_reach_owner_before_completion_and_stop_after_seal() {
+    let mut f = Fixture::new().await;
+    let exec_id = f
+        .port("n")
+        .dispatch(BackgroundTask {
+            description: "notice".into(),
+            timeout: None,
+            run: Box::new(|mut sink: Box<dyn OutputSink>| {
+                Box::pin(async move {
+                    sink.notify("stdout matched: ready").await.unwrap();
+                    exit0().unwrap()
+                })
+            }),
+        })
+        .await
+        .unwrap();
+    let id = JobId(exec_id.parse().unwrap());
+    wait_finished(&f, id).await;
+    // 中途通知与回注各唤醒一次。
+    assert_eq!(f.wakes.recv().await, Some(f.session));
+    assert_eq!(f.wakes.recv().await, Some(f.session));
+    let kinds: Vec<_> = f
+        .store
+        .messages_after(f.session, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|m| match m.body {
+            MessageBody::JobNotice {
+                exec_id: e, text, ..
+            } => Some(format!("notice {e}: {text}")),
+            MessageBody::Completion { exec_id: e, .. } => Some(format!("completion {e}")),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            format!("notice {exec_id}: stdout matched: ready"),
+            format!("completion {exec_id}")
+        ]
+    );
+
+    // 封口后到达的通知丢弃。
+    let job = f.store.job(id).await.unwrap().unwrap();
+    let root = f.store.session_root(f.session).await.unwrap();
+    let (writer, seal) = Writer::create(f.dir.join("sealed"), Events::new(), tree(&root)).unwrap();
+    let (mut sink, seal) = Sink::new(writer, seal, f.jobs.clone(), job, tree(&root));
+    seal.seal().await;
+    sink.notify("late").await.unwrap();
+    let late = f
+        .store
+        .messages_after(f.session, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|m| matches!(&m.body, MessageBody::JobNotice { text, .. } if text == "late"))
+        .count();
+    assert_eq!(late, 0);
+    let _ = std::fs::remove_dir_all(&f.dir);
+}

@@ -24,7 +24,7 @@
   const text = $derived.by(() => {
     switch (body.kind) {
       case "UserInput": return partsText(body.parts);
-      case "HarnessNote": case "Notification": return body.text;
+      case "HarnessNote": case "Notification": case "JobNotice": return body.text;
       case "ToolResult": return "Terminal" in body.outcome ? outcomeText(body.outcome.Terminal) : `已派发：${body.outcome.Dispatched.exec_id}`;
       case "Completion": return outcomeText(body.outcome);
       case "Boundary": return body.boundary === "UserClear" ? "清空上下文" : body.boundary.Compaction.summary;
@@ -76,6 +76,8 @@
     {:else}<TraceCard icon="unknown" title="结果 · {body.tool_name}" meta="已派发"><p>执行编号 <span class="mono">{body.outcome.Dispatched.exec_id}</span>，等待异步完成</p></TraceCard>{/if}
   {:else if body.kind === "Completion"}
     {@render result(`完成 · ${body.tool_name}`, body.outcome)}
+  {:else if body.kind === "JobNotice"}
+    <TraceCard icon="info" title="后台通知 · {body.tool_name}" meta={chars(text)} long={isLong(text)} copy={text}><pre>{text}</pre></TraceCard>
   {:else if body.kind === "Boundary"}
     <TraceCard icon="layers" title={body.boundary === "UserClear" ? "清空上下文" : "压缩摘要"} tone="compact" meta={chars(text)} long={isLong(text)} copy={text}><Markdown source={text} /></TraceCard>
   {:else if body.kind === "Command"}

@@ -38,7 +38,20 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_TIMELINE,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 15,
+        sql: CORE_JOB_NOTICE,
+        secret_columns: &[],
+    },
 ];
+
+/// 后台任务中途通知 `JobNotice` 也是 run 输入。
+const CORE_JOB_NOTICE: &str = "
+DROP INDEX idx_messages_unclaimed;
+CREATE INDEX idx_messages_unclaimed ON core_messages(session_id, id)
+  WHERE run_id IS NULL AND kind IN ('UserInput', 'Completion', 'Command', 'JobNotice');
+";
 
 const CORE_TIMELINE: &str = "
 CREATE TABLE core_model_call_inputs_v14 (

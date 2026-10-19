@@ -1,12 +1,19 @@
 # 后台 bash 输出匹配通知
 
-状态：DRAFT，等待 Claude Code review；review 后由 human 批准实施。
+状态：IMPLEMENTED（2026-10-20 Claude Code review 后修订并实施；本地验收通过，真实 agent 行为与页面观感待 human 验收）。
 
 ## 目的与范围
 
 后台派发回执只表示已提交；现有 completion 负责执行结束后的结果回推。本次保留这条主流程，增加执行中输出命中正则时的提前通知，让 agent 不必等进程退出才能行动。
 
-只调整后台 bash 入参、输出通知 port 和相关工具提示。不增加结构化退出结果、查询补偿、等待接口，不修改 `jobs` / `job_output` / HTTP 契约、数据库 schema、agent 生命周期和 `eof`。
+调整后台 bash 入参、输出 sink port、一种新的模型输入消息及相关工具提示。不增加结构化退出结果、查询补偿、等待接口，不修改 `jobs` / `job_output` / HTTP 接口、agent 生命周期和 `eof`。
+
+### review 修订要点
+
+- 原稿让通知走 `MessageBody::Notification` 并调 `Jobs::wake`，两处都不成立：`Notification` 是投递给用户的框架通知，会经 `pending_deliveries` 推到渠道；它也不是 run 输入（`is_input` 只认 `UserInput` / `Completion` / `Command`），唤醒后调度器没有可认领的输入，模型收不到。改为新增只给模型的输入消息 `JobNotice`，因此需要调整消息闭集、输入谓词索引（schema 迁移）和 Web 展示。
+- 停止、超时时，在途通知可能晚于 completion 落盘。改为通知与输出日志一起封口：封口前已开始的通知先落完，之后到达的丢弃。
+- 原稿每段 16 KiB × 10 次会进入模型上下文，过大。改为每行片段 4 KiB。
+- 达到次数上限后静默停止，模型无从知道。改为最后一次通知注明之后不再上报。
 
 ## 模型可见契约
 
@@ -14,45 +21,45 @@
 
 使用 Rust `regex` 语法，不支持回溯与反向引用；空正则拒绝。不新增正则列表、匹配组模板或通知配置对象。
 
-stdout、stderr 各自按行匹配，不跨行、不混合两路内容；去掉行尾换行后匹配，CRLF 去掉末尾 CR。进程管道 EOF 时匹配未带换行的最后一行。读取分块和 UTF-8 字符分块不影响匹配；非 UTF-8 内容按现有日志显示方式有损解码。
+stdout、stderr 各自按行匹配，不跨行、不混合两路内容；去掉行尾换行后匹配，CRLF 去掉末尾 CR。进程管道 EOF 时匹配未带换行的最后一行。读取分块和 UTF-8 字符分块不影响匹配；非 UTF-8 内容有损解码。
 
-为避免无换行输出无限累积，每路待匹配内容最多 16 KiB；超长行按该大小分片匹配，通知显式标记为行片段。正则不跨片段；此限制写入工具说明。
+每路待匹配内容最多 4 KiB；超长行按该大小分片匹配，通知标明是行片段。正则不跨片段；此限制写入工具说明。
 
-首次命中立即回推。每个任务的 stdout / stderr 共用冷却和次数计数：建议固定冷却 10 秒，最多通知 10 次，放在 `mic-tool-shell/src/limits.rs`。冷却内命中直接丢弃，不排队、不补发；达到上限后停止匹配通知。最终 completion 不计入上限，也不受冷却影响。两路同时命中时按实际读取顺序处理。
+首次命中立即回推。stdout、stderr 共用一个任务内的冷却和次数计数：冷却 10 秒，最多通知 10 次，放在 `mic-tool-shell/src/limits.rs`。冷却内命中直接丢弃，不排队、不补发；第 10 次通知注明此后不再上报，之后停止匹配。最终 completion 不计入上限，也不受冷却影响。两路同时命中时按实际读取顺序处理。
 
-通知内容包含任务编号、输出来源（stdout / stderr）、命中的行或行片段。通知表示输出事实，不表示任务成功、服务可用或任务已结束。完整输出仍走原有日志存储。
+通知文本由 bash 给出：输出来源（stdout / stderr）与命中的行或行片段。它只说明输出里出现了什么，不代表任务成功、服务可用或已经结束。完整输出仍走原有日志存储。
+
+模型看到的是 user role 条目，头为 `[job-notice exec_id=N]`，说明为"运行中的后台任务发来的中途通知，任务未必结束，结果仍以 completion 送达"。
 
 ## 实现契约与依赖
 
-- `mic-tool-shell` 增加 `regex` 依赖，在参数边界编译正则。匹配、逐流缓冲、冷却与计数属于 bash 输出语义，放在该 crate；不让 core 解释正则。
-- `mic-tool::OutputSink` 增加 `notify(&mut self, text: &str) -> BoxFuture<'_, std::io::Result<()>>`。调用方提供本次命中的内容；core sink 绑定任务与发起会话，补任务编号。同步更新所有实现和测试替身，不保留兼容分支。`BackgroundTask` / `Background` 契约保持不变。
-- core 的 `Writer` 通过绑定的任务身份发布现有 `MessageBody::Notification`，source 使用 `job:<id>`；通知进入任务所属会话，不发往树根代替发起者。使用现有消息追加、事件发布和 `Jobs::wake` 路径，不新增消息类型和独立调度器。
-- 当前 `Kernel::append_notification` 只落盘并发布、不唤醒，不能直接把调用它当成完成此功能。通知需要完成落盘、发布、唤醒，沿用现有会话停止/归档约束。
-- 通知落盘失败沿输出 sink 的错误链报告，不能静默吞掉；bash 释放进程资源，由现有终态链路报告依赖错误。不另起无限重试。
-- 普通输出先按现有路径写日志，再匹配和通知；通知发送完成后才继续读取。提前通知无需额外队列。任务正常结束前已发送的通知先于 completion；主动停止/超时不额外排空未读输出，不为尾行通知延迟取消。
+- `mic-tool-shell` 增加 `regex` 依赖，在参数边界编译正则。匹配、逐流缓冲、冷却与计数属于 bash 输出语义，放在该 crate；core 不解释正则。
+- `mic-tool::OutputSink` 增加 `notify(&mut self, text: &str) -> BoxFuture<'_, std::io::Result<()>>`：调用方给出通知文本，core sink 绑定任务身份。同步更新所有实现和测试替身，不保留兼容分支。`BackgroundTask` / `Background` 契约不变。
+- `mic-message::MessageBody` 新增 `JobNotice { person, tool_name, exec_id, text }`：person、tool_name、exec_id 同该任务的 `Completion`。它是 run 输入（入站未认领，可被认领或在运行中并入），不投递给用户；`model_view` 新增 `job-notice` 方括号头，并同步加入头说明清单。
+- `mic-store`：输入谓词与 `is_input` 加入 `JobNotice`，SQL 里的输入 kind 列表收敛为一处常量；迁移 v15 重建 `idx_messages_unclaimed`。启动收尾时遗留的 `JobNotice` 与 `Completion` 同等处置：登记为 held，不触发"有消息被搁置"的用户通知。trace 映射同步。
+- core：bash 后台任务拿到的 sink 由日志 `Writer` 与通知去处组成。通知在发起会话（`owner_session_id`，不是树根）追加 `JobNotice`、发布 `MessageAppended`，再走 `Jobs::wake`，沿用其停止与归档时不唤醒的约束；运行中的会话由现有 `absorb` 并入。追加在独立任务里完成并持封口门，不随工具 future 被取消而中断；`drive` 在收尾前与日志一起封口。
+- 通知落盘失败沿 sink 的错误链返回；bash 杀掉进程组，由现有终态链路报告 dependency 错误。不重试。
+- bash 先按现有路径写日志，再匹配和通知；通知完成后才继续读取，不另设队列。正常结束时已发出的通知都在 completion 之前；主动停止、超时不额外排空未读输出。
 
 ## 提示调整
 
-更新 bash 工具说明与 `prompt_hint`：派发只是提交，结束结果稍后自动以 completion 送达；可选正则会在运行中提前送来匹配通知。根据已到达的证据报告状态；非预期失败先处理，再继续依赖其成功的步骤。
+更新 bash 工具说明与 `prompt_hint`：派发只表示已提交，结束结果稍后以 completion 自动送达；可选正则会在运行中提前送来 job-notice。根据已到达的证据报告状态；非预期失败先处理，再继续依赖其成功的步骤。
 
-移除“后台必须回读或探测后才能说启动”的机械要求。不要求收到 completion 后重复查询。声称服务可用仍需可用性证据，收到匹配通知本身不保证服务可用。
-
-`model_view` 已有 dispatched / completion 的消息头说明，只在确有必要时澄清回执语义，不重复堆叠规则。本次不整体重写日常助理行为 prompt。
+去掉"后台任务必须回读或探测后才能说已启动"的机械要求，也不要求收到 completion 后再查一遍。声称服务可用仍需可用性证据，job-notice 本身不能证明服务可用。
 
 ## 调用方影响
 
-模型得到一个新增可选参数。未配置匹配的后台任务与全部前台任务保持原行为。`OutputSink` 的 core 实现及所有测试替身随 trait 一起更新。Web 复用既有 Notification 展示，无新 UI、接口或解码类型。数据库不保存匹配器、冷却状态和计数；进程重启仍按现有方式将遗留后台任务收尾，不恢复执行。
+- 模型多了一个可选参数和一种输入条目；不带正则的后台任务和所有前台任务行为不变。
+- `OutputSink` 的 core 实现与测试替身随 trait 更新。
+- `MessageBody` 新增变体：Web `types.ts` 解码、聊天列表以虚线后台行展示（同 Completion 一侧）、trace 展示随之更新；微信渠道不投递。
+- 数据库新增迁移 v15（只重建索引）；匹配器、冷却状态和计数不落库。进程重启后，遗留后台任务仍按现有方式收尾，不恢复执行。
 
 ## 验收
 
 - 不配置正则：原有前后台行为、输出和 completion 不变。
-- 无效正则、空正则及前台携带正则：派发前报 input 错误。
-- 两路输出分别命中、跨读取块及 UTF-8 边界、EOF 尾行、超长行片段符合上述契约，不跨 stdout / stderr 假命中。
-- 首次命中、冷却内丢弃、冷却后再次命中、达到次数上限可通过受控时间自动验证，不实际等待长冷却。
-- 匹配通知能在进程结束前唤醒正确会话，最终 completion 正常到达；正常退出与非零退出结果保持原样。
-- 通知失败可见；停止、超时及归档不会留下通知定时器或额外后台循环。
-- 本地跑相关模块功能测试、`cargo fmt`、`cargo clippy -- -D warnings`；真实 agent 收到通知后的行为与页面观感由 human 验收。
-
-## 批准点
-
-批准本蓝图即批准新增 bash 参数、`OutputSink` 方法及 `regex` 依赖；固定值建议为冷却 10 秒、每任务最多 10 次、每行片段 16 KiB。若实现发现契约缺项，停下报告，不扩展范围。
+- 无效正则、空正则、前台带正则：派发前报 input 错误。
+- 两路分别命中，跨读取块与 UTF-8 边界，EOF 尾行，超长行片段，均符合上述契约；不会把 stdout 和 stderr 拼在一起误命中。
+- 首次命中、冷却内丢弃、冷却后再次命中、达到上限，用受控时间自动验证。
+- 通知在进程结束前作为 `JobNotice` 落到发起会话并唤醒；最终 completion 正常到达；正常退出与非零退出结果不变。
+- 通知失败可见；停止、超时、归档后不再出现新的通知。
+- 本地跑相关模块功能测试、`cargo fmt`、`cargo clippy -- -D warnings`、`web/` 下 `bun run check`；真实 agent 收到通知后的行为与页面观感由 human 验收。

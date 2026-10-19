@@ -28,7 +28,7 @@
     (body.kind === "ToolResult" && callIds.has(body.tool_call_id)) ||
     (body.kind === "Reply" && body.blocks.every((b) => "Reasoning" in b && "Visible" in b.Reasoning && !b.Reasoning.Visible.text.trim()));
   /** 同属 agent 一侧的连续条目收紧间距。 */
-  const AGENT_SIDE = new Set<MessageBody["kind"]>(["Reply", "ToolResult", "Completion"]);
+  const AGENT_SIDE = new Set<MessageBody["kind"]>(["Reply", "ToolResult", "Completion", "JobNotice"]);
   const startedAt = $derived(view.messages[0]?.created_at);
   // `loaded`：组首条 id → 在这组之前刚加载进来的条数，交界落在被跳过或并入的消息上时顺延到下一组。
   const grouped = $derived.by(() => {

@@ -3,6 +3,7 @@
 
 mod agent;
 mod output;
+mod sink;
 mod tools;
 
 use std::collections::{BTreeSet, HashMap};
@@ -30,6 +31,7 @@ pub(crate) use agent::{delivery, AGENT_INTERRUPTED, AGENT_MODULES, CORE_TOOLS};
 pub use output::JobOutput;
 pub(crate) use output::Tree;
 use output::Writer;
+use sink::Sink;
 
 const INTERRUPTED: &str =
     "micnext stopped while this job was running; the external process state is unknown.";
@@ -244,7 +246,8 @@ impl Jobs {
         let end = match Writer::create(dir, self.events.clone(), tree.clone()) {
             Err(e) => End::Unstarted(e),
             Ok((writer, seal)) => {
-                let mut run = (task.run)(Box::new(writer));
+                let (sink, seal) = Sink::new(writer, seal, self.clone(), job.clone(), tree.clone());
+                let mut run = (task.run)(Box::new(sink));
                 let stopped = async {
                     match stop.await {
                         Ok(request) => request,
@@ -263,7 +266,7 @@ impl Jobs {
                     () = timeout => End::TimedOut(task.timeout.expect("只有限时任务会超时")),
                     outcome = &mut run => End::Exited(outcome),
                 };
-                // 丢弃 `run` 即释放工具资源（如杀进程组）；封口后输出不再变化，再读尾部收尾。
+                // 丢弃 `run` 即释放工具资源（如杀进程组）；封口后输出与通知不再变化，再读尾部收尾。
                 drop(run);
                 seal.seal().await;
                 end

@@ -218,6 +218,13 @@ pub enum MessageBody {
         exec_id: String,
         outcome: ExecOutcome,
     },
+    /// 运行中的后台任务给发起会话的中途通知；是 run 输入，不投递。字段同该任务的 `Completion`。
+    JobNotice {
+        person: PersonId,
+        tool_name: String,
+        exec_id: String,
+        text: String,
+    },
     /// 给模型看的框架备注，不投递。
     HarnessNote { text: String },
     /// 投递给用户的框架通知。

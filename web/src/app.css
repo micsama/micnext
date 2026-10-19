@@ -362,8 +362,25 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* 压缩摘要：展开时正文淡入，收起后分隔条闪一下指示回到哪里。 */
+.summary-panel { animation: summary-reveal 200ms ease-out; }
+.summary-flash { animation: summary-flash 1200ms ease-out; }
+
+@keyframes summary-reveal {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes summary-flash {
+  0%, 40% {
+    color: var(--primary);
+    border-color: var(--primary);
+    background-color: color-mix(in srgb, var(--primary) 10%, var(--background));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .picker-panel { animation: none; }
+  .picker-panel, .summary-panel, .summary-flash { animation: none; }
 }
 
 @utility selection-active {

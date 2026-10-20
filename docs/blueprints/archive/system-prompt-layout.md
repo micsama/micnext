@@ -50,7 +50,7 @@ Summary of the earlier conversation:   ← 有摘要时
 |---|---|---|
 | `instructions` | 框架规则 + 消息头说明 | 只读，随二进制 |
 | `persona` | 助手怎么做事 | 用户（人设、通用偏好） |
-| `context` | 工作目录、渠道提示、会话摘要 | core 组装；渠道提示由渠道声明（[channel-prompt](channel-prompt.md)），摘要来自会话。工具提示已删除（[trace-tools](../trace-tools.md)） |
+| `context` | 工作目录、渠道提示、会话摘要 | core 组装；渠道提示由渠道声明（[channel-prompt](channel-prompt.md)），摘要来自会话。工具提示已删除（[trace-tools](trace-tools.md)） |
 
 子 agent 的 `persona` 块只剩通用偏好，偏好为空则整块略去；它也不带渠道提示，任务说明是首条输入（[async-jobs P2.1](async-jobs.md#p21-子-session-设置)）。
 

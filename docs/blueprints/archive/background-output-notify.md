@@ -1,6 +1,6 @@
 # 后台 bash 输出匹配通知
 
-状态：IMPLEMENTED（2026-10-20 Claude Code review 后修订并实施；本地验收通过，真实 agent 行为与页面观感待 human 验收）。
+状态：CLOSED（2026-10-20 Claude Code review 后修订并实施；human 2026-10-20 验收真实 agent 行为与页面观感通过）。
 
 ## 目的与范围
 

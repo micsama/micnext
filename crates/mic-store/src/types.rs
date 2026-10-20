@@ -303,7 +303,7 @@ pub enum RunState {
     Interrupted,
     /// 用户主动停止。
     Stopped,
-    /// 子 run 超过墙钟上限被取消。
+    /// 子 run 或任务会话的 run 超过墙钟上限被取消。
     TimedOut,
 }
 

@@ -56,7 +56,44 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_PUSH_INBOX,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 18,
+        sql: CORE_SCHEDULES,
+        secret_columns: &[],
+    },
 ];
+
+/// 定时任务与每次到点的触发；`Trigger` 是 run 输入。结局由触发消息所在 run 推导，不另存。
+const CORE_SCHEDULES: &str = "
+DROP INDEX idx_messages_unclaimed;
+CREATE INDEX idx_messages_unclaimed ON core_messages(session_id, id)
+  WHERE run_id IS NULL AND kind IN ('UserInput', 'Completion', 'Command', 'JobNotice', 'Trigger');
+CREATE TABLE core_schedules (
+  id             INTEGER PRIMARY KEY,
+  person_id      INTEGER NOT NULL REFERENCES core_persons(id),
+  name           TEXT NOT NULL,
+  rule           TEXT NOT NULL,
+  prompt         TEXT NOT NULL,
+  enabled        INTEGER NOT NULL,
+  paused_reason  TEXT,
+  active_since   INTEGER NOT NULL,
+  session_id     INTEGER NOT NULL UNIQUE REFERENCES core_sessions(id),
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+CREATE TABLE core_schedule_fires (
+  id            INTEGER PRIMARY KEY,
+  schedule_id   INTEGER NOT NULL REFERENCES core_schedules(id) ON DELETE CASCADE,
+  due_at        INTEGER NOT NULL,
+  message_id    INTEGER REFERENCES core_messages(id),
+  skipped       TEXT CHECK(skipped IN ('missed', 'busy')),
+  missed_count  INTEGER,
+  CHECK((message_id IS NULL) <> (skipped IS NULL)),
+  CHECK((skipped = 'missed') = (missed_count IS NOT NULL))
+);
+CREATE INDEX idx_schedule_fires ON core_schedule_fires(schedule_id, id);
+";
 
 /// Web 通知中心收下全部推送，不再是可选去向：删去 `web` 投递行与默认去向里的 `web`，投递行必有消息或失败原因。
 const CORE_PUSH_INBOX: &str = "
@@ -473,6 +510,8 @@ pub(crate) const TABLE_CATALOG: &[(&str, &str, &str)] = &[
     ("core_images", "会话与执行", "消息图片"),
     ("core_pushes", "推送", "发给人的推送"),
     ("core_push_deliveries", "推送", "推送的各 Channel 投递"),
+    ("core_schedules", "定时任务", "定时任务"),
+    ("core_schedule_fires", "定时任务", "每次到点的触发"),
     ("wechat_account", "微信", "账号与连接"),
     ("wechat_settings", "微信", "当前账号"),
     ("wechat_state", "微信", "轮询状态"),

@@ -560,6 +560,7 @@ fn trace_message(m: Message) -> TraceMessage {
         }
         MessageBody::Completion { tool_name, .. } => ("Completion", tool_name.clone(), None),
         MessageBody::JobNotice { text, .. } => ("JobNotice", text.clone(), None),
+        MessageBody::Trigger { text, .. } => ("Trigger", text.clone(), None),
         MessageBody::HarnessNote { text } => ("HarnessNote", text.clone(), None),
         MessageBody::Notification { text, .. } => ("Notification", text.clone(), None),
         MessageBody::Boundary { boundary } => (

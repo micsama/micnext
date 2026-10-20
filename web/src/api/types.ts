@@ -83,6 +83,8 @@ export type MessageBody =
   | { kind: "Completion"; person: number; tool_name: string; exec_id: string; outcome: ExecOutcome }
   /** 运行中的后台任务给模型的中途通知，不投递给用户。 */
   | { kind: "JobNotice"; person: number; tool_name: string; exec_id: string; text: string }
+  /** 定时任务到点发给 bot 的指令。 */
+  | { kind: "Trigger"; source: string; text: string }
   | { kind: "HarnessNote"; text: string }
   | { kind: "Notification"; source: string; text: string }
   | { kind: "Boundary"; boundary: ContextBoundary }
@@ -326,6 +328,7 @@ const messageBody: Decoder<MessageBody> = kinded({
   },
   Completion: { person: num, tool_name: str, exec_id: str, outcome: execOutcome },
   JobNotice: { person: num, tool_name: str, exec_id: str, text: str },
+  Trigger: { source: str, text: str },
   HarnessNote: { text: str },
   Notification: { source: str, text: str },
   Boundary: { boundary },

@@ -663,16 +663,10 @@ impl Kernel {
     async fn current_system_prompt(&self, s: &Session) -> Result<SystemPrompt, KernelError> {
         let settings = self.store.run_settings(s.id).await?;
         let window = self.store.context_window(s.id).await?;
-        let channel_prompt = match &s.kind {
-            SessionKind::Root { channel, .. } => {
-                self.engine.channel_prompts.get(channel.as_str()).copied()
-            }
-            _ => None,
-        };
         Ok(request::system_prompt(
             &settings,
             s,
-            channel_prompt,
+            self.engine.channel_prompt(s),
             &window,
         ))
     }

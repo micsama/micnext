@@ -172,6 +172,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         tools: Vec::new(),
         channel_prompts: Arc::new(HashMap::new()),
         control: Default::default(),
+        schedules: None,
     });
     store
         .append_input(
@@ -399,6 +400,7 @@ impl Fixture {
             tools: vec![],
             channel_prompts: Arc::default(),
             control: Default::default(),
+            schedules: None,
         });
         let (titles, _worker) = crate::title::TitleRuntime::new(
             store.clone(),

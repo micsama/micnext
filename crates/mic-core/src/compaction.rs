@@ -6,7 +6,7 @@ use mic_message::{
 };
 use mic_store::{
     ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
-    SessionKind, StoreError,
+    StoreError,
 };
 use mic_tool::{ToolContext, ToolOutput};
 use serde::Serialize;
@@ -87,12 +87,7 @@ impl Exec<'_> {
             ..Default::default()
         };
         let images = self.window_images(&mut window).await?;
-        let channel_prompt = match &self.session.kind {
-            SessionKind::Root { channel, .. } => {
-                self.engine.channel_prompts.get(channel.as_str()).copied()
-            }
-            _ => None,
-        };
+        let channel_prompt = self.engine.channel_prompt(self.session);
         let req = request::build(
             self.session,
             window,

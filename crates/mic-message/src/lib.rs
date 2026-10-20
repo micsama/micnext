@@ -225,6 +225,8 @@ pub enum MessageBody {
         exec_id: String,
         text: String,
     },
+    /// 定时任务到点发给 bot 的指令；无发起人，独占一个 run。
+    Trigger { source: String, text: String },
     /// 给模型看的框架备注，不投递。
     HarnessNote { text: String },
     /// 投递给用户的框架通知。

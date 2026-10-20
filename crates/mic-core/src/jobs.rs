@@ -182,10 +182,10 @@ impl Jobs {
         ))
     }
 
-    /// core 生成的工具，绑定调用会话：管理工具；能收到交付的 Root/Triggered 会话另有 `agent`。
+    /// core 生成的工具，绑定调用会话：管理工具；能收到交付的 Root 会话另有 `agent`。
     pub(crate) fn tools(self: &Arc<Self>, session: &Session) -> Vec<ToolHandle> {
         let mut tools = tools::handles(self, session.id).to_vec();
-        if self.wake.is_some() && !matches!(session.kind, SessionKind::Task { .. }) {
+        if self.wake.is_some() && matches!(session.kind, SessionKind::Root { .. }) {
             tools.push(agent::handle(self, session));
         }
         tools
@@ -671,14 +671,17 @@ type Registration = watch::Receiver<Option<Result<JobId, String>>>;
 /// 绑定一次工具调用的派出 port。登记在独立任务里完成，工具 future 被丢弃也不会半途而废。
 pub(crate) struct JobPort {
     jobs: Arc<Jobs>,
+    /// 任务会话为 false：定时任务不派后台任务。
+    background: bool,
     origin: Origin,
     registration: Mutex<Option<Registration>>,
 }
 
 impl JobPort {
-    pub(crate) fn new(jobs: Arc<Jobs>, origin: Origin) -> Self {
+    pub(crate) fn new(jobs: Arc<Jobs>, background: bool, origin: Origin) -> Self {
         Self {
             jobs,
+            background,
             origin,
             registration: Mutex::default(),
         }
@@ -726,6 +729,11 @@ impl JobPort {
 impl Background for JobPort {
     fn dispatch(&self, task: BackgroundTask) -> BoxFuture<'_, Result<String, ToolError>> {
         Box::pin(async move {
+            if !self.background {
+                return Err(ToolError::business(
+                    "background jobs are unavailable in scheduled tasks; run in the foreground",
+                ));
+            }
             let (jobs, origin) = (self.jobs.clone(), self.origin.clone());
             let id = self
                 .register(async move {

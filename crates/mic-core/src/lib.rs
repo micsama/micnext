@@ -20,6 +20,7 @@ mod push;
 mod recovery;
 mod request;
 mod run;
+mod schedule;
 mod scheduler;
 mod title;
 

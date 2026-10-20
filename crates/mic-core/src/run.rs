@@ -25,9 +25,10 @@ use crate::event::{Events, KernelEventKind};
 use crate::jobs::{self, JobPort, Jobs, Origin};
 use crate::limits::{
     AGENT_MAX_TURNS, AGENT_RUN_TIMEOUT, MAX_MODEL_ATTEMPTS, MAX_RETRY_WAIT, MAX_TURNS_WARN_PERCENT,
-    RETRY_BASE,
+    RETRY_BASE, SCHEDULE_RUN_TIMEOUT,
 };
 use crate::provider::{BuiltProvider, Factories};
+use crate::schedule::Schedules;
 use crate::{request, ModelEvent, ModelResponse, Provider, ProviderError, StopReason};
 
 /// 框架通知的 `source`。
@@ -47,6 +48,8 @@ pub(crate) struct Engine {
     pub(crate) channel_prompts: Arc<HashMap<&'static str, &'static str>>,
     /// 会话执行槽位与停止令牌，与 `jobs` 共用。
     pub(crate) control: Arc<RunControl>,
+    /// 常驻时才有；`-p` 不建定时任务。
+    pub(crate) schedules: Option<Arc<Schedules>>,
 }
 
 impl Engine {
@@ -56,12 +59,34 @@ impl Engine {
     }
 
     /// 会话可用的工具：登记工具加绑定本会话的 core 工具，按工具范围过滤。
+    /// 任务会话不能派后台任务，只有登记工具。
     pub(crate) fn scoped_tools(&self, session: &Session) -> Vec<ToolHandle> {
-        let all = self.tools.iter().cloned().chain(self.jobs.tools(session));
+        let core = match &session.kind {
+            SessionKind::Root { .. } => {
+                let mut tools = self.jobs.tools(session);
+                if let Some(schedules) = &self.schedules {
+                    tools.extend(schedules.tools(session.id));
+                }
+                tools
+            }
+            SessionKind::Task { .. } => self.jobs.tools(session),
+            SessionKind::Triggered { .. } => Vec::new(),
+        };
+        let all = self.tools.iter().cloned().chain(core);
         match &session.tool_scope {
             ToolScope::All => all.collect(),
             ToolScope::Only(names) => all.filter(|t| names.contains(t.name())).collect(),
         }
+    }
+
+    /// Root 按渠道、任务会话按触发模块取渠道说明。
+    pub(crate) fn channel_prompt(&self, session: &Session) -> Option<&'static str> {
+        let key = match &session.kind {
+            SessionKind::Root { channel, .. } => channel,
+            SessionKind::Triggered { module, .. } => module,
+            SessionKind::Task { .. } => return None,
+        };
+        self.channel_prompts.get(key.as_str()).copied()
     }
 
     /// 以认领时定下的设置与模型执行一个 run 并落盘终态；模型不可用时以 ProviderFailed 收尾。
@@ -91,12 +116,17 @@ impl Engine {
             Some(_) => Some(jobs::tree(&self.store.session_root(session.id).await?)),
             None => None,
         };
+        let limit = match session.kind {
+            SessionKind::Task { .. } => Some(AGENT_RUN_TIMEOUT),
+            SessionKind::Triggered { .. } => Some(SCHEDULE_RUN_TIMEOUT),
+            SessionKind::Root { .. } => None,
+        };
         let timed_out = Arc::new(AtomicBool::new(false));
-        let timer = parent.map(|_| {
+        let timer = limit.map(|limit| {
             settings.max_turns = settings.max_turns.min(AGENT_MAX_TURNS);
             let (stop, timed_out) = (stop.clone(), timed_out.clone());
             tokio::spawn(async move {
-                tokio::time::sleep(AGENT_RUN_TIMEOUT).await;
+                tokio::time::sleep(limit).await;
                 timed_out.store(true, Ordering::Relaxed);
                 stop.cancel();
             })
@@ -219,9 +249,13 @@ impl Engine {
         match state {
             RunState::Stopped => exec.notify("已停止。".into()).await?,
             RunState::TimedOut => {
+                let (what, limit) = match parent {
+                    Some(_) => ("子任务", AGENT_RUN_TIMEOUT),
+                    None => ("定时任务", SCHEDULE_RUN_TIMEOUT),
+                };
                 exec.notify(format!(
-                    "子任务执行超过 {} 分钟，已停止。",
-                    AGENT_RUN_TIMEOUT.as_secs() / 60
+                    "{what}执行超过 {} 分钟，已停止。",
+                    limit.as_secs() / 60
                 ))
                 .await?
             }
@@ -268,6 +302,9 @@ impl Engine {
         if let (Some(message), Some(parent)) = (delivered, parent) {
             debug_assert_eq!(message.session_id, parent);
             self.jobs.wake(parent).await?;
+        }
+        if let (SessionKind::Triggered { .. }, Some(schedules)) = (&session.kind, &self.schedules) {
+            schedules.settled(run.id).await?;
         }
         Ok(state)
     }
@@ -413,12 +450,7 @@ impl Exec<'_> {
             ..Default::default()
         };
         let images = self.window_images(&mut window).await?;
-        let channel_prompt = match &self.session.kind {
-            SessionKind::Root { channel, .. } => {
-                self.engine.channel_prompts.get(channel.as_str()).copied()
-            }
-            SessionKind::Task { .. } | SessionKind::Triggered { .. } => None,
-        };
+        let channel_prompt = self.engine.channel_prompt(self.session);
         let req = request::build(
             self.session,
             window,
@@ -607,6 +639,7 @@ impl Exec<'_> {
             let handle = self.tools.iter().find(|t| t.name() == call.name).cloned();
             let port = Arc::new(JobPort::new(
                 self.engine.jobs.clone(),
+                !matches!(self.session.kind, SessionKind::Triggered { .. }),
                 Origin {
                     session: self.session.id,
                     run: self.run.id,

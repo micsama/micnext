@@ -24,7 +24,7 @@
   const text = $derived.by(() => {
     switch (body.kind) {
       case "UserInput": return partsText(body.parts);
-      case "HarnessNote": case "Notification": case "JobNotice": return body.text;
+      case "HarnessNote": case "Notification": case "JobNotice": case "Trigger": return body.text;
       case "ToolResult": return "Terminal" in body.outcome ? outcomeText(body.outcome.Terminal) : `已派发：${body.outcome.Dispatched.exec_id}`;
       case "Completion": return outcomeText(body.outcome);
       case "Boundary": return body.boundary === "UserClear" ? "清空上下文" : body.boundary.Compaction.summary;
@@ -71,6 +71,8 @@
   {:else if body.kind === "UserInput"}
     {@const t = plain(body.parts)}
     <TraceCard icon="user" title="用户输入" tone="user" meta={chars(t)} long={isLong(t)} copy={t || undefined}>{#if t}<Markdown source={t} />{/if}{@render media(body.parts)}</TraceCard>
+  {:else if body.kind === "Trigger"}
+    <TraceCard icon="clock" title="定时任务指令" tone="user" meta={chars(text)} long={isLong(text)} copy={text}><Markdown source={text} /></TraceCard>
   {:else if body.kind === "ToolResult"}
     {#if "Terminal" in body.outcome}{@render result(`结果 · ${body.tool_name}`, body.outcome.Terminal)}
     {:else}<TraceCard icon="unknown" title="结果 · {body.tool_name}" meta="已派发"><p>执行编号 <span class="mono">{body.outcome.Dispatched.exec_id}</span>，等待异步完成</p></TraceCard>{/if}

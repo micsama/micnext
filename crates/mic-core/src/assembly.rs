@@ -6,7 +6,7 @@ use std::sync::Arc;
 use mic_message::{PersonId, SessionId};
 use mic_store::{
     InputDisposition, Migration, NewSession, RunState, SecretKeyFile, SessionKind, Store,
-    StoreError, ToolScope,
+    StoreError, ToolScope, SCHEDULE_MODULE,
 };
 use mic_tool::ToolHandle;
 use serde::Deserialize;
@@ -22,6 +22,7 @@ use crate::limits::WAKE_CHANNEL_CAPACITY;
 use crate::provider::Factories;
 use crate::push::Pushes;
 use crate::run::{now_ms, Engine};
+use crate::schedule::Schedules;
 use crate::scheduler::panic_message;
 use crate::{
     kernel, recovery, scheduler, Activation, AssembleError, BoxError, ChannelSetup, IncomingPart,
@@ -75,6 +76,8 @@ struct CoreConfig {
 struct Started {
     store: Store,
     owner: PersonId,
+    /// 崩溃收尾开始的时刻；此后结束的触发即被本次收尾中断。
+    boot: i64,
     _lock: File,
 }
 
@@ -174,7 +177,8 @@ impl Assembly {
         }
 
         let mut channel_prompts = HashMap::new();
-        for (channel, prompt) in reg.channel_prompts {
+        let core = [(SCHEDULE_MODULE, crate::schedule::CHANNEL_PROMPT)];
+        for (channel, prompt) in reg.channel_prompts.into_iter().chain(core) {
             if channel_prompts.insert(channel, prompt).is_some() {
                 return Err(AssembleError::DuplicateChannelPrompt { channel });
             }
@@ -235,6 +239,7 @@ impl Assembly {
             title_handle,
             engine.clone(),
         );
+        let mut schedules = Box::pin(crate::schedule::run(engine.clone(), started.boot));
         let mut scheduler = Box::pin(scheduler::run(engine, wake_rx));
         let mut titles = Box::pin(titles.run());
 
@@ -260,12 +265,18 @@ impl Assembly {
                     failure = Some(error);
                     break;
                 }
+                error = &mut schedules => {
+                    shutdown.cancel();
+                    failure = Some(error);
+                    break;
+                }
                 Some(joined) = tasks.join_next_with_id() => {
                     settle(joined, &owners, &shutdown, &mut failure);
                 }
             }
         }
         // 先停执行（进行中的 run 留在 Executing、后台任务留在 running，下次启动收尾），再等 Service 退出。
+        drop(schedules);
         drop(scheduler);
         drop(titles);
         jobs.shutdown().await;
@@ -417,6 +428,7 @@ impl Assembly {
             }
             opened => opened?,
         };
+        let boot = now_ms();
         let interrupted = recovery::recover(&store, data_dir.clone()).await?;
         let held_sessions = store.hold_unclaimed_inputs(now_ms()).await?.len();
         let owner = store.ensure_person(&self.owner, now_ms()).await?;
@@ -424,6 +436,7 @@ impl Assembly {
         Ok(Started {
             store,
             owner,
+            boot,
             _lock: lock,
         })
     }
@@ -444,6 +457,15 @@ impl Assembly {
         ));
         let mut tools = self.tools.clone();
         tools.push(crate::push::handle(&pushes));
+        let schedules = wake.clone().map(|wake| {
+            Arc::new(Schedules::new(
+                store.clone(),
+                events.clone(),
+                pushes.clone(),
+                wake,
+                owner,
+            ))
+        });
         Engine {
             jobs: Arc::new(Jobs::new(
                 store.clone(),
@@ -459,6 +481,7 @@ impl Assembly {
             tools,
             channel_prompts: self.channel_prompts.clone(),
             control,
+            schedules,
         }
     }
 }

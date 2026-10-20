@@ -74,7 +74,7 @@ impl Store {
             if executing {
                 return Ok(None);
             }
-            let Some((ids, _)) = unclaimed_head(&tx, session_id.0)? else {
+            let Some(Head { ids, .. }) = unclaimed_head(&tx, session_id.0)? else {
                 return Ok(None);
             };
             let (persona, replaced) = resolve_persona(&tx, session_id)?;
@@ -161,11 +161,11 @@ impl Store {
     }
 
     /// 把非 held 未认领输入开头同一 person 的一段并入 `run`，要求该 person 与 run 首条输入相同；
-    /// 返回并入的输入 id。调用方保证 run 处于 `Executing`。
+    /// `Trigger` 开头的 run 并入任何人的输入。返回并入的输入 id。调用方保证 run 处于 `Executing`。
     pub async fn absorb(&self, run: RunId) -> Result<Vec<MessageId>, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
-            let (session_id, person): (i64, i64) = tx.query_row(
+            let (session_id, person): (i64, Option<i64>) = tx.query_row(
                 concat!(
                     "SELECT session_id, person_id FROM core_messages WHERE run_id = ?1 AND kind IN ",
                     input_kinds!(),
@@ -174,23 +174,15 @@ impl Store {
                 [run.0],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
-            let Some((ids, p)) = unclaimed_head(&tx, session_id)? else {
+            let Some(head) = unclaimed_head(&tx, session_id)? else {
                 return Ok(Vec::new());
             };
-            if p != person {
+            if head.exclusive || person.is_some_and(|p| head.person != Some(p)) {
                 return Ok(Vec::new());
             }
-            let kind: String = tx.query_row(
-                "SELECT kind FROM core_messages WHERE id = ?1",
-                [ids[0]],
-                |r| r.get(0),
-            )?;
-            if kind == "Command" {
-                return Ok(Vec::new());
-            }
-            assign_run(&tx, run, &ids)?;
+            assign_run(&tx, run, &head.ids)?;
             tx.commit()?;
-            Ok(ids.into_iter().map(MessageId).collect())
+            Ok(head.ids.into_iter().map(MessageId).collect())
         })
         .await
     }
@@ -340,29 +332,40 @@ fn report_to_parent(
     })
 }
 
-/// 未认领输入按 id 排序后开头连续同 person 的一段 `(ids, person)`。
-fn unclaimed_head(
-    tx: &Transaction<'_>,
-    session_id: i64,
-) -> rusqlite::Result<Option<(Vec<i64>, i64)>> {
+/// 未认领输入开头可成一个 run 的一段。
+struct Head {
+    ids: Vec<i64>,
+    /// `Trigger` 无发起人。
+    person: Option<i64>,
+    /// `Command`/`Trigger` 独占一个 run。
+    exclusive: bool,
+}
+
+/// 未认领输入按 id 排序后开头的一段：独占输入单独一条，否则连续同 person。
+fn unclaimed_head(tx: &Transaction<'_>, session_id: i64) -> rusqlite::Result<Option<Head>> {
     let mut stmt = tx.prepare(&format!(
         "SELECT m.id, m.person_id, m.kind FROM core_messages m
          WHERE m.session_id = ?1 AND {UNCLAIMED} AND NOT ({HELD_INPUT})
          ORDER BY m.id"
     ))?;
     let mut rows = stmt.query([session_id])?;
-    let mut head: Option<(Vec<i64>, i64)> = None;
+    let mut head: Option<Head> = None;
     while let Some(r) = rows.next()? {
-        let (id, p): (i64, i64) = (r.get(0)?, r.get(1)?);
+        let (id, person): (i64, Option<i64>) = (r.get(0)?, r.get(1)?);
         let kind: String = r.get(2)?;
+        let exclusive = matches!(kind.as_str(), "Command" | "Trigger");
         match &mut head {
             None => {
-                head = Some((vec![id], p));
-                if kind == "Command" {
+                head = Some(Head {
+                    ids: vec![id],
+                    person,
+                    exclusive,
+                });
+                if exclusive {
                     break;
                 }
             }
-            Some((ids, cur)) if *cur == p && kind != "Command" => ids.push(id),
+            Some(h) if h.person == person && !exclusive => h.ids.push(id),
             Some(_) => break,
         }
     }

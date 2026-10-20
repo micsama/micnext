@@ -131,6 +131,41 @@ impl Pushes {
         Ok(via)
     }
 
+    /// 框架推送：发往默认 IM；用户选定的 IM 不可用照样建投递行并写原因，推送总能落库。
+    pub(crate) async fn notify(
+        &self,
+        session: SessionId,
+        text: String,
+    ) -> Result<PushId, StoreError> {
+        let chosen = self.store.push_channels().await?;
+        let explicit = !chosen.is_empty();
+        let channels = match explicit {
+            true => chosen,
+            false => self.channels().into_iter().map(str::to_owned).collect(),
+        };
+        let mut routes = Vec::with_capacity(channels.len());
+        for channel in channels {
+            let reason = match self.route(&channel).await {
+                Ok(Route::Ready(route)) => {
+                    routes.push(route);
+                    continue;
+                }
+                Ok(Route::Down(reason)) => reason,
+                Err(PushError::Store(e)) => return Err(e),
+                Err(e) => e.to_string(),
+            };
+            if explicit {
+                routes.push(PushRoute::Unavailable { channel, reason });
+            }
+        }
+        let source = PushSource { session, run: None };
+        match self.create(source, text, routes).await {
+            Ok(id) => Ok(id),
+            Err(PushError::Store(e)) => Err(e),
+            Err(e) => unreachable!("建推送只会有存储错误：{e}"),
+        }
+    }
+
     pub(crate) async fn page(
         &self,
         before: Option<PushId>,
@@ -175,14 +210,20 @@ impl Pushes {
             .await?
             .expect("推送来源会话存在（调用方保证）");
         let channel = session_channel(&self.store, &session).await?;
-        let title = self
-            .store
-            .session_summary(source.session)
-            .await?
-            .and_then(|s| s.title);
-        let source_label = match title {
-            Some(title) => format!("push from session {} ({title})", source.session.0),
-            None => format!("push from session {}", source.session.0),
+        let source_label = match self.store.schedule_of_session(source.session).await? {
+            Some(schedule) => format!(
+                "push from scheduled task \"{}\" (session {})",
+                schedule.name, source.session.0
+            ),
+            None => match self
+                .store
+                .session_summary(source.session)
+                .await?
+                .and_then(|s| s.title)
+            {
+                Some(title) => format!("push from session {} ({title})", source.session.0),
+                None => format!("push from session {}", source.session.0),
+            },
         };
         let publish = self.events.publisher().await;
         let (id, notices) = self

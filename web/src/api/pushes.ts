@@ -13,6 +13,7 @@ export type PushView = {
   id: number;
   source_session_id: number;
   source_session_title: string | null;
+  source_schedule: string | null;
   text: string;
   created_at: number;
   read_at: number | null;
@@ -38,6 +39,7 @@ const pushPage: Decoder<PushPage> = obj({
       id: num,
       source_session_id: num,
       source_session_title: nullable(str),
+      source_schedule: nullable(str),
       text: str,
       created_at: num,
       read_at: nullable(num),

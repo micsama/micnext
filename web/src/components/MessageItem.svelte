@@ -46,6 +46,12 @@
     </div>
     <span class="pointer-events-none absolute top-full right-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{time}</span>
   </div>
+{:else if body.kind === "Trigger"}
+  <div class="flex flex-col items-end">
+    <div class="max-w-[85%] rounded-2xl border border-dashed border-border px-4 py-2 whitespace-pre-wrap break-words text-muted-foreground" title={time}>
+      <span class="mb-1 flex items-center gap-1 text-xs"><Icon name="clock" class="size-3" />定时任务</span>{body.text}
+    </div>
+  </div>
 {:else if body.kind === "Command"}
   <p class="text-sm text-muted-foreground" title={time}>
     {#if body.command === "Clear"}/clear

@@ -49,3 +49,15 @@ pub(crate) const AGENT_MAX_TURNS: u32 = 12;
 pub(crate) const AGENT_RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// 子 run 交付的文本上限，超出截断并指向子会话。
 pub(crate) const AGENT_DELIVERY_MAX: usize = 32 * 1024;
+/// 定时任务：到点时上下文占用超过此百分比先压缩。
+pub(crate) const SCHEDULE_COMPACT_PERCENT: u64 = 50;
+/// 任务会话 run 的墙钟上限；轮次上限同子 agent。
+pub(crate) const SCHEDULE_RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// 连续这么多次系统级失败后自动暂停。
+pub(crate) const SCHEDULE_FAIL_PAUSE: usize = 3;
+/// `schedules` 查看单个任务时列出的触发数。
+pub(crate) const SCHEDULE_FIRES_SHOWN: u32 = 10;
+/// 调度循环至少这么频繁对一次墙钟，免受系统休眠与改时影响。
+pub(crate) const SCHEDULE_TICK_MAX: Duration = Duration::from_secs(60);
+/// 补记错过时最多枚举的次数。
+pub(crate) const SCHEDULE_MISSED_SCAN: u32 = 100_000;

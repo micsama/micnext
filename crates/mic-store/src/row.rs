@@ -118,7 +118,7 @@ impl rusqlite::types::FromSql for ReasoningEffort {
 /// run 输入的 kind 列表，与 `messages::is_input` 一致。
 macro_rules! input_kinds {
     () => {
-        "('UserInput', 'Completion', 'Command', 'JobNotice')"
+        "('UserInput', 'Completion', 'Command', 'JobNotice', 'Trigger')"
     };
 }
 pub(crate) use input_kinds;
@@ -288,10 +288,9 @@ pub(crate) fn persona(row: &Row<'_>) -> rusqlite::Result<Persona> {
     })
 }
 
-/// 列序同 `RUN_COLS`。
-pub(crate) fn run(row: &Row<'_>) -> rusqlite::Result<Run> {
-    let state: String = row.get(2)?;
-    let state = match state.as_str() {
+pub(crate) fn run_state(row: &Row<'_>, idx: usize) -> rusqlite::Result<RunState> {
+    let state: String = row.get(idx)?;
+    Ok(match state.as_str() {
         "executing" => RunState::Executing,
         "completed" => RunState::Completed,
         "provider_failed" => RunState::ProviderFailed,
@@ -299,8 +298,13 @@ pub(crate) fn run(row: &Row<'_>) -> rusqlite::Result<Run> {
         "interrupted" => RunState::Interrupted,
         "stopped" => RunState::Stopped,
         "timed_out" => RunState::TimedOut,
-        other => return Err(corrupt(2, format!("未知 run state: {other}"))),
-    };
+        other => return Err(corrupt(idx, format!("未知 run state: {other}"))),
+    })
+}
+
+/// 列序同 `RUN_COLS`。
+pub(crate) fn run(row: &Row<'_>) -> rusqlite::Result<Run> {
+    let state = run_state(row, 2)?;
     Ok(Run {
         id: RunId(row.get(0)?),
         session_id: SessionId(row.get(1)?),

@@ -271,6 +271,7 @@ impl Fixture {
             tools: Vec::new(),
             channel_prompts: Arc::new(HashMap::new()),
             control,
+            schedules: None,
         });
         let scheduler = tokio::spawn(crate::scheduler::run(engine.clone(), wakes));
         store

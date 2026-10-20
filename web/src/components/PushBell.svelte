@@ -63,7 +63,7 @@
         {#each pushCenter.items as p (p.id)}
           <article class="space-y-1.5 border-b px-4 py-3 last:border-b-0">
             <div class="flex items-center gap-2 text-xs text-muted-foreground">
-              <span class="min-w-0 flex-1 truncate">{p.source_session_title ?? `会话 #${p.source_session_id}`}</span>
+              <span class="min-w-0 flex-1 truncate">{p.source_schedule ? `定时任务 · ${p.source_schedule}` : (p.source_session_title ?? `会话 #${p.source_session_id}`)}</span>
               {#each p.deliveries as d (d.channel)}
                 <span title={deliveryTitle(d)} class={["shrink-0", d.state.kind === "failed" && "text-destructive"]}>
                   {channelLabel(d.channel)}{#if d.state.kind === "failed"}<Icon name="alert" class="ml-0.5 inline size-3" />{/if}

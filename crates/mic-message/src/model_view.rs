@@ -76,6 +76,15 @@ impl Message {
                 "{}\n{note}",
                 Header::JobNotice { exec_id }.render()
             ))]),
+            MessageBody::Trigger { source, text: note } => {
+                let at = local_time(self.created_at);
+                let header = Header::Trigger {
+                    src: source,
+                    at: &at,
+                }
+                .render();
+                ModelView::User(vec![text(format!("{header}\n{note}"))])
+            }
             MessageBody::HarnessNote { text: note } => ModelView::User(vec![text(format!(
                 "{}\n{note}",
                 Header::RuntimeNote.render()
@@ -145,6 +154,7 @@ enum Header<'a> {
     User { id: &'a str, at: &'a str },
     RuntimeNote,
     Notification { src: &'a str, at: &'a str },
+    Trigger { src: &'a str, at: &'a str },
     Completion { exec_id: &'a str },
     JobNotice { exec_id: &'a str },
     Dispatched { exec_id: &'a str },
@@ -153,12 +163,15 @@ enum Header<'a> {
 }
 
 /// 说明清单；新增 `Header` 变体须同步此处。
-const ALL: [Header<'static>; 8] = [
+const ALL: [Header<'static>; 9] = [
     Header::User {
         id: "…", at: "…"
     },
     Header::RuntimeNote,
     Header::Notification {
+        src: "…", at: "…"
+    },
+    Header::Trigger {
         src: "…", at: "…"
     },
     Header::Dispatched { exec_id: "…" },
@@ -174,6 +187,7 @@ impl<'a> Header<'a> {
             Self::User { .. } => "user",
             Self::RuntimeNote => "runtime-note",
             Self::Notification { .. } => "notification",
+            Self::Trigger { .. } => "trigger",
             Self::Completion { .. } => "completion",
             Self::JobNotice { .. } => "job-notice",
             Self::Dispatched { .. } => "dispatched",
@@ -185,7 +199,9 @@ impl<'a> Header<'a> {
     fn fields(self) -> Vec<(&'static str, &'a str)> {
         match self {
             Self::User { id, at } => vec![("id", id), ("at", at)],
-            Self::Notification { src, at } => vec![("src", src), ("at", at)],
+            Self::Notification { src, at } | Self::Trigger { src, at } => {
+                vec![("src", src), ("at", at)]
+            }
             Self::Completion { exec_id }
             | Self::JobNotice { exec_id }
             | Self::Dispatched { exec_id } => {
@@ -202,6 +218,9 @@ impl<'a> Header<'a> {
             Self::User { .. } => "a user message.",
             Self::RuntimeNote => "a framework notice, not the user.",
             Self::Notification { .. } => "an event from src at that time, not the user; it may no longer hold now.",
+            Self::Trigger { .. } => {
+                "a scheduled instruction from task src, not the user; the user is not watching."
+            }
             Self::Dispatched { .. } => {
                 "a background job or sub-agent was dispatched; its result arrives as a completion."
             }

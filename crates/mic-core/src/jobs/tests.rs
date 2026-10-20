@@ -81,6 +81,7 @@ impl Fixture {
     fn port(&self, call: &str) -> JobPort {
         JobPort::new(
             self.jobs.clone(),
+            true,
             Origin {
                 session: self.session,
                 run: self.run,

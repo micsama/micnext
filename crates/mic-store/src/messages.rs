@@ -212,6 +212,7 @@ pub(crate) fn is_input(body: &MessageBody) -> bool {
             | MessageBody::Completion { .. }
             | MessageBody::Command { .. }
             | MessageBody::JobNotice { .. }
+            | MessageBody::Trigger { .. }
     )
 }
 
@@ -230,7 +231,7 @@ pub(crate) fn insert_message(
     Ok(MessageId(conn.last_insert_rowid()))
 }
 
-/// `newest_first` 为倒序的至多 `cap + 1` 条：截到第 `rounds` 条 `UserInput` 或第 `cap` 条为止。
+/// `newest_first` 为倒序的至多 `cap + 1` 条：截到第 `rounds` 条 `UserInput`/`Trigger` 或第 `cap` 条为止。
 pub(crate) fn cut_page(
     mut newest_first: Vec<Message>,
     rounds: NonZeroU32,
@@ -242,7 +243,10 @@ pub(crate) fn cut_page(
         .iter()
         .take(cap)
         .position(|m| {
-            seen += u32::from(matches!(m.body, MessageBody::UserInput { .. }));
+            seen += u32::from(matches!(
+                m.body,
+                MessageBody::UserInput { .. } | MessageBody::Trigger { .. }
+            ));
             seen == rounds.get()
         })
         .map_or(newest_first.len().min(cap), |i| i + 1);

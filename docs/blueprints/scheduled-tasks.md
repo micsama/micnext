@@ -1,6 +1,6 @@
 # B2：推送与定时任务
 
-**状态：已批准（human 2026-10-20），P1 已实现待 human 验收（页面观感、真实微信），P2 未开始。**
+**状态：已批准（human 2026-10-20），P1 已验收（human 2026-10-20）；P2 修订已批准（human 2026-10-20），已实现、本地自动验收通过，待 human 验收（见 P2.9）。**
 
 依据：[B1](../brainstorm/scheduled-tasks.md)。一份文档分三期，各自实现、各自验收：P1 推送与通知中心（独立可用：长任务做完提醒我）；P2 定时任务内核与工具；P3 定时任务页面。
 
@@ -85,7 +85,7 @@
 
 新增 `MessageBody::Trigger { source: String, text: String }`（mic-message 公开类型）：框架以某个来源的名义发给 bot 的指令，与人工 `UserInput` 区分。
 
-- 渲染头：「`source` 到点触发；用户此时不在看」，模型据此分辨到点指令与用户直接提问。
+- 渲染头：`[trigger src=<source> at=<本地时刻>]`，与其他消息头同在 `model_view` 定义；消息头说明加一条：「a scheduled instruction from task src, not the user; the user is not watching.」模型据此分辨到点指令与用户直接提问。
 - 认领规则同 `Command`：只能独占一个 run，不与前后输入合并。
 - 只有定时任务产生；无 person。
 
@@ -111,8 +111,7 @@ CREATE TABLE core_schedule_fires (
   due_at        INTEGER NOT NULL,        -- 规则上的时刻；错过合并时为最后一次
   message_id    INTEGER REFERENCES core_messages(id),  -- 开跑时的 Trigger 消息；run 取该消息的 run_id
   skipped       TEXT,                    -- 'missed' | 'busy'；开跑则为空
-  missed_count  INTEGER,                 -- missed 合并的次数
-  timed_out     INTEGER NOT NULL DEFAULT 0
+  missed_count  INTEGER                  -- missed 合并的次数
 );
 ```
 
@@ -124,8 +123,8 @@ CREATE TABLE core_schedule_fires (
 |---|---|---|
 | 完成·已推送 / 完成·未推送 | run `Completed`/`MaxTurns`，按推送表 `source_run_id` 区分 | 否 |
 | 失败 | run `ProviderFailed` | 是 |
-| 超时 | run `Stopped` 且 `timed_out = 1` | 是 |
-| 已停止 | run `Stopped` 且 `timed_out = 0`（人工停止） | 否 |
+| 超时 | run `TimedOut` | 是 |
+| 已停止 | run `Stopped`（人工停止） | 否 |
 | 中断 | run `Interrupted`，或 Trigger 消息在重启时未认领而被 held | 是 |
 | 错过 | `skipped = 'missed'` | 是 |
 | 忙 | `skipped = 'busy'`：到点时会话有执行中的 run 或待处理输入 | 否 |
@@ -140,7 +139,8 @@ CREATE TABLE core_schedule_fires (
 
 - 建任务时同事务建会话：`Triggered { module: "schedule", ref_id: <任务 id> }`，`parent_session_id` 为空；`pwd`、人设、模型、思考档位拷自调用会话。之后可在任务会话页面单独改。
 - 渠道说明 `channel_prompt("schedule", …)`：「这是定时任务 X 的会话。带到点触发头的消息是定时指令，用户不在看：需要告诉用户时调用 push，没有发现就简短收尾。普通用户消息是用户在这里直接问你，照常回答。」
-- 工具：全套基础工具 + `push`；不含 `schedule`、`schedules`、`agent`。轮数上限同子 agent。
+- 工具：全套基础工具 + `push`；不含 `schedule`、`schedules`、`agent`，也不含 `jobs`、`job_output`、`job_stop`。轮数上限同子 agent。
+- **不允许后台执行**（human 2026-10-20）：任务会话的后台派发直接拒绝，`bash` 设 `background` 得到 business 错误 `background jobs are unavailable in scheduled tasks; run in the foreground`。一次触发即一个 run：结局、超时与「忙」都只看这个 run，不会有后台任务结束后另起的 run。
 - 用户可从任务列表进入任务会话直接对话，与触发共用上下文。触发 run 执行中用户发来的输入，按现有规则在下一个模型调用边界并入该 run。
 
 ### P2.5 调度循环
@@ -154,18 +154,19 @@ core 内一个 tokio 任务：内存里维护各启用任务的下一时刻，�
 
 检查与写入在同一事务里，不会有人工 run 夹进来，也不会只有消息没有触发行。
 
-- 压缩失败：压缩 run 自身记失败，算一次系统级失败并推送；触发照常执行（占用仍低于普通会话阈值）。
-- 超时：Trigger 的 run 开跑后计时，墙钟超过 `SCHEDULE_RUN_TIMEOUT`（暂定 30 分钟）时先写 `timed_out = 1`，再停止该 run。
-- 重启：遗留执行中的 run 沿用现有恢复转 `Interrupted`；未认领的 Trigger 按现有规则 held。两者都是「中断」。
+- 压缩失败：不单独计数与推送，触发照常执行，结局由触发 run 自己给出（占用仍低于普通会话阈值）。
+- 超时与轮数：任务会话的每个 run（含人工追问）同子 agent 计时，墙钟超过 `SCHEDULE_RUN_TIMEOUT`（暂定 30 分钟）即停止并落 `TimedOut`。
+- 重启：遗留执行中的 run 沿用现有恢复转 `Interrupted`；未认领的 Trigger 按现有规则 held。两者都是「中断」，启动时对本次收尾涉及的触发推送通知。
+- 一次性任务在触发（含「忙」）或记为错过时即停用。
 - 启动补记错过：对每个启用任务，在 `max(最后一行触发的 due_at, active_since)` 到现在之间按**当前规则**枚举应触发时刻；有则合并写一行 `missed`（`due_at` 取最后一次，`missed_count` 为次数）。暂停期间与旧规则时段不在区间内。不补跑。
 
 ### P2.6 系统级失败
 
-上表标「是」的结局由框架以框架推送（来源 = 任务会话）通知「定时任务 X：结局与原因」。同一任务最近连续 `SCHEDULE_FAIL_PAUSE`（暂定 3）次触发都是系统级失败时：`enabled = 0`，写 `paused_reason`，并推送。「忙」「已停止」与正常完成不计入，也不打断连续计数。agent 判断「没发现」属于正常完成。
+上表标「是」的结局由框架以框架推送（来源 = 任务会话）通知「定时任务 X：结局与原因」。与所有推送一样进 Web 通知中心，并发往默认推送 Channel；不可用的 IM 照样建投递行、`failure` 写原因。同一任务最近连续 `SCHEDULE_FAIL_PAUSE`（暂定 3）次触发都是系统级失败时：`enabled = 0`，写 `paused_reason`，并推送。「忙」「已停止」既不计入也不打断连续计数；正常完成打断连续计数。agent 判断「没发现」属于正常完成。
 
 ### P2.7 `schedule` / `schedules` 工具
 
-只给 Root 会话。
+只给常驻模式的 Root 会话（`-p` 没有调度循环，不给）。
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
@@ -179,8 +180,17 @@ core 内一个 tokio 任务：内存里维护各启用任务的下一时刻，�
 - 对话里建、改、停、删任务；`schedules` 两种用法。
 - 到点跑、没发现不推送、有发现推送；忙时跳过；超时停止并标超时；停机错过合并记录并通知，暂停与改规则后不误记；连续失败自动暂停。
 - 任务会话里人工追问与触发区分正确；触发 run 中人工输入并入。
+- 任务会话里 `bash` 后台执行被拒，模型改用前台。
 - 默认推送设为微信、微信断开时，失败通知仍在 Web 通知中心可见并标投递失败。
 - 提前压缩在两次运行之间发生（把阈值临时调低验证）。
+
+### P2.9 实现记录与验收
+
+实现中相对上文的取舍（已改入正文）：去掉 `timed_out` 列，超时即 run 状态 `TimedOut`；超时与轮数覆盖任务会话所有 run；压缩失败不单独通知；连续失败中正常完成会打断计数；工具只在常驻模式；渠道说明不写任务名（触发头 `src` 已带）。推送列表 `source_schedule` 与私聊会话 `Notification.source` 带任务名（P1.4「来源任务名」）。
+
+本地已验收：store 认领/吸收/忙/结局推导测试；临时库冒烟——每分钟任务到点触发、无模型时失败并推送「运行失败：…」、停机期间错过合并补记并推送、连续 3 次失败自动暂停。
+
+交 human：真实模型下建改停删与 `schedules` 两种用法、没发现不推送/有发现推送、忙时跳过、超时、任务会话人工追问与并入、`bash` 后台被拒、微信断开时失败通知、调低阈值看提前压缩、Web 聊天与 Trace 里的定时指令显示。
 
 ## P3：定时任务页面
 

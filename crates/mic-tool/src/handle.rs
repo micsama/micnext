@@ -36,10 +36,6 @@ impl ToolHandle {
         &self.spec
     }
 
-    pub fn prompt_hint(&self) -> Option<&str> {
-        self.tool.prompt_hint()
-    }
-
     /// 模型输出边界：`args` 解析失败 → `ToolError::input`，不调用 `execute`。
     /// 丢弃 future = 取消，语义同 `Tool::execute`。
     pub fn invoke<'a>(
@@ -52,7 +48,6 @@ impl ToolHandle {
 }
 
 trait Erased: Send + Sync {
-    fn prompt_hint(&self) -> Option<&str>;
     fn invoke<'a>(
         &'a self,
         args: &'a serde_json::Value,
@@ -61,10 +56,6 @@ trait Erased: Send + Sync {
 }
 
 impl<T: Tool> Erased for T {
-    fn prompt_hint(&self) -> Option<&str> {
-        Tool::prompt_hint(self)
-    }
-
     fn invoke<'a>(
         &'a self,
         args: &'a serde_json::Value,

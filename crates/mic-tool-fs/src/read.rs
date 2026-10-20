@@ -34,10 +34,6 @@ impl Tool for Read {
         "Read a UTF-8 text file and return line-numbered content."
     }
 
-    fn prompt_hint(&self) -> Option<&str> {
-        Some("View text files with read, not cat; output has line numbers; page large files with offset and limit.")
-    }
-
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let path = resolve(ctx, &args.file_path)?;
         let offset = positive(args.offset, "offset")?.unwrap_or(1);

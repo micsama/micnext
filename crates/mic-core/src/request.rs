@@ -77,7 +77,6 @@ impl PromptBlockKind {
 pub enum PromptPartKind {
     Instructions,
     Persona,
-    Tools,
     Environment,
     Summary,
 }
@@ -140,7 +139,7 @@ pub(crate) fn build(
 ) -> ModelRequest {
     ModelRequest {
         tool_choice: ToolChoice::Auto,
-        system: system_prompt(settings, session, channel_prompt, tools, &window).render(),
+        system: system_prompt(settings, session, channel_prompt, &window).render(),
         messages: order(window.messages),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
@@ -154,7 +153,6 @@ pub(crate) fn system_prompt(
     settings: &RunSettings,
     session: &mic_store::Session,
     channel_prompt: Option<&str>,
-    tools: &[ToolHandle],
     window: &ContextWindow,
 ) -> SystemPrompt {
     use PromptPartKind::*;
@@ -174,12 +172,6 @@ pub(crate) fn system_prompt(
         format!("Working directory: {}", session.pwd),
     )];
     context.extend(channel_prompt.map(|p| part(Environment, p.to_owned())));
-    context.extend(
-        tools
-            .iter()
-            .filter_map(|t| t.prompt_hint())
-            .map(|h| part(Tools, h.to_owned())),
-    );
     if let Some(summary) = &window.summary {
         context.push(part(
             Summary,

@@ -23,6 +23,8 @@ export const num: Decoder<number> = (v, at) => (typeof v === "number" ? v : fail
 export const bool: Decoder<boolean> = (v, at) => (typeof v === "boolean" ? v : fail(at));
 
 export const any: Decoder<unknown> = (v) => v;
+export const record: Decoder<Record<string, unknown>> = (v, at) =>
+  (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : fail(at));
 
 export const nullable =
   <T>(d: Decoder<T>): Decoder<T | null> =>

@@ -637,9 +637,6 @@ impl mic_tool::Tool for TimedTool {
     fn description(&self) -> &str {
         "test timing"
     }
-    fn prompt_hint(&self) -> Option<&str> {
-        None
-    }
     async fn execute(
         &self,
         args: Self::Args,
@@ -664,9 +661,6 @@ impl mic_tool::Tool for HangAfterDispatch {
     }
     fn description(&self) -> &str {
         "test dispatch"
-    }
-    fn prompt_hint(&self) -> Option<&str> {
-        None
     }
     async fn execute(
         &self,
@@ -1277,9 +1271,6 @@ impl mic_tool::Tool for BigTool {
     }
     fn description(&self) -> &str {
         "test output size"
-    }
-    fn prompt_hint(&self) -> Option<&str> {
-        None
     }
     async fn execute(
         &self,

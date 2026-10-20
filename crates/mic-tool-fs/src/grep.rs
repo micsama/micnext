@@ -37,10 +37,6 @@ impl Tool for Grep {
         "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns the first 250 matches inline; a capped result says how many matched in total. Use read on a matched file for surrounding context."
     }
 
-    fn prompt_hint(&self) -> Option<&str> {
-        Some("Search file contents with grep, not shell grep/rg; read a match for surrounding context.")
-    }
-
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         if args.pattern.is_empty() {
             return Err(ToolError::input("pattern must be a non-empty string"));

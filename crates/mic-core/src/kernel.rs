@@ -642,6 +642,24 @@ impl Kernel {
         self.current_system_prompt(&s).await
     }
 
+    /// 该会话按当前配置发给模型的工具定义，顺序同请求。
+    pub async fn session_tools(&self, session: SessionId) -> Result<Vec<ToolSpec>, KernelError> {
+        let s = self
+            .store
+            .session(session)
+            .await?
+            .ok_or(KernelError::SessionNotFound)?;
+        Ok(self.tools_of(&s))
+    }
+
+    fn tools_of(&self, s: &Session) -> Vec<ToolSpec> {
+        self.engine
+            .scoped_tools(s)
+            .iter()
+            .map(|t| t.spec().clone())
+            .collect()
+    }
+
     async fn current_system_prompt(&self, s: &Session) -> Result<SystemPrompt, KernelError> {
         let settings = self.store.run_settings(s.id).await?;
         let window = self.store.context_window(s.id).await?;
@@ -655,7 +673,6 @@ impl Kernel {
             &settings,
             s,
             channel_prompt,
-            &self.engine.scoped_tools(s),
             &window,
         ))
     }
@@ -692,12 +709,7 @@ impl Kernel {
         if !images {
             request::hide_images(&mut messages);
         }
-        let tools: Vec<ToolSpec> = self
-            .engine
-            .scoped_tools(&s)
-            .iter()
-            .map(|t| t.spec().clone())
-            .collect();
+        let tools = self.tools_of(&s);
         Ok(Some(context_usage::breakdown(
             occupancy,
             &usage,

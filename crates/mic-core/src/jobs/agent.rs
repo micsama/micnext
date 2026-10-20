@@ -60,10 +60,6 @@ impl Tool for AgentTool {
         "Run a sub-agent in the background on a self-contained task. It works in its own conversation with file, shell and web_fetch tools, and its final reply arrives as a completion. Pass job_id to follow up the same sub-agent; each follow-up delivers again."
     }
 
-    fn prompt_hint(&self) -> Option<&str> {
-        Some("Use `agent` for independent multi-step work (investigations, long edits, parallel lookups) whose details you do not need in this conversation. A sub-agent run allows up to 12 model turns with tools available, plus one final summary if the turn budget is exhausted; retries and context compaction calls are separate. Each run has a 30-minute time limit; split bigger work or follow up.")
-    }
-
     async fn execute(&self, args: AgentArgs, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let port = (ctx.background() as &dyn Any)
             .downcast_ref::<JobPort>()

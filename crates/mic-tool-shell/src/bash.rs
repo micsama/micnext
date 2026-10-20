@@ -59,16 +59,6 @@ impl Tool for Bash {
         DESCRIPTION
     }
 
-    fn prompt_hint(&self) -> Option<&str> {
-        Some(
-            "Check the [exit code: N] marker on every bash result; investigate failures before moving on. \
-             A dispatched background command has only been submitted: its exit arrives later as a completion, \
-             and with notify_pattern matching output arrives earlier as a job-notice. Report status from the evidence that has arrived. \
-             A job-notice only shows that the output appeared; probe a service before saying it is usable. \
-             If job-notices come more often than you expected, stop the job with job_stop instead of letting it keep reporting.",
-        )
-    }
-
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         if args.command.trim().is_empty() {
             return Err(ToolError::input("command must be a non-empty string"));

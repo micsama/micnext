@@ -37,10 +37,6 @@ impl Tool for Edit {
         "Edit an existing UTF-8 text file by replacing literal text."
     }
 
-    fn prompt_hint(&self) -> Option<&str> {
-        Some("edit replaces literal old_string with new_string in a UTF-8 text file; old_string must be unique unless replace_all is true. Read the file first unless you just wrote or edited it.")
-    }
-
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let path = resolve(ctx, &args.file_path)?;
         if args.old_string.is_empty() {

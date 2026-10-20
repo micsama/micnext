@@ -70,10 +70,6 @@ impl Tool for List {
         "List background jobs and sub-agents started by this session and its sub-sessions: active ones first, then by most recent activity. A tool job shows its state, timing, output size and last lines of output; a sub-agent shows whether it is running or sleeping and how its last run ended."
     }
 
-    fn prompt_hint(&self) -> Option<&str> {
-        None
-    }
-
     async fn execute(&self, args: ListArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {
         let views = self
             .0
@@ -110,10 +106,6 @@ impl Tool for Output {
 
     fn description(&self) -> &str {
         "Read a background job's output, which is readable while the job runs. Without offset it returns the tail; with offset it reads forward from that byte and reports next_offset to continue. Only the most recent 1 MiB is kept: available_from is the earliest readable byte. For a sub-agent it returns its latest delivery in full."
-    }
-
-    fn prompt_hint(&self) -> Option<&str> {
-        None
     }
 
     async fn execute(&self, args: OutputArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {
@@ -162,10 +154,6 @@ impl Tool for Stop {
 
     fn description(&self) -> &str {
         "Stop a running background job (a bash job's whole process group is killed) or a sub-agent's current run (its own jobs are stopped too; it can still be followed up later). Returns once stopped; no completion follows for something you stop yourself."
-    }
-
-    fn prompt_hint(&self) -> Option<&str> {
-        None
     }
 
     async fn execute(&self, args: StopArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {

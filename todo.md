@@ -8,5 +8,6 @@
 |---|---|---|
 | 已实现，本地验收通过，待页面人工验收 | 会话消息按发生时刻排序 | [B2](docs/blueprints/chat-timeline-order.md) |
 | 已实现，真实 agent 行为与页面观感待 human 验收 | 后台 bash 正则命中提前通知 | [B2](docs/blueprints/background-output-notify.md) |
+| 已实现，待页面验收 | Trace 展示工具清单，删除工具提示 | [B2](docs/blueprints/trace-tools.md) |
 | P1 待验收 | 推送与定时任务（P1 推送 / P2 内核 / P3 页面） | [B2](docs/blueprints/scheduled-tasks.md) |
 | 延期 | 服务商分时段计价 | [B2](docs/blueprints/offpeak-pricing.md) |

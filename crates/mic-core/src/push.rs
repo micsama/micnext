@@ -251,10 +251,6 @@ impl Tool for PushTool {
         "Proactively notify the user on their own channels (e.g. WeChat, the Web notification center). Use it only when the user may not be watching this conversation and should be told now, such as a long task they asked to be reminded about has finished. Ordinary replies already reach the user here; do not push them."
     }
 
-    fn prompt_hint(&self) -> Option<&str> {
-        None
-    }
-
     async fn execute(&self, args: PushArgs, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let port = (ctx.background() as &dyn Any)
             .downcast_ref::<JobPort>()

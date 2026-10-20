@@ -194,7 +194,7 @@
 
   let systemSelected = $state(false);
   let systemView = $state<SystemPromptView | null>(null);
-  let systemRaw = $state(false);
+  let systemTab = $state<"blocks" | "raw" | "tools">("blocks");
   async function chooseSystem() {
     if (session === null) return;
     remember();
@@ -616,10 +616,10 @@
       </div>
     {:else if systemSelected}
       <div class="d-head"><div><div class="d-type"><span class="role r-sys">系统</span></div><div class="d-title">系统提示<small class="sub">当前配置 · 非历史快照</small></div></div>{@render expandButton()}</div>
-      <nav class="tabs"><button type="button" class="tab" class:on={!systemRaw} onclick={() => systemRaw = false}>分块</button><button type="button" class="tab" class:on={systemRaw} onclick={() => systemRaw = true}>原文</button></nav>
+      <nav class="tabs">{#each [["blocks", "分块"], ["raw", "原文"], ["tools", "工具"]] as const as [key, label] (key)}<button type="button" class="tab" class:on={systemTab === key} onclick={() => systemTab = key}>{label}</button>{/each}</nav>
       <div class="panel-body">
         {#if detailError}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{detailError}</div></div>
-        {:else if systemView !== null}<div class="pad"><TraceSystem view={systemView} raw={systemRaw} /></div>
+        {:else if systemView !== null}<div class="pad"><TraceSystem view={systemView} tab={systemTab} /></div>
         {:else}<p class="hint pad">加载中…</p>{/if}
       </div>
     {:else if selectedRun}

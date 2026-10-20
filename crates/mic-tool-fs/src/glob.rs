@@ -36,10 +36,6 @@ impl Tool for Glob {
         "Find files whose paths match a glob pattern. Returns matching file paths — never directories — including hidden and ignored files (VCS metadata directories are excluded). Up to 100 paths come back, most recently modified first; a larger result returns the 100 most recently modified paths and says how many matched in total. This tool does not enumerate directory entries."
     }
 
-    fn prompt_hint(&self) -> Option<&str> {
-        Some("Find files with glob, not shell find. A pattern without \"/\" matches basenames at any depth, so \"*\" matches the whole tree. Results are files only (hidden and ignored included), newest first; oversized results keep the newest.")
-    }
-
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         if args.pattern.trim().is_empty() {
             return Err(ToolError::input("pattern must be a non-empty string"));

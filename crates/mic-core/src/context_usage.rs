@@ -111,7 +111,6 @@ impl From<PromptPartKind> for ContextKind {
         match kind {
             PromptPartKind::Instructions => Self::Instructions,
             PromptPartKind::Persona => Self::Persona,
-            PromptPartKind::Tools => Self::Tools,
             PromptPartKind::Environment => Self::Environment,
             PromptPartKind::Summary => Self::Summary,
         }

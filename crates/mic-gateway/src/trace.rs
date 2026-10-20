@@ -66,23 +66,24 @@ pub(crate) async fn runs(
 pub(crate) struct SystemPrompt {
     text: String,
     blocks: Vec<mic_core::PromptBlock>,
+    tools: Vec<mic_core::ToolSpec>,
 }
 
 pub(crate) async fn system(
     State(app): State<Arc<App>>,
     session: Id,
 ) -> Result<Json<SystemPrompt>, ApiError> {
-    let prompt = app
-        .kernel
-        .system_prompt(SessionId(id(session)?))
-        .await
-        .map_err(|e| match e {
-            mic_core::KernelError::SessionNotFound => ApiError::NotFound(SESSION_NOT_FOUND),
-            e => e.into(),
-        })?;
+    let session = SessionId(id(session)?);
+    let not_found = |e| match e {
+        mic_core::KernelError::SessionNotFound => ApiError::NotFound(SESSION_NOT_FOUND),
+        e => e.into(),
+    };
+    let prompt = app.kernel.system_prompt(session).await.map_err(not_found)?;
+    let tools = app.kernel.session_tools(session).await.map_err(not_found)?;
     Ok(Json(SystemPrompt {
         text: prompt.render(),
         blocks: prompt.blocks,
+        tools,
     }))
 }
 

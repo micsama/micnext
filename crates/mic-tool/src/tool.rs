@@ -9,7 +9,7 @@ use mic_message::{ContentPart, ExecFailureKind, ExecOutcome};
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// 发给模型的工具定义；由各 Tool 自带，core 只汇总后放进请求。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
@@ -26,8 +26,6 @@ pub trait Tool: Send + Sync + 'static {
     fn name(&self) -> &str;
     /// 工具定义里的一句话简介。
     fn description(&self) -> &str;
-    /// 使用提示；工具在本次请求中可用时拼入 system prompt。`None` = 无提示。
-    fn prompt_hint(&self) -> Option<&str>;
 
     /// 丢弃返回的 future = 取消：实现须随之释放资源（如杀掉子进程组），不得留下后台副作用。
     /// 已经 `dispatch` 提交的后台任务归 core 所有，不受此约束。

@@ -27,10 +27,6 @@ impl Tool for Write {
         "Create or fully replace a UTF-8 text file."
     }
 
-    fn prompt_hint(&self) -> Option<&str> {
-        Some("write creates a file or fully overwrites it: read an existing file first, and prefer edit for partial changes.")
-    }
-
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let path = resolve(ctx, &args.file_path)?;
         let display = display_path(ctx.cwd(), &path);

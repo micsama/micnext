@@ -19,10 +19,11 @@ pub(crate) enum ClientError {
     Timeout,
     #[error("微信服务拒绝请求（HTTP {0}）")]
     Rejected(u16),
-    #[error("微信服务拒绝请求（ret={ret:?}, errcode={errcode:?}）")]
+    #[error("微信服务拒绝请求（ret={ret:?}, errcode={errcode:?}, errmsg={errmsg:?}）")]
     BusinessRejected {
         ret: Option<i32>,
         errcode: Option<i32>,
+        errmsg: Option<String>,
     },
     #[error("微信登录已失效")]
     SessionExpired,
@@ -276,9 +277,16 @@ impl Client {
         let wire::SendMessageResponse {
             message_id,
             ret,
-            _errmsg: _,
+            _errmsg: errmsg,
         } = response;
-        successful(ret, None)?;
+        successful(ret, None).map_err(|error| match error {
+            ClientError::BusinessRejected { ret, errcode, .. } => ClientError::BusinessRejected {
+                ret,
+                errcode,
+                errmsg,
+            },
+            error => error,
+        })?;
         message_id.ok_or(ClientError::Protocol("发送成功但缺少 message_id"))
     }
 
@@ -537,7 +545,11 @@ fn successful(ret: Option<i32>, errcode: Option<i32>) -> Result<(), ClientError>
         return Err(ClientError::SessionExpired);
     }
     if ret.is_some_and(|ret| ret != 0) || errcode.is_some_and(|code| code != 0) {
-        return Err(ClientError::BusinessRejected { ret, errcode });
+        return Err(ClientError::BusinessRejected {
+            ret,
+            errcode,
+            errmsg: None,
+        });
     }
     Ok(())
 }

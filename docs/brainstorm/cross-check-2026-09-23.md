@@ -1,10 +1,8 @@
 # 交叉核对：micnext 产品与架构设计（2026-09-23）
 
-**状态**：第二轮核对中。已确认的方向见 [`product-roadmap.md`](product-roadmap.md) §二；
-仍需决策的契约见其 §四与 [`../../todo.md`](../../todo.md)。本文是核对入口，
-不代替 [`mic-message`](../blueprints/archive/mic-message.md)、
-[`mic-store`](../blueprints/archive/mic-store.md)、
-[`mic-core-module`](../blueprints/archive/mic-core-module.md) 的 B2。
+**状态：历史核对记录（2026-10-20 标记归档）。保留 2026-09-23 的决策与候选供追溯，不再维护为待办入口。**
+
+当前进展见 [产品方向](product-roadmap.md)，未关闭 B2 见 [todo](../../todo.md)。下文关于会话列举、微信配置、后台执行、停止与退出的“尚未实现”描述已由后续 B2 替代；定时任务早期方向仍作为后续 B1 输入，审批等延期项见产品方向 §五。
 
 ## 一、项目目标
 

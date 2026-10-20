@@ -15,11 +15,11 @@
 | C 路线图脚手架 | 除 `File` 与 `Triggered` 外均已被后台任务、压缩用上 |
 | D2 收尾轮发 `tools=[]` | 已改为 `ToolChoice::None`，保住前缀缓存 |
 
-## A. 私有小项（可直接改）
+## A. 小范围整理候选
 
 | # | 位置 | 问题 |
 |---|---|---|
-| A1 | `now_ms` 五份拷贝：`mic-core/run.rs`、`mic-gateway/api.rs`、`mic-gateway/logs.rs`、`mic-store/schema.rs`、`mic-channel-wechat/account.rs` | 一处真相被拆成五份；`logs.rs` 版本还把时钟异常静默成 0。收成 `mic-store` 一个公开函数（新增一个公开签名，影响面只有这五处） |
+| A1 | `now_ms` 五份拷贝：`mic-core/run.rs`、`mic-gateway/api.rs`、`mic-gateway/logs.rs`、`mic-store/schema.rs`、`mic-channel-wechat/account.rs` | 一处真相被拆成五份；`logs.rs` 版本还把时钟异常静默成 0。若收成 `mic-store` 一个公开函数，属于新增公开签名，须先走 B2；本项不是私有修改豁免 |
 | A2 | `mic-provider-openai/src/factory.rs:45` `key_env` | `.ok()?` 把配置解析错误吞成「无环境变量」。库内配置已规范化可 `expect`，但 `test_endpoint` 传入的是未保存表单，需先确认那条路径已校验过 |
 
 ## B. 公开死代码（删除走 B2，不改行为）
@@ -38,9 +38,9 @@
 | `DeliveryTarget` 挂在会话上 | Root 微信会话用 | Triggered 会话带上目标即可把结果推到微信 |
 | `Module` / `Service` / `with_module_tx` | 微信在用 | 定时模块按同样方式装配、存自己的表、跑调度循环 |
 
-定时任务 B1 需要先回答的取舍（决定上表是否够用）：
+定时任务 B1 需要复核的取舍（决定上表是否够用；早期已选 Triggered 独立会话，见 [产品方向](product-roadmap.md#定时任务)）：
 
-1. **结果落在哪**：每次触发新开 Triggered 会话（干净上下文、可在侧栏单列），还是追加进某个已有 Root 会话（像「提醒我」，对话连续）。选后者则 `Triggered` 可删，改为向 Root 追加一种带来源的输入。
+1. **结果落在哪**：每次触发新开 Triggered 会话（干净上下文、可在侧栏单列），还是追加进某个已有 Root 会话（像「提醒我」，对话连续）。后者只是替代候选，尚未批准；不能据此删除 `Triggered`。
 2. **侧栏是否可见**：`list_root_sessions` 只列 Root；Triggered 会话目前只在 Trace 里能看到。
 3. **看板事实来源**：[cross-check](cross-check-2026-09-23.md) §四-4 的待核对项。
 
@@ -52,6 +52,6 @@
 
 ## 建议顺序
 
-1. A1、A2 直接改，fmt + clippy 收尾。
+1. A1 新增公开签名先起 B2；A2 核实表单校验路径后判断修改范围。此处仅记录候选，不授权实现。
 2. B1、B2 合成 `docs/blueprints/dead-code-cleanup.md`，删前用诊断 SQL 确认库内无 `File` 片段。
 3. C 留到定时任务 B1 一起定；D1 等 human 选解释。

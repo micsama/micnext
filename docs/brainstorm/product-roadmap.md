@@ -1,177 +1,55 @@
-# micnext：产品方向与版本路线
+# micnext：产品方向与后续工作
 
-**状态**：B1 第二轮核对中（2026-09-23）。已确认的方向可作为 B2 输入；§四尚未
-收敛的公开契约与副作用边界，不据此实施。
-**当前契约**：[mic-message](../blueprints/archive/mic-message.md)、
-[mic-store](../blueprints/archive/mic-store.md)、
-[mic-core 模块装配](../blueprints/archive/mic-core-module.md)。
-**核对清单**：[cross-check-2026-09-23.md](cross-check-2026-09-23.md)。
+**状态：现状索引（2026-10-20 整理）。已实现能力以对应 B2 为准；本页记录剩余方向，不授权实现。**
 
 ## 一、项目定位
 
-运行在个人服务器上的单进程 Rust agent。电脑从 Web 使用，手机从个人微信使用；
-它能在服务器上调用文件、shell 和网络工具，按计划执行任务，并按需发消息。
-这是一个高质量的小项目：概念正交、依赖方向清楚、边界强类型、失败可见，
-功能可以按模块启停。
+单人自用、单进程的 Rust agent：常驻 Gateway（Web）与微信 Channel，`-p` 一次性调试。支持在服务器上调用文件、shell 与网络工具。定时巡检、日报、提醒及长期记忆属于后续能力。
 
-| 场景 | 入口 | 必需能力 |
-|---|---|---|
-| 随手问与派活 | Web、微信 | 流式对话、工具、独立会话 |
-| 定时巡检、日报、提醒 | cron、Web 看板 | 独立运行记录、按需 `send_message` |
-| 后台长任务完成后通知 | Web、微信 | 异步执行、完成回注、通知 |
-| 长期记忆与 Skill | Web、微信 | 可跨 Channel 的记忆；会话仍独立 |
+按独立变化轴建模，边界解析成强类型，失败可见；不做分布式、多租户 SaaS、通用工作流编排。配置、存储与分层遵循仓库 AGENTS.md。
 
-不做钉钉、TUI、分布式、多租户 SaaS、通用工作流编排、WASM，也不把 MCP
-设为内核的一等公民。v0 只有用户自己；Person 数据概念保留，但多人使用
-不列入当前路线。
+## 二、已落地能力与契约入口
 
-## 二、现行设计
-
-### 2.1 模块与进程
-
-- 一个 Rust 内核二进制。Web 前端由 TS 构建，产物嵌入二进制。必须使用其它语言
-  的适配器经 Gateway 接入；hook 子进程是另一个边界。
-- 内核拥有 Session、Query、上下文、事件与调度。Provider、Channel、Tool、
-  ContextContributor、Hook、Service 是独立变化轴；具体功能由模块装配。
-- 一个功能模块是一个 crate，经 cargo feature 控制是否编译，经配置段控制是否启用。
-  未编译却配置启用、未知配置字段、注册冲突均启动报错。模块表在同一个 SQLite
-  内按模块迁移，内核不依赖功能模块。
-- Web/微信是两个 Channel。Web 可按 Channel 查看会话和历史；微信单会话，
-  Web 可查看但不续聊微信会话。跨 Channel 记忆以后单独设计，不合并会话。
-- 微信注册是低频操作：Web 设置页先提供确认保存、显示“重启后生效”的流程，
-  不为它设计配置热更新。是否提供“立即重启”按钮取决于实际部署的进程守护方式，
-  不能假设进程自行退出后一定会被拉起。
-
-### 2.2 Gateway、Web 与微信
-
-- Gateway 承载入站、稳定历史回放、实时 SSE 与 Channel 投递。Web 与外部 Channel
-  适配器可使用同一套协议能力，但鉴权主体和可操作范围必须分别定义。
-- 实时 chunk 可以丢；落盘 entry 是恢复依据。切走会话、断线再回来时，
-  先按该会话的稳定游标回放，再接实时事件，不把 chunk 当稳定 entry。
-- Web 有按 Channel 区分的会话列表、新建/切换、流式显示和微信注册/连接设置页。
-  v0 用固定 token；密码登录以后再做。
-- 个人微信经 ClawBot 接入。注册流程、主动推送能力、适配器进程形态和凭据保存
-  须先验证实际接口，再写 Gateway/Channel B2；设置页不预设一键注册一定可行。
-
-### 2.3 基础工具的模型侧契约
-
-六个工具的**模型可见名称、参数名、必填项和默认值**沿用相邻仓库
-`deepseek-harness`（DSH，核对基准 `47f943859b`）的现行 schema；Rust 内部实现
-可以不同。`web_fetch` 是另一工具，不并入这组。权限相关的
-`sandbox_permissions` / `justification` 不进入 schema。
-
-模型可见的工具简介、各字段描述和使用提示也以 DSH 为底稿：工具模块自己定义并
-登记这三者，core 只组合已启用工具的贡献，不另维护一份工具说明。措辞须与
-micnext 实际能力相符：v0 的 `bash` 采用 DSH 禁用后台时的描述；不提尚未实现的
-job、审批、沙箱拒绝提示、`DSH_*` 环境变量、输出 spill 文件或读前观察策略。
-真实提供相应能力时，再由拥有该工具的模块更新描述与提示。
-
-| 工具 | 必填参数 | 可选参数与 DSH 默认值 |
-|---|---|---|
-| `read` | `file_path` | `offset`（首行 1）、`limit`（默认且上限 2000 行） |
-| `glob` | `pattern` | `path`（默认会话工作区） |
-| `grep` | `pattern` | `path`（默认会话工作区）、`include`（单个 glob 过滤式） |
-| `write` | `file_path`、`content` | 无 |
-| `edit` | `file_path`、`old_string`、`new_string` | `replace_all`（默认 false；否则原文必须恰好匹配一次） |
-| `bash` | `command`、`description` | `workdir`（默认会话工作区）、`timeoutMs`（执行器默认/上限） |
-
-DSH 的 `glob`/`grep` 用 ripgrep 语法；`bash` 每次开启新 shell，不保留上次
-命令的 cwd、环境变量或函数。要照搬的是模型可见契约，结果限额、进程管理与落盘
-仍按 micnext 的工具 B2 定，工具模块自己负责参数解析、执行、结果展示和错误；
-跨会话完成回注仍沿统一的 Session/Query 落盘路径。模型输出中的
-`replace_all` 虽是兼容 DSH 的布尔参数，
-边界解析后转成强类型替换范围，内部不以 bool 分发核心流程。
-
-- v0 对当前单人用户的这些工具默认放行，不做逐次审批、拒绝策略或模型可填写的
-  `sandbox_permissions`/`justification`。工具可达范围由 micnext 进程的 OS 权限
-  与部署时已有的沙箱决定；v0 不另造沙箱机制。
-  提示词不构成权限边界。Human in the loop 后续作为工具执行前的独立 port 设计，
-  不预埋空审批状态或把审批参数塞进每个工具。
-- `read` 按行读；`write` 创建或覆盖；`edit` 精确替换，零匹配或不允许的
-  多匹配报错；`bash` 回传退出状态与有界输出。具体上限与错误形状由工具 B2 定。
-- v0 采用 DSH 的后台禁用形态：`bash` schema 不含 `run_in_background`，
-  传入该未知字段在模型输出边界报输入错误。后台 shell 在 v2 与 job 运行时、
-  `job_output`、`job_list`、`job_kill` 一起启用；届时模型侧增加同名
-  `run_in_background`（默认 false），内部解析成强类型执行模式。
-- 可借用 micbot 的底层执行经验；公开工具契约以 DSH 为准，不混用 micbot 的
-  `read_file`/`apply_patch`/`run_shell` 名称和入参。
-
-### 2.4 消息、任务与取消
-
-- `send_message(to?, via?, text)` 是唯一主动发消息工具。省略 `via` 时回来源会话；
-  填 `via` 时发到指定已接入 Channel。工具结果只承诺已排队，不声称对方已收到。
-  发给他人的权限控制待真实多人需求出现时设计。
-- 定时任务每次运行创建来源会话下的 Triggered 子会话；普通输出留在运行历史，
-  模型自行决定是否调用 `send_message`。任务不带默认 `via`，想跨 Channel
-  通知由模型在工具调用中指定。框架记录运行失败并通知来源会话。
-- 先接受模型可能漏推。Web 定时任务看板直接读取任务和落盘运行事实，不调用模型：
-  展示最近运行、状态、每次运行详情、是否请求推送及目的地。运行一段时间后依据
-  漏推样本判断是否需要框架级推送策略。
-- 每次定时运行从干净上下文开始，带上一次成功运行的最终回复作为交接笔记。
-  精确或更长久的状态出现真实需求后由模块持久化，不把全量历史默认塞回上下文。
-- 微信可用 `/clear` 清空后续上下文但保留历史，`/compact` 压缩；Web 新建
-  会话用按钮。普通新消息在模型/工具边界插嘴。Web 停止键与 `/stop` 立即停当前一轮：
-  模型流、工具（shell 整组杀进程并落盘已取消）、重试等待与压缩都中止（[run-stop](../blueprints/archive/run-stop.md)）。
-  异步任务的主动停止另议。
-- 同步调用要等结果才能继续本轮；异步调用先返回执行引用，后续完成再回注并可通知。
-  异步还必须定义执行所有权、失败、崩溃与停止语义。子 agent 按异步方向规划，
-  不预设必须用 `wait=true`。
-
-### 2.5 可靠性与权限
-
-- 外部输入在边界一次解析成强类型；内部调用互信。配置错误和不变量破坏 Fail Fast。
-- 已提交事实与实时投影分开。崩溃后的未知副作用不自动重放；遗留 Executing
-  明确收尾为 Interrupted。v0 微信投递先记录发送尝试、外部返回、错误和外部消息 ID
-  （若有），不在能力核实前承诺显式 adapter ack 或恰好一次。日志不记 token、凭据
-  或消息正文；仅有日志不能证明用户实际收到消息。
-- v0 工具默认放行；未来多人场景的权限可由 Person 上限和 Session 收窄集相交。
-  固定 token 的 Gateway 操作范围、
-  微信凭据访问和 Web 查看微信历史的授权在 v0 B2 定。
-- 人工审批是需求，但具体操作范围、微信交互及等待期间的状态尚未定，
-  不能把既有 H2 草案当作实现契约。
-
-## 三、版本路线
-
-每一阶段要能独立验证；版本号表示范围，不预先承诺日程。
-
-| 阶段 | 可验收结果 |
+| 能力 | 现行文档 |
 |---|---|
-| v0a Web 闭环 | DeepSeek 官方与 OpenAI 兼容（自定义地址/请求头）的流式对话、六个基础文件/shell 工具与 web_fetch、Web 多会话列表与切换、断线回放、固定 token、崩溃收尾 |
-| v0b 微信接入 | Web 设置页保存连接配置并提示重启；经核实可行的注册流程、微信独立会话收发、投递尝试与结果日志可验证 |
-| v1 定时与日常能力 | cron + 不经模型的 Web 看板、Skill、上下文压缩、用量展示、边界插嘴、Web 设置页改模型配置（写回配置文件，重启生效） |
-| v2 异步与扩展 | 后台 shell、异步子 agent、Hook、长期记忆、Webhook、Anthropic；具体范围由 v1 使用反馈收敛 |
-| v3 深入观察与交互 | trace/费用面板、重放比较、浏览器工具、语音等按需立项 |
+| Web 多会话、分页、实时流与断线回放 | [Web](../blueprints/archive/web-ui.md)、[分页](../blueprints/archive/web-message-paging.md)、[EventSource](../blueprints/archive/web-sse-eventsource.md) |
+| 微信绑定、文本收发、引用、入站图片/文件/视频 | [微信](../blueprints/archive/wechat-channel.md)、[V2 能力索引](wechat-v2.md) |
+| 模型与人设设置、图片能力、思考档位 | [模型设置](../blueprints/archive/model-settings.md)、[图片能力](../blueprints/archive/model-image-support.md)、[思考档位](../blueprints/archive/reasoning-model-capabilities.md) |
+| 文件、shell、网络工具与唯一执行主路径 | [基础工具](../blueprints/archive/tools-basic.md)、[执行](../blueprints/archive/run-execution.md) |
+| 后台 shell、可继续对话的子 agent、停止与归档 | [后台任务](../blueprints/archive/async-jobs.md)、[停止](../blueprints/archive/run-stop.md)、[归档](../blueprints/archive/session-archive.md) |
+| 上下文压缩、保留规则与占用展示 | [压缩](../blueprints/archive/context-compaction.md)、[保留](../blueprints/archive/compaction-retention.md)、[构成](../blueprints/archive/context-breakdown.md) |
+| Trace、整树用量、逐回复统计 | [Trace](../blueprints/archive/run-trace.md)、[会话树](../blueprints/archive/trace-session-tree.md)、[回复栏](../blueprints/archive/chat-reply-footer.md) |
+| 开发者日志、只读 SQL、更新重启与设置备份 | [诊断](../blueprints/archive/developer-diagnostics.md)、[日志](../blueprints/archive/developer-log-history.md)、[更新](../blueprints/archive/self-update.md)、[备份](../blueprints/archive/settings-backup.md) |
 
-不把人工审批强塞进某个版本；其方向收敛后再排期。一次性 `-p` 调试调用
-复用主执行路径、不挂 Channel，公开接口形状动工前走 B2。
+公开契约与实现记录见 B2；旧 B1 中的参数名、配置方案和实现顺序不覆盖后续 B2。用户可调项存 SQLite 经 Web 修改，`config.toml` 只放启动项。
 
-## 四、待决策及 B2 前置
+## 三、当前收尾
 
-1. **微信注册与配置**：以保存后重启生效为方向；凭据存放、显示连接状态、
-   配置写入失败的回显和是否由外部守护提供重启按钮，随 ClawBot 能力核实后起 B2。
-2. **Web 会话与 SSE**：store 需要列举/分页会话的公开 API；Gateway 需要定义
-   切换、回放与实时 chunk 的游标和订阅顺序。现有 mic-store B2 不含会话列举。
-3. **投递与去重**：v0 先记录发送尝试和外部返回，观察失败；显式 adapter ack、
-   重发及入站去重延期。接入方式确定后，B2 必须明确一次发送何时视为完成、
-   进程重启后是否补发，不能同时声称“可靠投递”却不给完成判据。
-4. **定时看板事实来源**：cron 的任务表、Triggered 运行状态和 `send_message`
-   推送记录由各自的写者提供读接口；“未请求推送”与“请求后投递失败”须能区分。
-5. **异步执行**：后台 shell 与子 agent 的实体/写者清单、状态图、关键 sequence、
-   不变量；再定完成回注、通知、停止与崩溃收尾。按 B1 先收敛再起 B2。
-6. **审批**：v0 所有基础工具默认放行；后续再定哪些操作触发审批、微信无按钮时
-   怎么表达决定、等待期间新消息或崩溃如何收尾。
-7. **运行边界**：模型轮次、工具输出、附件、历史大小、SQLite 增长及错误呈现；
-   v0 不能无限增长或静默截断。具体限额在相关 B2 定。
-8. **扩展点细节**：最小 Agent 事件集、Hook 决策类型、ContextContributor 顺序、
-   Provider 失败和工具调用解析语义。由 AI 起草 B2，并枚举实际调用方。
-9. **工具副作用范围**：v0 已决定不按命令或路径做逐次审批；工具进程的 OS 权限
-   就是可操作范围。工具 B2 仍需规定参数解析、工作目录、输出截断与错误行为。
-10. **进程退出**：停止接入后，对正在执行的 Query、同步 shell 和未确认投递分别
-    等待、收尾还是交由重启恢复；须与“未知副作用不重放”一致。
+[未关闭 B2](../../todo.md) 目前只有：
 
-旧的设计论证仅作背景，不能覆盖本文与已批准 Blueprint。B2 涉及的新签名和
-副作用边界必须另行批准；本文件不授权实现。
+- [会话时间线](../blueprints/chat-timeline-order.md)：已实现，本地验收通过，待页面人工验收。
+- [后台输出匹配通知](../blueprints/background-output-notify.md)：已实现，本地验收通过，真实 agent 行为与页面观感待 human 验收。
+- [分时计价](../blueprints/offpeak-pricing.md)：human 明确搁置，继续按高峰价计。
 
+已关闭项见 [归档索引](../../todo-archive.md)。归档 B2 中明确延期的个别验收场景仍保留原记录，不因本次整理补记通过。
+
+## 四、后续方向与待收敛问题
+
+### 定时任务
+
+尚无独立 B1、B2 或实现。早期已确认的方向：每次运行创建来源会话下的 Triggered 子会话，使用干净上下文，带上次成功运行的最终回复作为交接笔记；普通产出留运行历史，模型按需请求推送，框架记录失败并通知来源会话；Web 看板读取任务、运行和推送事实，不调用模型。
+
+这些是后续 B1 的输入，需结合已落地的后台任务、子 agent 与渠道能力复核，不把它们当成已实现的工具契约。`send_message(to?, via?, text)` 是早期拟定接口，尚未实现为模型工具。
+
+独立 B1 需要收敛：一次性/周期规则与时区、停机漏触发和重叠运行、上下文与交接笔记、推送目标与失败处理，以及任务管理/运行记录的最小页面。必须区分“未请求推送”与“请求后投递失败”。Triggered 方案已有早期方向，改为向 Root 追加输入只是复核候选，尚未批准替换。
+
+### 其它后续能力
+
+- 微信出站媒体：入站能力已完成，出站仍只有文本；需先定模型侧发送文件能力，见 [微信 V2](wechat-v2.md)。
+- Skill、长期记忆、Hook、Webhook、其它 Provider 与浏览器/语音能力：路线想法，尚无本页授权的实现计划；按实际需求独立立项。
+- 代码整理：[10-19 审计](over-design-audit-2026-10-19.md) 保留候选；修改公开签名或删除公开类型均先走 B2。旧正交审查按现状重核，不作为新功能前置。
+
+原 v0–v3 是早期范围划分，实际已交叉交付；不再据此判断功能是否完成或强制实施顺序。早期依据保留在 [9-23 核对记录](cross-check-2026-09-23.md) 与 [历史架构草案](next-gen-architecture.md)。
 
 ## 五、从 todo 移入的待定与延期事项（2026-10-16）
 
@@ -181,12 +59,11 @@ DSH 的 `glob`/`grep` 用 ripgrep 语法；`bash` 每次开启新 shell，不保
 |---|---|---|
 | 想法，以后做（2026-10-15） | trace「复制为 curl / 重新推理」：消息按记录还原，系统提示与工具清单用当前配置；工具清单视为固定，与历史工具调用对不上则拒绝重放 | [trace B1](run-trace.md#未来重放与复制为-curl) |
 | human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](../blueprints/archive/web-ui.md#43-设置页与人设选择) |
-| B1 余项：B（模型输入呈现）、F（工具参数）、E 余项（会话身份）待定；A 并入阶段二 | 最小正交审查余项 | [`docs/brainstorm/orthogonality-review-2026-09-24.md`](orthogonality-review-2026-09-24.md) |
-| B1 第二轮收敛中 | 产品定位、Web + 微信、定时看板、同步/异步与 v0–v3 路线；全项目待决策项见 §四 | [`docs/brainstorm/product-roadmap.md`](product-roadmap.md) |
-| B1 待核对，再起 B2 | 定时任务看板事实来源 | [`docs/brainstorm/cross-check-2026-09-23.md`](cross-check-2026-09-23.md) §四-4 |
+| 历史审查，余项须按现状重新核对；不作为实现前置 | 最小正交审查余项 | [`docs/brainstorm/orthogonality-review-2026-09-24.md`](orthogonality-review-2026-09-24.md) |
+| 早期方向已记录，待独立 B1 收敛 | 定时任务、运行记录与按需推送 | 本文 §四；[早期核对](cross-check-2026-09-23.md) §四-4 |
 | B1 已记录；脱敏明确延期（2026-10-10） | 模型出站脱敏、工具隔离与授权：脱敏只求减少部分意外披露，当前不实施；工具隔离既有缺口仍待定。专用用户部署 human 进行中，服务器 bwrap 已验证可运行；访问与披露各自控制，候选未批准 | [B1](privacy-permissions.md)；合并「工具授权」缺口（cross-check §四-8～9） |
 | 已知 bug，低优先级；human 明确延期（2026-10-10） | 微信 Markdown/表格部分引用无法精确定位时提供完整被引消息并注明；显示文字的精确还原后续再处理，不阻塞本轮引用验收 | [引用 B2](../blueprints/archive/wechat-quotes.md)；[样本事实](wechat-v2.md) §三 |
 | 想法，未定；现状够用（2026-10-12） | 日志页开关「落盘包含 DEBUG」：存 SQLite，跨重启有效，仅项目 crate，开启时页面提示。场景：新功能临时调试时复现与查看之间有重启；现状 DEBUG 只在内存实时可看，重启即丢 | [B2](../blueprints/archive/developer-log-history.md) |
 | 想法，待起 B1（2026-10-16） | 会话回收站：侧栏下方列出 7 天内归档的会话，可恢复；超过 7 天是否真删待定 | [归档 B1](session-archive.md) |
 | 想法，未定 | 人设绑定 UI 主题；「理性大脑」人设定稿 | [`docs/brainstorm/runtime-settings.md`](runtime-settings.md) §三 |
-| 已知缺口，待定义验收边界 | 入站去重、投递重复；模型/工具/历史尺寸、工具授权与进程退出 | [`docs/brainstorm/cross-check-2026-09-23.md`](cross-check-2026-09-23.md) §四-3、8～9 |
+| 后续需求，按实际问题立项 | 入站去重与重复投递、数据长期保留与清理；现有限额、停止与退出契约见对应 B2，不重新列为未实现 | [微信 B2](../blueprints/archive/wechat-channel.md)、[执行 B2](../blueprints/archive/run-execution.md) |

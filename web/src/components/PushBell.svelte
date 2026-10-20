@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Popover } from "bits-ui";
   import BellIcon from "@lucide/svelte/icons/bell";
+  import XIcon from "@lucide/svelte/icons/x";
   import { channelLabel, type PushDelivery, type PushView } from "../api/pushes";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
@@ -90,38 +91,19 @@
 {#if pushCenter.fresh.length > 0 && !pushCenter.open}
   {@const latest = pushCenter.fresh[0]!}
   {@const count = pushCenter.fresh.length}
-  <div role="status" class="push-banner absolute top-full right-0 z-40 mt-2 flex w-[21rem] max-w-[calc(100vw-1.5rem)] items-start gap-2.5 rounded-xl border border-border bg-popover px-3 py-2.5 text-popover-foreground shadow-lg">
-    <span class="mt-1.5 size-2 shrink-0 rounded-full bg-primary"></span>
-    <div class="min-w-0 flex-1">
-      <div class="flex min-w-0 gap-1.5 text-xs text-muted-foreground">
-        <span class="shrink-0 font-semibold text-foreground">{count > 1 ? `${count} 条新推送` : "新推送"}</span>
-        <span class="truncate">{count > 1 ? "最新 · " : ""}{latest.source_session_title ?? `会话 #${latest.source_session_id}`}{count > 1 ? "" : ` · ${formatTime(latest.created_at)}`}</span>
-      </div>
-      <p class="line-clamp-2 text-sm break-words">{latest.text}</p>
-    </div>
-    <div class="flex shrink-0 flex-col gap-1">
-      <button type="button" class="rounded-md bg-primary px-2.5 py-0.5 text-xs text-primary-foreground hover:opacity-90" onclick={() => pushCenter.show()}>打开</button>
-      <button type="button" class="rounded-md px-2.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => pushCenter.dismiss()}>收起</button>
-    </div>
+  <div role="status" class="push-banner absolute top-full right-0 z-40 mt-3 flex w-[24rem] max-w-[calc(100vw-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg">
+    <button type="button" aria-label="打开通知看板" class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-3 text-left transition-colors hover:bg-accent focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring" onclick={() => pushCenter.show()}>
+      <span class="size-1.5 shrink-0 rounded-full bg-primary"></span>
+      <span class="shrink-0 text-xs font-medium">{count > 1 ? `${count} 条新推送` : "新推送"}</span>
+      <span class="min-w-0 truncate text-xs text-muted-foreground">{latest.text}</span>
+    </button>
+    <button type="button" aria-label="收起通知提醒" title="收起" class="mr-1.5 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" onclick={() => pushCenter.dismiss()}><XIcon class="size-3.5" /></button>
   </div>
 {/if}
 </div>
 
 <style>
-  /* 横幅从铃铛下方落出，尖角指向铃铛。 */
   .push-banner { animation: push-drop 220ms ease-out; }
-  .push-banner::before {
-    content: "";
-    position: absolute;
-    top: -6px;
-    right: 11px;
-    width: 10px;
-    height: 10px;
-    background: var(--popover);
-    border-left: 1px solid var(--border);
-    border-top: 1px solid var(--border);
-    transform: rotate(45deg);
-  }
   :global(.bell-ring) { transform-origin: 50% 2px; animation: bell-ring 900ms ease-in-out; }
   .badge-pop { animation: badge-pop 400ms ease-out; }
   @keyframes push-drop {

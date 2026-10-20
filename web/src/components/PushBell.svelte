@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Popover } from "bits-ui";
   import BellIcon from "@lucide/svelte/icons/bell";
-  import { channelLabel, toWeb, type PushDelivery, type PushView } from "../api/pushes";
+  import { channelLabel, type PushDelivery, type PushView } from "../api/pushes";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import { pushCenter } from "../state/pushes.svelte";
@@ -11,7 +11,7 @@
   $effect(() => {
     if (!pushCenter.open) return;
     pushCenter.dismiss();
-    const ids = pushCenter.items.filter((p) => p.read_at === null && toWeb(p)).map((p) => p.id);
+    const ids = pushCenter.items.filter((p) => p.read_at === null).map((p) => p.id);
     void pushCenter.markRead(ids);
   });
 
@@ -24,7 +24,6 @@
   function deliveryTitle(d: PushDelivery): string {
     const name = channelLabel(d.channel);
     switch (d.state.kind) {
-      case "shown": return `${name}：已显示`;
       case "pending": return `${name}：投递中`;
       case "delivered": return `${name}：${formatTime(d.state.at)} 送达`;
       case "failed": return `${name}：未送达（${d.state.reason}）`;

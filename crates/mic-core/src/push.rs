@@ -1,11 +1,11 @@
-//! 推送：发给 person 的消息，按 Channel 投递。契约：docs/blueprints/scheduled-tasks.md P1。
+//! 推送：发给 person 的消息，全部进 Web 通知中心，另按 IM Channel 投递。契约：docs/blueprints/scheduled-tasks.md P1。
 
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use mic_message::{ContentPart, PersonId, SessionId};
-use mic_store::{NewPush, PushId, PushPage, PushRoute, RunId, Store, StoreError, WEB_CHANNEL};
+use mic_store::{NewPush, PushId, PushPage, PushRoute, RunId, Store, StoreError};
 use mic_tool::{Tool, ToolContext, ToolError, ToolHandle, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -64,15 +64,14 @@ impl Pushes {
         }
     }
 
-    /// `web` 加各个有登录流程的 Channel；IM 发往其绑定账号的私聊会话。
+    /// 有登录流程的 IM Channel；发往其绑定账号的私聊会话。
     pub(crate) fn channels(&self) -> Vec<&'static str> {
         let mut names: Vec<&'static str> = self.channel_setups.keys().copied().collect();
         names.sort_unstable();
-        names.insert(0, WEB_CHANNEL);
         names
     }
 
-    /// 用户未设时：有可用的 IM 就用它们，否则 Web。
+    /// 用户未设时取已连接的 IM；可为空，即只进 Web 通知中心。
     pub(crate) async fn default_channels(&self) -> Result<Vec<String>, PushError> {
         let chosen = self.store.push_channels().await?;
         if !chosen.is_empty() {
@@ -80,12 +79,9 @@ impl Pushes {
         }
         let mut ready = Vec::new();
         for channel in self.channels() {
-            if channel != WEB_CHANNEL && matches!(self.route(channel).await?, Route::Ready(_)) {
+            if matches!(self.route(channel).await?, Route::Ready(_)) {
                 ready.push(channel.to_owned());
             }
-        }
-        if ready.is_empty() {
-            ready.push(WEB_CHANNEL.to_owned());
         }
         Ok(ready)
     }
@@ -101,7 +97,7 @@ impl Pushes {
         Ok(self.store.set_push_channels(channels).await?)
     }
 
-    /// agent 推送：`via` 中任一 Channel 不可用即整条不发。返回实际去向。
+    /// agent 推送：`via` 中任一 Channel 不可用即整条不发。返回实际投递的 IM。
     pub(crate) async fn send(
         &self,
         source: PushSource,
@@ -148,9 +144,6 @@ impl Pushes {
     }
 
     async fn route(&self, channel: &str) -> Result<Route, PushError> {
-        if channel == WEB_CHANNEL {
-            return Ok(Route::Ready(PushRoute::Web));
-        }
         let setup = &self.channel_setups[channel];
         let status = match setup.status().await {
             Ok(status) => status,
@@ -234,9 +227,9 @@ struct PushTool(Arc<Pushes>);
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct PushArgs {
-    /// The message for the user, self-contained: they may read it away from this conversation.
+    /// Self-contained: the user may read it away from this conversation.
     text: String,
-    /// Channels to send through: "web" (the Web notification center) or a connected IM such as "wechat". Omit to use the user's default channels.
+    /// IM channels such as "wechat"; omit for the user's default, [] for Web only.
     via: Option<Vec<String>>,
 }
 
@@ -248,7 +241,7 @@ impl Tool for PushTool {
     }
 
     fn description(&self) -> &str {
-        "Proactively notify the user on their own channels (e.g. WeChat, the Web notification center). Use it only when the user may not be watching this conversation and should be told now, such as a long task they asked to be reminded about has finished. Ordinary replies already reach the user here; do not push them."
+        "Notify the user outside this conversation: the Web notification center plus their IM. Use it when they asked to be notified or may not be watching; ordinary replies need no push."
     }
 
     async fn execute(&self, args: PushArgs, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
@@ -280,8 +273,14 @@ impl Tool for PushTool {
                 PushError::Store(e) => ToolError::dependency(e.to_string()),
                 PushError::Setup(e) => ToolError::dependency(e.to_string()),
             })?;
-        Ok(ToolOutput::Completed(vec![ContentPart::Text {
-            text: format!("Pushed via {}.", via.join(", ")),
-        }]))
+        let text = if via.is_empty() {
+            "Pushed to the Web notification center.".to_owned()
+        } else {
+            format!(
+                "Pushed to the Web notification center and {}.",
+                via.join(", ")
+            )
+        };
+        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
     }
 }

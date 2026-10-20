@@ -1,5 +1,5 @@
 import { ApiError, listPushes, markPushesRead } from "../api/client";
-import { parsePushCreated, toWeb, type PushView } from "../api/pushes";
+import { parsePushCreated, type PushView } from "../api/pushes";
 import { readSse } from "../api/sse";
 import { ProtocolError } from "../api/types";
 import { sleep } from "../lib/sleep";
@@ -12,7 +12,7 @@ const RETRY_MAX_MS = 10_000;
 class PushCenter {
   items = $state<PushView[]>([]);
   hasMore = $state(false);
-  /** 发往 Web 且未读的条数。 */
+  /** 未读条数。 */
   unread = $state(0);
   error = $state<string | null>(null);
   loadingMore = $state(false);
@@ -81,7 +81,7 @@ class PushCenter {
     const seen = this.#seen;
     this.#seen = Math.max(seen ?? 0, page[0]?.id ?? 0);
     if (seen === null) return;
-    const added = page.filter((p) => p.id > seen && p.read_at === null && toWeb(p));
+    const added = page.filter((p) => p.id > seen && p.read_at === null);
     if (added.length === 0) return;
     this.arrivals++;
     if (!this.open) this.fresh = [...added, ...this.fresh];

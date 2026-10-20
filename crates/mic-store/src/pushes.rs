@@ -1,4 +1,4 @@
-//! 推送：发给 person 的消息与各 Channel 投递。契约：docs/blueprints/scheduled-tasks.md P1。
+//! 推送：发给 person 的消息与各 IM 投递；每条都进 Web 通知中心。契约：docs/blueprints/scheduled-tasks.md P1。
 
 use mic_message::{Message, MessageBody, PersonId, SessionId};
 use rusqlite::{params, Connection};
@@ -7,9 +7,6 @@ use serde::Serialize;
 use crate::messages::insert_message;
 use crate::store::Store;
 use crate::{RunId, StoreError};
-
-/// Web 通知中心的去向名；不对应任何会话。
-pub const WEB_CHANNEL: &str = "web";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
@@ -26,17 +23,10 @@ pub struct NewPush {
 }
 
 pub enum PushRoute {
-    Web,
     /// 写入该 person 在此 Channel 的私聊会话。
-    Session {
-        channel: String,
-        session: SessionId,
-    },
+    Session { channel: String, session: SessionId },
     /// 发不出去，只记原因。
-    Unavailable {
-        channel: String,
-        reason: String,
-    },
+    Unavailable { channel: String, reason: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,7 +36,6 @@ pub struct PushView {
     pub source_session_title: Option<String>,
     pub text: String,
     pub created_at: i64,
-    /// 没有发往 Web 时恒为 `None`，也不计未读。
     pub read_at: Option<i64>,
     pub deliveries: Vec<PushDelivery>,
 }
@@ -60,15 +49,9 @@ pub struct PushDelivery {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PushDeliveryState {
-    /// Web：进入通知中心即算送达。
-    Shown,
     Pending,
-    Delivered {
-        at: i64,
-    },
-    Failed {
-        reason: String,
-    },
+    Delivered { at: i64 },
+    Failed { reason: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,7 +94,6 @@ impl Store {
             let mut notices = Vec::new();
             for route in p.routes {
                 let (channel, message, failure) = match route {
-                    PushRoute::Web => (WEB_CHANNEL.to_owned(), None, None),
                     PushRoute::Session { channel, session } => {
                         let body = MessageBody::Notification {
                             source: p.source_label.clone(),
@@ -181,12 +163,7 @@ impl Store {
                 push.deliveries = deliveries(conn, push.id)?;
             }
             let unread = conn.query_row(
-                &format!(
-                    "SELECT COUNT(*) FROM core_pushes p
-                     WHERE p.person_id = ?1 AND p.read_at IS NULL AND EXISTS(
-                       SELECT 1 FROM core_push_deliveries d
-                       WHERE d.push_id = p.id AND d.channel = '{WEB_CHANNEL}')"
-                ),
+                "SELECT COUNT(*) FROM core_pushes WHERE person_id = ?1 AND read_at IS NULL",
                 [person.0],
                 |r| r.get(0),
             )?;
@@ -199,7 +176,6 @@ impl Store {
         .await
     }
 
-    /// 只标发往 Web 的；其余 id 忽略。
     pub async fn mark_pushes_read(
         &self,
         person: PersonId,
@@ -209,12 +185,10 @@ impl Store {
         self.call(move |conn| {
             let tx = conn.transaction()?;
             {
-                let mut stmt = tx.prepare(&format!(
+                let mut stmt = tx.prepare(
                     "UPDATE core_pushes SET read_at = ?3
-                     WHERE id = ?1 AND person_id = ?2 AND read_at IS NULL AND EXISTS(
-                       SELECT 1 FROM core_push_deliveries d
-                       WHERE d.push_id = core_pushes.id AND d.channel = '{WEB_CHANNEL}')"
-                ))?;
+                     WHERE id = ?1 AND person_id = ?2 AND read_at IS NULL",
+                )?;
                 for id in ids {
                     stmt.execute(params![id.0, person.0, now])?;
                 }
@@ -241,7 +215,7 @@ fn deliveries(conn: &Connection, push: PushId) -> rusqlite::Result<Vec<PushDeliv
             (Some(reason), _, _) => PushDeliveryState::Failed { reason },
             (None, Some(_), Some(at)) => PushDeliveryState::Delivered { at },
             (None, Some(_), None) => PushDeliveryState::Pending,
-            (None, None, _) => PushDeliveryState::Shown,
+            (None, None, _) => unreachable!("表约束：投递行有消息或失败原因"),
         };
         Ok(PushDelivery { channel, state })
     })?;

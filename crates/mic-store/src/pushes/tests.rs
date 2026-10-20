@@ -1,11 +1,9 @@
 use mic_message::MessageBody;
 
-use crate::{
-    NewPush, NewSession, PushDeliveryState, PushRoute, SessionKind, Store, ToolScope, WEB_CHANNEL,
-};
+use crate::{NewPush, NewSession, PushDeliveryState, PushRoute, SessionKind, Store, ToolScope};
 
 #[test]
-fn push_records_deliveries_and_web_unread() {
+fn push_records_deliveries_and_unread() {
     tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap()
@@ -54,7 +52,7 @@ async fn check() {
     let source = root(&store, "web", "a").await;
     let dm = root(&store, "wechat", "u").await;
 
-    let (only_im, notices) = store
+    let (delivered, notices) = store
         .create_push(
             push(
                 owner,
@@ -73,18 +71,15 @@ async fn check() {
     assert!(matches!(notices[0].body, MessageBody::Notification { .. }));
     store.mark_delivered(notices[0].id, 11).await.unwrap();
 
-    let (with_web, notices) = store
+    let (failed, notices) = store
         .create_push(
             push(
                 owner,
                 source,
-                vec![
-                    PushRoute::Web,
-                    PushRoute::Unavailable {
-                        channel: "wechat".into(),
-                        reason: "未登录".into(),
-                    },
-                ],
+                vec![PushRoute::Unavailable {
+                    channel: "wechat".into(),
+                    reason: "未登录".into(),
+                }],
             ),
             20,
         )
@@ -93,35 +88,27 @@ async fn check() {
     assert!(notices.is_empty());
 
     let page = store.pushes(owner, None, 10).await.unwrap();
-    assert_eq!(page.unread, 1, "只有发往 Web 的计未读");
-    assert_eq!(page.pushes[0].id, with_web);
-    let states: Vec<_> = page.pushes[0]
-        .deliveries
-        .iter()
-        .map(|d| (d.channel.as_str(), &d.state))
-        .collect();
+    assert_eq!(page.unread, 2, "不论投递去向都计未读");
+    assert_eq!(page.pushes[0].id, failed);
     assert!(matches!(
-        states[..],
-        [
-            (WEB_CHANNEL, PushDeliveryState::Shown),
-            ("wechat", PushDeliveryState::Failed { .. })
-        ]
+        page.pushes[0].deliveries[..],
+        [ref d] if d.channel == "wechat" && matches!(d.state, PushDeliveryState::Failed { .. })
     ));
     assert!(matches!(
         page.pushes[1].deliveries[0].state,
         PushDeliveryState::Delivered { at: 11 }
     ));
 
-    let older = store.pushes(owner, Some(with_web), 1).await.unwrap();
-    assert_eq!(older.pushes[0].id, only_im);
+    let older = store.pushes(owner, Some(failed), 1).await.unwrap();
+    assert_eq!(older.pushes[0].id, delivered);
     assert!(!older.has_more);
 
     store
-        .mark_pushes_read(owner, vec![only_im, with_web], 30)
+        .mark_pushes_read(owner, vec![failed], 30)
         .await
         .unwrap();
     let page = store.pushes(owner, None, 10).await.unwrap();
-    assert_eq!(page.unread, 0);
+    assert_eq!(page.unread, 1);
     assert_eq!(page.pushes[0].read_at, Some(30));
-    assert_eq!(page.pushes[1].read_at, None, "未发往 Web 的不标已读");
+    assert_eq!(page.pushes[1].read_at, None, "只标传入的");
 }

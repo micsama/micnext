@@ -50,7 +50,31 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_PUSHES,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 17,
+        sql: CORE_PUSH_INBOX,
+        secret_columns: &[],
+    },
 ];
+
+/// Web 通知中心收下全部推送，不再是可选去向：删去 `web` 投递行与默认去向里的 `web`，投递行必有消息或失败原因。
+const CORE_PUSH_INBOX: &str = "
+CREATE TABLE core_push_deliveries_new (
+  push_id     INTEGER NOT NULL REFERENCES core_pushes(id),
+  channel     TEXT NOT NULL,
+  message_id  INTEGER REFERENCES core_messages(id),
+  failure     TEXT,
+  PRIMARY KEY (push_id, channel),
+  CHECK((message_id IS NULL) <> (failure IS NULL))
+);
+INSERT INTO core_push_deliveries_new
+  SELECT push_id, channel, message_id, failure FROM core_push_deliveries WHERE channel <> 'web';
+DROP TABLE core_push_deliveries;
+ALTER TABLE core_push_deliveries_new RENAME TO core_push_deliveries;
+UPDATE core_settings SET push_channels =
+  (SELECT json_group_array(value) FROM json_each(push_channels) WHERE value <> 'web');
+";
 
 /// 推送与各 Channel 投递；默认推送 Channel 为 JSON 数组，空 = 按连接情况取默认。
 const CORE_PUSHES: &str = "

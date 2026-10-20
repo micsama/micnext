@@ -33,7 +33,7 @@
   }
 </script>
 
-<Group title="推送" footer="agent 主动通知你（如长任务完成提醒）时，未指定渠道就发到这里选的渠道。">
+<Group title="推送" footer="agent 主动通知你（如长任务完成提醒）时，推送总会进 Web 通知中心；未指定渠道时，同时发到这里选的 IM。">
   {#snippet actions()}<SaveStatus state={status} />{/snippet}
   <div class="space-y-2 px-4 py-3.5">
     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -59,7 +59,7 @@
       {/if}
     </div>
     {#if settings && settings.chosen.length === 0}
-      <p class="text-xs text-muted-foreground">未选择：有已连接的 IM 时发到 IM，否则发到 Web 通知。当前发往 {settings.effective.map(channelLabel).join("、")}。</p>
+      <p class="text-xs text-muted-foreground">未选择：发到所有已连接的 IM。{settings.effective.length > 0 ? `当前发往 ${settings.effective.map(channelLabel).join("、")}。` : "当前没有已连接的 IM，只进 Web 通知中心。"}</p>
     {/if}
     {#if status?.kind === "error"}<p role="alert" class="text-xs text-destructive">{status.message}</p>{/if}
   </div>

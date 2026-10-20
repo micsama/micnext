@@ -48,11 +48,11 @@ pub struct Kernel {
 /// 默认推送 Channel 设置。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PushSettings {
-    /// 可选的 Channel，`web` 在首。
+    /// 可选的 IM Channel；Web 通知中心恒收全部推送，不在其列。
     pub channels: Vec<&'static str>,
     /// 用户所选；空 = 未设。
     pub chosen: Vec<String>,
-    /// 省略 `via` 时实际发往的 Channel。
+    /// 省略 `via` 时实际发往的 IM；空 = 只进 Web 通知中心。
     pub effective: Vec<String>,
 }
 

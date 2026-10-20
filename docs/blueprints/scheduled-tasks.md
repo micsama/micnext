@@ -33,11 +33,13 @@
 | 参数 | 说明 |
 |---|---|
 | `text` | 推送正文 |
-| `via?` | Channel 名数组，如 `["wechat", "web"]`；省略用默认推送 Channel |
+| `via?` | 另发的 IM Channel 名数组，如 `["wechat"]`；省略用默认推送 Channel，`[]` 只进 Web 通知中心 |
+
+每条推送都进 Web 通知中心并计未读；Web 不是可选去向（human 2026-10-20）。
 
 - 所有会话都有。描述写明：只在需要主动告诉用户（用户可能不在看）时调用；普通对话里的回复本来就是对用户说话。
-- `via` 里的 Channel 须可用（`web` 恒可用；IM 须已连接，渠道服务未运行如 `-p` 也算不可用），否则整条报错并列出原因，不部分发送。
-- 返回：`Pushed via wechat, web.`（工具结果给模型看，用英文）。
+- `via` 里的 Channel 须可用（IM 须已连接，渠道服务未运行如 `-p` 也算不可用），否则整条报错并列出原因，不部分发送。
+- 返回：`Pushed to the Web notification center and wechat.`（工具结果给模型看，用英文）。
 - 来源会话是子 agent 的 Task 会话时照样记它；`push` 列入 core 工具名，子 agent 也有。
 
 ### P1.2 落库与投递
@@ -45,18 +47,16 @@
 一次推送一个事务：
 
 1. `core_pushes`：`id, person_id, source_session_id, source_run_id?, text, created_at, read_at?`。框架推送（P2 的失败通知）`source_run_id` 为空。
-2. 每个 Channel 一行 `core_push_deliveries(push_id, channel, message_id?, failure?)`：
-   - IM Channel：在 person 私聊会话追加 `Notification { source: <来源说明>, text }`，`message_id` 指向它，走现有 `pending_deliveries` 投递。
-   - `web`：无消息，`message_id` 为空；通知中心直接读推送表。
+2. 每个 IM Channel 一行 `core_push_deliveries(push_id, channel, message_id?, failure?)`，`message_id` 与 `failure` 恰有其一：在 person 私聊会话追加 `Notification { source: <来源说明>, text }`，`message_id` 指向它，走现有 `pending_deliveries` 投递。通知中心直接读推送表。
 3. 发布 `KernelEvent::PushCreated`。
 
-**框架推送**（P2 的失败通知）不走「整条报错」：`web` 恒在去向里，默认推送 Channel 中不可用的照样建投递行、`failure` 写原因（如「微信未连接」）。推送记录因此总能落库并在通知中心看到。已建 `Notification` 的微信投递沿用现有 `pending_deliveries`，微信恢复后补发。
+**框架推送**（P2 的失败通知）不走「整条报错」：默认推送 Channel 中不可用的照样建投递行、`failure` 写原因（如「微信未连接」）。推送记录因此总能落库并在通知中心看到。已建 `Notification` 的微信投递沿用现有 `pending_deliveries`，微信恢复后补发。
 
 `Notification` 沿用现有语义：系统发给用户，不唤醒，留在上下文供之后追问。
 
 ### P1.3 默认推送 Channel
 
-存 `core_settings.push_channels`（JSON 数组），不进整体 `Settings`（生效值依赖渠道连接状态，单独读写，同标题模型）。Web 设置页「对话偏好 → 推送」多选。未设（空）时：取已连接的 IM，没有则 `["web"]`。默认值在读取时算，不写库。设置备份带上它。
+存 `core_settings.push_channels`（JSON 数组），不进整体 `Settings`（生效值依赖渠道连接状态，单独读写，同标题模型）。Web 设置页「对话偏好 → 推送」多选。可选项只有 IM。未设（空）时：取已连接的 IM，可为空（只进 Web 通知中心）。默认值在读取时算，不写库。设置备份带上它。
 
 ### P1.4 HTTP
 
@@ -69,15 +69,15 @@
 
 ### P1.5 Web 通知中心
 
-- 右上角铃铛；有发往 Web 的未读推送时显示红点。点开是下拉列表，打开即把当前可见的标为已读。
-- 每条：来源（任务名或会话标题）、时间、正文、去向（微信 / Web）与投递状态。
+- 右上角铃铛；有未读推送时显示未读数。点开是下拉列表，打开即把当前可见的标为已读。
+- 每条：来源（任务名或会话标题）、时间、正文、各 IM 投递状态。
 - 【去会话里问】：跳到来源会话，输入框带引用前缀（复用 `view.reply`）。来源会话里有它自己的 `push` 调用，能接着答；不另开新会话（新会话没有前因后果）。
 
 ### P1.6 验收
 
 - 主会话调用 `push`（省略 / 指定 `via`、多 Channel、不可用 Channel 报错）。
 - 微信收到，微信里回复主 agent 能接上。
-- Web 红点、已读、回复跳转与引用前缀。
+- Web 未读数、已读、回复跳转与引用前缀。
 
 ## P2：定时任务内核与工具
 

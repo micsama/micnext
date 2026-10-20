@@ -382,8 +382,6 @@ pub struct ModelCallContext {
     pub skip: u32,
     /// 调用时被排除出窗口的输入（未认领且非 held；压缩另含本步待处理输入）。
     pub excluded: Vec<MessageId>,
-    /// 请求组装后挪到末尾的本步待处理输入。
-    pub tail: Vec<MessageId>,
     /// 压缩附加文字的来源消息。
     pub instruction: Vec<MessageId>,
     /// 压缩：保留段起点。
@@ -420,6 +418,8 @@ pub struct Usage {
 /// 一次模型调用尝试（含失败与重试）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewModelCall {
+    /// 请求读取上下文的时刻；重试共用，用作回复的位置。
+    pub context_at: i64,
     pub purpose: ModelCallPurpose,
     pub context: ModelCallContext,
     pub session_id: SessionId,

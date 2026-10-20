@@ -1,11 +1,11 @@
-import { ApiError, generateTitle, getContext, listJobs, getMessages, getRunStats, revokeCompaction, getSession, stopRun } from "../api/client";
+import { ApiError, generateTitle, getContext, listJobs, getMessages, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, jobActive, type ChatRunStats, type ContextView, type JobView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
+import { ProtocolError, jobActive, type ContextView, type JobView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
 import { otherSessions, webSessions } from "./sessions.svelte";
 
-export type Draft = { reasoning: string; text: string };
+export type Draft = { reasoning: string; text: string; afterId: number };
 /** 输入框的回复引用：`label` 显示在输入框内，发送时 `quote` 以引用块前置到正文。 */
 export type ComposerReply = { label: string; quote: string };
 
@@ -16,8 +16,8 @@ const STREAM_FAILURE_LIMIT = 5;
 
 const FINISH_NOTICE: Partial<Record<RunState, string>> = {
   provider_failed: "模型调用失败，详情见服务日志",
-  max_turns: "已达到单轮调用上限，任务可能没有完成",
-  interrupted: "这一轮因服务停止而中断",
+  max_turns: "本次执行已达到模型调用上限，任务可能没有完成",
+  interrupted: "本次执行因服务停止而中断",
 };
 
 /** 一个打开的会话：稳定消息 + 正在生成的草稿，按 web-ui §五 归约流事件并断线重连。 */
@@ -128,25 +128,9 @@ export class SessionView {
     this.jobsOpen = true;
     this.jobFocus = { id, seq: (this.jobFocus?.seq ?? 0) + 1 };
   }
-  /** 已结束轮次的统计，按挂载的消息 id。 */
-  readonly runStats = new SvelteMap<number, ChatRunStats>();
-  statsError = $state<string | null>(null);
-
-  async #loadStats(from: number | undefined, to?: number): Promise<void> {
-    if (from === undefined) return;
-    try {
-      const runs = await getRunStats(this.id, from, to);
-      if (this.#abort.signal.aborted) return;
-      for (const r of runs) this.runStats.set(r.anchor_id, r);
-      this.statsError = null;
-    } catch (error) {
-      if (!this.#abort.signal.aborted) this.statsError = (error as Error).message;
-    }
-  }
-
   draft = $state<Draft | null>(null);
   executingRun = $state<number | null>(null);
-  /** 已对这一轮发出停止，等它收尾。 */
+  /** 已对本次执行发出停止，等它收尾。 */
   stopping = $state<number | null>(null);
 
   async stop(): Promise<void> {
@@ -184,19 +168,19 @@ export class SessionView {
   }
 
   get lastId(): number | null {
-    return this.messages.at(-1)?.id ?? null;
+    return this.messages.reduce<number | null>((id, m) => Math.max(id ?? 0, m.id), null);
   }
 
-  /** 取 messages[0] 之前的一页插到最前面；同一时刻只跑一个。 */
+  /** 按写入游标取更早一页，按位置合入；同一时刻只跑一个。 */
   async loadEarlier(): Promise<void> {
     const first = this.messages[0];
+    const before = this.messages.reduce((id, m) => Math.min(id, m.id), Infinity);
     if (!this.ready || !first || this.earlier === "loading" || this.earlier === "none") return;
     this.earlier = "loading";
     try {
-      const page = await getMessages(this.id, first.id);
+      const page = await getMessages(this.id, before);
       if (this.#abort.signal.aborted) return;
-      this.messages.unshift(...page.messages);
-      void this.#loadStats(page.messages[0]?.id, first.id - 1);
+      this.#merge(page.messages);
       const shown = page.messages.filter((m) => m.body.kind !== "HarnessNote").length;
       if (shown > 0) this.loadedAt.set(first.id, shown);
       this.lastLoaded = { count: shown, reachedStart: !page.has_earlier };
@@ -247,21 +231,27 @@ export class SessionView {
     }
   }
 
+  #merge(messages: Message[]): void {
+    const merged = new Map(this.messages.map((m) => [m.id, m]));
+    for (const message of messages) merged.set(message.id, message);
+    this.messages = [...merged.values()].sort((a, b) => a.created_at - b.created_at || a.id - b.id);
+  }
+
   #apply(e: StreamEvent): void {
     if (e.event === "ready" || e.event === "session_title_changed") this.#refreshTitle();
     if (e.event === "ready" || e.event === "jobs_changed") this.refreshJobs();
     if (e.event === "ready" || e.event === "run_finished" || (e.event === "message" && ["Reply", "Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
     switch (e.event) {
       case "message":
-        this.messages.push(e.data);
+        this.#merge([e.data]);
         if (e.data.body.kind === "Reply") this.draft = null;
         if (e.data.body.kind === "UserInput") this.notice = null;
         break;
       case "text_delta":
-        (this.draft ??= { reasoning: "", text: "" }).text += e.data.text;
+        (this.draft ??= { reasoning: "", text: "", afterId: this.lastId ?? 0 }).text += e.data.text;
         break;
       case "reasoning_delta":
-        (this.draft ??= { reasoning: "", text: "" }).reasoning += e.data.text;
+        (this.draft ??= { reasoning: "", text: "", afterId: this.lastId ?? 0 }).reasoning += e.data.text;
         break;
       case "draft_discarded":
         this.draft = null;
@@ -271,7 +261,6 @@ export class SessionView {
         this.reconnecting = false;
         if (e.data.has_earlier !== null) this.earlier = e.data.has_earlier ? "idle" : "none";
         this.executingRun = e.data.executing_run;
-        void this.#loadStats(this.messages[0]?.id);
         break;
       case "run_started":
         this.executingRun = e.data.run_id;
@@ -282,7 +271,6 @@ export class SessionView {
         this.stopping = null;
         this.notice = FINISH_NOTICE[e.data.state] ?? null;
         void webSessions.refresh();
-        void this.#loadStats(Math.max(0, ...this.runStats.keys()) + 1);
         break;
     }
   }

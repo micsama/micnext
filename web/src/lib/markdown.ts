@@ -1,4 +1,5 @@
 import MarkdownIt from "markdown-it";
+import cjkFriendly from "markdown-it-cjk-friendly";
 import texmath from "markdown-it-texmath";
 import katex from "katex";
 import hljs from "highlight.js/lib/common";
@@ -13,6 +14,9 @@ hljs.registerLanguage("powershell", powershell);
 
 // 模型输出不可信：原始 HTML 一律转义（html: false），公式不开放可执行扩展（trust: false）。
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
+
+// CommonMark 不认 CJK 字符为强调边界，`**结论。**正文` 会残留星号。
+md.use(cjkFriendly);
 
 // texmath 的块级 `\[…\]` 不能打断段落；模型常把它写在句中或紧跟正文行，补一条行内显示公式规则。
 texmath.rules.bracketsDisplay = {

@@ -47,7 +47,7 @@ impl Message {
                     parts.clone(),
                 ))
             }
-            MessageBody::Reply { model, blocks } => ModelView::Assistant { model, blocks },
+            MessageBody::Reply { model, blocks, .. } => ModelView::Assistant { model, blocks },
             MessageBody::ToolResult {
                 tool_call_id,
                 outcome,
@@ -68,6 +68,14 @@ impl Message {
                 Header::Completion { exec_id }.render(),
                 outcome_parts(outcome),
             )),
+            MessageBody::JobNotice {
+                exec_id,
+                text: note,
+                ..
+            } => ModelView::User(vec![text(format!(
+                "{}\n{note}",
+                Header::JobNotice { exec_id }.render()
+            ))]),
             MessageBody::HarnessNote { text: note } => ModelView::User(vec![text(format!(
                 "{}\n{note}",
                 Header::RuntimeNote.render()
@@ -138,13 +146,14 @@ enum Header<'a> {
     RuntimeNote,
     Notification { src: &'a str, at: &'a str },
     Completion { exec_id: &'a str },
+    JobNotice { exec_id: &'a str },
     Dispatched { exec_id: &'a str },
     Failed { kind: &'a str },
     Cancelled,
 }
 
 /// 说明清单；新增 `Header` 变体须同步此处。
-const ALL: [Header<'static>; 7] = [
+const ALL: [Header<'static>; 8] = [
     Header::User {
         id: "…", at: "…"
     },
@@ -154,6 +163,7 @@ const ALL: [Header<'static>; 7] = [
     },
     Header::Dispatched { exec_id: "…" },
     Header::Completion { exec_id: "…" },
+    Header::JobNotice { exec_id: "…" },
     Header::Failed { kind: "…" },
     Header::Cancelled,
 ];
@@ -165,6 +175,7 @@ impl<'a> Header<'a> {
             Self::RuntimeNote => "runtime-note",
             Self::Notification { .. } => "notification",
             Self::Completion { .. } => "completion",
+            Self::JobNotice { .. } => "job-notice",
             Self::Dispatched { .. } => "dispatched",
             Self::Failed { .. } => "failed",
             Self::Cancelled => "cancelled",
@@ -175,7 +186,9 @@ impl<'a> Header<'a> {
         match self {
             Self::User { id, at } => vec![("id", id), ("at", at)],
             Self::Notification { src, at } => vec![("src", src), ("at", at)],
-            Self::Completion { exec_id } | Self::Dispatched { exec_id } => {
+            Self::Completion { exec_id }
+            | Self::JobNotice { exec_id }
+            | Self::Dispatched { exec_id } => {
                 vec![("exec_id", exec_id)]
             }
             Self::Failed { kind } => vec![("kind", kind)],
@@ -194,6 +207,9 @@ impl<'a> Header<'a> {
             }
             Self::Completion { .. } => {
                 "the result of that background job; for a sub-agent, the delivery of one of its runs (each follow-up delivers again)."
+            }
+            Self::JobNotice { .. } => {
+                "a notice from that background job while it is still running; the job has not necessarily ended, and its result still arrives as a completion."
             }
             Self::Failed { .. } => {
                 "the tool call failed (input: fix the arguments; business: rejected by tool rules; dependency: environment error)."

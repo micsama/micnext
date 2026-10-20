@@ -16,6 +16,10 @@ fn reply(id: i64) -> Message {
     message(
         id,
         MessageBody::Reply {
+            stats: mic_message::ReplyStats {
+                model_ms: 0,
+                usage: None,
+            },
             model: "m".into(),
             blocks: vec![ReplyBlock::ToolCall {
                 id: id.to_string(),

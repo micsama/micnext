@@ -6,4 +6,6 @@
 
 | 状态 | 主题 | 蓝图 |
 |---|---|---|
+| 已实现，本地验收通过，待页面人工验收 | 会话消息按发生时刻排序 | [B2](docs/blueprints/chat-timeline-order.md) |
+| 已实现，真实 agent 行为与页面观感待 human 验收 | 后台 bash 正则命中提前通知 | [B2](docs/blueprints/background-output-notify.md) |
 | 延期 | 服务商分时段计价 | [B2](docs/blueprints/offpeak-pricing.md) |

@@ -404,18 +404,12 @@ impl Exec<'_> {
         provider: &dyn Provider,
         tools: &[ToolHandle],
     ) -> Result<Result<Vec<Call>, RunState>, StoreError> {
+        let context_at = now_ms();
         let mut window = self.engine.store.context_window(self.session.id).await?;
-        let tail: Vec<MessageId> = window
-            .messages
-            .iter()
-            .map(|m| m.id)
-            .filter(|id| self.pending_inputs.contains(id))
-            .collect();
         let context = ModelCallContext {
             boundary_id: window.boundary_id,
-            through: window.messages.last().map(|m| m.id),
+            through: window.messages.iter().map(|m| m.id).max(),
             excluded: window.filtered.clone(),
-            tail: tail.clone(),
             ..Default::default()
         };
         let images = self.window_images(&mut window).await?;
@@ -432,12 +426,12 @@ impl Exec<'_> {
             channel_prompt,
             tools,
             self.settings,
-            &tail,
         );
         let caller = self.caller(provider);
         let mut attempt = 1;
         loop {
             let mut facts = Facts::start();
+            facts.context_at = context_at;
             let mut partial = String::new();
             let streamed = tokio::select! {
                 result = stream_attempt(provider, req.clone(), &mut facts, |event| {

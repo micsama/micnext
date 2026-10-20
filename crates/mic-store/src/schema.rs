@@ -32,7 +32,38 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_RETENTION,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 14,
+        sql: CORE_TIMELINE,
+        secret_columns: &[],
+    },
+    Migration {
+        module: CORE,
+        version: 15,
+        sql: CORE_JOB_NOTICE,
+        secret_columns: &[],
+    },
 ];
+
+/// 后台任务中途通知 `JobNotice` 也是 run 输入。
+const CORE_JOB_NOTICE: &str = "
+DROP INDEX idx_messages_unclaimed;
+CREATE INDEX idx_messages_unclaimed ON core_messages(session_id, id)
+  WHERE run_id IS NULL AND kind IN ('UserInput', 'Completion', 'Command', 'JobNotice');
+";
+
+const CORE_TIMELINE: &str = "
+CREATE TABLE core_model_call_inputs_v14 (
+  call_id INTEGER NOT NULL REFERENCES core_model_calls(id),
+  message_id INTEGER NOT NULL REFERENCES core_messages(id),
+  role TEXT NOT NULL CHECK(role IN ('excluded', 'instruction', 'elide')),
+  PRIMARY KEY (call_id, message_id, role)
+);
+INSERT INTO core_model_call_inputs_v14 SELECT call_id, message_id, role FROM core_model_call_inputs WHERE role <> 'tail';
+DROP TABLE core_model_call_inputs;
+ALTER TABLE core_model_call_inputs_v14 RENAME TO core_model_call_inputs;
+";
 
 /// 压缩保留按窗口比例；调用记录补压缩指令的重建事实。
 const CORE_RETENTION: &str = "

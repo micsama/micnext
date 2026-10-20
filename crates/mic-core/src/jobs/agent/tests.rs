@@ -601,6 +601,10 @@ fn delivery_maps_terminal_states() {
         id: mic_message::MessageId(1),
         session_id: child,
         body: MessageBody::Reply {
+            stats: mic_message::ReplyStats {
+                model_ms: 0,
+                usage: None,
+            },
             model: "test".into(),
             blocks: vec![ReplyBlock::Text {
                 text: text.into(),

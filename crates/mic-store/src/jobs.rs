@@ -5,7 +5,7 @@ use rusqlite::{params, OptionalExtension, Row, Transaction};
 use serde::Serialize;
 
 use crate::messages::insert_message;
-use crate::row::{self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, UNCLAIMED};
+use crate::row::{self, input_kinds, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, UNCLAIMED};
 use crate::sessions::insert_session;
 use crate::store::Store;
 use crate::{NewSession, RunId, RunState, Session, SessionKind, StoreError, ToolScope};
@@ -158,8 +158,11 @@ const SUBTREE: &str = "WITH RECURSIVE subtree(id) AS (
 /// run 首条输入的发起人。
 pub(crate) fn run_person(tx: &Transaction<'_>, run: RunId) -> rusqlite::Result<PersonId> {
     tx.query_row(
-        "SELECT person_id FROM core_messages
-         WHERE run_id = ?1 AND kind IN ('UserInput', 'Completion', 'Command') ORDER BY id LIMIT 1",
+        concat!(
+            "SELECT person_id FROM core_messages WHERE run_id = ?1 AND kind IN ",
+            input_kinds!(),
+            " ORDER BY id LIMIT 1"
+        ),
         [run.0],
         |r| Ok(PersonId(r.get(0)?)),
     )

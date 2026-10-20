@@ -12,6 +12,7 @@
     "highlight.js": "^11.12.0",
     "katex": "^0.18.9",
     "markdown-it": "^15.0.2",
+    "markdown-it-cjk-friendly": "^3.0.0",
     "markdown-it-texmath": "^1.0.0"
   },
   "devDependencies": {

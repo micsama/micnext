@@ -8,6 +8,10 @@ mic-core = { path = "../mic-core" }
 mic-message = { path = "../mic-message" }
 mic-tool = { path = "../mic-tool" }
 nix = { version = "0.30", features = ["signal"] }
+regex = "1"
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["process", "time", "io-util", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }

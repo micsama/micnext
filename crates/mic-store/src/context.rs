@@ -32,7 +32,7 @@ impl Store {
             while let Some(row) = rows.next()? {
                 let message = row::message(row)?;
                 if let MessageBody::Boundary { boundary: ContextBoundary::Compaction(result) } = message.body {
-                    let at: Option<i64> = row.get(6)?;
+                    let at: Option<i64> = row.get(10)?;
                     compactions.push(CompactionView { boundary_id: message.id, result, state: match at { Some(at) => CompactionState::Revoked { at }, None => CompactionState::Applied } });
                 }
             }
@@ -54,7 +54,7 @@ impl Store {
                     messages.push(message);
                 }
             }
-            let through = messages.last().map(|m| m.id);
+            let through = messages.iter().map(|m| m.id).max();
             let filtered = skipped
                 .into_iter()
                 .filter(|id| through.is_some_and(|t| *id < t))
@@ -148,7 +148,7 @@ impl Store {
             let call_id = insert_call(&tx, &call)?;
             let (elided, quoted) = (result.elided.clone(), result.quoted.clone());
             let kept: u32 = match result.keep_from {
-                Some(start) => tx.query_row("SELECT count(*) FROM core_messages WHERE session_id = ?1 AND kind = 'Reply' AND id >= ?2", params![session.0, start.0], |r| r.get(0))?,
+                Some(start) => tx.query_row("SELECT count(*) FROM core_messages WHERE session_id = ?1 AND kind = 'Reply' AND (created_at, id) >= (SELECT created_at, id FROM core_messages WHERE id = ?2)", params![session.0, start.0], |r| r.get(0))?,
                 None => 0,
             };
             let boundary = append(&tx, session, run, MessageBody::Boundary { boundary: ContextBoundary::Compaction(result) }, now)?;
@@ -281,7 +281,7 @@ fn window_start(boundary: Option<Message>) -> WindowStart {
                 },
             ..
         }) => WindowStart {
-            start: result.keep_from.map_or(id.0 + 1, |m| m.0),
+            start: id.0 + 1,
             compaction: Some(result),
         },
         Some(message) => WindowStart {
@@ -295,7 +295,7 @@ fn window_start(boundary: Option<Message>) -> WindowStart {
     }
 }
 
-/// 窗口范围内的全部消息（按 id，至多到 `through`），边界 `elided` 已换成占位；
+/// 窗口范围内的全部消息（按位置，写入范围至多到 `through`），边界 `elided` 已换成占位；
 /// 布尔值 = 未认领且非 held，对话窗口不可见。
 fn read_range(
     conn: &Connection,
@@ -307,11 +307,11 @@ fn read_range(
     let mut rows = conn.prepare(&format!(
         "SELECT {MESSAGE_COLS}, ({UNCLAIMED}) AND NOT ({HELD_INPUT}) FROM {MESSAGE_FROM}
          WHERE m.session_id = ?1
-           AND (m.id >= ?2 OR EXISTS (SELECT 1 FROM core_boundary_inputs b WHERE b.boundary_id = ?3 AND b.message_id = m.id))
-           AND m.id <= ?4 ORDER BY m.id"
+           AND ((CASE WHEN ?5 IS NULL THEN m.id >= ?2 ELSE (m.created_at, m.id) >= (SELECT created_at, id FROM core_messages WHERE id = ?5) END) OR EXISTS (SELECT 1 FROM core_boundary_inputs b WHERE b.boundary_id = ?3 AND b.message_id = m.id))
+           AND m.id <= ?4 ORDER BY m.created_at, m.id"
     ))?.query_map(
-        params![session.0, start.start, boundary.map(|id| id.0), through.map_or(i64::MAX, |id| id.0)],
-        |r| Ok((row::message(r)?, r.get(6)?)),
+        params![session.0, start.start, boundary.map(|id| id.0), through.map_or(i64::MAX, |id| id.0), start.compaction.as_ref().and_then(|c| c.keep_from).map(|id| id.0)],
+        |r| Ok((row::message(r)?, r.get(10)?)),
     )?.collect::<rusqlite::Result<Vec<_>>>()?;
     if let Some(c) = &start.compaction {
         for (message, _) in &mut rows {
@@ -347,7 +347,6 @@ pub(crate) fn insert_call(
     let id = ModelCallId(conn.last_insert_rowid());
     for (role, ids) in [
         ("excluded", &context.excluded),
-        ("tail", &context.tail),
         ("instruction", &context.instruction),
         ("elide", &context.elide),
     ] {

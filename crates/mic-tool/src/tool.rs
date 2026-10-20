@@ -49,6 +49,8 @@ pub enum ToolOutput {
 /// 后台任务的输出去处；core 只保留最近一段。
 pub trait OutputSink: Send {
     fn write<'a>(&'a mut self, bytes: &'a [u8]) -> BoxFuture<'a, std::io::Result<()>>;
+    /// 运行中给发起会话的中途通知，core 补上任务身份；返回即已落盘。任务收尾后到达的丢弃。
+    fn notify<'a>(&'a mut self, text: &'a str) -> BoxFuture<'a, std::io::Result<()>>;
 }
 
 pub struct BackgroundTask {

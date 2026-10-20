@@ -35,14 +35,14 @@ export function groupSessions(items: SessionItem[]): SessionGroup[] {
   return groups;
 }
 
-/** 工具参数摘要：参数对象的第一个字符串值，压成一行。 */
-export function argsSummary(args: unknown): string {
-  if (typeof args === "string") return oneLine(args);
-  if (typeof args === "object" && args !== null) {
-    const first = Object.values(args).find((v) => typeof v === "string");
-    if (typeof first === "string") return oneLine(first);
-  }
-  return "";
+/** 工具参数预览：`description` 是模型写给用户的标签；`detail` 取其余第一个字符串值，压成一行，没有时取任务号。 */
+export function argsPreview(args: unknown): { description: string; detail: string } {
+  if (typeof args === "string") return { description: "", detail: oneLine(args) };
+  if (typeof args !== "object" || args === null) return { description: "", detail: "" };
+  const { description, ...rest } = args as Record<string, unknown>;
+  const first = Object.values(rest).find((v) => typeof v === "string");
+  const detail = typeof first === "string" ? oneLine(first) : typeof rest.job_id === "number" ? `#${rest.job_id}` : "";
+  return { description: typeof description === "string" ? oneLine(description) : "", detail };
 }
 
 function oneLine(s: string): string {

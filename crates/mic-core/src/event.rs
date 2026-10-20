@@ -19,7 +19,7 @@ pub struct KernelEvent {
 #[derive(Debug, Clone)]
 pub enum KernelEventKind {
     SessionTitleChanged,
-    /// 一轮开始（已认领）。
+    /// 一次执行开始（已认领）。
     RunStarted {
         run_id: RunId,
     },
@@ -31,7 +31,7 @@ pub enum KernelEventKind {
     DraftDiscarded,
     /// 任一消息落盘，带 id；同一订阅内按 id 升序到达。成功调用的 `Reply` 即当前草稿的终点。
     MessageAppended(Message),
-    /// 一轮结束，`state` 为落盘的终态。
+    /// 一次执行结束，`state` 为落盘的终态。
     RunFinished {
         run_id: RunId,
         state: RunState,

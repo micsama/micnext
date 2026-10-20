@@ -118,6 +118,10 @@ async fn run_stats_fixture() {
         .unwrap()
         .id;
     let reply = MessageBody::Reply {
+        stats: mic_message::ReplyStats {
+            model_ms: 0,
+            usage: None,
+        },
         model: "m".into(),
         blocks: vec![ReplyBlock::Text {
             text: "ok".into(),
@@ -184,14 +188,8 @@ async fn run_stats_fixture() {
         .await
         .unwrap();
 
-    let all = store.run_stats(session, MessageId(1), None).await.unwrap();
-    assert_eq!(
-        all.iter()
-            .map(|r| (r.run_id.0, r.anchor_id.0))
-            .collect::<Vec<_>>(),
-        [(1, 5), (2, 7)],
-        "执行中的 run 不返回"
-    );
+    let trace = store.trace_runs(session, None, 5).await.unwrap();
+    let all = &trace.runs;
     let s = &all[0].stats;
     assert_eq!((s.steps, s.requests, s.tools), (2, 3, 2), "重试合并为一步");
     assert_eq!(s.model_ms, 2_100);
@@ -208,15 +206,4 @@ async fn run_stats_fixture() {
     assert!(s.usage_complete && s.cache_complete);
     assert_eq!(s.cost, Some(3.0));
     assert_eq!(s.total_ms, Some(1_000));
-
-    let only_first = store
-        .run_stats(session, MessageId(2), Some(MessageId(6)))
-        .await
-        .unwrap();
-    assert_eq!(
-        only_first.iter().map(|r| r.run_id.0).collect::<Vec<_>>(),
-        [1]
-    );
-    let trace = store.trace_runs(session, None, 5).await.unwrap();
-    assert_eq!(trace.runs[0].stats, all[0].stats, "trace 与聊天同一结构");
 }

@@ -36,10 +36,9 @@ pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
 pub use title::reply_answer;
 pub use trace::{
-    call_cost, CallRecord, CallStat, ChatRunStats, Dashboard, DayStat, ModelPeers, ModelStat,
-    Peers, RunStats, SessionUsage, SessionUsageView, ToolPeers, ToolStat, ToolTraceOutcome,
-    TraceCall, TraceMessage, TraceRun, TraceRunPage, TraceSession, TraceSessionKind, TraceTool,
-    TreeUsage,
+    call_cost, CallRecord, CallStat, Dashboard, DayStat, ModelPeers, ModelStat, Peers, RunStats,
+    SessionUsage, SessionUsageView, ToolPeers, ToolStat, ToolTraceOutcome, TraceCall, TraceMessage,
+    TraceRun, TraceRunPage, TraceSession, TraceSessionKind, TraceTool, TreeUsage,
 };
 pub use types::{
     ClaimedModel, ClaimedRun, CompactionSettings, CompactionState, CompactionView, ContextUsage,

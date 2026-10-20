@@ -11,12 +11,12 @@ use crate::{
     RunState, Session, SessionKind, StopReason, StoreError,
 };
 
-/// 消息读取的 FROM 子句：`Reply.model` 只存在调用行上，读出时 JOIN 还原。
+/// 消息读取的 FROM 子句：回复的模型与统计只存在调用行上，读出时 JOIN 还原。
 pub(crate) const MESSAGE_FROM: &str =
     "core_messages m LEFT JOIN core_model_calls c ON c.id = m.model_call_id";
 
 pub(crate) const MESSAGE_COLS: &str =
-    "m.id, m.session_id, m.payload, m.created_at, m.delivered_at, c.model";
+    "m.id, m.session_id, m.payload, m.created_at, m.delivered_at, c.model, c.finished_at - c.started_at, c.input_tokens, c.output_tokens, c.cache_read_tokens";
 
 pub(crate) const SESSION_COLS: &str =
     "id, kind, channel, chat, parent_tool_call_id, trigger_module, \
@@ -115,22 +115,28 @@ impl rusqlite::types::FromSql for ReasoningEffort {
     }
 }
 
+/// run 输入的 kind 列表，与 `messages::is_input` 一致。
+macro_rules! input_kinds {
+    () => {
+        "('UserInput', 'Completion', 'Command', 'JobNotice')"
+    };
+}
+pub(crate) use input_kinds;
+
 /// 未认领输入谓词，`m` 为 core_messages 别名。
-pub(crate) const UNCLAIMED: &str =
-    "m.run_id IS NULL AND m.kind IN ('UserInput', 'Completion', 'Command')";
+pub(crate) const UNCLAIMED: &str = concat!("m.run_id IS NULL AND m.kind IN ", input_kinds!());
 
 /// 已处置为待命的输入谓词，`m` 为 core_messages 别名。
 pub(crate) const HELD_INPUT: &str =
     "EXISTS (SELECT 1 FROM core_input_holds h WHERE h.message_id = m.id)";
 
-/// `MessageBody` → payload；`Reply.model` 不进 payload。
+/// 调用事实不重复写入 Reply payload。
 pub(crate) fn payload(body: &MessageBody) -> Result<String, StoreError> {
     let mut value = serde_json::to_value(body)?;
     if matches!(body, MessageBody::Reply { .. }) {
-        value
-            .as_object_mut()
-            .expect("MessageBody 序列化为对象")
-            .remove("model");
+        let fields = value.as_object_mut().expect("MessageBody 序列化为对象");
+        fields.remove("model");
+        fields.remove("stats");
     }
     Ok(value.to_string())
 }
@@ -190,11 +196,28 @@ fn json_col<T: DeserializeOwned>(row: &Row<'_>, idx: usize) -> rusqlite::Result<
 pub(crate) fn message(row: &Row<'_>) -> rusqlite::Result<Message> {
     let mut payload: Value = json_col(row, 2)?;
     let is_reply = payload.get("kind").and_then(Value::as_str) == Some("Reply");
-    if let Some(model) = row.get::<_, Option<String>>(5)?.filter(|_| is_reply) {
-        payload
+    if is_reply {
+        let fields = payload
             .as_object_mut()
-            .ok_or_else(|| corrupt(2, "payload 不是对象".to_owned()))?
-            .insert("model".to_owned(), Value::String(model));
+            .ok_or_else(|| corrupt(2, "payload 不是对象".to_owned()))?;
+        fields.insert("model".to_owned(), Value::String(row.get(5)?));
+        let stats = mic_message::ReplyStats {
+            model_ms: row.get(6)?,
+            usage: row
+                .get::<_, Option<i64>>(7)?
+                .map(|input| -> rusqlite::Result<_> {
+                    Ok(mic_message::ReplyUsage {
+                        input_tokens: input as u64,
+                        output_tokens: row.get::<_, i64>(8)? as u64,
+                        cache_read_tokens: row.get::<_, Option<i64>>(9)?.map(|n| n as u64),
+                    })
+                })
+                .transpose()?,
+        };
+        fields.insert(
+            "stats".to_owned(),
+            serde_json::to_value(stats).expect("ReplyStats 序列化为对象"),
+        );
     }
     let body = serde_json::from_value(payload)
         .map_err(|e| rusqlite::Error::FromSqlConversionFailure(2, Type::Text, Box::new(e)))?;

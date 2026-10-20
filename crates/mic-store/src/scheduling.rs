@@ -4,20 +4,22 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use crate::jobs::run_person;
 use crate::messages::{insert_message, is_input};
 use crate::models;
-use crate::row::{self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, PERSONA_COLS, RUN_COLS, UNCLAIMED};
+use crate::row::{
+    self, input_kinds, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, PERSONA_COLS, RUN_COLS, UNCLAIMED,
+};
 use crate::settings::read_settings;
 use crate::store::Store;
 use crate::{ClaimedRun, InterruptedRun, Run, RunId, RunInput, RunSettings, RunState, StoreError};
 
 impl Store {
-    /// 启动时原子登记遗留未认领输入为 held；有用户消息或命令被搁置的会话落一条通知（回注由中断通知说明）。不重复处置。
+    /// 启动时原子登记遗留未认领输入为 held；有用户消息或命令被搁置的会话落一条通知（回注与中途通知由中断通知说明）。不重复处置。
     pub async fn hold_unclaimed_inputs(&self, at: i64) -> Result<Vec<Message>, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
             let sessions = tx
                 .prepare(&format!(
                     "SELECT DISTINCT m.session_id FROM core_messages m
-                     WHERE {UNCLAIMED} AND NOT ({HELD_INPUT}) AND m.kind != 'Completion'
+                     WHERE {UNCLAIMED} AND NOT ({HELD_INPUT}) AND m.kind IN ('UserInput', 'Command')
                      ORDER BY m.session_id"
                 ))?
                 .query_map([], |r| Ok(SessionId(r.get(0)?)))?
@@ -164,9 +166,11 @@ impl Store {
         self.call(move |conn| {
             let tx = conn.transaction()?;
             let (session_id, person): (i64, i64) = tx.query_row(
-                "SELECT session_id, person_id FROM core_messages
-                 WHERE run_id = ?1 AND kind IN ('UserInput', 'Completion', 'Command')
-                 ORDER BY id LIMIT 1",
+                concat!(
+                    "SELECT session_id, person_id FROM core_messages WHERE run_id = ?1 AND kind IN ",
+                    input_kinds!(),
+                    " ORDER BY id LIMIT 1"
+                ),
                 [run.0],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;

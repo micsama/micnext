@@ -144,6 +144,10 @@ fn history() -> ModelRequest {
             msg(
                 3,
                 MessageBody::Reply {
+                    stats: mic_message::ReplyStats {
+                        model_ms: 0,
+                        usage: None,
+                    },
                     model: "m".into(),
                     blocks: vec![
                         ReplyBlock::Reasoning(Reasoning::Visible {

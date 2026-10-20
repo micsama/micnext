@@ -12,10 +12,10 @@ use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use mic_core::{IncomingPart, ParsedCommand, StopOutcome};
-use mic_message::{ImageId, MessageId, SessionId};
+use mic_message::{ImageId, SessionId};
 use mic_store::{
-    ChatRunStats, ModelId, NewSession, PersonaId, ReasoningEffort, RunId, Session, SessionCursor,
-    SessionKind, SessionSummary, ToolScope,
+    ModelId, NewSession, PersonaId, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
+    SessionSummary, ToolScope,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -302,34 +302,8 @@ pub(crate) async fn stop_run(
     }
     match app.kernel.stop_run(session.id, Some(RunId(run))).await? {
         StopOutcome::Stopping => Ok(StatusCode::ACCEPTED),
-        StopOutcome::NotRunning => Err(ApiError::Conflict("这一轮已经结束".into())),
+        StopOutcome::NotRunning => Err(ApiError::Conflict("本次执行已经结束".into())),
     }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RunStatsQuery {
-    from: i64,
-    to: Option<i64>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct RunStatsPage {
-    runs: Vec<ChatRunStats>,
-}
-
-pub(crate) async fn run_stats(
-    State(app): State<Arc<App>>,
-    id: Result<Path<i64>, PathRejection>,
-    query: Result<Query<RunStatsQuery>, QueryRejection>,
-) -> Result<Json<RunStatsPage>, ApiError> {
-    let session = session(&app, id).await?;
-    let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
-    let runs = app
-        .kernel
-        .run_stats(session.id, MessageId(q.from), q.to.map(MessageId))
-        .await?;
-    Ok(Json(RunStatsPage { runs }))
 }
 
 /// 路径里的会话 id 解析并确认存在。

@@ -223,7 +223,12 @@ pub(crate) fn title_messages(session: SessionId, sources: &[Message]) -> Vec<Mes
                         }],
                     }
                 }
-                MessageBody::Reply { model, blocks } => MessageBody::Reply {
+                MessageBody::Reply {
+                    model,
+                    blocks,
+                    stats,
+                } => MessageBody::Reply {
+                    stats: stats.clone(),
                     model: model.clone(),
                     blocks: vec![ReplyBlock::Text {
                         text: reply_answer(blocks)?

@@ -848,6 +848,7 @@ async fn trace_paging_keeps_session_side_calls_out_of_runs() {
     let now = now_ms();
     f.store
         .record_model_call(mic_store::NewModelCall {
+            context_at: 0,
             session_id: f.session.id,
             run_id: None,
             purpose: ModelCallPurpose::Title,
@@ -1358,4 +1359,93 @@ async fn compaction_elides_old_outputs_quotes_inputs_and_keeps_elision_across_co
     assert_eq!(elide(3).await, ids, "失败的压缩调用同样记下");
     assert_eq!(elide(4).await, ids);
     assert!(elide(5).await.is_empty(), "沿用的替换不再要求提炼");
+}
+
+// 同一时间线分别验收后续请求与压缩保留，重建复用 verify。
+#[tokio::test]
+async fn timeline_keeps_late_inputs_after_reply_and_through_compaction() {
+    for compact in [false, true] {
+        let f = Fixture::new().await;
+        let provider = scripted(if compact {
+            vec![reply("summary"), reply("next")]
+        } else {
+            vec![reply("next"), reply("later")]
+        });
+        let mut exec = f.exec();
+        let context_at = now_ms();
+        let window = f.store.context_window(f.session.id).await.unwrap();
+        let context = ModelCallContext {
+            boundary_id: window.boundary_id,
+            through: window.messages.iter().map(|m| m.id).max(),
+            excluded: window.filtered.clone(),
+            ..Default::default()
+        };
+        provider.requests.lock().unwrap().push(request::build(
+            &f.session,
+            window,
+            HashMap::new(),
+            None,
+            &[],
+            exec.settings,
+        ));
+        let completion = f
+            .store
+            .append(
+                f.session.id,
+                None,
+                MessageBody::Completion {
+                    person: f.owner,
+                    tool_name: "shell".into(),
+                    exec_id: "background".into(),
+                    outcome: ExecOutcome::Completed { output: vec![] },
+                },
+                context_at + 1,
+            )
+            .await
+            .unwrap();
+        let mut facts = Facts::start();
+        facts.context_at = context_at;
+        // 模拟重试后才产出，回复位置仍用第一次读取窗口的时刻。
+        facts.started_at = context_at + 2;
+        facts.finished_at = context_at + 3;
+        exec.record(
+            &exec.caller(&provider),
+            &facts,
+            Some(StopReason::EndTurn),
+            ModelCallOutcome::Replied {
+                blocks: vec![ReplyBlock::Text {
+                    text: "first reply".into(),
+                    phase: None,
+                }],
+            },
+            context,
+        )
+        .await
+        .unwrap();
+        exec.pending_inputs.clear();
+        assert!(exec.absorb().await.unwrap());
+        let window = f.store.context_window(f.session.id).await.unwrap();
+        let ids: Vec<_> = window.messages.iter().map(|m| m.id).collect();
+        let reply_id = *ids.iter().max().unwrap();
+        assert!(reply_id > completion.id);
+        assert_eq!(&ids[ids.len() - 2..], &[reply_id, completion.id]);
+        assert_eq!(
+            f.store.context_window(f.session.id).await.unwrap().messages,
+            window.messages
+        );
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        if compact {
+            // 压缩历史应包含已经认领的回报，而非作为尚待处理的压缩指令。
+            exec.pending_inputs.clear();
+            exec.compact(&provider).await.unwrap().unwrap();
+            let retained = f.store.context_window(f.session.id).await.unwrap();
+            assert!(retained.messages.iter().any(|m| m.id == completion.id));
+            assert!(retained.messages.iter().any(|m| m.id == reply_id));
+            assert_eq!(retained.summary.as_deref(), Some("summary"));
+        } else {
+            exec.call_model(&provider, &[]).await.unwrap().unwrap();
+        }
+        exec.call_model(&provider, &[]).await.unwrap().unwrap();
+        f.verify(&provider).await;
+    }
 }

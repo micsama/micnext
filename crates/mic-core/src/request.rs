@@ -4,8 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use mic_message::{
-    header_legend, ContentPart, ImageData, ImageId, Message, MessageBody, MessageId, ModelView,
-    ReplyBlock,
+    header_legend, ContentPart, ImageData, ImageId, Message, MessageBody, ModelView, ReplyBlock,
 };
 use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
@@ -138,12 +137,11 @@ pub(crate) fn build(
     channel_prompt: Option<&str>,
     tools: &[ToolHandle],
     settings: &RunSettings,
-    tail: &[MessageId],
 ) -> ModelRequest {
     ModelRequest {
         tool_choice: ToolChoice::Auto,
         system: system_prompt(settings, session, channel_prompt, tools, &window).render(),
-        messages: arrange(window.messages, tail),
+        messages: order(window.messages),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
         cache_key: format!("micnext-s{}", session.id.0),
@@ -275,17 +273,9 @@ fn token_prefix(chars: impl Iterator<Item = char>, budget: u64) -> usize {
     bytes
 }
 
-/// 请求里的消息顺序：先 `order`，再把本步待处理输入（`tail`）按原相对顺序挪到末尾。
-/// 重建输入走同一函数。
-pub(crate) fn arrange(messages: Vec<Message>, tail: &[MessageId]) -> Vec<Message> {
-    let mut messages = order(messages);
-    messages.sort_by_key(|m| tail.contains(&m.id));
-    messages
-}
-
 /// 有工具调用未结时，user 视图消息待其结果全部到齐后按原顺序放回，保证调用与结果相邻。
 /// 未认领输入已由 store 排除。
-fn order(messages: Vec<Message>) -> Vec<Message> {
+pub(crate) fn order(messages: Vec<Message>) -> Vec<Message> {
     let mut out = Vec::with_capacity(messages.len());
     let mut open: HashSet<String> = HashSet::new();
     let mut held = Vec::new();

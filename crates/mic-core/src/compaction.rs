@@ -69,7 +69,7 @@ impl Exec<'_> {
         window
             .messages
             .retain(|m| !self.pending_inputs.contains(&m.id));
-        let through = window.messages.last().map(|m| m.id);
+        let through = window.messages.iter().map(|m| m.id).max();
         let context = ModelCallContext {
             boundary_id: window.boundary_id,
             through,
@@ -100,7 +100,6 @@ impl Exec<'_> {
             channel_prompt,
             &self.tools,
             self.settings,
-            &[],
         );
         Ok((req, context))
     }
@@ -491,10 +490,11 @@ pub(crate) fn retain(messages: &[Message], carried: &[MessageId], percent: u8) -
     }
     elided.sort();
     elide.sort_by_key(|m| m.id);
+    let keep_position = starts.get(keep).copied().unwrap_or(messages.len());
     let mut quoted: Vec<MessageId> = messages
         .iter()
+        .take(keep_position)
         .filter(|m| matches!(m.body, MessageBody::UserInput { .. }))
-        .filter(|m| keep_from.is_none_or(|k| m.id < k))
         .map(|m| m.id)
         .collect();
     quoted.sort();

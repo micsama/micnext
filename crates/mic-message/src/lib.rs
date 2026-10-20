@@ -171,6 +171,20 @@ pub enum SnapshotExtent {
     Truncated,
 }
 
+/// 产出回复的单次模型请求事实，不进入模型上下文。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReplyStats {
+    pub model_ms: i64,
+    pub usage: Option<ReplyUsage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReplyUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: Option<u64>,
+}
+
 /// 消息闭集：一个变体 = 一个产出者的一次产出。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -186,6 +200,7 @@ pub enum MessageBody {
     },
     /// 一次模型调用的全部输出；`model` 为请求模型名，Provider 据此判断推理能否回传。
     Reply {
+        stats: ReplyStats,
         model: String,
         blocks: Vec<ReplyBlock>,
     },
@@ -202,6 +217,13 @@ pub enum MessageBody {
         tool_name: String,
         exec_id: String,
         outcome: ExecOutcome,
+    },
+    /// 运行中的后台任务给发起会话的中途通知；是 run 输入，不投递。字段同该任务的 `Completion`。
+    JobNotice {
+        person: PersonId,
+        tool_name: String,
+        exec_id: String,
+        text: String,
     },
     /// 给模型看的框架备注，不投递。
     HarnessNote { text: String },

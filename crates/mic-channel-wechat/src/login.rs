@@ -56,7 +56,7 @@ pub(crate) async fn run(
                 Err(
                     error @ (ClientError::Network
                     | ClientError::Rejected(_)
-                    | ClientError::BusinessRejected
+                    | ClientError::BusinessRejected { .. }
                     | ClientError::SessionExpired),
                 ) => {
                     tracing::warn!(error = %error, "wechat QR polling network failure");

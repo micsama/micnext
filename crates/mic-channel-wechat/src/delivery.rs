@@ -161,6 +161,16 @@ async fn deliver(
                     break;
                 }
                 Err(error) => {
+                    tracing::warn!(
+                        session = account.view.session_id.0,
+                        message_id = id.0,
+                        chunk_index,
+                        attempt,
+                        max_attempts = SEND_ATTEMPTS,
+                        kind = failure(&error),
+                        %error,
+                        "wechat delivery attempt failed"
+                    );
                     if matches!(error, ClientError::SessionExpired) {
                         authentication = Authentication::Expired;
                     }
@@ -178,7 +188,7 @@ async fn deliver(
                     }
                     if attempt == SEND_ATTEMPTS {
                         finish(kernel, id, Outcome::Skipped).await?;
-                        tracing::warn!(message_id = id.0, chunk_index, "wechat delivery skipped");
+                        tracing::debug!(message_id = id.0, chunk_index, "wechat delivery skipped");
                         return Ok(DeliveryResult::Complete(authentication));
                     }
                     tokio::select! {
@@ -355,7 +365,7 @@ fn failure(error: &ClientError) -> &'static str {
     match error {
         ClientError::Network => "network",
         ClientError::Timeout => "timeout",
-        ClientError::Rejected(_) | ClientError::BusinessRejected => "rejected",
+        ClientError::Rejected(_) | ClientError::BusinessRejected { .. } => "rejected",
         ClientError::SessionExpired => "session_expired",
         ClientError::Protocol(_) => "protocol",
     }

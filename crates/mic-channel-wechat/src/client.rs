@@ -19,8 +19,11 @@ pub(crate) enum ClientError {
     Timeout,
     #[error("微信服务拒绝请求（HTTP {0}）")]
     Rejected(u16),
-    #[error("微信服务拒绝请求")]
-    BusinessRejected,
+    #[error("微信服务拒绝请求（ret={ret:?}, errcode={errcode:?}）")]
+    BusinessRejected {
+        ret: Option<i32>,
+        errcode: Option<i32>,
+    },
     #[error("微信登录已失效")]
     SessionExpired,
     #[error("微信协议不匹配：{0}")]
@@ -534,7 +537,7 @@ fn successful(ret: Option<i32>, errcode: Option<i32>) -> Result<(), ClientError>
         return Err(ClientError::SessionExpired);
     }
     if ret.is_some_and(|ret| ret != 0) || errcode.is_some_and(|code| code != 0) {
-        return Err(ClientError::BusinessRejected);
+        return Err(ClientError::BusinessRejected { ret, errcode });
     }
     Ok(())
 }
@@ -561,9 +564,9 @@ pub(crate) fn required(value: Option<String>, field: &'static str) -> Result<Str
 }
 
 fn network_error(endpoint: &'static str, error: reqwest::Error) -> ClientError {
-    if error.is_timeout() {
-        ClientError::Timeout
-    } else {
+    let error = error.without_url();
+    let timeout = error.is_timeout();
+    {
         let mut source = error.source();
         let mut io_kind = None;
         let mut os_error = None;
@@ -576,14 +579,20 @@ fn network_error(endpoint: &'static str, error: reqwest::Error) -> ClientError {
             tls_handshake_eof |= cause.to_string() == "tls handshake eof";
             source = cause.source();
         }
-        tracing::warn!(
+        tracing::debug!(
             endpoint,
+            timeout,
+            error = %error,
             connect = error.is_connect(),
             ?io_kind,
             ?os_error,
             tls_handshake_eof,
             "wechat HTTP transport failed"
         );
+    }
+    if timeout {
+        ClientError::Timeout
+    } else {
         ClientError::Network
     }
 }

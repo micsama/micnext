@@ -10,9 +10,7 @@ pub(crate) struct Write;
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
-    /// Path to write; a relative path resolves against the session workspace.
     file_path: String,
-    /// Full UTF-8 text content to write.
     content: String,
 }
 
@@ -24,7 +22,7 @@ impl Tool for Write {
     }
 
     fn description(&self) -> &str {
-        "Create or fully replace a UTF-8 text file."
+        "Create or overwrite a UTF-8 file."
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

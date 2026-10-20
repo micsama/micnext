@@ -15,11 +15,10 @@ pub(crate) struct Read;
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
-    /// Path to read; a relative path resolves against the session workspace.
     file_path: String,
-    /// 1-based first line to return. Defaults to 1.
+    /// First line, 1-based.
     offset: Option<u64>,
-    /// Maximum number of lines to return. Defaults to 2000.
+    /// Lines; default 2000.
     limit: Option<u64>,
 }
 
@@ -31,7 +30,7 @@ impl Tool for Read {
     }
 
     fn description(&self) -> &str {
-        "Read a UTF-8 text file and return line-numbered content."
+        "Read a UTF-8 file with line numbers."
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

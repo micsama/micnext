@@ -10,14 +10,12 @@ pub(crate) struct Edit;
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
-    /// Path to edit; a relative path resolves against the session workspace.
     file_path: String,
-    /// Literal text to replace. Must match exactly.
     old_string: String,
-    /// Literal replacement text. Use an empty string to delete the match.
+    /// Empty deletes the match.
     new_string: String,
-    /// Replace all matches. Defaults to false; when false, old_string must appear exactly once.
-    replace_all: Option<bool>,
+    #[serde(default)]
+    replace_all: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -34,7 +32,7 @@ impl Tool for Edit {
     }
 
     fn description(&self) -> &str {
-        "Edit an existing UTF-8 text file by replacing literal text."
+        "Replace literal text in an existing UTF-8 file. Without replace_all, old_string must match exactly once."
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
@@ -45,7 +43,7 @@ impl Tool for Edit {
         if args.old_string == args.new_string {
             return Err(ToolError::input("old_string and new_string must differ"));
         }
-        let replace = if args.replace_all == Some(true) {
+        let replace = if args.replace_all {
             Replace::All
         } else {
             Replace::Once

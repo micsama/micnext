@@ -19,9 +19,8 @@ const VCS_DIRS: &[&str] = &[".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
-    /// Glob pattern to match file paths against (e.g. "**/*.ts", "src/**/*.test.js"). A pattern with no "/" matches the basename at any depth, so "*" and "*.ts" both search the whole tree; include a separator to anchor the depth.
+    /// Without "/", matches basenames at any depth.
     pattern: String,
-    /// Directory to search in. Defaults to the session workspace; a relative path resolves against it.
     path: Option<String>,
 }
 
@@ -33,7 +32,7 @@ impl Tool for Glob {
     }
 
     fn description(&self) -> &str {
-        "Find files whose paths match a glob pattern. Returns matching file paths — never directories — including hidden and ignored files (VCS metadata directories are excluded). Up to 100 paths come back, most recently modified first; a larger result returns the 100 most recently modified paths and says how many matched in total. This tool does not enumerate directory entries."
+        "Find files (not directories) by glob, including hidden and ignored files but not VCS metadata. At most 100, newest first, with the total if capped."
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

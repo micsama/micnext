@@ -41,11 +41,11 @@ struct AgentTool {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct AgentArgs {
-    /// The task for a new sub-agent, or the follow-up instruction when job_id is given. The sub-agent sees none of this conversation, so include every fact, path and constraint it needs.
+    /// Self-contained task, or the follow-up when job_id is given.
     task: String,
-    /// Short name for a new sub-agent, a few words in the language the user writes in, shown in job lists (e.g. "Survey auth module"). Omit with job_id.
+    /// Short name for a new sub-agent, in the user's language.
     description: Option<String>,
-    /// Follow up a sub-agent you started earlier, continuing its own conversation. Omit to start a new one.
+    /// Follow up this sub-agent instead of starting a new one.
     job_id: Option<i64>,
 }
 
@@ -57,7 +57,7 @@ impl Tool for AgentTool {
     }
 
     fn description(&self) -> &str {
-        "Run a sub-agent in the background on a self-contained task. It works in its own conversation with file, shell and web_fetch tools, and its final reply arrives as a completion. Pass job_id to follow up the same sub-agent; each follow-up delivers again."
+        "Run a sub-agent in the background with file, shell and web_fetch tools. It does not see this conversation. Its final reply arrives as a completion; each follow-up delivers again."
     }
 
     async fn execute(&self, args: AgentArgs, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

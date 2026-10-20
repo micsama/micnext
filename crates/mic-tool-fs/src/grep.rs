@@ -18,11 +18,9 @@ pub(crate) struct Grep;
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
-    /// Regular expression to search for (ripgrep syntax).
     pattern: String,
-    /// File or directory to search. Defaults to the session workspace; a relative path resolves against it.
     path: Option<String>,
-    /// One glob filter for which files to search (e.g. "*.ts", "*.{js,jsx}"). Not a list; negation is not supported.
+    /// One glob such as "*.{js,jsx}"; no lists or negation.
     include: Option<String>,
 }
 
@@ -34,7 +32,7 @@ impl Tool for Grep {
     }
 
     fn description(&self) -> &str {
-        "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns the first 250 matches inline; a capped result says how many matched in total. Use read on a matched file for surrounding context."
+        "Search file contents with ripgrep. Returns matching lines with line numbers, grouped by file; at most 250 matches, with the total if capped."
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

@@ -54,7 +54,7 @@ struct List(Bound);
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ListArgs {
-    /// Also list jobs that finished, and sub-agents idle, for more than 14 days.
+    /// Include those inactive for over 14 days.
     #[serde(default)]
     include_old: bool,
 }
@@ -67,7 +67,7 @@ impl Tool for List {
     }
 
     fn description(&self) -> &str {
-        "List background jobs and sub-agents started by this session and its sub-sessions: active ones first, then by most recent activity. A tool job shows its state, timing, output size and last lines of output; a sub-agent shows whether it is running or sleeping and how its last run ended."
+        "List background jobs and sub-agents of this session and its sub-sessions, active first."
     }
 
     async fn execute(&self, args: ListArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {
@@ -91,9 +91,9 @@ struct Output(Bound);
 #[serde(deny_unknown_fields)]
 struct OutputArgs {
     job_id: i64,
-    /// Byte offset over the job's whole output. Omit to read the tail.
+    /// Byte offset; omit to read the tail.
     offset: Option<u64>,
-    /// Bytes to read, at most 65536. Defaults to 16384.
+    /// Bytes; default 16384, max 65536.
     limit: Option<u64>,
 }
 
@@ -105,7 +105,7 @@ impl Tool for Output {
     }
 
     fn description(&self) -> &str {
-        "Read a background job's output, which is readable while the job runs. Without offset it returns the tail; with offset it reads forward from that byte and reports next_offset to continue. Only the most recent 1 MiB is kept: available_from is the earliest readable byte. For a sub-agent it returns its latest delivery in full."
+        "Read a background job's log, also while it runs; only the last 1 MiB is kept. For a sub-agent, returns its latest reply in full."
     }
 
     async fn execute(&self, args: OutputArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {
@@ -153,7 +153,7 @@ impl Tool for Stop {
     }
 
     fn description(&self) -> &str {
-        "Stop a running background job (a bash job's whole process group is killed) or a sub-agent's current run (its own jobs are stopped too; it can still be followed up later). Returns once stopped; no completion follows for something you stop yourself."
+        "Stop a background job (kills its process group) or a sub-agent's current run (stops its jobs too; it can still be followed up). No completion follows."
     }
 
     async fn execute(&self, args: StopArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {

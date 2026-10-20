@@ -189,7 +189,7 @@ impl<'a> Header<'a> {
             Self::Completion { exec_id }
             | Self::JobNotice { exec_id }
             | Self::Dispatched { exec_id } => {
-                vec![("exec_id", exec_id)]
+                vec![("job_id", exec_id)]
             }
             Self::Failed { kind } => vec![("kind", kind)],
             Self::RuntimeNote | Self::Cancelled => vec![],

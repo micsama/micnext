@@ -18,33 +18,24 @@ use watch::{Stream, Watch};
 
 pub(crate) struct Bash;
 
-const DESCRIPTION: &str = "Execute a bash command (`bash -c`) and return its stdout/stderr. \
-    Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls \
-    — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. \
-    Long output is truncated to its tail. Set `background` for long-running work (builds, \
-    servers): the call returns at once with an exec_id, stdout and stderr go to a log you read \
-    with `job_output`, and the exit arrives later as a completion. Background commands must not \
-    daemonize themselves. With `notify_pattern`, stdout and stderr lines are matched separately \
-    while the job runs (lines over 512 bytes are matched in 512-byte pieces) and a match \
-    arrives as a job-notice: at most one per 10 seconds (matches in between are dropped) and at \
-    most 10 per job.";
+const DESCRIPTION: &str = "Run `bash -c`. Each call is a fresh shell: cwd and variables do not \
+    carry over, so use `workdir` instead of `cd`. Long output keeps only its tail. In the \
+    background the call returns a job_id at once; output goes to a log read with `job_output`, \
+    and the exit arrives as a completion. Background commands must not daemonize themselves.";
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
-    /// The bash command to execute.
     command: String,
-    /// Label shown in the UI, written in the language the user writes in. Foreground: what the command does in active voice, 5-10 words, e.g. "git status" → "Show working tree status". Background: a short name for the job, 2-5 words, e.g. "bun run dev" → "Web dev server".
+    /// Short label shown to the user, in their language.
     description: String,
-    /// Timeout in milliseconds; the command is killed on expiry. Foreground: defaults to 120000, values above 600000 are capped at 600000. Background: defaults to 600000, no cap, 0 = no timeout (for servers).
+    /// Foreground: default 120000, max 600000. Background: default 600000, 0 = none.
     #[serde(rename = "timeoutMs")]
     timeout_ms: Option<u64>,
-    /// Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.
     workdir: Option<String>,
-    /// Run in the background and return immediately. Defaults to false.
     #[serde(default)]
     background: bool,
-    /// Background only. A Rust regex (no lookaround or backreferences) matched against each output line while the job runs, e.g. "Listening on|ERROR"; a match is sent to you early as a job-notice.
+    /// Background only. Rust regex (no lookaround or backreferences) matched per output line; a match arrives early as a job-notice. At most one notice per 10 s and 10 per job; matches during the cooldown are dropped, so no notice does not mean no match.
     notify_pattern: Option<String>,
 }
 

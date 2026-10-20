@@ -33,7 +33,6 @@ impl WebFetch {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
-    /// The HTTP(S) URL to fetch.
     url: String,
 }
 
@@ -51,7 +50,7 @@ impl Tool for WebFetch {
     }
 
     fn description(&self) -> &str {
-        "Fetch the content of a specific HTTP(S) URL and return it decoded to text."
+        "Fetch an HTTP(S) URL and return its content as text."
     }
 
     async fn execute(&self, args: Args, _: &ToolContext) -> Result<ToolOutput, ToolError> {

@@ -1,6 +1,6 @@
 # B1：微信 Channel V2——对齐官方 SDK 能力
 
-**状态：方向已定（2026-10-10）：按 §二 顺序推进，第 1、2 步 CLOSED，第 3 步已实现待验收；工具进度与无转写语音不接，斜杠指令另起跨 Channel B1**
+**状态：方向已定（2026-10-10）：按 §二 顺序推进，第 1～3 步 CLOSED，第 4 步出站媒体待做；工具进度与无转写语音不接，斜杠指令另起跨 Channel B1**
 
 human 方向：官方 SDK / API 支持的能力尽量都接上。依据为官方包
 `@tencent-weixin/openclaw-weixin@2.4.9/src`（约 7k 行），协议事实见 [`wechat-protocol.md`](wechat-protocol.md)。

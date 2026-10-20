@@ -1,6 +1,6 @@
 # B1：上下文构成
 
-**状态：方向已定（2026-10-16），进 [B2](../blueprints/archive/context-breakdown.md)。不是实现授权。**
+**状态：方向已定（2026-10-16），[B2](../blueprints/archive/context-breakdown.md) CLOSED（2026-10-16）。**
 
 human 决定：方格图，要做得好看；工具调用与结果并入「对话」，只在图例里注明其中占比，不做逐条下钻；没有上游总量时不显示构成。
 

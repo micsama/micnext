@@ -1,6 +1,6 @@
 # B1：Web 开发者日志
 
-**状态：方向收敛；契约已与只读 SQL 合并为 [开发者诊断 B2](../blueprints/archive/developer-diagnostics.md)，待批准（2026-10-10）。**
+**状态：方向收敛；契约已与只读 SQL 合并为 [开发者诊断 B2](../blueprints/archive/developer-diagnostics.md)，CLOSED（2026-10-10）。**
 
 ## 已确认方向
 

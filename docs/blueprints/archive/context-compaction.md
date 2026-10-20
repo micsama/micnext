@@ -1,6 +1,6 @@
 # B2：上下文压缩、会话指令与撤回
 
-**状态：CLOSED（2026-10-12，human 批准后已实现；fmt/clippy、Web 检查/构建与隔离模型 12 项链路验收通过）。真实使用与浏览器交互由 human 验收；OpenAI API key 实测待有效凭据。**
+**状态：CLOSED（2026-10-12，human 批准后已实现；fmt/clippy、Web 检查/构建与隔离模型 12 项链路验收通过）。真实使用、浏览器交互与 OpenAI API key 实测由 human 验收通过（2026-10-19）。**
 
 来源：[已收敛 B1](../../brainstorm/context-compaction.md)。实施目录：`.worktree/localdev`；基线：master `c4100f3`。
 

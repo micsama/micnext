@@ -1,6 +1,6 @@
 # B1：会话自动标题与重新生成
 
-**状态（2026-10-13）：[思考选择 B2](../blueprints/archive/reasoning-selection.md) 已验收 CLOSED；[标题 B2](../blueprints/archive/session-title.md) 进入独立评审，待批准，尚未实施。human 已确认侧栏刷新边界及标题只 trim、依赖提示词约束的规则。独立的「回到底部」按钮尺寸调整已实施。**
+**状态：[思考选择 B2](../blueprints/archive/reasoning-selection.md) CLOSED（2026-10-13）；[标题 B2](../blueprints/archive/session-title.md) CLOSED（2026-10-14）。human 已确认侧栏刷新边界及标题只 trim、依赖提示词约束的规则。独立的「回到底部」按钮尺寸调整已实施。**
 
 ## 一、诉求与现状
 

@@ -1,6 +1,6 @@
 # B1：开发者只读 SQL
 
-**状态：方向收敛：凭据列由建表方声明、只读连接归 mic-store；契约见 [开发者诊断 B2](../blueprints/archive/developer-diagnostics.md)，待批准（2026-10-10）。**
+**状态：方向收敛：凭据列由建表方声明、只读连接归 mic-store；契约见 [开发者诊断 B2](../blueprints/archive/developer-diagnostics.md)，CLOSED（2026-10-10）。**
 
 ## 需求与建议
 

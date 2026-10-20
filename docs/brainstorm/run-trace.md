@@ -1,6 +1,6 @@
 # B1：轻量 trace 与看板
 
-**状态：方向已拍板（2026-10-14），合并 B2 见 [run-trace](../blueprints/archive/run-trace.md)，未实施。** 关联：[SQLite 整理 B1](sqlite-organization.md)、[error-logging B2](../blueprints/archive/error-logging.md)。过程稿已收敛，本文只留结论。
+**状态：方向已拍板（2026-10-14），合并 B2 见 [run-trace](../blueprints/archive/run-trace.md)，CLOSED（2026-10-15）。** 关联：[SQLite 整理 B1](sqlite-organization.md)、[error-logging B2](../blueprints/archive/error-logging.md)。过程稿已收敛，本文只留结论。
 
 ## 目标与范围
 

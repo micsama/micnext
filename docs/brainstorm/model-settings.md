@@ -1,6 +1,6 @@
 # B1：阶段二模型设置审查（2026-10-08）
 
-**状态**：human 已要求准备 B2（2026-10-08）；[联合 B2 草案](../blueprints/archive/model-settings.md) 已起草，待批准，未授权实现。
+**状态**：[B2](../blueprints/archive/model-settings.md) 已实现并 CLOSED，现行契约以 B2 为准。
 现有草案在 [`runtime-settings.md`](../blueprints/archive/runtime-settings.md) §四（早期引用的 §十已不存在）。
 本稿记录审查、候选与未知项，不替换已批准的阶段一契约。
 **范围补充**：human 要求考虑模型多模态，并让 Web 支持插入图片（2026-10-08）。图片输入端到端契约一并进入本次 B1/B2。

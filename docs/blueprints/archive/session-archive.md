@@ -1,6 +1,6 @@
 # B2：会话归档
 
-**状态：按已批准的 [async-jobs](async-jobs.md) P3 更新实现（2026-10-16），待页面及真实环境验收。**
+**状态：CLOSED（2026-10-19 human 页面及真实环境验收通过）。按已批准的 [async-jobs](async-jobs.md) P3 更新实现。**
 
 依据：[B1](../../brainstorm/session-archive.md)；2026-10-16 human 确认归档后停止整树，并拒绝继续执行。以下契约替代此前“只隐藏、不取消、仍可发送”的行为。
 

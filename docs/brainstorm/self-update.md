@@ -1,6 +1,6 @@
 # B1：Web 原地更新与重启
 
-**状态：旧 B2 未批准并退回重写，r2 暂缓，先完成日志（2026-10-10）。[当前重写草案](../blueprints/archive/self-update.md)。**
+**状态：r3 [B2](../blueprints/archive/self-update.md) CLOSED（2026-10-10，服务器人工验收通过）；本文 r1/r2 论证仅供追溯。**
 
 ## 已确认需求与部署事实
 

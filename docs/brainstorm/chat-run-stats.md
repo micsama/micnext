@@ -1,6 +1,6 @@
 # B1：聊天统计行与上下文占用
 
-**状态：方向已定（2026-10-15 human），进入 [B2](../blueprints/archive/chat-run-stats.md)。**
+**状态：方向已定（2026-10-15 human），[B2](../blueprints/archive/chat-run-stats.md) CLOSED（2026-10-15）。**
 
 ## 问题
 

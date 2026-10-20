@@ -133,6 +133,9 @@ impl From<KernelError> for ApiError {
                     Self::Internal(KernelError::Job(e))
                 }
             },
+            KernelError::Push(mic_core::PushError::UnknownChannel(_)) => {
+                Self::BadRequest(e.to_string())
+            }
             e => Self::Internal(e),
         }
     }

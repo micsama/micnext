@@ -1,5 +1,6 @@
 <script lang="ts">
   import MenuButton from "./MenuButton.svelte";
+  import PushBell from "./PushBell.svelte";
   import type { Snippet } from "svelte";
 
   let { title, detail, actions, detailActions }: { title: string; detail?: string; actions?: Snippet; detailActions?: Snippet } = $props();
@@ -13,4 +14,5 @@
       <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"><span class="truncate font-mono">{detail}</span>{@render detailActions?.()}</div>
     {/if}
   </div>
+  <PushBell />
 </header>

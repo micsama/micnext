@@ -138,6 +138,7 @@ async fn feed(
         let out = match event.kind {
             KernelEventKind::SessionTitleChanged => json_event("session_title_changed", &Empty {}),
             KernelEventKind::JobsChanged => json_event("jobs_changed", &Empty {}),
+            KernelEventKind::PushCreated { .. } => continue,
             KernelEventKind::MessageAppended(message) => {
                 let is_reply = matches!(message.body, MessageBody::Reply { .. });
                 if last.is_some_and(|n| message.id <= n) {

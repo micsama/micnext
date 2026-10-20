@@ -13,6 +13,7 @@ mod messages;
 mod models;
 mod people;
 mod personas;
+mod pushes;
 mod row;
 mod scheduling;
 mod schema;
@@ -32,6 +33,9 @@ pub use rusqlite;
 pub use diagnostic::{Cell, ColumnSchema, DiagnosticError, QueryResult, TableSchema};
 pub use error::{ContextCommandError, ModelSettingsError, SettingsError, StoreError};
 pub use jobs::{AgentActivity, Job, JobId, JobKind, JobState, NewAgentJob, NewToolJob};
+pub use pushes::{
+    NewPush, PushDelivery, PushDeliveryState, PushId, PushPage, PushRoute, PushView, WEB_CHANNEL,
+};
 pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
 pub use title::reply_answer;

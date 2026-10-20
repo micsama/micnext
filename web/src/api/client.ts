@@ -24,6 +24,7 @@ import {
   type TableSchema,
   type UpdateStatus,
 } from "./developer";
+import { parsePushPage, parsePushSettings, type PushPage, type PushSettings } from "./pushes";
 import { parseMessage, parseMessages, type Message } from "./types";
 import {
   parseContextBreakdown, parseContextView, parseCommands,
@@ -353,4 +354,22 @@ export async function importSettings(text: string): Promise<void> {
 
 export async function getSessionUsage(session: number): Promise<SessionUsageView> {
   return parseSessionUsage(await request("GET", `/trace/sessions/${session}/usage`));
+}
+
+export async function listPushes(before: number | null): Promise<PushPage> {
+  const q = new URLSearchParams();
+  if (before !== null) q.set("before", String(before));
+  return parsePushPage(await request("GET", `/pushes?${q}`));
+}
+
+export async function markPushesRead(ids: number[]): Promise<void> {
+  await request("POST", "/pushes/read", { ids });
+}
+
+export async function getPushSettings(): Promise<PushSettings> {
+  return parsePushSettings(await request("GET", "/settings/push"));
+}
+
+export async function putPushSettings(channels: string[]): Promise<void> {
+  await request("PUT", "/settings/push", { channels });
 }

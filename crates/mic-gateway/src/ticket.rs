@@ -20,6 +20,7 @@ use crate::service::{random_hex, App};
 pub(crate) enum StreamTarget {
     Session(i64),
     Logs,
+    Pushes,
 }
 
 /// 未兑换的票据；进程内单实例足够。
@@ -74,4 +75,8 @@ pub(crate) async fn session_ticket(
 
 pub(crate) async fn logs_ticket(State(app): State<Arc<App>>) -> impl IntoResponse {
     issued(app.tickets.issue(StreamTarget::Logs))
+}
+
+pub(crate) async fn pushes_ticket(State(app): State<Arc<App>>) -> impl IntoResponse {
+    issued(app.tickets.issue(StreamTarget::Pushes))
 }

@@ -44,7 +44,37 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_JOB_NOTICE,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 16,
+        sql: CORE_PUSHES,
+        secret_columns: &[],
+    },
 ];
+
+/// 推送与各 Channel 投递；默认推送 Channel 为 JSON 数组，空 = 按连接情况取默认。
+const CORE_PUSHES: &str = "
+ALTER TABLE core_settings ADD COLUMN push_channels TEXT NOT NULL DEFAULT '[]';
+CREATE TABLE core_pushes (
+  id                 INTEGER PRIMARY KEY,
+  person_id          INTEGER NOT NULL REFERENCES core_persons(id),
+  source_session_id  INTEGER NOT NULL REFERENCES core_sessions(id),
+  source_run_id      INTEGER REFERENCES core_runs(id),
+  text               TEXT NOT NULL,
+  created_at         INTEGER NOT NULL,
+  read_at            INTEGER
+);
+CREATE INDEX idx_pushes_person ON core_pushes(person_id, id);
+CREATE INDEX idx_pushes_run ON core_pushes(source_run_id) WHERE source_run_id IS NOT NULL;
+CREATE TABLE core_push_deliveries (
+  push_id     INTEGER NOT NULL REFERENCES core_pushes(id),
+  channel     TEXT NOT NULL,
+  message_id  INTEGER REFERENCES core_messages(id),
+  failure     TEXT,
+  PRIMARY KEY (push_id, channel),
+  CHECK(message_id IS NULL OR failure IS NULL)
+);
+";
 
 /// 后台任务中途通知 `JobNotice` 也是 run 输入。
 const CORE_JOB_NOTICE: &str = "
@@ -417,6 +447,8 @@ pub(crate) const TABLE_CATALOG: &[(&str, &str, &str)] = &[
     ("core_boundary_inputs", "调用与上下文", "压缩边界输入"),
     ("core_input_holds", "调用与上下文", "暂停调度的输入"),
     ("core_images", "会话与执行", "消息图片"),
+    ("core_pushes", "推送", "发给人的推送"),
+    ("core_push_deliveries", "推送", "推送的各 Channel 投递"),
     ("wechat_account", "微信", "账号与连接"),
     ("wechat_settings", "微信", "当前账号"),
     ("wechat_state", "微信", "轮询状态"),

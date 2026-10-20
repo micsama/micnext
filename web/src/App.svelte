@@ -9,6 +9,7 @@
   import { auth } from "./state/auth.svelte";
   import { router } from "./state/route.svelte";
   import { SessionView } from "./state/session.svelte";
+  import { pushCenter } from "./state/pushes.svelte";
   import { otherSessions, webSessions } from "./state/sessions.svelte";
   import { settingsStore } from "./state/settings.svelte";
 
@@ -19,6 +20,7 @@
     const route = router.current;
     if (!auth.token || route.kind !== "session") return;
     const v = new SessionView(route.id);
+    v.reply = pushCenter.takeReply(route.id);
     view = v;
     void webSessions.refresh();
     for (const list of otherSessions) if (list.loaded) void list.refresh();
@@ -26,6 +28,11 @@
       v.close();
       view = null;
     };
+  });
+
+  $effect(() => {
+    if (!auth.token) return;
+    return pushCenter.start();
   });
 
   $effect(() => {

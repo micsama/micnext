@@ -16,6 +16,7 @@ mod kernel;
 mod limits;
 mod module;
 mod provider;
+mod push;
 mod recovery;
 mod request;
 mod run;
@@ -34,7 +35,9 @@ pub use error::{AssembleError, KernelError, RunError, WorkdirError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
 pub use input::{IncomingPart, InputError};
 pub use jobs::{JobAccessError, JobOutput, JobView, StopJobOutcome};
-pub use kernel::{ContextOverview, EndpointDraft, Kernel, ModelDraft, SettingsBackup, StopOutcome};
+pub use kernel::{
+    ContextOverview, EndpointDraft, Kernel, ModelDraft, PushSettings, SettingsBackup, StopOutcome,
+};
 pub use mic_media::MediaError;
 pub use mic_store::SecretValue;
 pub use mic_store::{JobId, JobState};
@@ -44,5 +47,6 @@ pub use provider::{
     Provider, ProviderError, ProviderFactory, ProviderKindView, ReasoningOptions, StopReason,
     ToolChoice,
 };
+pub use push::PushError;
 pub use request::{PromptBlock, PromptBlockKind, PromptPart, PromptPartKind, SystemPrompt};
 pub use title::TitleError;

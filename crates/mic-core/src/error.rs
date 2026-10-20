@@ -96,6 +96,8 @@ pub enum KernelError {
     Diagnostic(#[from] mic_store::DiagnosticError),
     #[error(transparent)]
     Job(#[from] crate::JobAccessError),
+    #[error(transparent)]
+    Push(#[from] crate::PushError),
 }
 
 #[derive(Debug, thiserror::Error)]

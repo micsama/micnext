@@ -40,28 +40,27 @@ impl Store {
         .await
     }
 
-    /// 原子 get-or-create；已存在时刷新 display_name。
+    /// 已绑定则刷新 display_name 并返回其 person；未绑定则绑到 `person`。
     pub async fn resolve_identity(
         &self,
         identity: Identity,
         display_name: &str,
+        person: PersonId,
         now: i64,
     ) -> Result<PersonId, StoreError> {
         let display_name = display_name.to_owned();
         self.call(move |conn| {
             let tx = conn.transaction()?;
-            let person = match identity_person(&tx, &identity)? {
-                Some(person) => {
+            let bound = match identity_person(&tx, &identity)? {
+                Some(bound) => {
                     tx.execute(
                         "UPDATE core_person_identities SET display_name = ?3
                          WHERE channel = ?1 AND external_id = ?2",
                         params![identity.channel, identity.external_id, display_name],
                     )?;
-                    person
+                    bound
                 }
                 None => {
-                    let name = format!("{}:{}", identity.channel, identity.external_id);
-                    let person = ensure_person(&tx, &name, now)?;
                     tx.execute(
                         "INSERT INTO core_person_identities
                            (channel, external_id, person_id, display_name, created_at)
@@ -78,7 +77,7 @@ impl Store {
                 }
             };
             tx.commit()?;
-            Ok(person)
+            Ok(bound)
         })
         .await
     }

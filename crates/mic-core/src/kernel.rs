@@ -12,8 +12,9 @@ use mic_store::{
     CallRecord, CredentialWrite, Dashboard, EndpointId, EndpointView, EndpointWrite, Identity,
     InputDisposition, JobId, MessagePage, ModelCallId, ModelCallPurpose, ModelId, ModelView,
     ModelWrite, NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId,
-    QueryResult, ReasoningEffort, RunId, Session, SessionCursor, SessionKind, SessionPage,
-    SessionSummary, Settings, Store, StoreError, TableSchema, TraceRunPage, TraceSession,
+    PushId, PushPage, QueryResult, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
+    SessionPage, SessionSummary, Settings, Store, StoreError, TableSchema, TraceRunPage,
+    TraceSession,
 };
 use mic_tool::ToolSpec;
 use tokio::sync::mpsc;
@@ -25,6 +26,7 @@ use crate::input::{validate, IncomingPart};
 use crate::jobs::{JobOutput, JobView, StopJobOutcome};
 use crate::limits::JOB_READ_DEFAULT;
 use crate::provider::{resolve_key, resolve_reasoning, Factories};
+use crate::push::Pushes;
 use crate::request::SystemPrompt;
 use crate::run::{now_ms, Engine};
 use crate::{request, ChannelSetup, KernelError, ProviderKindView, WorkdirError};
@@ -39,7 +41,19 @@ pub struct Kernel {
     wake: mpsc::Sender<SessionId>,
     factories: Arc<Factories>,
     channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
+    pushes: Arc<Pushes>,
     engine: Arc<Engine>,
+}
+
+/// 默认推送 Channel 设置。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PushSettings {
+    /// 可选的 Channel，`web` 在首。
+    pub channels: Vec<&'static str>,
+    /// 用户所选；空 = 未设。
+    pub chosen: Vec<String>,
+    /// 省略 `via` 时实际发往的 Channel。
+    pub effective: Vec<String>,
 }
 
 /// 创建/修改服务商的输入；`config_json` 由对应 kind 的工厂解析。
@@ -286,6 +300,12 @@ impl Kernel {
             events: engine.events.clone(),
             wake,
             factories: engine.factories.clone(),
+            pushes: Arc::new(Pushes::new(
+                engine.store.clone(),
+                engine.events.clone(),
+                channel_setups.clone(),
+                owner,
+            )),
             channel_setups,
             engine,
         }
@@ -300,7 +320,7 @@ impl Kernel {
         self.channel_setups.get(channel).cloned()
     }
 
-    /// 按 Channel 外部身份取得或创建 person，并刷新显示名。
+    /// 按 Channel 外部身份取得 person 并刷新显示名；单用户，新身份归 owner。
     pub async fn resolve_identity(
         &self,
         identity: Identity,
@@ -308,7 +328,7 @@ impl Kernel {
     ) -> Result<PersonId, KernelError> {
         Ok(self
             .store
-            .resolve_identity(identity, display_name, now_ms())
+            .resolve_identity(identity, display_name, self.owner, now_ms())
             .await?)
     }
 
@@ -477,6 +497,31 @@ impl Kernel {
         self.check_reasoning(selection.model_id, selection.reasoning_effort)
             .await?;
         Ok(self.store.set_title_model(selection).await?)
+    }
+
+    /// 通知中心：新的在前。
+    pub async fn pushes(
+        &self,
+        before: Option<PushId>,
+        limit: u32,
+    ) -> Result<PushPage, KernelError> {
+        Ok(self.pushes.page(before, limit).await?)
+    }
+
+    pub async fn mark_pushes_read(&self, ids: Vec<PushId>) -> Result<(), KernelError> {
+        Ok(self.pushes.mark_read(ids).await?)
+    }
+
+    pub async fn push_settings(&self) -> Result<PushSettings, KernelError> {
+        Ok(PushSettings {
+            channels: self.pushes.channels(),
+            chosen: self.store.push_channels().await?,
+            effective: self.pushes.default_channels().await?,
+        })
+    }
+
+    pub async fn set_push_channels(&self, channels: Vec<String>) -> Result<(), KernelError> {
+        Ok(self.pushes.set_default_channels(channels).await?)
     }
 
     pub async fn title_generating(&self, session: SessionId) -> bool {

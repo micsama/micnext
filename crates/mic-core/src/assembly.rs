@@ -20,6 +20,7 @@ use crate::input::validate;
 use crate::jobs::{Jobs, AGENT_MODULES, CORE_TOOLS};
 use crate::limits::WAKE_CHANNEL_CAPACITY;
 use crate::provider::Factories;
+use crate::push::Pushes;
 use crate::run::{now_ms, Engine};
 use crate::scheduler::panic_message;
 use crate::{
@@ -121,11 +122,6 @@ impl Assembly {
                 resolve_abs("key_file", &path).map_err(|source| AssembleError::Core { source })
             })?;
         let owner = core.owner.unwrap_or_else(|| DEFAULT_OWNER.to_owned());
-        if owner.contains(':') {
-            return Err(AssembleError::Core {
-                source: format!("owner 不得含 \":\"，当前为 \"{owner}\"").into(),
-            });
-        }
 
         let mut reg = Registry {
             current: "",
@@ -225,8 +221,12 @@ impl Assembly {
             self.factories.clone(),
             events.clone(),
         );
-        let engine =
-            Arc::new(self.engine(started.store.clone(), events.clone(), Some(wake_tx.clone())));
+        let engine = Arc::new(self.engine(
+            started.store.clone(),
+            events.clone(),
+            Some(wake_tx.clone()),
+            started.owner,
+        ));
         let jobs = engine.jobs.clone();
         let kernel = Kernel::new(
             started.owner,
@@ -329,7 +329,7 @@ impl Assembly {
             .await?
             .expect("刚写入的输入必然可认领");
 
-        let engine = Arc::new(self.engine(store, events, None));
+        let engine = Arc::new(self.engine(store, events, None, started.owner));
         let jobs = engine.jobs.clone();
         let outcome = Self::drive_once(engine, session, claimed, rx, on_event, stop).await;
         // 不为后台结果延长寿命。
@@ -433,8 +433,17 @@ impl Assembly {
         store: Store,
         events: Events,
         wake: Option<mpsc::Sender<SessionId>>,
+        owner: PersonId,
     ) -> Engine {
         let control = Arc::new(RunControl::default());
+        let pushes = Arc::new(Pushes::new(
+            store.clone(),
+            events.clone(),
+            self.channel_setups.clone(),
+            owner,
+        ));
+        let mut tools = self.tools.clone();
+        tools.push(crate::push::handle(&pushes));
         Engine {
             jobs: Arc::new(Jobs::new(
                 store.clone(),
@@ -447,7 +456,7 @@ impl Assembly {
             store,
             events,
             factories: self.factories.clone(),
-            tools: self.tools.clone(),
+            tools,
             channel_prompts: self.channel_prompts.clone(),
             control,
         }

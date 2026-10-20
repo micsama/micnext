@@ -684,6 +684,10 @@ impl JobPort {
         }
     }
 
+    pub(crate) fn origin(&self) -> &Origin {
+        &self.origin
+    }
+
     /// 本调用已提交的任务；未派出或登记失败为 `None`。
     pub(crate) async fn registered(&self) -> Option<JobId> {
         let mut rx = self.registration.lock().expect("登记槽未中毒").clone()?;

@@ -13,6 +13,7 @@ mod log_store;
 mod log_stream;
 mod logs;
 mod models;
+mod pushes;
 mod service;
 mod settings;
 mod sql;

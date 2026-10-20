@@ -1,5 +1,5 @@
 use mic_message::{Message, SessionId};
-use mic_store::{RunId, RunState};
+use mic_store::{PushId, RunId, RunState};
 use std::sync::Arc;
 
 use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
@@ -38,6 +38,10 @@ pub enum KernelEventKind {
     },
     /// 会话树的后台任务有变化（登记、输出增长、结束），`session_id` 为树根；订阅方重新拉取。
     JobsChanged,
+    /// 新推送已记录，`session_id` 为来源会话；订阅方重新拉取通知中心。
+    PushCreated {
+        push_id: PushId,
+    },
 }
 
 pub struct EventReceiver(broadcast::Receiver<KernelEvent>);

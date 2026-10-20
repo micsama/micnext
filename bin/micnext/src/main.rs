@@ -250,7 +250,8 @@ impl Render {
             KernelEventKind::MessageAppended(m) => self.message(m),
             KernelEventKind::RunFinished { .. }
             | KernelEventKind::SessionTitleChanged
-            | KernelEventKind::JobsChanged => {}
+            | KernelEventKind::JobsChanged
+            | KernelEventKind::PushCreated { .. } => {}
         }
     }
 

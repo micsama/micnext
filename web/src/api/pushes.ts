@@ -60,3 +60,6 @@ export const parsePushCreated = (data: string): number => obj({ id: num })(JSON.
 /** 推送渠道的显示名。 */
 export const CHANNEL_LABELS: Record<string, string> = { web: "Web 通知", wechat: "微信" };
 export const channelLabel = (c: string): string => CHANNEL_LABELS[c] ?? c;
+
+/** 发往 Web 通知中心的才计未读、才提醒。 */
+export const toWeb = (p: PushView): boolean => p.deliveries.some((d) => d.channel === "web");

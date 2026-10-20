@@ -1,5 +1,5 @@
 import { ApiError, listPushes, markPushesRead } from "../api/client";
-import { parsePushCreated, type PushView } from "../api/pushes";
+import { parsePushCreated, toWeb, type PushView } from "../api/pushes";
 import { readSse } from "../api/sse";
 import { ProtocolError } from "../api/types";
 import { sleep } from "../lib/sleep";
@@ -16,6 +16,14 @@ class PushCenter {
   unread = $state(0);
   error = $state<string | null>(null);
   loadingMore = $state(false);
+  /** 通知中心是否展开；横幅「打开」也经此展开。 */
+  open = $state(false);
+  /** 横幅里待查看的新推送，新的在前；空即不显示。 */
+  fresh = $state<PushView[]>([]);
+  /** 每到一批新推送加一，铃铛据此重放动效。 */
+  arrivals = $state(0);
+  /** 已见过的最大推送 id；首次加载前为 null，首屏历史不提醒。 */
+  #seen: number | null = null;
   /** 【去会话里问】带过去的引用，目标会话打开时取走。 */
   #reply: { session: number; reply: ComposerReply } | null = null;
 
@@ -36,6 +44,7 @@ class PushCenter {
       if (older.length === 0) this.hasMore = page.has_more;
       this.unread = page.unread;
       this.error = null;
+      this.#notice(page.pushes);
     } catch (e) {
       this.error = (e as Error).message;
     }
@@ -55,6 +64,27 @@ class PushCenter {
     } finally {
       this.loadingMore = false;
     }
+  }
+
+  /** 展开通知中心，横幅随之清除。 */
+  show(): void {
+    this.open = true;
+    this.fresh = [];
+  }
+
+  /** 只隐藏横幅，不标已读。 */
+  dismiss(): void {
+    this.fresh = [];
+  }
+
+  #notice(page: PushView[]): void {
+    const seen = this.#seen;
+    this.#seen = Math.max(seen ?? 0, page[0]?.id ?? 0);
+    if (seen === null) return;
+    const added = page.filter((p) => p.id > seen && p.read_at === null && toWeb(p));
+    if (added.length === 0) return;
+    this.arrivals++;
+    if (!this.open) this.fresh = [...added, ...this.fresh];
   }
 
   /** 只标这些实际展示过的。 */

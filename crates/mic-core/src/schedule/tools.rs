@@ -68,7 +68,7 @@ fn summary(s: &Schedule) -> String {
                 .next_after(now_ms())
         })
         .flatten()
-        .map_or("none".to_owned(), rule::show);
+        .map_or("none".to_owned(), rule::show_zoned);
     format!(
         "#{} \"{}\" | when: {} | {state} | next: {next}",
         s.id.0, s.name, s.rule
@@ -97,14 +97,15 @@ struct Edit {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct EditArgs {
-    /// Edit or delete this task; omit to create one.
+    /// Update or delete this task; omit to create one.
     id: Option<i64>,
     /// Short name, in the user's language.
     name: Option<String>,
-    /// 5-field cron expression or a one-off "YYYY-MM-DD HH:MM", in the server's local time.
+    /// 5-field cron (minute hour day month weekday, 0 = Sunday) or a one-off "YYYY-MM-DD HH:MM", in the server's local time; a past one-off is rejected.
     when: Option<String>,
-    /// Self-contained instruction for each run; the task session does not see this conversation.
+    /// Self-contained instruction for every run, including when and what to report to the user; runs do not see this conversation.
     prompt: Option<String>,
+    /// Update only; new tasks start enabled.
     enabled: Option<bool>,
     #[serde(default)]
     delete: bool,
@@ -118,7 +119,7 @@ impl Tool for Edit {
     }
 
     fn description(&self) -> &str {
-        "Create (name, when and prompt required), edit or delete a scheduled task. Each run happens in the task's own session, which starts with this session's working directory, persona and model and can reach the user only via push."
+        "Create (name, when and prompt required), update (id; omitted fields stay unchanged) or delete (id and delete only) a scheduled task. Runs happen in the task's own session, which starts with this session's working directory, persona and model. A one-off task disables itself after its run; a run due while the previous one is still going is skipped; runs missed while the server is down are recorded, not caught up."
     }
 
     async fn execute(&self, args: EditArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {
@@ -157,6 +158,9 @@ impl Tool for Edit {
                     .map_err(store_error)?
             }
             Some(id) if args.delete => {
+                if name.is_some() || rule.is_some() || prompt.is_some() || args.enabled.is_some() {
+                    return Err(ToolError::input("delete takes only id"));
+                }
                 if !store.delete_schedule(id).await.map_err(store_error)? {
                     return Err(no_such(id));
                 }
@@ -165,6 +169,14 @@ impl Tool for Edit {
                     "Deleted task #{}; its session and history are kept.",
                     id.0
                 )));
+            }
+            Some(_)
+                if name.is_none()
+                    && rule.is_none()
+                    && prompt.is_none()
+                    && args.enabled.is_none() =>
+            {
+                return Err(ToolError::input("nothing to update"));
             }
             Some(id) => {
                 let edit = ScheduleEdit {
@@ -235,7 +247,11 @@ async fn list(store: &Store, schedules: &Schedules) -> Result<String, ToolError>
             .map_err(store_error)?
             .first()
             .map_or("never run".to_owned(), |f| {
-                format!("{} at {}", outcome_label(f.outcome), rule::show(f.due_at))
+                format!(
+                    "{} at {}",
+                    outcome_label(f.outcome),
+                    rule::show_zoned(f.due_at)
+                )
             });
         lines.push(format!("{} | last: {last}", summary(s)));
     }
@@ -259,7 +275,7 @@ async fn detail(store: &Store, id: ScheduleId) -> Result<String, ToolError> {
     for f in fires {
         out.push_str(&format!(
             "\n- {} {}",
-            rule::show(f.due_at),
+            rule::show_zoned(f.due_at),
             outcome_label(f.outcome)
         ));
         let Some(run) = f.run_id else { continue };

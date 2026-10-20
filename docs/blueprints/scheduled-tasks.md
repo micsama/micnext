@@ -138,7 +138,7 @@ CREATE TABLE core_schedule_fires (
 ### P2.4 任务会话
 
 - 建任务时同事务建会话：`Triggered { module: "schedule", ref_id: <任务 id> }`，`parent_session_id` 为空；`pwd`、人设、模型、思考档位拷自调用会话。之后可在任务会话页面单独改。
-- 渠道说明 `channel_prompt("schedule", …)`：「这是定时任务 X 的会话。带到点触发头的消息是定时指令，用户不在看：需要告诉用户时调用 push，没有发现就简短收尾。普通用户消息是用户在这里直接问你，照常回答。」
+- 渠道说明 `channel_prompt("schedule", …)`（所有定时执行共用的执行规则）：触发消息是任务的一次运行，用户多半不在看、回复送不到；需要告知用户时用 push，内容独立可读，无事简短收尾；缺必要信息不猜，用 push 说明；会话里留有历史运行，按最新触发执行；用户直接发来的消息照常回答。
 - 工具：全套基础工具 + `push`；不含 `schedule`、`schedules`、`agent`，也不含 `jobs`、`job_output`、`job_stop`。轮数上限同子 agent。
 - **不允许后台执行**（human 2026-10-20）：任务会话的后台派发直接拒绝，`bash` 设 `background` 得到 business 错误 `background jobs are unavailable in scheduled tasks; run in the foreground`。一次触发即一个 run：结局、超时与「忙」都只看这个 run，不会有后台任务结束后另起的 run。
 - 用户可从任务列表进入任务会话直接对话，与触发共用上下文。触发 run 执行中用户发来的输入，按现有规则在下一个模型调用边界并入该 run。
@@ -170,10 +170,12 @@ core 内一个 tokio 任务：内存里维护各启用任务的下一时刻，�
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `schedule` | `id?`、`name?`、`when?`、`prompt?`、`enabled?`、`delete?` | 无 `id`：新建，`name`/`when`/`prompt` 必填（`when` 存为 `rule` 列）；有 `id`：只改给出字段，`enabled: true` 同时清 `paused_reason`；`delete: true` 删除。返回任务 id 与下次运行时刻 |
+| `schedule` | `id?`、`name?`、`when?`、`prompt?`、`enabled?`、`delete?` | 无 `id`：新建，`name`/`when`/`prompt` 必填（`when` 存为 `rule` 列），新任务默认启用；有 `id`：只改给出字段，`enabled: true` 同时清 `paused_reason`，一个字段都没给报错；`delete: true` 删除，不得带其他字段。返回任务 id 与下次运行时刻（带 UTC 偏移） |
 | `schedules` | `id?` | 无 `id`：全部任务的名字、规则、启停（含暂停原因）、下次运行、最近一次结局；有 `id`：该任务最近 N 次触发的时刻、结局、是否推送、最终回复首段 |
 
 工具描述的标签用户语言规则同 `agent` 的 `description`。
+
+提示归位：怎么填参数（任务指令须自包含、写明何时报告什么、时间格式与时区、一次性/重叠/错过的调度契约）写在工具描述与参数说明；每次定时执行都适用的规则写在渠道说明；单个任务的业务目标与通知条件写在任务指令；参数组合与调度策略由代码保证。
 
 ### P2.8 验收
 

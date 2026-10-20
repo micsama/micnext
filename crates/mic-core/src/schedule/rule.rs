@@ -54,7 +54,12 @@ fn local(ms: i64) -> DateTime<Local> {
         .expect("unix 毫秒在本地时区唯一")
 }
 
-/// 给模型与推送看的本地时刻。
+/// 给用户看的本地时刻。
 pub(crate) fn show(ms: i64) -> String {
     local(ms).format("%Y-%m-%d %H:%M").to_string()
+}
+
+/// 给模型看的本地时刻，带 UTC 偏移以表明服务器时区。
+pub(crate) fn show_zoned(ms: i64) -> String {
+    local(ms).format("%Y-%m-%d %H:%M %:z").to_string()
 }

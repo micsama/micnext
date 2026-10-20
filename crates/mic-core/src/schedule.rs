@@ -26,7 +26,7 @@ use crate::RunError;
 pub(crate) use rule::Rule;
 
 /// 任务会话的渠道说明。
-pub(crate) const CHANNEL_PROMPT: &str = "This session belongs to a scheduled task. A message with a trigger header is the task's instruction at its scheduled time and the user is not watching: call push when the user should know something, otherwise finish briefly. Other user messages are the user talking to you here; answer them as usual.";
+pub(crate) const CHANNEL_PROMPT: &str = "This session belongs to a scheduled task. A trigger message is a run of the task: the user is probably not watching and your replies do not reach them, so deliver anything they should know with push, written to stand on its own; if nothing needs reporting, finish briefly. If necessary information is missing, do not guess or act on it; ask via push instead. Earlier runs stay in this session; act on the latest trigger. Messages from the user are the user talking to you here; answer them as usual.";
 
 /// 错过次数触到扫描上限后，只在停机前这段时间里找最后一次。
 const MISSED_TAIL_MS: i64 = 24 * 3600 * 1000;

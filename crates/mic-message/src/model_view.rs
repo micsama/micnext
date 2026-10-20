@@ -219,7 +219,7 @@ impl<'a> Header<'a> {
             Self::RuntimeNote => "a framework notice, not the user.",
             Self::Notification { .. } => "an event from src at that time, not the user; it may no longer hold now.",
             Self::Trigger { .. } => {
-                "a scheduled instruction from task src, not the user; the user is not watching."
+                "a scheduled instruction from task src, not from the user."
             }
             Self::Dispatched { .. } => {
                 "a background job or sub-agent was dispatched; its result arrives as a completion."

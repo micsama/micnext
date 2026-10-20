@@ -158,7 +158,7 @@ pub(crate) fn system_prompt(
     use PromptPartKind::*;
     let part = |kind, text: String| PromptPart { kind, text };
     let mut persona = Vec::new();
-    if !matches!(session.kind, mic_store::SessionKind::Task { .. }) {
+    if matches!(session.kind, mic_store::SessionKind::Root { .. }) {
         persona.push(part(Persona, settings.persona.prompt.clone()));
     }
     if !settings.general_prompt.is_empty() {

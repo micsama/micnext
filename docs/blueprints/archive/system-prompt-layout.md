@@ -30,7 +30,7 @@
 </instructions>
 
 <persona>
-{人设提示词}               ← 子 agent（Task 会话）不带
+{人设提示词}               ← 只有 Root 会话带；子 agent 与定时任务会话不带
 
 User preferences:          ← 通用偏好非空时
 {通用偏好}

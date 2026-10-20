@@ -137,7 +137,7 @@ CREATE TABLE core_schedule_fires (
 
 ### P2.4 任务会话
 
-- 建任务时同事务建会话：`Triggered { module: "schedule", ref_id: <任务 id> }`，`parent_session_id` 为空；`pwd`、人设、模型、思考档位拷自调用会话。之后可在任务会话页面单独改。
+- 建任务时同事务建会话：`Triggered { module: "schedule", ref_id: <任务 id> }`，`parent_session_id` 为空；`pwd`、模型、思考档位拷自调用会话，之后可在任务会话页面单独改。系统提示同子 agent：不带人设，保留通用偏好（human 2026-10-20）。
 - 渠道说明 `channel_prompt("schedule", …)`（所有定时执行共用的执行规则）：触发消息是任务的一次运行，用户多半不在看、回复送不到；需要告知用户时用 push，内容独立可读，无事简短收尾；缺必要信息不猜，用 push 说明；会话里留有历史运行，按最新触发执行；用户直接发来的消息照常回答。
 - 工具：全套基础工具 + `push`；不含 `schedule`、`schedules`、`agent`，也不含 `jobs`、`job_output`、`job_stop`。轮数上限同子 agent。
 - **不允许后台执行**（human 2026-10-20）：任务会话的后台派发直接拒绝，`bash` 设 `background` 得到 business 错误 `background jobs are unavailable in scheduled tasks; run in the foreground`。一次触发即一个 run：结局、超时与「忙」都只看这个 run，不会有后台任务结束后另起的 run。

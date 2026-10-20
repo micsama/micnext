@@ -119,7 +119,7 @@ impl Tool for Edit {
     }
 
     fn description(&self) -> &str {
-        "Create (name, when and prompt required), update (id; omitted fields stay unchanged) or delete (id and delete only) a scheduled task. Runs happen in the task's own session, which starts with this session's working directory, persona and model. A one-off task disables itself after its run; a run due while the previous one is still going is skipped; runs missed while the server is down are recorded, not caught up."
+        "Create (name, when and prompt required), update (id; omitted fields stay unchanged) or delete (id and delete only) a scheduled task. Runs happen in the task's own session, which starts with this session's working directory and model. A one-off task disables itself after its run; a run due while the previous one is still going is skipped; runs missed while the server is down are recorded, not caught up."
     }
 
     async fn execute(&self, args: EditArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {

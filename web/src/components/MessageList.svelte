@@ -7,6 +7,7 @@
   import type { SessionView } from "../state/session.svelte";
   import DraftView from "./DraftView.svelte";
   import MessageItem from "./MessageItem.svelte";
+  import RunIndicator from "./RunIndicator.svelte";
 
   let { view }: { view: SessionView } = $props();
 
@@ -218,9 +219,7 @@
         <div><DraftView draft={view.draft} /></div>
       {/if}
       {#if running && !view.draft}
-        <div class="flex items-center gap-2 text-sm text-muted-foreground">
-          <Icon name="loader" class="size-3.5 animate-spin" />处理中…
-        </div>
+        <RunIndicator {view} />
       {/if}
       {#if view.contextError}<p class="text-sm text-destructive">上下文状态加载失败：{view.contextError}</p>{/if}
       {#if view.notice}

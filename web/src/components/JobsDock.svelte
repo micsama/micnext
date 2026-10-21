@@ -72,6 +72,8 @@
   const OLD_MS = 5 * 60_000;
   const isOld = (j: JobView) => j.kind === "tool" && j.finished_at !== null && now - j.finished_at > OLD_MS && !view.unseenJobs.has(j.id);
   let showOld = $state(false);
+  /** 胶囊上的数量不含收进「更早」的任务。 */
+  const current = $derived(view.jobs.filter((j) => !isOld(j)).length);
 
   /** 展开的任务：已读窗口；`pinned` 表示读过更早部分，不再随输出增长换成尾部。 */
   type Opened = { out: JobOutput | null; pinned: boolean; loading: boolean; error: string | null; seen: number };
@@ -239,7 +241,7 @@
       onclick={() => (view.jobsOpen = !view.jobsOpen)}>
       <Icon name={running.length ? "loader" : freshBad ? "alert" : "layers"} class="size-3.5 shrink-0 {running.length ? 'animate-spin motion-reduce:animate-none' : ''} {freshBad ? 'text-destructive' : running.length ? 'text-primary' : ''}" />
       <span class="shrink-0 font-medium {view.jobsOpen ? 'text-foreground' : ''}">后台任务</span>
-      <span class="rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none tabular-nums">{view.jobs.length}</span>
+      {#if current}<span class="rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none tabular-nums">{current}</span>{/if}
       {#if !view.jobsOpen && lead.length}
         <span class="flex shrink-0 items-center gap-1" aria-label="任务状态">
           {#each lead.slice(0, 5) as j (j.id)}

@@ -1,6 +1,6 @@
 # B2：推送与定时任务
 
-**状态：已批准（human 2026-10-20），P1 已验收（human 2026-10-20）；P2 修订已批准（human 2026-10-20），已实现、本地自动验收通过，待 human 验收（见 P2.9）。**
+**状态：已批准（human 2026-10-20），P1 已验收（human 2026-10-20）；P2 修订已批准（human 2026-10-20），已实现；P2 调度修订已批准（human 2026-10-21）并实现，待 human 验收（见 P2.10）。**
 
 依据：[B1](../brainstorm/scheduled-tasks.md)。一份文档分三期，各自实现、各自验收：P1 推送与通知中心（独立可用：长任务做完提醒我）；P2 定时任务内核与工具；P3 定时任务页面。
 
@@ -98,9 +98,8 @@ CREATE TABLE core_schedules (
   name           TEXT NOT NULL,
   rule           TEXT NOT NULL,          -- 工具参数 when：cron 表达式或一次性本地时刻
   prompt         TEXT NOT NULL,
-  enabled        INTEGER NOT NULL,
   paused_reason  TEXT,                   -- 框架自动暂停时的原因
-  active_since   INTEGER NOT NULL,       -- 建任务、改规则、重新启用时刻；补记错过从这里起算
+  next_run_at    INTEGER,                -- 下次应触发时刻；空即停用（含暂停、一次性已触发）。调度与启停的唯一真相
   session_id     INTEGER NOT NULL REFERENCES core_sessions(id),
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
@@ -131,8 +130,8 @@ CREATE TABLE core_schedule_fires (
 
 ### P2.3 规则
 
-- `when` 接 5 段 cron 表达式或 `YYYY-MM-DD HH:MM` 一次性时刻，服务器本地时区；写入时 parse，非法报错。一次性的触发后 `enabled = 0`。
-- 改规则、`enabled` 由假变真时 `active_since = now`；只改名字、指令不动。
+- `when` 接 5 段 cron 表达式或 `YYYY-MM-DD HH:MM` 一次性时刻，服务器本地时区；写入时 parse，非法报错。一次性的触发后 `next_run_at` 置空。
+- 新建、改规则、由停用改为启用时 `next_run_at = 规则在 now 之后的下一次`；停用、暂停置空；只改名字、指令不动。
 - 新依赖：cron 解析 crate（实现时选型，只需「下一次时刻」）。
 
 ### P2.4 任务会话
@@ -145,7 +144,16 @@ CREATE TABLE core_schedule_fires (
 
 ### P2.5 调度循环
 
-core 内一个 tokio 任务：内存里维护各启用任务的下一时刻，睡到最早的一个；任务增改删时唤醒重算。到点调用 store 的一个事务 `fire_schedule`：
+core 内一个 tokio 任务，状态只在库里：
+
+- 睡到启用任务里最小的 `next_run_at`，单次最多 `SCHEDULE_TICK_MAX`（60 秒，按墙钟复查，应对系统校时）；任务增改删时提前唤醒。
+- 醒来对每个 `next_run_at <= now` 的任务：
+  - 迟到 ≤ `SCHEDULE_LATE_GRACE`（`limits.rs`，30 秒）→ 以 `next_run_at` 为 `due_at` 走 `fire_schedule`（下列事务）。
+  - 迟到更多（停机、进程卡顿）→ 按当前规则数 `[next_run_at, now]` 内的应触发次数，合并写一行 `missed`（`due_at` 取最后一次，`missed_count` 为次数）并通知。不补跑。
+  - 同一事务把 `next_run_at` 前移到规则在 now 之后的下一次；一次性任务置空并停用。
+- 启动不另走流程：重启后过期的任务就是「迟到更多」。
+
+`fire_schedule` 事务：
 
 1. 会话有执行中的 run 或未认领的非 held 输入 → 写触发行 `skipped = 'busy'`，结束。
 2. 上下文占用超过 `SCHEDULE_COMPACT_PERCENT`（`limits.rs`，暂定 50）→ 先追加 `/compact` 命令。
@@ -158,11 +166,11 @@ core 内一个 tokio 任务：内存里维护各启用任务的下一时刻，�
 - 超时与轮数：任务会话的每个 run（含人工追问）同子 agent 计时，墙钟超过 `SCHEDULE_RUN_TIMEOUT`（暂定 30 分钟）即停止并落 `TimedOut`。
 - 重启：遗留执行中的 run 沿用现有恢复转 `Interrupted`；未认领的 Trigger 按现有规则 held。两者都是「中断」，启动时对本次收尾涉及的触发推送通知。
 - 一次性任务在触发（含「忙」）或记为错过时即停用。
-- 启动补记错过：对每个启用任务，在 `max(最后一行触发的 due_at, active_since)` 到现在之间按**当前规则**枚举应触发时刻；有则合并写一行 `missed`（`due_at` 取最后一次，`missed_count` 为次数）。暂停期间与旧规则时段不在区间内。不补跑。
+- 暂停期间与旧规则时段天然不计错过：停用时 `next_run_at` 为空，改规则与重新启用都从 now 往后算。
 
 ### P2.6 系统级失败
 
-上表标「是」的结局由框架以框架推送（来源 = 任务会话）通知「定时任务 X：结局与原因」。与所有推送一样进 Web 通知中心，并发往默认推送 Channel；不可用的 IM 照样建投递行、`failure` 写原因。同一任务最近连续 `SCHEDULE_FAIL_PAUSE`（暂定 3）次触发都是系统级失败时：`enabled = 0`，写 `paused_reason`，并推送。「忙」「已停止」既不计入也不打断连续计数；正常完成打断连续计数。agent 判断「没发现」属于正常完成。
+上表标「是」的结局由框架以框架推送（来源 = 任务会话）通知「定时任务 X：结局与原因」。与所有推送一样进 Web 通知中心，并发往默认推送 Channel；不可用的 IM 照样建投递行、`failure` 写原因。同一任务最近连续 `SCHEDULE_FAIL_PAUSE`（暂定 3）次触发都是系统级失败时：`next_run_at` 置空，写 `paused_reason`，并推送。「忙」「已停止」既不计入也不打断连续计数；正常完成打断连续计数。agent 判断「没发现」属于正常完成。
 
 ### P2.7 `schedule` / `schedules` 工具
 
@@ -194,27 +202,58 @@ core 内一个 tokio 任务：内存里维护各启用任务的下一时刻，�
 
 交 human：真实模型下建改停删与 `schedules` 两种用法、没发现不推送/有发现推送、忙时跳过、超时、任务会话人工追问与并入、`bash` 后台被拒、微信断开时失败通知、调低阈值看提前压缩、Web 聊天与 Trace 里的定时指令显示。
 
+### P2.10 调度修订
+
+验收中发现：下次触发时刻由内存游标现推，游标的毫秒残留曾跳过整点；运行中长时间卡顿只跑一次、中间次数既不执行也不记录；启动补记与运行是两条流程，任务页还得另算「下次运行」。改为 `next_run_at` 一处真相（P2.2、P2.3、P2.5 已改入正文）：
+
+- 删 `enabled`（启用即 `next_run_at` 非空）、`active_since`、内存游标与启动补记；`schedule`/`schedules` 工具显示的下次运行直接读列。
+- 迁移 v19：重建两张表，以 `next_run_at` 取代 `enabled` 与 `active_since`。现有任务是验收期测试数据，迁移清空 `core_schedules` 与 `core_schedule_fires`（任务会话、run、trace 保留），升级后在对话里重建。
+- 补测试：store 测试覆盖 `next_run_at` 被改动后不触发、触发与错过都前移下次时刻。
+
+本地冒烟（临时库，无模型）：准点任务在整分 +3ms 触发；迟到超过 30 秒合并为一条错过并推送；一次性任务错过后停用；停机 2 分多钟重启立即补记「错过 2 次」；连续 3 次失败自动暂停并清空下次时刻。
+
+验收：每分钟任务连续跑十几分钟无缺漏；停服务几分钟再启动只记一条「错过 N 次」；停用一段时间再启用、改规则后不误记错过。
+
 ## P3：定时任务页面
 
-### P3.1 HTTP
+**P3 修订待批准（2026-10-21）**：按 P2 实现细化接口，补任务会话在 Web 的打开与对话、全局事件流。
+
+### P3.1 任务读写一处真相
+
+`schedule` 工具与 HTTP 共用 core 里同一组操作（`Schedules` 上的改、删、列表、触发列表），校验只此一处：名字与指令非空、`when` 合法、过去的一次性时刻报错、无字段可改报错；改删后唤醒调度循环并发布 `KernelEvent::ScheduleChanged { schedule }`。`Kernel` 暴露 `schedules()`、`schedule_fires(id, before, limit)`、`update_schedule(id, edit)`、`delete_schedule(id)`；`-p` 模式调用返回「定时任务只在常驻服务可用」。
+
+`ScheduleChanged` 的时机：任务改、删、自动暂停；写触发行；触发 run 开跑与收尾（结局变化）。
+
+**新建只在对话里**：任务的工作目录与模型取自发起对话的会话，Web 不提供新建；空列表提示「在对话里说『每天 9 点…』即可创建」。
+
+### P3.2 HTTP
 
 | 接口 | 说明 |
 |---|---|
-| `GET /api/schedules` | 全部任务：名字、规则（原文 + 人话）、启停与暂停原因、下次运行、最近 10 次触发结局、最近 10 次运行累计用量 |
-| `GET /api/schedules/:id/fires?before&limit` | 触发列表：时刻、结局、run id、推送去向与投递状态、最终回复首行 |
-| `PATCH /api/schedules/:id` | `name`/`rule`/`prompt`/`enabled` |
-| `DELETE /api/schedules/:id` | 删除 |
-| SSE `schedule_changed` | 任务或触发有变化 |
+| `GET /api/schedules` | 全部任务，按 id 升序。每条：`id`、`name`、`rule`、`prompt`、`enabled`、`paused_reason`、`next_run_at`（停用为空）、`session_id`、`recent`（最近 10 次触发结局，新的在前）、`usage`（最近 10 次开跑触发的 run 合计：调用数、token、费用、未计价调用数，同 Trace 的 `CallStat`） |
+| `GET /api/schedules/:id/fires?before&limit` | 触发列表，新的在前，分页同推送列表。每条：`id`、`due_at`、`outcome`（P2.2 表，同 `FireOutcome`）、`run_id`、`pushes`（该 run 的推送：id 与各 Channel 投递状态）、`reply`（最终回复首段，截断同 `schedules` 工具） |
+| `PATCH /api/schedules/:id` | body 任选 `name`/`rule`/`prompt`/`enabled`，语义同 `schedule` 工具更新；校验失败 422 带中文原因；返回更新后的列表项 |
+| `DELETE /api/schedules/:id` | 删除；任务会话、run、trace 保留 |
+| `GET /api/stream`（全局 SSE） | 由 `/api/pushes/stream` 改名，票据 `POST /api/stream-ticket`；事件 `push_created { id }`、`schedule_changed { id }`。不保留旧路径 |
 
-### P3.2 Web
+### P3.3 任务会话在 Web
 
-- 侧栏「定时任务」入口，一页列表。每行：名字、规则人话、下次运行、启停开关、最近触发状态点、累计用量；暂停原因用警示色写在行内。
-- 展开：触发列表，结局见 P2.2 表；「未推送」与「推送了但未送达」分开。点开进任务会话（聊天视图，可直接对话）或 Trace。
-- 行内编辑规则与指令，删除需确认。
+现状：Web 会话接口只认 Root，任务会话打不开；通知中心对任务推送的【去会话里问】会 404。本期起：
 
-### P3.3 验收
+- 会话详情与消息接口接受定时任务会话（`Triggered { module: "schedule" }`），可从 Web 发消息（`writable`）。会话项新增 `schedule: { id, name } | null`（任务已删为空，会话照常可读写）。
+- 侧栏会话列表不列任务会话；入口是定时任务页、推送来源、Trace。
+- 聊天页对任务会话：标题区显示「定时任务 · 任务名」，可回到任务页；不显示人设选择（任务会话不带人设）、归档、重新生成标题；模型与思考强度照常可改。
 
-本地：接口与 SSE；页面观感交 human。
+### P3.4 Web 定时任务页
+
+- 侧栏「定时任务」入口，路由 `#/schedules`，一页列表。每行：名字、规则（常见形态写成人话，如「每 5 分钟」「每天 09:00」「工作日 18:30」「10 月 22 日 09:00 一次」，其余显示 cron 原文，悬停看原文）、下次运行、启停开关、最近 10 次结局状态点（悬停看时刻与结局）、累计用量。暂停原因用警示色写在行内。
+- 展开：触发列表，分页加载。每条显示时刻、结局、回复首段；推送状态分开显示「未推送」「已推送」「推送未送达（原因）」。可点开任务会话（聊天）或该 run 的 Trace。
+- 编辑：名字、规则、指令行内编辑，保存失败就地显示原因；删除用确认对话框。
+- 收到 `schedule_changed` 重拉列表与已展开的触发列表；每次（重）连先补拉。
+
+### P3.5 验收
+
+本地：接口（列表、触发分页、改删校验、`-p` 报错）与 SSE 事件；任务会话打开、发消息、推送【去会话里问】跳转。页面观感交 human。
 
 ## 调用方影响
 
@@ -222,9 +261,9 @@ core 内一个 tokio 任务：内存里维护各启用任务的下一时刻，�
 |---|---|
 | mic-message | 新增 `MessageBody::Trigger` |
 | mic-store | 新增 4 张表与读写；`fire_schedule` 事务；`claim_next` 认 Trigger 独占；`core_settings.push_channels`；`resolve_identity` 新身份归给定 person |
-| mic-core | `push` / `schedule` / `schedules` 工具；调度循环；`KernelEvent::PushCreated`、`ScheduleChanged`；`Kernel` 增推送与任务读写接口；启用 `SessionKind::Triggered` |
-| mic-gateway | P1.4、P3.1 接口 |
-| Web | 通知中心、设置页默认推送 Channel、定时任务页 |
+| mic-core | `push` / `schedule` / `schedules` 工具；调度循环；`KernelEvent::PushCreated`、`ScheduleChanged`；`Kernel` 增推送与任务读写接口（工具与 HTTP 共用 `Schedules` 的校验）；启用 `SessionKind::Triggered` |
+| mic-gateway | P1.4、P3.2 接口；全局 SSE 改名 `/api/stream`；会话接口接受定时任务会话 |
+| Web | 通知中心、设置页默认推送 Channel、定时任务页；通知中心改订全局流；聊天页支持任务会话 |
 | 微信 | 无代码改动；私聊会话约定（总则三）写入其 B2 |
 | 文档 | mic-core-module 删「功能模块 crate」一行；[10-19 审计](../brainstorm/over-design-audit-2026-10-19.md) C 组由本 B2 消费 |
 

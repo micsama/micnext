@@ -31,12 +31,18 @@ pub struct Schedule {
     /// 已校验的规则原文（cron 或一次性本地时刻）。
     pub rule: String,
     pub prompt: String,
-    pub enabled: bool,
+    /// 下次应触发时刻；空即停用（含暂停、一次性已触发）。
+    pub next_run_at: Option<i64>,
     pub paused_reason: Option<String>,
-    pub active_since: i64,
     pub session_id: SessionId,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+impl Schedule {
+    pub fn enabled(&self) -> bool {
+        self.next_run_at.is_some()
+    }
 }
 
 /// 新任务；任务会话的设置拷自调用会话。
@@ -49,16 +55,18 @@ pub struct NewSchedule {
     pub persona: PersonaId,
     pub model: Option<ModelId>,
     pub reasoning_effort: Option<ReasoningEffort>,
+    pub next_run_at: i64,
     pub at: i64,
 }
 
-/// 只改给出的字段；改规则或重新启用时 `active_since` 置为当前，启用同时清暂停原因。
+/// 只改给出的字段。`next_run_at`：`None` 不动，`Some(None)` 停用，`Some(Some(t))` 从 t 起；
+/// 给出时同时清暂停原因。
 #[derive(Default)]
 pub struct ScheduleEdit {
     pub name: Option<String>,
     pub rule: Option<String>,
     pub prompt: Option<String>,
-    pub enabled: Option<bool>,
+    pub next_run_at: Option<Option<i64>>,
 }
 
 /// 一次触发的结局，由触发行与触发消息所在 run 推导。
@@ -111,12 +119,12 @@ pub enum FireResult {
     Busy,
     /// 已写入的消息（可能先有 `/compact`，最后是 `Trigger`），按 id 升序。
     Fired(Vec<Message>),
-    /// 任务已删除或停用。
+    /// 任务已删除，或 `next_run_at` 已被改动。
     Gone,
 }
 
-const SCHEDULE_COLS: &str = "id, person_id, name, rule, prompt, enabled, paused_reason,
-     active_since, session_id, created_at, updated_at";
+const SCHEDULE_COLS: &str =
+    "id, person_id, name, rule, prompt, next_run_at, paused_reason, session_id, created_at, updated_at";
 
 /// `f` 为 core_schedule_fires 别名；列序同 `fire`。
 const FIRE_SELECT: &str = "
@@ -134,12 +142,11 @@ fn schedule(row: &Row<'_>) -> rusqlite::Result<Schedule> {
         name: row.get(2)?,
         rule: row.get(3)?,
         prompt: row.get(4)?,
-        enabled: row.get(5)?,
+        next_run_at: row.get(5)?,
         paused_reason: row.get(6)?,
-        active_since: row.get(7)?,
-        session_id: SessionId(row.get(8)?),
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        session_id: SessionId(row.get(7)?),
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
     })
 }
 
@@ -209,9 +216,17 @@ impl Store {
             )?;
             tx.execute(
                 "INSERT INTO core_schedules
-                   (person_id, name, rule, prompt, enabled, active_since, session_id, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?5, ?5)",
-                params![new.person.0, new.name, new.rule, new.prompt, new.at, session.id.0],
+                   (person_id, name, rule, prompt, next_run_at, session_id, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+                params![
+                    new.person.0,
+                    new.name,
+                    new.rule,
+                    new.prompt,
+                    new.next_run_at,
+                    session.id.0,
+                    new.at
+                ],
             )?;
             let id = ScheduleId(tx.last_insert_rowid());
             tx.execute(
@@ -237,9 +252,6 @@ impl Store {
             let Some(old) = read_schedule(&tx, id)? else {
                 return Ok(None);
             };
-            let rule_changed = edit.rule.as_ref().is_some_and(|r| *r != old.rule);
-            let enabled = edit.enabled.unwrap_or(old.enabled);
-            let restart = rule_changed || (enabled && !old.enabled);
             if let Some(name) = &edit.name {
                 tx.execute(
                     "UPDATE core_sessions SET title = ?2 WHERE id = ?1",
@@ -247,18 +259,16 @@ impl Store {
                 )?;
             }
             tx.execute(
-                "UPDATE core_schedules SET name = ?2, rule = ?3, prompt = ?4, enabled = ?5,
-                   paused_reason = CASE WHEN ?6 THEN NULL ELSE paused_reason END,
-                   active_since = CASE WHEN ?7 THEN ?8 ELSE active_since END, updated_at = ?8
+                "UPDATE core_schedules SET name = ?2, rule = ?3, prompt = ?4, next_run_at = ?5,
+                   paused_reason = CASE WHEN ?6 THEN NULL ELSE paused_reason END, updated_at = ?7
                  WHERE id = ?1",
                 params![
                     id.0,
                     edit.name.unwrap_or(old.name),
                     edit.rule.unwrap_or(old.rule),
                     edit.prompt.unwrap_or(old.prompt),
-                    enabled,
-                    edit.enabled == Some(true),
-                    restart,
+                    edit.next_run_at.unwrap_or(old.next_run_at),
+                    edit.next_run_at.is_some(),
                     at,
                 ],
             )?;
@@ -294,17 +304,15 @@ impl Store {
         .await
     }
 
-    /// 全部启用的任务，连同最后一行触发的 `due_at`。
-    pub async fn enabled_schedules(&self) -> Result<Vec<(Schedule, Option<i64>)>, StoreError> {
+    /// 全部启用的任务。
+    pub async fn enabled_schedules(&self) -> Result<Vec<Schedule>, StoreError> {
         self.call(move |conn| {
             Ok(conn
                 .prepare(&format!(
-                    "SELECT {SCHEDULE_COLS},
-                       (SELECT due_at FROM core_schedule_fires f WHERE f.schedule_id = s.id
-                        ORDER BY f.id DESC LIMIT 1)
-                     FROM core_schedules s WHERE enabled = 1 ORDER BY id"
+                    "SELECT {SCHEDULE_COLS} FROM core_schedules
+                     WHERE next_run_at IS NOT NULL ORDER BY id"
                 ))?
-                .query_map([], |r| Ok((schedule(r)?, r.get(11)?)))?
+                .query_map([], schedule)?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })
         .await
@@ -354,21 +362,30 @@ impl Store {
         .await
     }
 
-    /// 停机期间错过的触发合并为一行；`due_at` 为最后一次。
+    /// 迟到超出宽限的触发合并为一行（`last_due` 为最后一次），同事务把 `next_run_at` 从
+    /// `due` 移到 `next`。`next_run_at` 已不是 `due`（被改动或删除）返回 `None`。
     pub async fn record_missed(
         &self,
         id: ScheduleId,
-        due_at: i64,
+        due: i64,
+        last_due: i64,
         count: u32,
-    ) -> Result<Fire, StoreError> {
+        next: Option<i64>,
+    ) -> Result<Option<Fire>, StoreError> {
         self.call(move |conn| {
-            conn.execute(
+            let tx = conn.transaction()?;
+            if !advance(&tx, id, due, next)? {
+                return Ok(None);
+            }
+            tx.execute(
                 "INSERT INTO core_schedule_fires (schedule_id, due_at, skipped, missed_count)
                  VALUES (?1, ?2, 'missed', ?3)",
-                params![id.0, due_at, count],
+                params![id.0, last_due, count],
             )?;
-            let fire_id = conn.last_insert_rowid();
-            Ok(conn.query_row(&format!("{FIRE_SELECT} WHERE f.id = ?1"), [fire_id], fire)?)
+            let fire_id = tx.last_insert_rowid();
+            let fire = tx.query_row(&format!("{FIRE_SELECT} WHERE f.id = ?1"), [fire_id], fire)?;
+            tx.commit()?;
+            Ok(Some(fire))
         })
         .await
     }
@@ -382,7 +399,7 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.call(move |conn| {
             conn.execute(
-                "UPDATE core_schedules SET enabled = 0, paused_reason = ?2, updated_at = ?3
+                "UPDATE core_schedules SET next_run_at = NULL, paused_reason = ?2, updated_at = ?3
                  WHERE id = ?1",
                 params![id.0, reason, at],
             )?;
@@ -391,26 +408,23 @@ impl Store {
         .await
     }
 
-    /// 到点：检查忙、按需先追加 `/compact`、追加 `Trigger` 并写触发行，同一事务。
-    /// `once` 为一次性规则，触发后停用。
+    /// 到点：检查忙、按需先追加 `/compact`、追加 `Trigger` 并写触发行，同事务把
+    /// `next_run_at` 从 `due_at` 移到 `next`（一次性规则为空，即停用）。
     pub async fn fire_schedule(
         &self,
         id: ScheduleId,
         due_at: i64,
+        next: Option<i64>,
         compact: bool,
-        once: bool,
         at: i64,
     ) -> Result<FireResult, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
-            let Some(s) = read_schedule(&tx, id)?.filter(|s| s.enabled) else {
+            let Some(s) = read_schedule(&tx, id)? else {
                 return Ok(FireResult::Gone);
             };
-            if once {
-                tx.execute(
-                    "UPDATE core_schedules SET enabled = 0, updated_at = ?2 WHERE id = ?1",
-                    params![id.0, at],
-                )?;
+            if !advance(&tx, id, due_at, next)? {
+                return Ok(FireResult::Gone);
             }
             let result = if busy(&tx, s.session_id)? {
                 tx.execute(
@@ -453,6 +467,19 @@ impl Store {
         })
         .await
     }
+}
+
+/// `next_run_at` 仍为 `due` 时移到 `next`；否则（被改动或删除）返回 false。
+fn advance(
+    tx: &Transaction<'_>,
+    id: ScheduleId,
+    due: i64,
+    next: Option<i64>,
+) -> rusqlite::Result<bool> {
+    Ok(tx.execute(
+        "UPDATE core_schedules SET next_run_at = ?3 WHERE id = ?1 AND next_run_at = ?2",
+        params![id.0, due, next],
+    )? > 0)
 }
 
 /// 会话有执行中的 run 或非 held 未认领输入。

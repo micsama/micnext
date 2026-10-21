@@ -31,10 +31,6 @@ impl Rule {
             .map_err(|e| format!("invalid cron expression: {e}"))
     }
 
-    pub(crate) fn is_once(&self) -> bool {
-        matches!(self, Self::Once(_))
-    }
-
     /// 严格晚于 `after` 的下一次时刻（unix 毫秒）。croner 保留输入的亚秒部分，
     /// 故先取整到秒，结果才落在整点上。
     pub(crate) fn next_after(&self, after: i64) -> Option<i64> {

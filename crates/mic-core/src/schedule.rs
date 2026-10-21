@@ -9,16 +9,15 @@ use std::time::Duration;
 
 use mic_message::{MessageBody, PersonId, ReplyBlock, SessionId};
 use mic_store::{
-    Fire, FireOutcome, FireResult, RunId, Schedule, ScheduleEdit, Store, StoreError,
-    SCHEDULE_MODULE,
+    Fire, FireOutcome, FireResult, RunId, Schedule, Store, StoreError, SCHEDULE_MODULE,
 };
 use mic_tool::ToolHandle;
 use tokio::sync::{mpsc, Notify};
 
 use crate::event::Events;
 use crate::limits::{
-    SCHEDULE_COMPACT_PERCENT, SCHEDULE_FAIL_PAUSE, SCHEDULE_MISSED_SCAN, SCHEDULE_RUN_TIMEOUT,
-    SCHEDULE_TICK_MAX,
+    SCHEDULE_COMPACT_PERCENT, SCHEDULE_FAIL_PAUSE, SCHEDULE_LATE_GRACE, SCHEDULE_MISSED_SCAN,
+    SCHEDULE_RUN_TIMEOUT, SCHEDULE_TICK_MAX,
 };
 use crate::push::Pushes;
 use crate::run::{now_ms, Engine};
@@ -28,7 +27,7 @@ pub(crate) use rule::Rule;
 /// 任务会话的渠道说明。
 pub(crate) const CHANNEL_PROMPT: &str = "This session belongs to a scheduled task. A trigger message is a run of the task: the user is probably not watching and your replies do not reach them, so deliver anything they should know with push, written to stand on its own; if nothing needs reporting, finish briefly. If necessary information is missing, do not guess or act on it; ask via push instead. Earlier runs stay in this session; act on the latest trigger. Messages from the user are the user talking to you here; answer them as usual.";
 
-/// 错过次数触到扫描上限后，只在停机前这段时间里找最后一次。
+/// 错过次数触到扫描上限后，只在醒来前这段时间里找最后一次。
 const MISSED_TAIL_MS: i64 = 24 * 3600 * 1000;
 
 /// 连续失败判定往回看的触发数（「忙」「已停止」不计入）。
@@ -66,7 +65,7 @@ impl Schedules {
         tools::handles(self, session)
     }
 
-    /// 任务增改删后重算下一时刻。
+    /// 任务增改删后唤醒调度循环。
     fn changed(&self) {
         self.changed.notify_one();
     }
@@ -98,7 +97,7 @@ impl Schedules {
             .take(SCHEDULE_FAIL_PAUSE)
             .filter(|f| f.outcome.is_failure())
             .count();
-        if streak == SCHEDULE_FAIL_PAUSE && schedule.enabled {
+        if streak == SCHEDULE_FAIL_PAUSE && schedule.enabled() {
             self.store
                 .pause_schedule(
                     schedule.id,
@@ -154,13 +153,13 @@ impl Schedules {
         })
     }
 
-    /// 到点：上下文占用高时先压缩；忙则只记一行。
+    /// 到点：上下文占用高时先压缩；忙则只记一行。`next_run_at` 前移到 `next`。
     async fn fire(
         &self,
         engine: &Engine,
         schedule: &Schedule,
-        rule: &Rule,
         due: i64,
+        next: Option<i64>,
     ) -> Result<(), StoreError> {
         let session = self
             .store
@@ -173,7 +172,7 @@ impl Schedules {
         let publish = self.events.publisher().await;
         let result = self
             .store
-            .fire_schedule(schedule.id, due, compact, rule.is_once(), now_ms())
+            .fire_schedule(schedule.id, due, next, compact, now_ms())
             .await?;
         if let FireResult::Fired(messages) = result {
             for message in messages {
@@ -206,58 +205,54 @@ async fn drive(engine: Arc<Engine>, boot: i64) -> Result<Infallible, StoreError>
     for fire in store.fires_interrupted_since(boot).await? {
         schedules.report(fire).await?;
     }
-    let mut cursor = now_ms();
-    for (schedule, last) in store.enabled_schedules().await? {
-        let rule = Rule::parse(&schedule.rule).expect("写入时已校验");
-        let mut t = last
-            .unwrap_or(schedule.active_since)
-            .max(schedule.active_since);
-        let (mut count, mut due) = (0, None);
-        while let Some(n) = rule.next_after(t).filter(|n| *n <= cursor) {
-            (count, due, t) = (count + 1, Some(n), n);
-            if count >= SCHEDULE_MISSED_SCAN {
-                // 触到上限的规则必然很密，最后一次落在停机前一天内。
-                t = t.max(cursor - MISSED_TAIL_MS);
-            }
-        }
-        let Some(due) = due else { continue };
-        let fire = store.record_missed(schedule.id, due, count).await?;
-        if rule.is_once() {
-            let edit = ScheduleEdit {
-                enabled: Some(false),
-                ..Default::default()
-            };
-            store.update_schedule(schedule.id, edit, now_ms()).await?;
-        }
-        schedules.report(fire).await?;
-    }
     loop {
         let now = now_ms();
-        let mut next: Option<i64> = None;
-        for (schedule, _) in store.enabled_schedules().await? {
-            let rule = Rule::parse(&schedule.rule).expect("写入时已校验");
-            let mut t = cursor.max(schedule.active_since);
-            let mut due = None;
-            while let Some(n) = rule.next_after(t) {
-                if n > now {
-                    next = Some(next.map_or(n, |m| m.min(n)));
-                    break;
-                }
-                (due, t) = (Some(n), n);
+        let mut wake: Option<i64> = None;
+        for schedule in store.enabled_schedules().await? {
+            let due = schedule.next_run_at.expect("启用任务有下次时刻");
+            if due > now {
+                wake = Some(wake.map_or(due, |w| w.min(due)));
+                continue;
             }
-            if let Some(due) = due {
-                schedules.fire(&engine, &schedule, &rule, due).await?;
+            let rule = Rule::parse(&schedule.rule).expect("写入时已校验");
+            let next = rule.next_after(now);
+            if now - due <= SCHEDULE_LATE_GRACE.as_millis() as i64 {
+                schedules.fire(&engine, &schedule, due, next).await?;
+            } else {
+                let (last, count) = missed(&rule, due, now);
+                if let Some(fire) = store
+                    .record_missed(schedule.id, due, last, count, next)
+                    .await?
+                {
+                    schedules.report(fire).await?;
+                }
+            }
+            if let Some(n) = next {
+                wake = Some(wake.map_or(n, |w| w.min(n)));
             }
         }
-        cursor = now;
-        let wait = next.map_or(SCHEDULE_TICK_MAX, |n| {
-            Duration::from_millis((n - now_ms()).max(0) as u64).min(SCHEDULE_TICK_MAX)
+        let wait = wake.map_or(SCHEDULE_TICK_MAX, |w| {
+            Duration::from_millis((w - now_ms()).max(0) as u64).min(SCHEDULE_TICK_MAX)
         });
         tokio::select! {
             () = tokio::time::sleep(wait) => {}
             () = schedules.changed.notified() => {}
         }
     }
+}
+
+/// `[due, now]` 内按规则应触发的最后一次与次数（含 `due`）。
+fn missed(rule: &Rule, due: i64, now: i64) -> (i64, u32) {
+    let (mut last, mut count) = (due, 1);
+    let mut t = due;
+    while let Some(n) = rule.next_after(t).filter(|n| *n <= now) {
+        (last, count, t) = (n, count + 1, n);
+        if count >= SCHEDULE_MISSED_SCAN {
+            // 触到上限的规则必然很密，最后一次落在醒来前一天内。
+            t = t.max(now - MISSED_TAIL_MS);
+        }
+    }
+    (last, count)
 }
 
 /// run 最后一条带正文的回复的首段。

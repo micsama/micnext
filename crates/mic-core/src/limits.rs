@@ -57,7 +57,9 @@ pub(crate) const SCHEDULE_RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 pub(crate) const SCHEDULE_FAIL_PAUSE: usize = 3;
 /// `schedules` 查看单个任务时列出的触发数。
 pub(crate) const SCHEDULE_FIRES_SHOWN: u32 = 10;
+/// 到点后迟于此即记为错过，不再执行。
+pub(crate) const SCHEDULE_LATE_GRACE: Duration = Duration::from_secs(30);
 /// 调度循环至少这么频繁对一次墙钟，免受系统休眠与改时影响。
 pub(crate) const SCHEDULE_TICK_MAX: Duration = Duration::from_secs(60);
-/// 补记错过时最多枚举的次数。
+/// 合并错过时最多枚举的次数。
 pub(crate) const SCHEDULE_MISSED_SCAN: u32 = 100_000;

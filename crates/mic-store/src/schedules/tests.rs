@@ -24,6 +24,7 @@ async fn check() {
             persona,
             model: None,
             reasoning_effort: None,
+            next_run_at: 100,
             at: 0,
         })
         .await
@@ -32,8 +33,16 @@ async fn check() {
     let title = store.session_summary(session).await.unwrap().unwrap().title;
     assert_eq!(title.as_deref(), Some("早报"), "会话标题即任务名");
 
+    // next_run_at 已不是该时刻（被改动）则不触发。
+    assert!(matches!(
+        store
+            .fire_schedule(s.id, 99, None, false, 100)
+            .await
+            .unwrap(),
+        FireResult::Gone
+    ));
     let FireResult::Fired(messages) = store
-        .fire_schedule(s.id, 100, true, true, 100)
+        .fire_schedule(s.id, 100, None, true, 100)
         .await
         .unwrap()
     else {
@@ -41,7 +50,7 @@ async fn check() {
     };
     assert_eq!(messages.len(), 2);
     let disabled = store.schedule(s.id).await.unwrap().unwrap();
-    assert!(!disabled.enabled, "一次性触发后停用");
+    assert!(!disabled.enabled(), "一次性触发后停用");
     let user = MessageBody::UserInput {
         person: owner,
         parts: vec![ContentPart::Text {
@@ -71,17 +80,25 @@ async fn check() {
 
     // 执行中再到点只记「忙」。
     let enable = ScheduleEdit {
-        enabled: Some(true),
+        next_run_at: Some(Some(106)),
         ..Default::default()
     };
     store.update_schedule(s.id, enable, 105).await.unwrap();
     assert!(matches!(
         store
-            .fire_schedule(s.id, 106, false, false, 106)
+            .fire_schedule(s.id, 106, Some(166), false, 106)
             .await
             .unwrap(),
         FireResult::Busy
     ));
+    let missed = store
+        .record_missed(s.id, 166, 286, 3, Some(346))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(missed.outcome, FireOutcome::Missed { count: 3 });
+    let after = store.schedule(s.id).await.unwrap().unwrap();
+    assert_eq!(after.next_run_at, Some(346), "触发与错过都前移下次时刻");
 
     store
         .finish_run(trigger.run.id, RunState::ProviderFailed, None, 107)
@@ -94,5 +111,12 @@ async fn check() {
         .iter()
         .map(|f| f.outcome)
         .collect();
-    assert_eq!(outcomes, [FireOutcome::Busy, FireOutcome::Failed]);
+    assert_eq!(
+        outcomes,
+        [
+            FireOutcome::Missed { count: 3 },
+            FireOutcome::Busy,
+            FireOutcome::Failed
+        ]
+    );
 }

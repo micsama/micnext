@@ -41,34 +41,29 @@ fn non_empty(field: &str, value: Option<String>) -> Result<Option<String>, ToolE
     }
 }
 
-/// 写入前校验规则；一次性时刻须在将来。
-fn checked_rule(when: Option<String>) -> Result<Option<String>, ToolError> {
+/// 写入前校验规则，连同 now 之后的下一次；一次性时刻须在将来。
+fn checked_rule(when: Option<String>) -> Result<Option<(String, i64)>, ToolError> {
     let Some(when) = non_empty("when", when)? else {
         return Ok(None);
     };
     let rule = Rule::parse(&when).map_err(ToolError::input)?;
-    if rule.next_after(now_ms()).is_none() {
-        return Err(ToolError::input("that time has already passed"));
-    }
-    Ok(Some(when))
+    let next = upcoming(&rule)?;
+    Ok(Some((when, next)))
+}
+
+fn upcoming(rule: &Rule) -> Result<i64, ToolError> {
+    rule.next_after(now_ms())
+        .ok_or_else(|| ToolError::input("that time has already passed; give a new when"))
 }
 
 /// 一行概要：编号、名字、规则、启停、下次运行。
 fn summary(s: &Schedule) -> String {
-    let state = match (&s.paused_reason, s.enabled) {
+    let state = match (&s.paused_reason, s.enabled()) {
         (_, true) => "enabled".to_owned(),
         (Some(reason), false) => format!("paused by the system: {reason}"),
         (None, false) => "disabled".to_owned(),
     };
-    let next = s
-        .enabled
-        .then(|| {
-            Rule::parse(&s.rule)
-                .expect("写入时已校验")
-                .next_after(now_ms())
-        })
-        .flatten()
-        .map_or("none".to_owned(), rule::show_zoned);
+    let next = s.next_run_at.map_or("none".to_owned(), rule::show_zoned);
     format!(
         "#{} \"{}\" | when: {} | {state} | next: {next}",
         s.id.0, s.name, s.rule
@@ -129,7 +124,7 @@ impl Tool for Edit {
         let rule = checked_rule(args.when)?;
         let schedule = match args.id.map(ScheduleId) {
             None => {
-                let (Some(name), Some(rule), Some(prompt)) = (name, rule, prompt) else {
+                let (Some(name), Some((rule, next)), Some(prompt)) = (name, rule, prompt) else {
                     return Err(ToolError::input(
                         "name, when and prompt are required to create a task",
                     ));
@@ -152,6 +147,7 @@ impl Tool for Edit {
                         persona: session.persona_id,
                         model: session.model_id,
                         reasoning_effort: session.reasoning_effort,
+                        next_run_at: next,
                         at: now_ms(),
                     })
                     .await
@@ -179,11 +175,28 @@ impl Tool for Edit {
                 return Err(ToolError::input("nothing to update"));
             }
             Some(id) => {
+                let old = store
+                    .schedule(id)
+                    .await
+                    .map_err(store_error)?
+                    .ok_or_else(|| no_such(id))?;
+                // 停用置空；重新启用或启用中改规则，从 now 往后算。
+                let next_run_at = match (args.enabled, &rule) {
+                    (Some(false), _) => old.enabled().then_some(None),
+                    (Some(true), _) if !old.enabled() => Some(Some(match &rule {
+                        Some((_, next)) => *next,
+                        None => upcoming(&Rule::parse(&old.rule).expect("写入时已校验"))?,
+                    })),
+                    (_, Some((when, next))) if old.enabled() && *when != old.rule => {
+                        Some(Some(*next))
+                    }
+                    _ => None,
+                };
                 let edit = ScheduleEdit {
                     name,
-                    rule,
+                    rule: rule.map(|(when, _)| when),
                     prompt,
-                    enabled: args.enabled,
+                    next_run_at,
                 };
                 store
                     .update_schedule(id, edit, now_ms())

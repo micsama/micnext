@@ -62,7 +62,42 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_SCHEDULES,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 19,
+        sql: CORE_SCHEDULE_NEXT,
+        secret_columns: &[],
+    },
 ];
+
+/// 调度以 `next_run_at` 为唯一真相，空即停用。旧任务是验收期数据，直接清空重建（任务会话保留）。
+const CORE_SCHEDULE_NEXT: &str = "
+DROP TABLE core_schedule_fires;
+DROP TABLE core_schedules;
+CREATE TABLE core_schedules (
+  id             INTEGER PRIMARY KEY,
+  person_id      INTEGER NOT NULL REFERENCES core_persons(id),
+  name           TEXT NOT NULL,
+  rule           TEXT NOT NULL,
+  prompt         TEXT NOT NULL,
+  next_run_at    INTEGER,
+  paused_reason  TEXT CHECK(paused_reason IS NULL OR next_run_at IS NULL),
+  session_id     INTEGER NOT NULL UNIQUE REFERENCES core_sessions(id),
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+CREATE TABLE core_schedule_fires (
+  id            INTEGER PRIMARY KEY,
+  schedule_id   INTEGER NOT NULL REFERENCES core_schedules(id) ON DELETE CASCADE,
+  due_at        INTEGER NOT NULL,
+  message_id    INTEGER REFERENCES core_messages(id),
+  skipped       TEXT CHECK(skipped IN ('missed', 'busy')),
+  missed_count  INTEGER,
+  CHECK((message_id IS NULL) <> (skipped IS NULL)),
+  CHECK((skipped = 'missed') = (missed_count IS NOT NULL))
+);
+CREATE INDEX idx_schedule_fires ON core_schedule_fires(schedule_id, id);
+";
 
 /// 定时任务与每次到点的触发；`Trigger` 是 run 输入。结局由触发消息所在 run 推导，不另存。
 const CORE_SCHEDULES: &str = "

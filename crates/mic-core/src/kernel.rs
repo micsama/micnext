@@ -446,7 +446,17 @@ impl Kernel {
     }
 
     pub async fn mark_delivered(&self, id: MessageId) -> Result<(), KernelError> {
-        Ok(self.store.mark_delivered(id, now_ms()).await?)
+        self.store.mark_delivered(id, now_ms()).await?;
+        if let Some((push_id, source)) = self.store.push_of_delivery(id).await? {
+            let session = self.store.session(source).await?.expect("来源会话存在");
+            let channel = session_channel(&self.store, &session).await?;
+            self.events.emit(
+                source,
+                &channel,
+                crate::KernelEventKind::PushDeliveryChanged { push_id },
+            );
+        }
+        Ok(())
     }
 
     /// 会话内的图片原件；id 可能来自外部，不属于该会话或不存在返回 `None`。
@@ -497,6 +507,40 @@ impl Kernel {
         self.check_reasoning(selection.model_id, selection.reasoning_effort)
             .await?;
         Ok(self.store.set_title_model(selection).await?)
+    }
+
+    fn schedule_operations(&self) -> Result<&crate::schedule::Schedules, crate::ScheduleError> {
+        self.engine
+            .schedules
+            .as_deref()
+            .ok_or(crate::ScheduleError::Unavailable)
+    }
+
+    pub async fn schedules(&self) -> Result<Vec<crate::ScheduleView>, KernelError> {
+        Ok(self.schedule_operations()?.list().await?)
+    }
+
+    pub async fn schedule_fires(
+        &self,
+        id: mic_store::ScheduleId,
+        before: Option<mic_store::FireId>,
+        limit: u32,
+    ) -> Result<crate::ScheduleFirePage, KernelError> {
+        Ok(self.schedule_operations()?.fires(id, before, limit).await?)
+    }
+
+    pub async fn update_schedule(
+        &self,
+        id: mic_store::ScheduleId,
+        edit: crate::ScheduleUpdate,
+    ) -> Result<crate::ScheduleView, KernelError> {
+        let operations = self.schedule_operations()?;
+        let schedule = operations.update(id, edit).await?;
+        Ok(operations.view(schedule).await?)
+    }
+
+    pub async fn delete_schedule(&self, id: mic_store::ScheduleId) -> Result<(), KernelError> {
+        Ok(self.schedule_operations()?.delete(id).await?)
     }
 
     /// 通知中心：新的在前。

@@ -15,8 +15,8 @@ use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
 use crate::update::{RestartRequest, Updater};
 use crate::{
-    api, backup, channels, context, jobs, log_stream, models, pushes, settings, sql, stream,
-    ticket, trace, update, web, DeveloperLogs,
+    api, backup, channels, context, global_stream, jobs, log_stream, models, pushes, schedules,
+    settings, sql, stream, ticket, trace, update, web, DeveloperLogs,
 };
 
 pub(crate) struct Gateway {
@@ -146,7 +146,13 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         )
         .route("/pushes", get(pushes::list))
         .route("/pushes/read", post(pushes::read))
-        .route("/pushes/stream-ticket", post(ticket::pushes_ticket))
+        .route("/stream-ticket", post(ticket::global_ticket))
+        .route("/schedules", get(schedules::list))
+        .route(
+            "/schedules/{id}",
+            axum::routing::patch(schedules::update).delete(schedules::delete),
+        )
+        .route("/schedules/{id}/fires", get(schedules::fires))
         .route("/model-kinds", get(models::list_kinds))
         .route(
             "/models",
@@ -196,7 +202,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         // 实时流由 EventSource 打开，带不了 Bearer，改认取票接口发的一次性票据。
         .route("/sessions/{id}/stream", get(stream::stream))
         .route("/developer/logs/stream", get(log_stream::stream))
-        .route("/pushes/stream", get(pushes::stream))
+        .route("/stream", get(global_stream::stream))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));
     let router = Router::new()
         .nest("/api", api)

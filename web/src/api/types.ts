@@ -100,6 +100,7 @@ export type Message = {
 };
 
 export type SessionItem = {
+  schedule: { id: number; name: string } | null;
   id: number;
   channel: string;
   created_at: number;
@@ -348,6 +349,7 @@ const messagePage: Decoder<MessagePage> = obj({ messages: arr(message), has_earl
 const reasoningEffort = oneOf("none", "minimal", "low", "medium", "high", "xhigh", "max");
 
 const sessionFields = {
+  schedule: nullable(obj({ id: num, name: str })),
   id: num,
   channel: str,
   created_at: num,

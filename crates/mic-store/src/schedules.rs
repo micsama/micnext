@@ -331,12 +331,22 @@ impl Store {
         id: ScheduleId,
         limit: u32,
     ) -> Result<Vec<Fire>, StoreError> {
+        self.schedule_fires_before(id, None, limit).await
+    }
+
+    /// 触发 id 游标分页，新的在前。
+    pub async fn schedule_fires_before(
+        &self,
+        id: ScheduleId,
+        before: Option<FireId>,
+        limit: u32,
+    ) -> Result<Vec<Fire>, StoreError> {
         self.call(move |conn| {
             Ok(conn
                 .prepare(&format!(
-                    "{FIRE_SELECT} WHERE f.schedule_id = ?1 ORDER BY f.id DESC LIMIT ?2"
+                    "{FIRE_SELECT} WHERE f.schedule_id = ?1 AND f.id < ?2 ORDER BY f.id DESC LIMIT ?3"
                 ))?
-                .query_map(params![id.0, limit], fire)?
+                .query_map(params![id.0, before.map_or(i64::MAX, |f| f.0), limit], fire)?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })
         .await

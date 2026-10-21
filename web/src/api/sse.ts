@@ -12,6 +12,7 @@ export async function readSse(
   events: readonly string[],
   signal: AbortSignal,
   onFrame: (event: string, data: string) => void,
+  onOpen?: () => void,
 ): Promise<void> {
   const ticket = await getStreamTicket(path);
   if (signal.aborted) return;
@@ -21,6 +22,7 @@ export async function readSse(
     await new Promise<void>((resolve, reject) => {
       signal.addEventListener("abort", () => resolve(), { once: true });
       source.onerror = () => resolve();
+      source.onopen = () => onOpen?.();
       for (const event of events)
         source.addEventListener(event, (e) => {
           try {

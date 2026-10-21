@@ -52,3 +52,5 @@ pub use provider::{
 pub use push::PushError;
 pub use request::{PromptBlock, PromptBlockKind, PromptPart, PromptPartKind, SystemPrompt};
 pub use title::TitleError;
+
+pub use schedule::{ScheduleError, ScheduleFirePage, ScheduleUpdate, ScheduleView};

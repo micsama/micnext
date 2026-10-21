@@ -1442,3 +1442,109 @@ async fn timeline_keeps_late_inputs_after_reply_and_through_compaction() {
         f.verify(&provider).await;
     }
 }
+
+#[tokio::test]
+async fn schedule_operations_publish_changes_and_delivery_updates() {
+    let f = Fixture::new().await;
+    assert!(matches!(
+        f.kernel.schedules().await,
+        Err(crate::KernelError::Schedule(
+            crate::ScheduleError::Unavailable
+        ))
+    ));
+    assert!(matches!(
+        f.kernel
+            .schedule_fires(mic_store::ScheduleId(1), None, 10)
+            .await,
+        Err(crate::KernelError::Schedule(
+            crate::ScheduleError::Unavailable
+        ))
+    ));
+    assert!(matches!(
+        f.kernel
+            .update_schedule(mic_store::ScheduleId(1), crate::ScheduleUpdate::default())
+            .await,
+        Err(crate::KernelError::Schedule(
+            crate::ScheduleError::Unavailable
+        ))
+    ));
+    assert!(matches!(
+        f.kernel.delete_schedule(mic_store::ScheduleId(1)).await,
+        Err(crate::KernelError::Schedule(
+            crate::ScheduleError::Unavailable
+        ))
+    ));
+    let (wake, _) = tokio::sync::mpsc::channel(1);
+    let schedules = crate::schedule::Schedules::new(
+        f.store.clone(),
+        f.engine.events.clone(),
+        Arc::new(crate::push::Pushes::new(
+            f.store.clone(),
+            f.engine.events.clone(),
+            Arc::default(),
+            f.owner,
+        )),
+        wake,
+        f.owner,
+    );
+    let mut events = f.kernel.subscribe();
+    let task = schedules
+        .create(
+            f.session.id,
+            "每日检查".into(),
+            "0 9 * * *".into(),
+            "检查后简短收尾".into(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(events.recv().await.unwrap().kind,
+        KernelEventKind::ScheduleChanged { schedule } if schedule == task.id));
+    assert!(matches!(
+        schedules
+            .update(task.id, crate::ScheduleUpdate::default())
+            .await,
+        Err(crate::ScheduleError::Invalid(_))
+    ));
+    schedules
+        .update(
+            task.id,
+            crate::ScheduleUpdate {
+                enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(matches!(events.recv().await.unwrap().kind,
+        KernelEventKind::ScheduleChanged { schedule } if schedule == task.id));
+
+    let (push_id, notices) = f
+        .store
+        .create_push(
+            mic_store::NewPush {
+                person: f.owner,
+                source_session: task.session_id,
+                source_run: None,
+                source_label: task.name.clone(),
+                text: "检查完毕".into(),
+                routes: vec![mic_store::PushRoute::Session {
+                    channel: "web".into(),
+                    session: f.session.id,
+                }],
+            },
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    f.kernel.mark_delivered(notices[0].id).await.unwrap();
+    assert!(matches!(events.recv().await.unwrap().kind,
+        KernelEventKind::PushDeliveryChanged { push_id: id } if id == push_id));
+    assert!(matches!(
+        f.kernel.pushes(None, 10).await.unwrap().pushes[0].deliveries[0].state,
+        mic_store::PushDeliveryState::Delivered { .. }
+    ));
+    schedules.delete(task.id).await.unwrap();
+    assert!(matches!(events.recv().await.unwrap().kind,
+        KernelEventKind::ScheduleChanged { schedule } if schedule == task.id));
+    assert!(f.kernel.session(task.session_id).await.unwrap().is_some());
+}

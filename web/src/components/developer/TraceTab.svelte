@@ -18,7 +18,7 @@
   import TraceCard from "./TraceCard.svelte";
 
   /** target 来自地址：侧栏选会话、浏览器前进后退都经它切换。 */
-  let { active, target }: { active: boolean; target: number | null } = $props();
+  let { active, target, runTarget }: { active: boolean; target: number | null; runTarget: number | null } = $props();
   let sessionUsage = $state.raw<SessionUsageView | null>(null);
   let usageError = $state<string | null>(null);
   let usageRefresh = $state(0);
@@ -121,6 +121,17 @@
     runs = page.runs;
     titleCalls = page.title_calls;
     nextAfter = page.next_after;
+    if (runTarget !== null) {
+      while (!runs.some(r => r.id === runTarget) && nextAfter !== null) {
+        const page = await guard(() => getTraceRuns(id, nextAfter));
+        if (!page || request !== pageRequest) return;
+        runs = [...runs, ...page.runs];
+        nextAfter = page.next_after;
+      }
+      const run = runs.find(r => r.id === runTarget);
+      if (run) { chooseRun(run); return; }
+      error = "该运行尚未结束，或已不存在";
+    }
     chooseSession();
   }
 
@@ -144,8 +155,10 @@
     }
   });
 
+  let previousRun: number | null | undefined;
   $effect(() => {
-    if (active && session !== null && target !== null && target !== session) void open(target);
+    if (active && session !== null && target !== null && (target !== session || runTarget !== previousRun)) void open(target);
+    previousRun = runTarget;
   });
 
   const failed = (c: TraceCall) => c.error !== null;

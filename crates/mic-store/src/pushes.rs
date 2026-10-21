@@ -1,7 +1,7 @@
 //! 推送：发给 person 的消息与各 IM 投递；每条都进 Web 通知中心。契约：docs/blueprints/scheduled-tasks.md P1。
 
-use mic_message::{Message, MessageBody, PersonId, SessionId};
-use rusqlite::{params, Connection};
+use mic_message::{Message, MessageBody, MessageId, PersonId, SessionId};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::messages::insert_message;
@@ -172,6 +172,42 @@ impl Store {
                 has_more,
                 unread,
             })
+        })
+        .await
+    }
+
+    /// 投递消息关联的推送与来源会话。
+    pub async fn push_of_delivery(
+        &self,
+        message: MessageId,
+    ) -> Result<Option<(PushId, SessionId)>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT p.id, p.source_session_id FROM core_push_deliveries d
+                 JOIN core_pushes p ON p.id = d.push_id WHERE d.message_id = ?1",
+                    [message.0],
+                    |r| Ok((PushId(r.get(0)?), SessionId(r.get(1)?))),
+                )
+                .optional()?)
+        })
+        .await
+    }
+
+    /// 一次 run 的推送及投递事实。
+    pub async fn run_pushes(
+        &self,
+        run: RunId,
+    ) -> Result<Vec<(PushId, Vec<PushDelivery>)>, StoreError> {
+        self.call(move |conn| {
+            let ids = conn
+                .prepare("SELECT id FROM core_pushes WHERE source_run_id = ?1 ORDER BY id")?
+                .query_map([run.0], |r| Ok(PushId(r.get(0)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(ids
+                .into_iter()
+                .map(|id| Ok((id, deliveries(conn, id)?)))
+                .collect::<rusqlite::Result<Vec<_>>>()?)
         })
         .await
     }

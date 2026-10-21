@@ -1,5 +1,5 @@
 use mic_message::{Message, SessionId};
-use mic_store::{PushId, RunId, RunState};
+use mic_store::{PushId, RunId, RunState, ScheduleId};
 use std::sync::Arc;
 
 use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
@@ -18,6 +18,12 @@ pub struct KernelEvent {
 
 #[derive(Debug, Clone)]
 pub enum KernelEventKind {
+    ScheduleChanged {
+        schedule: ScheduleId,
+    },
+    PushDeliveryChanged {
+        push_id: PushId,
+    },
     SessionTitleChanged,
     /// 一次执行开始（已认领）。
     RunStarted {

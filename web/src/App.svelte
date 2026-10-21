@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SchedulesView from "./components/SchedulesView.svelte";
+  import { globalStream } from "./state/global-stream.svelte";
   import TraceView from "./components/developer/TraceView.svelte";
   import ChatView from "./components/ChatView.svelte";
   import NewChat from "./components/NewChat.svelte";
@@ -32,7 +34,7 @@
 
   $effect(() => {
     if (!auth.token) return;
-    return pushCenter.start();
+    return globalStream.start();
   });
 
   $effect(() => {
@@ -63,9 +65,11 @@
     <Sidebar activeSession={view?.info ?? null} executingRun={view?.executingRun ?? null} />
     <main class="flex min-w-0 flex-1 flex-col">
       {#if router.current.kind === "trace"}
-        <TraceView target={router.current.id} />
+        <TraceView target={router.current.id} runTarget={router.current.run} />
       {:else if router.current.kind === "new"}
         <NewChat />
+      {:else if router.current.kind === "schedules"}
+        <SchedulesView />
       {:else if router.current.kind === "settings"}
         <SettingsView />
       {:else if router.current.kind === "developer"}

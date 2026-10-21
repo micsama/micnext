@@ -1,6 +1,8 @@
 //! 定时任务：调度循环、结局通知与自动暂停。契约：docs/blueprints/scheduled-tasks.md P2。
 
+mod operations;
 mod rule;
+pub use operations::{ScheduleError, ScheduleFirePage, ScheduleUpdate, ScheduleView};
 mod tools;
 
 use std::convert::Infallible;
@@ -72,10 +74,15 @@ impl Schedules {
 
     /// 任务会话的 run 收尾后：触发 run 的系统级失败即通知。
     pub(crate) async fn settled(&self, run: RunId) -> Result<(), StoreError> {
-        match self.store.fire_of_run(run).await? {
-            Some(fire) if fire.outcome.is_failure() => self.report(fire).await,
-            _ => Ok(()),
+        if let Some(fire) = self.store.fire_of_run(run).await? {
+            if fire.outcome.is_failure() {
+                self.report(fire.clone()).await?;
+            }
+            if let Some(schedule) = self.store.schedule(fire.schedule_id).await? {
+                self.publish_changed(&schedule);
+            }
         }
+        Ok(())
     }
 
     /// 框架推送「定时任务 X：结局与原因」；连续失败达到上限则一并暂停。
@@ -106,6 +113,7 @@ impl Schedules {
                 )
                 .await?;
             self.changed();
+            self.publish_changed(&schedule);
             text.push_str(&format!(
                 "已连续 {SCHEDULE_FAIL_PAUSE} 次失败，任务已暂停；排除问题后可在对话里让 agent 重新启用。"
             ));
@@ -174,6 +182,9 @@ impl Schedules {
             .store
             .fire_schedule(schedule.id, due, next, compact, now_ms())
             .await?;
+        if !matches!(result, FireResult::Gone) {
+            self.publish_changed(schedule);
+        }
         if let FireResult::Fired(messages) = result {
             for message in messages {
                 publish.appended(session.id, SCHEDULE_MODULE, message);
@@ -225,6 +236,7 @@ async fn drive(engine: Arc<Engine>, boot: i64) -> Result<Infallible, StoreError>
                     .await?
                 {
                     schedules.report(fire).await?;
+                    schedules.publish_changed(&schedule);
                 }
             }
             if let Some(n) = next {

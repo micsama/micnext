@@ -20,7 +20,8 @@
 
   const item = $derived(view.info);
 
-  const title = $derived(item?.title ?? item?.preview ?? `会话 ${view.id}`);
+  const scheduled = $derived(item?.channel === "schedule");
+  const title = $derived(scheduled ? `定时任务 · ${item?.schedule?.name ?? item?.title ?? "已删除任务"}` : item?.title ?? item?.preview ?? `会话 ${view.id}`);
   const titleBusy = $derived(view.requestingTitle || !!item?.title_generating);
   const titleError = $derived(view.titleActionError ?? view.titleSyncError ?? (titleBusy ? null : item?.title_error));
   const detail = $derived(item ? `${item.workdir} · ${item.channel}` : undefined);
@@ -92,7 +93,7 @@
   const pickedNotice = $derived(pickedDuringRun ? "已切换，下一轮生效" : null);
   const readonlyNotice = $derived(modelNotice ?? pickedNotice);
   const notice = $derived(
-    modelNotice ?? (persona?.replaced ? "原人设已删除，下一轮改用默认人设" : null) ?? pickedNotice,
+    modelNotice ?? (!scheduled && persona?.replaced ? "原人设已删除，下一轮改用默认人设" : null) ?? pickedNotice,
   );
 </script>
 
@@ -104,12 +105,15 @@
 
 <Header {title} {detail}>
   {#snippet detailActions()}
+    {#if scheduled}<button type="button" class="shrink-0 text-primary hover:underline" onclick={() => router.go("/schedules")}>定时任务</button>{/if}
     <button type="button" class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 text-primary hover:bg-accent" onclick={() => router.go(`/s/${view.id}/trace`)} title="查看当前会话的 Trace"><Icon name="sparkles" class="size-3" />Trace</button>
   {/snippet}
   {#snippet actions()}
+    {#if !scheduled}
     <button type="button" aria-label="重新生成标题" title={titleBusy ? "正在生成标题" : "重新生成标题"} disabled={titleBusy || !view.ready || !!view.fatal || item?.archived_at != null} onclick={() => view.regenerateTitle()} class="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">
       <Icon name={titleBusy ? "loader" : "refresh"} class="size-3.5 {titleBusy ? 'animate-spin' : ''}" />
     </button>
+    {/if}
   {/snippet}
 </Header>
 {#if titleError}<p role="alert" class="border-b border-border px-4 py-2 text-xs text-destructive">标题生成：{titleError}</p>{/if}
@@ -129,7 +133,7 @@
   {#if item?.writable && item.archived_at === null}
     <Composer onsend={send} autofocus bind:reply={view.reply} {notice} dock={view.jobs.length > 0 ? jobsDock : undefined} blocked={modelSaving} onstop={view.executingRun === null ? undefined : () => view.stop()} stopping={view.stopping !== null} trailing={modelControls}>
       {#snippet leading()}
-        <PersonaPicker value={persona!.id} onpick={pick} />
+        {#if !scheduled}<PersonaPicker value={persona!.id} onpick={pick} />{/if}
       {/snippet}
     </Composer>
   {:else if item}

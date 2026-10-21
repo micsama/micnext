@@ -52,6 +52,12 @@ impl From<ChannelSetupError> for ApiError {
 impl From<KernelError> for ApiError {
     fn from(e: KernelError) -> Self {
         match e {
+            KernelError::Schedule(error) => match error {
+                mic_core::ScheduleError::Unavailable => Self::Unavailable(error.to_string()),
+                mic_core::ScheduleError::NotFound => Self::NotFound("定时任务不存在"),
+                mic_core::ScheduleError::Invalid(reason) => Self::Unprocessable(reason),
+                mic_core::ScheduleError::Store(e) => Self::Internal(e.into()),
+            },
             KernelError::Title(error) => match error {
                 mic_core::TitleError::NotRoot => Self::Forbidden(error.to_string()),
                 mic_core::TitleError::Generating => Self::Conflict(error.to_string()),

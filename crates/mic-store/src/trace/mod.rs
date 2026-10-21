@@ -583,6 +583,28 @@ fn trace_message(m: Message) -> TraceMessage {
 }
 
 impl Store {
+    /// 全部历史触发 run 的调用合计。
+    pub async fn schedule_usage(
+        &self,
+        schedule: crate::ScheduleId,
+    ) -> Result<CallStat, StoreError> {
+        self.call(move |conn| {
+            let calls = load_calls(
+                conn,
+                "c.run_id IN (SELECT m.run_id FROM core_schedule_fires f
+                 JOIN core_messages m ON m.id = f.message_id WHERE f.schedule_id = ?1)",
+                schedule.0,
+            )?;
+            let mut stat = CallStat::default();
+            for call in &calls {
+                stat.add(call);
+            }
+            stat.avg_ms = mean(&stat.ok_ms);
+            Ok(stat)
+        })
+        .await
+    }
+
     /// 所有已记录调用，包括重试、压缩、标题；整树递归含归档、隐藏后代。
     pub async fn session_usage(&self, session: SessionId) -> Result<SessionUsageView, StoreError> {
         self.call(move |conn| {

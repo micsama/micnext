@@ -3,18 +3,15 @@
 use std::sync::Arc;
 
 use mic_message::{ContentPart, SessionId};
-use mic_store::{FireOutcome, NewSchedule, Schedule, ScheduleEdit, ScheduleId, Store, StoreError};
+use mic_store::{FireOutcome, Schedule, ScheduleId, StoreError};
 use mic_tool::{Tool, ToolContext, ToolError, ToolHandle, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use super::rule::{self, Rule};
-use super::{final_paragraph, Schedules};
+use super::operations::{ScheduleError, ScheduleUpdate};
+use super::rule;
+use super::Schedules;
 use crate::limits::SCHEDULE_FIRES_SHOWN;
-use crate::run::now_ms;
-
-/// 触发列表里回复首段的字符上限。
-const PARAGRAPH_CHARS: usize = 200;
 
 pub(super) fn handles(schedules: &Arc<Schedules>, session: SessionId) -> [ToolHandle; 2] {
     [
@@ -34,26 +31,11 @@ fn text(text: String) -> ToolOutput {
     ToolOutput::Completed(vec![ContentPart::Text { text }])
 }
 
-fn non_empty(field: &str, value: Option<String>) -> Result<Option<String>, ToolError> {
-    match value.map(|v| v.trim().to_owned()) {
-        Some(v) if v.is_empty() => Err(ToolError::input(format!("{field} must not be empty"))),
-        v => Ok(v),
+fn operation_error(e: ScheduleError) -> ToolError {
+    match e {
+        ScheduleError::Store(e) => store_error(e),
+        e => ToolError::input(e.to_string()),
     }
-}
-
-/// 写入前校验规则，连同 now 之后的下一次；一次性时刻须在将来。
-fn checked_rule(when: Option<String>) -> Result<Option<(String, i64)>, ToolError> {
-    let Some(when) = non_empty("when", when)? else {
-        return Ok(None);
-    };
-    let rule = Rule::parse(&when).map_err(ToolError::input)?;
-    let next = upcoming(&rule)?;
-    Ok(Some((when, next)))
-}
-
-fn upcoming(rule: &Rule) -> Result<i64, ToolError> {
-    rule.next_after(now_ms())
-        .ok_or_else(|| ToolError::input("that time has already passed; give a new when"))
 }
 
 /// 一行概要：编号、名字、规则、启停、下次运行。
@@ -118,100 +100,50 @@ impl Tool for Edit {
     }
 
     async fn execute(&self, args: EditArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {
-        let store = &self.schedules.store;
-        let name = non_empty("name", args.name)?;
-        let prompt = non_empty("prompt", args.prompt)?;
-        let rule = checked_rule(args.when)?;
+        let edit = ScheduleUpdate {
+            name: args.name,
+            rule: args.when,
+            prompt: args.prompt,
+            enabled: args.enabled,
+        };
         let schedule = match args.id.map(ScheduleId) {
             None => {
-                let (Some(name), Some((rule, next)), Some(prompt)) = (name, rule, prompt) else {
+                if args.delete || edit.enabled.is_some() {
+                    return Err(ToolError::input("delete and enabled need an id"));
+                }
+                let (Some(name), Some(rule), Some(prompt)) = (edit.name, edit.rule, edit.prompt)
+                else {
                     return Err(ToolError::input(
                         "name, when and prompt are required to create a task",
                     ));
                 };
-                if args.delete || args.enabled.is_some() {
-                    return Err(ToolError::input("delete and enabled need an id"));
-                }
-                let session = store
-                    .session(self.session)
+                self.schedules
+                    .create(self.session, name, rule, prompt)
                     .await
-                    .map_err(store_error)?
-                    .expect("调用会话存在");
-                store
-                    .create_schedule(NewSchedule {
-                        person: self.schedules.owner,
-                        name,
-                        rule,
-                        prompt,
-                        pwd: session.pwd,
-                        persona: session.persona_id,
-                        model: session.model_id,
-                        reasoning_effort: session.reasoning_effort,
-                        next_run_at: next,
-                        at: now_ms(),
-                    })
-                    .await
-                    .map_err(store_error)?
+                    .map_err(operation_error)?
             }
             Some(id) if args.delete => {
-                if name.is_some() || rule.is_some() || prompt.is_some() || args.enabled.is_some() {
+                if edit.name.is_some()
+                    || edit.rule.is_some()
+                    || edit.prompt.is_some()
+                    || edit.enabled.is_some()
+                {
                     return Err(ToolError::input("delete takes only id"));
                 }
-                if !store.delete_schedule(id).await.map_err(store_error)? {
-                    return Err(no_such(id));
-                }
-                self.schedules.changed();
+                self.schedules.delete(id).await.map_err(operation_error)?;
                 return Ok(text(format!(
                     "Deleted task #{}; its session and history are kept.",
                     id.0
                 )));
             }
-            Some(_)
-                if name.is_none()
-                    && rule.is_none()
-                    && prompt.is_none()
-                    && args.enabled.is_none() =>
-            {
-                return Err(ToolError::input("nothing to update"));
-            }
-            Some(id) => {
-                let old = store
-                    .schedule(id)
-                    .await
-                    .map_err(store_error)?
-                    .ok_or_else(|| no_such(id))?;
-                // 停用置空；重新启用或启用中改规则，从 now 往后算。
-                let next_run_at = match (args.enabled, &rule) {
-                    (Some(false), _) => old.enabled().then_some(None),
-                    (Some(true), _) if !old.enabled() => Some(Some(match &rule {
-                        Some((_, next)) => *next,
-                        None => upcoming(&Rule::parse(&old.rule).expect("写入时已校验"))?,
-                    })),
-                    (_, Some((when, next))) if old.enabled() && *when != old.rule => {
-                        Some(Some(*next))
-                    }
-                    _ => None,
-                };
-                let edit = ScheduleEdit {
-                    name,
-                    rule: rule.map(|(when, _)| when),
-                    prompt,
-                    next_run_at,
-                };
-                store
-                    .update_schedule(id, edit, now_ms())
-                    .await
-                    .map_err(store_error)?
-                    .ok_or_else(|| no_such(id))?
-            }
+            Some(id) => self
+                .schedules
+                .update(id, edit)
+                .await
+                .map_err(operation_error)?,
         };
-        self.schedules.changed();
         Ok(text(format!("Saved. {}", summary(&schedule))))
     }
-}
-
-fn no_such(id: ScheduleId) -> ToolError {
-    ToolError::input(format!("no scheduled task #{}", id.0))
 }
 
 struct List(Arc<Schedules>);
@@ -235,71 +167,53 @@ impl Tool for List {
     }
 
     async fn execute(&self, args: ListArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {
-        let store = &self.0.store;
         let out = match args.id.map(ScheduleId) {
-            None => list(store, &self.0).await?,
-            Some(id) => detail(store, id).await?,
+            None => list(&self.0).await?,
+            Some(id) => detail(&self.0, id).await?,
         };
         Ok(text(out))
     }
 }
 
-async fn list(store: &Store, schedules: &Schedules) -> Result<String, ToolError> {
-    let all = store
-        .schedules(schedules.owner)
-        .await
-        .map_err(store_error)?;
+async fn list(schedules: &Schedules) -> Result<String, ToolError> {
+    let all = schedules.list().await.map_err(operation_error)?;
     if all.is_empty() {
         return Ok("No scheduled tasks.".into());
     }
-    let mut lines = Vec::with_capacity(all.len());
-    for s in &all {
-        let last = store
-            .schedule_fires(s.id, 1)
-            .await
-            .map_err(store_error)?
-            .first()
-            .map_or("never run".to_owned(), |f| {
+    Ok(all
+        .iter()
+        .map(|v| {
+            let last = v.recent.first().map_or("never run".into(), |f| {
                 format!(
                     "{} at {}",
                     outcome_label(f.outcome),
                     rule::show_zoned(f.due_at)
                 )
             });
-        lines.push(format!("{} | last: {last}", summary(s)));
-    }
-    Ok(lines.join("\n"))
+            format!("{} | last: {last}", summary(&v.schedule))
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
-async fn detail(store: &Store, id: ScheduleId) -> Result<String, ToolError> {
-    let s = store
-        .schedule(id)
-        .await
-        .map_err(store_error)?
-        .ok_or_else(|| no_such(id))?;
+async fn detail(schedules: &Schedules, id: ScheduleId) -> Result<String, ToolError> {
+    let s = schedules.get(id).await.map_err(operation_error)?;
     let mut out = format!("{}\nprompt: {}\nRecent runs:", summary(&s), s.prompt);
-    let fires = store
-        .schedule_fires(id, SCHEDULE_FIRES_SHOWN)
+    let page = schedules
+        .fires(id, None, SCHEDULE_FIRES_SHOWN)
         .await
-        .map_err(store_error)?;
-    if fires.is_empty() {
+        .map_err(operation_error)?;
+    if page.fires.is_empty() {
         out.push_str(" none");
     }
-    for f in fires {
+    for f in page.fires {
         out.push_str(&format!(
             "\n- {} {}",
-            rule::show_zoned(f.due_at),
-            outcome_label(f.outcome)
+            rule::show_zoned(f.fire.due_at),
+            outcome_label(f.fire.outcome)
         ));
-        let Some(run) = f.run_id else { continue };
-        if let Some(reply) = final_paragraph(store, run).await.map_err(store_error)? {
-            let clipped: String = reply.chars().take(PARAGRAPH_CHARS).collect();
-            let ellipsis = if clipped.len() < reply.len() {
-                "…"
-            } else {
-                ""
-            };
-            out.push_str(&format!(": {clipped}{ellipsis}"));
+        if let Some(reply) = f.reply {
+            out.push_str(&format!(": {reply}"));
         }
     }
     Ok(out)

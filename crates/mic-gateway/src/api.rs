@@ -55,7 +55,14 @@ pub(crate) struct ListQuery {
 }
 
 #[derive(Serialize)]
+struct SessionSchedule {
+    id: mic_store::ScheduleId,
+    name: String,
+}
+
+#[derive(Serialize)]
 pub(crate) struct SessionItem {
+    schedule: Option<SessionSchedule>,
     title: Option<String>,
     title_error: Option<String>,
     id: SessionId,
@@ -130,13 +137,18 @@ pub(crate) async fn list_sessions(
     }))
 }
 
-/// Web 只浏览 Root 会话，其它种类返回 `None`。
+/// Web 浏览 Root 与定时任务会话。
 fn item(s: SessionSummary) -> Option<SessionItem> {
     let writable = writable(&s.session);
-    let SessionKind::Root { channel, .. } = s.session.kind else {
-        return None;
+    let channel = match &s.session.kind {
+        SessionKind::Root { channel, .. } => channel.clone(),
+        SessionKind::Triggered { module, .. } if module == mic_store::SCHEDULE_MODULE => {
+            module.clone()
+        }
+        _ => return None,
     };
     Some(SessionItem {
+        schedule: None,
         title: s.title,
         title_error: s.title_error,
         id: s.session.id,
@@ -153,9 +165,10 @@ fn item(s: SessionSummary) -> Option<SessionItem> {
     })
 }
 
-/// 只有 Web 自己的会话能从 Web 发消息，其它渠道的只读。
+/// Web 自己的会话与定时任务会话可写，其它渠道只读。
 pub(crate) fn writable(session: &Session) -> bool {
     matches!(&session.kind, SessionKind::Root { channel, .. } if channel == WEB_CHANNEL)
+        || matches!(&session.kind, SessionKind::Triggered { module, .. } if module == mic_store::SCHEDULE_MODULE)
 }
 
 pub(crate) async fn get_session(
@@ -163,12 +176,24 @@ pub(crate) async fn get_session(
     id: Result<Path<i64>, PathRejection>,
 ) -> Result<Json<SessionDetail>, ApiError> {
     let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
-    let item = app
+    let mut item = app
         .kernel
         .session_summary(SessionId(id))
         .await?
         .and_then(item)
         .ok_or(ApiError::NotFound(SESSION_NOT_FOUND))?;
+    if item.channel == mic_store::SCHEDULE_MODULE {
+        item.schedule = app
+            .kernel
+            .schedules()
+            .await?
+            .into_iter()
+            .find(|v| v.schedule.session_id == item.id)
+            .map(|v| SessionSchedule {
+                id: v.schedule.id,
+                name: v.schedule.name,
+            });
+    }
     Ok(Json(SessionDetail {
         item,
         title_generating: app.kernel.title_generating(SessionId(id)).await,

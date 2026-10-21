@@ -288,8 +288,8 @@ pub(crate) async fn set_session_model(
     body: Result<Json<SessionModelBody>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let session = api::session(&app, id).await?;
-    // 会话设置对所有 Root 会话开放，与能否从 Web 发消息无关。
-    if !matches!(session.kind, SessionKind::Root { .. }) {
+    // 模型设置对 Root 与定时任务会话开放。
+    if !matches!(session.kind, SessionKind::Root { .. }) && !api::writable(&session) {
         return Err(ApiError::ReadOnly);
     }
     let body = json(body)?;

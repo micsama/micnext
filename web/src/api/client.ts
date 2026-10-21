@@ -95,7 +95,7 @@ async function ensureOk(res: Response): Promise<Response> {
   throw new ApiError(res.status, message);
 }
 
-async function request(method: string, path: string, body?: unknown): Promise<unknown> {
+export async function request(method: string, path: string, body?: unknown): Promise<unknown> {
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {

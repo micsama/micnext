@@ -4,21 +4,16 @@ use std::sync::Arc;
 
 use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Query, State};
-use axum::http::{header, StatusCode};
-use axum::response::sse::Event;
-use axum::response::IntoResponse;
+use axum::http::StatusCode;
 use axum::Json;
-use mic_core::{KernelEventKind, PushSettings};
+use mic_core::PushSettings;
 use mic_store::{PushId, PushPage};
-use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use serde::Deserialize;
 
 use crate::api::json;
 use crate::error::ApiError;
-use crate::limits::{PAGE_DEFAULT, PAGE_MAX, STREAM_BUFFER};
+use crate::limits::{PAGE_DEFAULT, PAGE_MAX};
 use crate::service::App;
-use crate::sse;
-use crate::ticket::StreamTarget;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -80,50 +75,4 @@ pub(crate) async fn put_settings(
     let body = json(body)?;
     app.kernel.set_push_channels(body.channels).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct StreamQuery {
-    ticket: Option<String>,
-}
-
-#[derive(Serialize)]
-struct Created {
-    id: PushId,
-}
-
-/// 只报新推送的 id；客户端据此重新拉取列表与未读数。
-pub(crate) async fn stream(
-    State(app): State<Arc<App>>,
-    query: Result<Query<StreamQuery>, QueryRejection>,
-) -> Result<impl IntoResponse, ApiError> {
-    let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
-    app.tickets
-        .redeem(q.ticket.as_deref(), StreamTarget::Pushes)?;
-    let mut events = app.kernel.subscribe();
-    let (tx, rx) = mpsc::channel(STREAM_BUFFER);
-    tokio::spawn(async move {
-        loop {
-            let event = tokio::select! {
-                () = app.stop.cancelled() => return,
-                () = tx.closed() => return,
-                event = events.recv() => match event {
-                    Ok(event) => event,
-                    Err(lagged) => return tracing::warn!(%lagged, "push stream lagged"),
-                },
-            };
-            let KernelEventKind::PushCreated { push_id } = event.kind else {
-                continue;
-            };
-            let event = Event::default()
-                .event("push_created")
-                .json_data(Created { id: push_id })
-                .expect("SSE 数据可序列化");
-            if tx.send(event).await.is_err() {
-                return;
-            }
-        }
-    });
-    Ok(([(header::CACHE_CONTROL, "no-store")], sse::respond(rx)))
 }

@@ -136,6 +136,13 @@ impl Engine {
             channel,
             KernelEventKind::RunStarted { run_id: run.id },
         );
+        if let (SessionKind::Triggered { .. }, Some(schedules)) = (&session.kind, &self.schedules) {
+            if let Some(fire) = self.store.fire_of_run(run.id).await? {
+                if let Some(schedule) = self.store.schedule(fire.schedule_id).await? {
+                    schedules.publish_changed(&schedule);
+                }
+            }
+        }
         if let Some(tree) = &tree {
             self.jobs.changed(tree);
         }

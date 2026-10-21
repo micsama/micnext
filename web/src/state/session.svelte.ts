@@ -48,7 +48,7 @@ export class SessionView {
         try {
           const info = await getSession(this.id);
           if (this.#abort.signal.aborted) return;
-          if (this.info) Object.assign(this.info, { title: info.title, title_error: info.title_error, title_generating: info.title_generating });
+          if (this.info) Object.assign(this.info, { schedule: info.schedule, title: info.title, title_error: info.title_error, title_generating: info.title_generating });
           for (const list of [webSessions, ...otherSessions]) list.patchTitle(info);
           this.titleSyncError = null;
         } catch (error) {
@@ -91,6 +91,7 @@ export class SessionView {
   #jobsDirty = false;
 
   refreshJobs(): void {
+    if (this.info?.channel === "schedule") return;
     this.#jobsDirty = true;
     if (this.#jobsRefresh) return;
     this.#jobsRefresh = (async () => {

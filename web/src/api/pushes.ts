@@ -23,7 +23,7 @@ export type PushPage = { pushes: PushView[]; has_more: boolean; unread: number }
 
 export type PushSettings = { channels: string[]; chosen: string[]; effective: string[] };
 
-const delivery: Decoder<PushDelivery> = obj({
+export const delivery: Decoder<PushDelivery> = obj({
   channel: str,
   state: kinded<{
     pending: Record<string, never>;
@@ -52,7 +52,6 @@ const pushSettings: Decoder<PushSettings> = obj({ channels: arr(str), chosen: ar
 
 export const parsePushPage = (v: unknown): PushPage => pushPage(v, "推送列表");
 export const parsePushSettings = (v: unknown): PushSettings => pushSettings(v, "推送设置");
-export const parsePushCreated = (data: string): number => obj({ id: num })(JSON.parse(data), "新推送").id;
 
 /** 推送渠道的显示名。 */
 export const CHANNEL_LABELS: Record<string, string> = { wechat: "微信" };

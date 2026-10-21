@@ -251,7 +251,9 @@ impl Render {
             KernelEventKind::RunFinished { .. }
             | KernelEventKind::SessionTitleChanged
             | KernelEventKind::JobsChanged
-            | KernelEventKind::PushCreated { .. } => {}
+            | KernelEventKind::PushCreated { .. }
+            | KernelEventKind::PushDeliveryChanged { .. }
+            | KernelEventKind::ScheduleChanged { .. } => {}
         }
     }
 

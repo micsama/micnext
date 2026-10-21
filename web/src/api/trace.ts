@@ -180,7 +180,7 @@ const peers: Decoder<Peers> = obj({
   tools: arr(obj({ name: str, median_ms: num, samples: num })),
 });
 
-const callStat = {
+export const callStat = {
   calls: num,
   failed_calls: num,
   input_tokens: num,

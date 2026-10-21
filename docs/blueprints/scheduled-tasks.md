@@ -217,13 +217,13 @@ core 内一个 tokio 任务，状态只在库里：
 
 ## P3：定时任务页面
 
-**P3 修订待批准（2026-10-21）**：按 P2 实现细化接口，补任务会话在 Web 的打开与对话、全局事件流。
+**P3 修订已批准，已实现、待 human 验收（2026-10-21）**：按 P2 实现细化接口，补任务会话在 Web 的打开与对话、全局事件流；按 review 修正新建事件、累计用量口径与投递状态刷新。
 
 ### P3.1 任务读写一处真相
 
-`schedule` 工具与 HTTP 共用 core 里同一组操作（`Schedules` 上的改、删、列表、触发列表），校验只此一处：名字与指令非空、`when` 合法、过去的一次性时刻报错、无字段可改报错；改删后唤醒调度循环并发布 `KernelEvent::ScheduleChanged { schedule }`。`Kernel` 暴露 `schedules()`、`schedule_fires(id, before, limit)`、`update_schedule(id, edit)`、`delete_schedule(id)`；`-p` 模式调用返回「定时任务只在常驻服务可用」。
+`schedule` 工具与 HTTP 共用 core 里同一组操作（`Schedules` 上的改、删、列表、触发列表），校验只此一处：名字与指令非空、`when` 合法、过去的一次性时刻报错、无字段可改报错；改删后唤醒调度循环并发布 `KernelEventKind::ScheduleChanged { schedule }`。`Kernel` 暴露 `schedules()`、`schedule_fires(id, before, limit)`、`update_schedule(id, edit)`、`delete_schedule(id)`；`-p` 模式调用返回「定时任务只在常驻服务可用」。
 
-`ScheduleChanged` 的时机：任务改、删、自动暂停；写触发行；触发 run 开跑与收尾（结局变化）。
+`ScheduleChanged` 的时机：任务新建、改、删、自动暂停；写触发行；触发 run 开跑与收尾（结局变化）。新建也经同一组操作，在事务提交后唤醒调度循环并发布事件。
 
 **新建只在对话里**：任务的工作目录与模型取自发起对话的会话，Web 不提供新建；空列表提示「在对话里说『每天 9 点…』即可创建」。
 
@@ -231,11 +231,13 @@ core 内一个 tokio 任务，状态只在库里：
 
 | 接口 | 说明 |
 |---|---|
-| `GET /api/schedules` | 全部任务，按 id 升序。每条：`id`、`name`、`rule`、`prompt`、`enabled`、`paused_reason`、`next_run_at`（停用为空）、`session_id`、`recent`（最近 10 次触发结局，新的在前）、`usage`（最近 10 次开跑触发的 run 合计：调用数、token、费用、未计价调用数，同 Trace 的 `CallStat`） |
+| `GET /api/schedules` | 全部任务，按 id 升序。每条：`id`、`name`、`rule`、`prompt`、`enabled`、`paused_reason`、`next_run_at`（停用为空）、`session_id`、`recent`（最近 10 次触发结局，新的在前）、`usage`（全部历史开跑触发的 run 合计：调用数、token、费用、未计价调用数，同 Trace 的 `CallStat`；包含执行中的 run 已记录调用，不含人工追问与独立的提前压缩 run） |
 | `GET /api/schedules/:id/fires?before&limit` | 触发列表，新的在前，分页同推送列表。每条：`id`、`due_at`、`outcome`（P2.2 表，同 `FireOutcome`）、`run_id`、`pushes`（该 run 的推送：id 与各 Channel 投递状态）、`reply`（最终回复首段，截断同 `schedules` 工具） |
 | `PATCH /api/schedules/:id` | body 任选 `name`/`rule`/`prompt`/`enabled`，语义同 `schedule` 工具更新；校验失败 422 带中文原因；返回更新后的列表项 |
 | `DELETE /api/schedules/:id` | 删除；任务会话、run、trace 保留 |
-| `GET /api/stream`（全局 SSE） | 由 `/api/pushes/stream` 改名，票据 `POST /api/stream-ticket`；事件 `push_created { id }`、`schedule_changed { id }`。不保留旧路径 |
+| `GET /api/stream`（全局 SSE） | 由 `/api/pushes/stream` 改名，票据 `POST /api/stream-ticket`；事件 `push_created { id }`、`push_delivery_changed { id }`（推送 id）、`schedule_changed { id }`。不保留旧路径 |
+
+`Kernel::mark_delivered` 落库后，若该消息关联推送投递，发布 `KernelEventKind::PushDeliveryChanged { push_id }`，经全局流转为 `push_delivery_changed`。通知中心重拉已加载的推送，任务页重拉已展开的触发列表（含已加载分页），使旧记录的送达状态也能更新；不因投递变化提示新推送或改变已读状态。首次推送已包含不可用 Channel 的失败原因，沿用 `push_created` 获取。复用现有事件总线与投递事实，不另存页面状态或增加轮询。
 
 ### P3.3 任务会话在 Web
 
@@ -247,7 +249,7 @@ core 内一个 tokio 任务，状态只在库里：
 
 ### P3.4 Web 定时任务页
 
-- 侧栏「定时任务」入口，路由 `#/schedules`，一页列表。每行：名字、规则（常见形态写成人话，如「每 5 分钟」「每天 09:00」「工作日 18:30」「10 月 22 日 09:00 一次」，其余显示 cron 原文，悬停看原文）、下次运行、启停开关、最近 10 次结局状态点（悬停看时刻与结局）、累计用量。暂停原因用警示色写在行内。
+- 侧栏「定时任务」入口，路由 `/schedules`（沿用当前 pathname 路由），一页列表。每行：名字、规则（常见形态写成人话，如「每 5 分钟」「每天 09:00」「工作日 18:30」「10 月 22 日 09:00 一次」，其余显示 cron 原文，悬停看原文）、下次运行、启停开关、最近 10 次结局状态点（悬停看时刻与结局）、累计用量。暂停原因用警示色写在行内。
 - 展开：触发列表，分页加载。每条显示时刻、结局、回复首段；推送状态分开显示「未推送」「已推送」「推送未送达（原因）」。可点开任务会话（聊天）或该 run 的 Trace。
 - 编辑：名字、规则、指令行内编辑，保存失败就地显示原因；删除用确认对话框。
 - 收到 `schedule_changed` 重拉列表与已展开的触发列表；每次（重）连先补拉。
@@ -256,13 +258,36 @@ core 内一个 tokio 任务，状态只在库里：
 
 本地：接口（列表、触发分页、改删校验、`-p` 报错）与 SSE 事件；任务会话打开、发消息、推送【去会话里问】跳转。页面观感交 human。
 
+针对本次 review：任务页打开时在对话里新建，立即出现；超过 10 次触发后累计用量仍含早期 run；run 已结束后才送达的推送，通知中心与展开的触发列表都更新状态。优先复用现有功能测试与临时库冒烟，不为各层转发重复写测试。
+
+### P3.6 实现顺序
+
+1. 将工具现有校验与任务操作收进 `Schedules`，工具与 Kernel 共用；store 补触发分页、历史触发 run 用量与按投递消息查推送的查询，均直接读现有表。
+2. 接入任务 HTTP、全局 SSE 与投递变化事件，替换通知中心旧流；放开任务会话详情、消息流、输入与模型设置，保留 Root 会话列表范围。
+3. 接入任务列表、展开分页、编辑删除与任务聊天入口，复用现有组件、错误展示和 Trace 跳转。
+4. 跑必要功能验收与仓库收尾检查，记录结果，页面观感交 human；验收前不标 CLOSED。
+
+### P3.7 实现与验收记录（2026-10-21）
+
+已实现共用任务操作、任务 HTTP、全局 SSE、投递完成事件、任务页面及任务会话 Web 对话。定时任务入口沿用应用现有 pathname 路由 `/schedules`；触发记录跳转 `/s/{session}/trace?run={run}`，Trace 按需翻页定位该 run。任务改名沿用会话标题变化事件，打开的任务聊天同步名称；删除后仍以保留的会话标题识别来源。
+
+本地验收：
+
+- 临时库 HTTP/SSE 冒烟：12 次历史触发全部计入用量，独立人工 run 不计入；触发分页无重叠；空修改、空名字、非法规则、过去时刻与分页限制正确报错；修改发出 `schedule_changed`。
+- 任务会话详情、Web 输入、消息流回放可用，任务会话不进聊天侧栏列表；删除任务保留可读写会话；旧推送流路径已移除。
+- 复用既有调度与规则测试；新增一个功能测试，覆盖共用任务操作的新建/修改/删除事件、投递完成后的事件与查询事实，以及无调度服务时四个 Kernel 入口报错。
+
+收尾检查通过：`cargo fmt`、`cargo clippy -- -D warnings`、`bun run check`、`bun run build`、`git diff --check`。
+
+待 human：页面观感、编辑启停、任务会话模型切换、通知中心【去会话里问】、运行 Trace 定位，以及真实微信延迟送达后页面状态更新。P2 的真实模型与调度验收仍按 P2.9/P2.10，不因 P3 本地验收关闭。
+
 ## 调用方影响
 
 | 位置 | 变化 |
 |---|---|
 | mic-message | 新增 `MessageBody::Trigger` |
 | mic-store | 新增 4 张表与读写；`fire_schedule` 事务；`claim_next` 认 Trigger 独占；`core_settings.push_channels`；`resolve_identity` 新身份归给定 person |
-| mic-core | `push` / `schedule` / `schedules` 工具；调度循环；`KernelEvent::PushCreated`、`ScheduleChanged`；`Kernel` 增推送与任务读写接口（工具与 HTTP 共用 `Schedules` 的校验）；启用 `SessionKind::Triggered` |
+| mic-core | `push` / `schedule` / `schedules` 工具；调度循环；`KernelEventKind::PushCreated`、`PushDeliveryChanged`、`ScheduleChanged`；`Kernel` 增推送与任务读写接口（工具与 HTTP 共用 `Schedules` 的校验）；启用 `SessionKind::Triggered` |
 | mic-gateway | P1.4、P3.2 接口；全局 SSE 改名 `/api/stream`；会话接口接受定时任务会话 |
 | Web | 通知中心、设置页默认推送 Channel、定时任务页；通知中心改订全局流；聊天页支持任务会话 |
 | 微信 | 无代码改动；私聊会话约定（总则三）写入其 B2 |

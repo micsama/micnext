@@ -1,12 +1,6 @@
-import { ApiError, listPushes, markPushesRead } from "../api/client";
-import { parsePushCreated, type PushView } from "../api/pushes";
-import { readSse } from "../api/sse";
-import { ProtocolError } from "../api/types";
-import { sleep } from "../lib/sleep";
+import { listPushes, markPushesRead } from "../api/client";
+import { type PushView } from "../api/pushes";
 import type { ComposerReply } from "./session.svelte";
-
-const RETRY_MIN_MS = 1000;
-const RETRY_MAX_MS = 10_000;
 
 /** 通知中心：登录后常驻，新推送到达即重拉首页。 */
 class PushCenter {
@@ -27,33 +21,42 @@ class PushCenter {
   /** 【去会话里问】带过去的引用，目标会话打开时取走。 */
   #reply: { session: number; reply: ComposerReply } | null = null;
 
-  /** 返回停止函数。 */
-  start(): () => void {
-    const abort = new AbortController();
-    void this.#run(abort.signal);
-    return () => abort.abort();
-  }
+  #refresh: Promise<void> | null = null;
+  #dirty = false;
 
-  async refresh(): Promise<void> {
-    try {
-      const page = await listPushes(null);
-      // 已加载的更早条目保留，首页覆盖其中重叠部分。
-      const oldest = page.pushes.at(-1)?.id ?? Infinity;
-      const older = page.has_more ? this.items.filter((p) => p.id < oldest) : [];
-      this.items = [...page.pushes, ...older];
-      if (older.length === 0) this.hasMore = page.has_more;
-      this.unread = page.unread;
-      this.error = null;
-      this.#notice(page.pushes);
-    } catch (e) {
-      this.error = (e as Error).message;
-    }
+  refresh(): Promise<void> {
+    this.#dirty = true;
+    if (this.loadingMore) return this.#refresh ?? Promise.resolve();
+    if (this.#refresh) return this.#refresh;
+    this.#refresh = (async () => {
+      while (this.#dirty && !this.loadingMore) {
+        this.#dirty = false;
+        const count = this.items.length;
+        try {
+          const items: PushView[] = [];
+          let more = false;
+          do {
+            const page = await listPushes(items.at(-1)?.id ?? null);
+            items.push(...page.pushes);
+            more = page.has_more;
+            this.unread = page.unread;
+          } while (more && items.length < count);
+          this.items = items;
+          this.hasMore = more;
+          this.error = null;
+          this.#notice(items);
+        } catch (e) { this.error = (e as Error).message; }
+      }
+    })().finally(() => { this.#refresh = null; });
+    return this.#refresh;
   }
 
   async loadMore(): Promise<void> {
-    const last = this.items.at(-1);
-    if (!last || this.loadingMore) return;
+    if (this.loadingMore) return;
     this.loadingMore = true;
+    await this.#refresh;
+    const last = this.items.at(-1);
+    if (!last) { this.loadingMore = false; return; }
     try {
       const page = await listPushes(last.id);
       this.items = [...this.items, ...page.pushes];
@@ -63,6 +66,7 @@ class PushCenter {
       this.error = (e as Error).message;
     } finally {
       this.loadingMore = false;
+      if (this.#dirty) void this.refresh();
     }
   }
 
@@ -113,30 +117,6 @@ class PushCenter {
     return reply;
   }
 
-  async #run(signal: AbortSignal): Promise<void> {
-    let delay = RETRY_MIN_MS;
-    while (!signal.aborted) {
-      // 每次接上先补拉，断开期间的推送不丢。
-      await this.refresh();
-      try {
-        await readSse("/pushes/stream", new URLSearchParams(), ["push_created"], signal, (_, data) => {
-          parsePushCreated(data);
-          delay = RETRY_MIN_MS;
-          void this.refresh();
-        });
-      } catch (e) {
-        if (signal.aborted) return;
-        if (e instanceof ApiError && e.status === 401) return;
-        if (e instanceof ProtocolError) {
-          this.error = e.message;
-          return;
-        }
-      }
-      if (signal.aborted) return;
-      await sleep(delay, signal);
-      delay = Math.min(delay * 2, RETRY_MAX_MS);
-    }
-  }
 }
 
 export const pushCenter = new PushCenter();

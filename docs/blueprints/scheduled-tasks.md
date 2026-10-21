@@ -62,7 +62,7 @@
 
 | 接口 | 说明 |
 |---|---|
-| `GET /api/pushes?before&limit` | 新的在前；每条含来源会话 id 与标题、来源任务名（P2 起）、各 Channel 投递状态、是否已读 |
+| `GET /api/pushes?before&limit` | 新的在前；每条含来源会话 id 与标题（任务会话标题即任务名）、各 Channel 投递状态、是否已读 |
 | `POST /api/pushes/read` | body `{ ids: [...] }`，只把实际展示过的这些标为已读 |
 | `GET` / `PUT /api/settings/push` | 读：`{ channels: 可选, chosen: 用户所选, effective: 省略 via 时实际去向 }`；写：`{ channels: [...] }`，未知 Channel 400 |
 | `POST /api/pushes/stream-ticket` → `GET /api/pushes/stream` | 全局 SSE，事件 `push_created { id }`；Web 收到即重拉首页，每次（重）连先补拉 |
@@ -188,7 +188,7 @@ core 内一个 tokio 任务：内存里维护各启用任务的下一时刻，�
 
 ### P2.9 实现记录与验收
 
-实现中相对上文的取舍（已改入正文）：去掉 `timed_out` 列，超时即 run 状态 `TimedOut`；超时与轮数覆盖任务会话所有 run；压缩失败不单独通知；连续失败中正常完成会打断计数；工具只在常驻模式；渠道说明不写任务名（触发头 `src` 已带）。推送列表 `source_schedule` 与私聊会话 `Notification.source` 带任务名（P1.4「来源任务名」）。
+实现中相对上文的取舍（已改入正文）：去掉 `timed_out` 列，超时即 run 状态 `TimedOut`；超时与轮数覆盖任务会话所有 run；压缩失败不单独通知；连续失败中正常完成会打断计数；工具只在常驻模式；渠道说明不写任务名（触发头 `src` 已带）。任务会话标题即任务名（建任务时写入、改名同步、删任务后保留），推送列表与私聊会话 `Notification.source` 统一取会话标题，满足 P1.4「来源任务名」。cron 下次时刻先取整到秒再算，避免唤醒略早时毫秒残留跳过整点。
 
 本地已验收：store 认领/吸收/忙/结局推导测试；临时库冒烟——每分钟任务到点触发、无模型时失败并推送「运行失败：…」、停机期间错过合并补记并推送、连续 3 次失败自动暂停。
 

@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mic_message::{ContentPart, PersonId, SessionId};
-use mic_store::{NewPush, PushId, PushPage, PushRoute, RunId, Store, StoreError};
+use mic_store::{
+    NewPush, PushId, PushPage, PushRoute, RunId, SessionKind, Store, StoreError, SCHEDULE_MODULE,
+};
 use mic_tool::{Tool, ToolContext, ToolError, ToolHandle, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -210,20 +212,21 @@ impl Pushes {
             .await?
             .expect("推送来源会话存在（调用方保证）");
         let channel = session_channel(&self.store, &session).await?;
-        let source_label = match self.store.schedule_of_session(source.session).await? {
-            Some(schedule) => format!(
-                "push from scheduled task \"{}\" (session {})",
-                schedule.name, source.session.0
+        let title = self
+            .store
+            .session_summary(source.session)
+            .await?
+            .and_then(|s| s.title);
+        let from = match &session.kind {
+            SessionKind::Triggered { module, .. } if module == SCHEDULE_MODULE => "scheduled task",
+            _ => "session",
+        };
+        let source_label = match title {
+            Some(title) => format!(
+                "push from {from} \"{title}\" (session {})",
+                source.session.0
             ),
-            None => match self
-                .store
-                .session_summary(source.session)
-                .await?
-                .and_then(|s| s.title)
-            {
-                Some(title) => format!("push from session {} ({title})", source.session.0),
-                None => format!("push from session {}", source.session.0),
-            },
+            None => format!("push from session {}", source.session.0),
         };
         let publish = self.events.publisher().await;
         let (id, notices) = self

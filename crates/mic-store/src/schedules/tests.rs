@@ -29,8 +29,8 @@ async fn check() {
         .await
         .unwrap();
     let session = s.session_id;
-    let found = store.schedule_of_session(session).await.unwrap().unwrap();
-    assert_eq!(found.id, s.id);
+    let title = store.session_summary(session).await.unwrap().unwrap().title;
+    assert_eq!(title.as_deref(), Some("早报"), "会话标题即任务名");
 
     let FireResult::Fired(messages) = store
         .fire_schedule(s.id, 100, true, true, 100)

@@ -34,8 +34,6 @@ pub struct PushView {
     pub id: PushId,
     pub source_session_id: SessionId,
     pub source_session_title: Option<String>,
-    /// 来源是定时任务会话时的任务名；任务删除后为空。
-    pub source_schedule: Option<String>,
     pub text: String,
     pub created_at: i64,
     pub read_at: Option<i64>,
@@ -134,9 +132,8 @@ impl Store {
     ) -> Result<PushPage, StoreError> {
         self.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT p.id, p.source_session_id, s.title, sc.name, p.text, p.created_at, p.read_at
+                "SELECT p.id, p.source_session_id, s.title, p.text, p.created_at, p.read_at
                  FROM core_pushes p JOIN core_sessions s ON s.id = p.source_session_id
-                 LEFT JOIN core_schedules sc ON sc.session_id = p.source_session_id
                  WHERE p.person_id = ?1 AND p.id < ?2
                  ORDER BY p.id DESC LIMIT ?3",
             )?;
@@ -152,10 +149,9 @@ impl Store {
                             id: PushId(r.get(0)?),
                             source_session_id: SessionId(r.get(1)?),
                             source_session_title: r.get(2)?,
-                            source_schedule: r.get(3)?,
-                            text: r.get(4)?,
-                            created_at: r.get(5)?,
-                            read_at: r.get(6)?,
+                            text: r.get(3)?,
+                            created_at: r.get(4)?,
+                            read_at: r.get(5)?,
                             deliveries: Vec::new(),
                         })
                     },

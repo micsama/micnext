@@ -185,7 +185,8 @@ fn read_schedule(
 }
 
 impl Store {
-    /// 同事务建任务与其会话（`Triggered { module: "schedule", ref_id: 任务 id }`）。
+    /// 同事务建任务与其会话（`Triggered { module: "schedule", ref_id: 任务 id }`）；
+    /// 会话标题即任务名，任务删除后仍可辨认来源。
     pub async fn create_schedule(&self, new: NewSchedule) -> Result<Schedule, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
@@ -214,8 +215,8 @@ impl Store {
             )?;
             let id = ScheduleId(tx.last_insert_rowid());
             tx.execute(
-                "UPDATE core_sessions SET trigger_ref = ?2 WHERE id = ?1",
-                params![session.id.0, id.0.to_string()],
+                "UPDATE core_sessions SET trigger_ref = ?2, title = ?3 WHERE id = ?1",
+                params![session.id.0, id.0.to_string(), new.name],
             )?;
             let schedule = read_schedule(&tx, id)?.expect("刚写入");
             tx.commit()?;
@@ -239,6 +240,12 @@ impl Store {
             let rule_changed = edit.rule.as_ref().is_some_and(|r| *r != old.rule);
             let enabled = edit.enabled.unwrap_or(old.enabled);
             let restart = rule_changed || (enabled && !old.enabled);
+            if let Some(name) = &edit.name {
+                tx.execute(
+                    "UPDATE core_sessions SET title = ?2 WHERE id = ?1",
+                    params![old.session_id.0, name],
+                )?;
+            }
             tx.execute(
                 "UPDATE core_schedules SET name = ?2, rule = ?3, prompt = ?4, enabled = ?5,
                    paused_reason = CASE WHEN ?6 THEN NULL ELSE paused_reason END,
@@ -272,23 +279,6 @@ impl Store {
 
     pub async fn schedule(&self, id: ScheduleId) -> Result<Option<Schedule>, StoreError> {
         self.call(move |conn| Ok(read_schedule(conn, id)?)).await
-    }
-
-    /// 任务会话所属的任务；已删除或不是任务会话为 `None`。
-    pub async fn schedule_of_session(
-        &self,
-        session: SessionId,
-    ) -> Result<Option<Schedule>, StoreError> {
-        self.call(move |conn| {
-            Ok(conn
-                .query_row(
-                    &format!("SELECT {SCHEDULE_COLS} FROM core_schedules WHERE session_id = ?1"),
-                    [session.0],
-                    schedule,
-                )
-                .optional()?)
-        })
-        .await
     }
 
     /// 该 person 的全部任务，按 id 升序。

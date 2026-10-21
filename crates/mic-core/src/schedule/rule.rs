@@ -35,12 +35,13 @@ impl Rule {
         matches!(self, Self::Once(_))
     }
 
-    /// 严格晚于 `after` 的下一次时刻（unix 毫秒）。
+    /// 严格晚于 `after` 的下一次时刻（unix 毫秒）。croner 保留输入的亚秒部分，
+    /// 故先取整到秒，结果才落在整点上。
     pub(crate) fn next_after(&self, after: i64) -> Option<i64> {
         match self {
             Self::Once(at) => (*at > after).then_some(*at),
             Self::Cron(cron) => cron
-                .find_next_occurrence(&local(after), false)
+                .find_next_occurrence(&local(after.div_euclid(1000) * 1000), false)
                 .ok()
                 .map(|t| t.timestamp_millis()),
         }
@@ -63,3 +64,6 @@ pub(crate) fn show(ms: i64) -> String {
 pub(crate) fn show_zoned(ms: i64) -> String {
     local(ms).format("%Y-%m-%d %H:%M %:z").to_string()
 }
+
+#[cfg(test)]
+mod tests;

@@ -175,7 +175,7 @@
               <div class="border-b last:border-b-0 py-3 space-y-2">
                 <div class="model-fields">
                   <label class="min-w-0 space-y-1 text-xs text-muted-foreground">模型 ID<Input bind:value={r.name} class="h-8 font-mono text-xs text-foreground" placeholder="例如 deepseek-flash" /></label>
-                  <label class="space-y-1 text-xs text-muted-foreground">上下文 · token<Input class="h-8 text-xs text-foreground" type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="100000" /></label>
+                  <label class="space-y-1 text-xs text-muted-foreground">上下文 · token<Input class="h-8 text-xs text-foreground" type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="200000" /></label>
                   <label class="space-y-1 text-xs text-muted-foreground">最大输出<Input class="h-8 text-xs text-foreground" type="number" min="1" value={limitable(f.preset) ? r.max_tokens : ""} oninput={(e) => (r.max_tokens = e.currentTarget.value)} disabled={!limitable(f.preset)} placeholder={limitable(f.preset) ? "默认" : "不支持"} /></label>
                   <div class="space-y-1 text-xs text-muted-foreground">
                     <span class="block">多模态</span>

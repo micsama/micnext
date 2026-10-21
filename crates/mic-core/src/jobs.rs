@@ -274,7 +274,7 @@ impl Jobs {
         };
         let id = job.id;
         if let Err(e) = self.finish(job, &tree, end).await {
-            tracing::error!(job = id.0, error = %e, "background job finish failed");
+            tracing::error!(job = id.0, error = %crate::error::chain(&e), "background job finish failed");
         }
         self.running.lock().expect("任务表未中毒").remove(&id);
         let _ = done.send(true);
@@ -282,6 +282,18 @@ impl Jobs {
     }
 
     async fn finish(&self, job: Job, tree: &Tree, end: End) -> Result<(), StoreError> {
+        match &end {
+            End::Exited(ExecOutcome::Failed {
+                kind: ExecFailureKind::Dependency,
+                message,
+            }) => {
+                tracing::warn!(job = job.id.0, error = %message, "background job dependency failed");
+            }
+            End::Unstarted(error) => {
+                tracing::warn!(job = job.id.0, error = %crate::error::chain(error), "background job output create failed");
+            }
+            _ => {}
+        }
         let tail = self.tail(job.id, JOB_REPORT_TAIL).await;
         let (state, outcome, won) = match end {
             End::Exited(ExecOutcome::Completed { mut output }) => {
@@ -338,7 +350,10 @@ impl Jobs {
                 JobState::Failed,
                 Some(ExecOutcome::Failed {
                     kind: ExecFailureKind::Dependency,
-                    message: format!("failed to create the output log: {e}"),
+                    message: format!(
+                        "failed to create the output log: {}",
+                        crate::error::chain(&e)
+                    ),
                 }),
                 None,
             ),
@@ -393,7 +408,11 @@ impl Jobs {
             .expect("读输出不 panic")
         {
             Ok(out) => render_tail(id, &out),
-            Err(e) => format!("[output unavailable: {e}]"),
+            Err(e) => {
+                let error = crate::error::chain(&e);
+                tracing::warn!(job = id.0, %error, "background job output read failed");
+                format!("[output unavailable: {error}]")
+            }
         }
     }
 
@@ -648,7 +667,11 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
     for job in &stale {
         let tail = match output::read(&dir.join(job.id.0.to_string()), None, JOB_REPORT_TAIL) {
             Ok(out) => render_tail(job.id, &out),
-            Err(e) => format!("[output unavailable: {e}]"),
+            Err(e) => {
+                let error = crate::error::chain(&e);
+                tracing::warn!(job = job.id.0, %error, "background job output read failed");
+                format!("[output unavailable: {error}]")
+            }
         };
         let outcome = ExecOutcome::Cancelled {
             message: format!("{INTERRUPTED}\n{tail}"),
@@ -738,7 +761,7 @@ impl Background for JobPort {
             let id = self
                 .register(async move {
                     jobs.dispatch(origin, task).await.map_err(|e| {
-                        tracing::error!(error = %e, "background job registration failed");
+                        tracing::error!(error = %crate::error::chain(&e), "background job registration failed");
                         format!("failed to register the background job: {e}")
                     })
                 })

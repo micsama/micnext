@@ -160,16 +160,15 @@ async fn read_body(mut resp: Response) -> Result<(Vec<u8>, bool), ToolError> {
 }
 
 fn fetch_error(e: reqwest::Error) -> ToolError {
-    if e.is_timeout() {
-        return ToolError::dependency(format!(
-            "fetch timed out after {}s",
-            FETCH_TIMEOUT.as_secs()
-        ));
-    }
-    if e.is_redirect() {
-        return ToolError::dependency(format!("fetch failed: more than {MAX_REDIRECTS} redirects"));
-    }
-    let mut message = format!("fetch failed: {e}");
+    let context = if e.is_timeout() {
+        format!("fetch timed out after {}s", FETCH_TIMEOUT.as_secs())
+    } else if e.is_redirect() {
+        format!("fetch failed: more than {MAX_REDIRECTS} redirects")
+    } else {
+        "fetch failed".to_owned()
+    };
+    let e = e.without_url();
+    let mut message = format!("{context}: {e}");
     let mut source = e.source();
     while let Some(cause) = source {
         message.push_str(&format!(": {cause}"));

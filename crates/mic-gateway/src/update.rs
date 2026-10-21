@@ -325,9 +325,20 @@ impl Updater {
     async fn pump(&self, pipe: impl AsyncRead + Unpin) {
         let mut reader = BufReader::new(pipe);
         let mut line = Vec::new();
-        while matches!(reader.read_until(b'\n', &mut line).await, Ok(n) if n > 0) {
-            self.append(&String::from_utf8_lossy(&line));
-            line.clear();
+        loop {
+            match reader.read_until(b'\n', &mut line).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    self.append(&String::from_utf8_lossy(&line));
+                    line.clear();
+                }
+                Err(error) => {
+                    let detail = crate::error::chain(&error);
+                    tracing::warn!(error = %detail, "update process output read failed");
+                    self.append(&format!("读取进程输出失败：{detail}\n"));
+                    break;
+                }
+            }
         }
     }
 

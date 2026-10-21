@@ -306,7 +306,7 @@ impl Coordinator {
                 }
                 result = joined(&mut active) => {
                     active.take();
-                    let result = result.map_err(|_| ClientError::Protocol("登录任务崩溃"))?;
+                    let result = result.map_err(|error| { tracing::error!(%error, "wechat task join failed"); ClientError::Protocol("登录任务崩溃") })?;
                     let progress = match result {
                         Ok(Outcome::Connected(credentials)) => {
                             let account = replace_account(&kernel, &mut connection, Some(credentials), &stop).await?
@@ -329,7 +329,7 @@ impl Coordinator {
                 }
                 result = connection_joined(&mut connection) => {
                     let connection = connection.take().expect("join 对应连接");
-                    let exit = result.map_err(|_| ClientError::Protocol("收发任务崩溃"))??;
+                    let exit = result.map_err(|error| { tracing::error!(%error, "wechat task join failed"); ClientError::Protocol("收发任务崩溃") })??;
                     match exit {
                         ConnectionExit::NeedsLogin => {
                             account::set_connection(&kernel, &connection.account.credentials.user_id, ChannelConnection::NeedsLogin).await?;
@@ -474,7 +474,10 @@ impl Connection {
 fn worker_result(
     result: Result<Result<ConnectionExit, BoxError>, tokio::task::JoinError>,
 ) -> Result<ConnectionExit, BoxError> {
-    result.map_err(|_| ClientError::Protocol("收发子任务崩溃"))?
+    result.map_err(|error| {
+        tracing::error!(%error, "wechat task join failed");
+        ClientError::Protocol("收发子任务崩溃")
+    })?
 }
 
 async fn connection_joined(
@@ -493,10 +496,10 @@ async fn stop_connection(
     if let Some(connection) = connection.take() {
         connection.stop.cancel();
         if matches!(
-            connection
-                .task
-                .await
-                .map_err(|_| ClientError::Protocol("收发任务崩溃"))??,
+            connection.task.await.map_err(|error| {
+                tracing::error!(%error, "wechat task join failed");
+                ClientError::Protocol("收发任务崩溃")
+            })??,
             ConnectionExit::NeedsLogin
         ) {
             account::set_connection(
@@ -838,17 +841,20 @@ async fn joined(
 async fn cancel_active(active: &mut Option<ActiveLogin>) -> Result<(), BoxError> {
     if let Some(active) = active.take() {
         active.stop.cancel();
-        active
-            .task
-            .await
-            .map_err(|_| ClientError::Protocol("登录任务崩溃"))??;
+        active.task.await.map_err(|error| {
+            tracing::error!(%error, "wechat task join failed");
+            ClientError::Protocol("登录任务崩溃")
+        })??;
     }
     Ok(())
 }
 
 fn new_attempt_id() -> Result<SetupAttemptId, AccountError> {
     let mut bytes = [0; ATTEMPT_ID_BYTES];
-    getrandom::fill(&mut bytes).map_err(|_| ClientError::Protocol("随机源不可用"))?;
+    getrandom::fill(&mut bytes).map_err(|error| {
+        tracing::error!(%error, "wechat random source failed");
+        ClientError::Protocol("随机源不可用")
+    })?;
     Ok(SetupAttemptId(
         bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
     ))

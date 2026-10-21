@@ -63,7 +63,7 @@ pub fn normalize(bytes: Vec<u8>) -> Result<ImageData, MediaError> {
         DynamicImage::ImageRgb8(image.to_rgb8())
             .write_with_encoder(JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY))
     };
-    encoded.map_err(|_| MediaError::Corrupt)?;
+    encoded.map_err(|error| corrupt("encode", error))?;
     inspect(out.into_inner())
 }
 
@@ -74,7 +74,7 @@ fn check(bytes: &[u8]) -> Result<ImageFormat, MediaError> {
     }
     let (width, height) = reader(bytes)?
         .into_dimensions()
-        .map_err(|_| MediaError::Corrupt)?;
+        .map_err(|error| corrupt("dimensions", error))?;
     if width.max(height) > MAX_EDGE {
         return Err(MediaError::TooLargeDimensions);
     }
@@ -99,7 +99,7 @@ fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
 fn reader(bytes: &[u8]) -> Result<ImageReader<Cursor<&[u8]>>, MediaError> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
-        .map_err(|_| MediaError::Corrupt)?;
+        .map_err(|error| corrupt("format", error))?;
     if reader.format().is_none() {
         return Err(MediaError::Unsupported);
     }
@@ -113,6 +113,25 @@ fn reader(bytes: &[u8]) -> Result<ImageReader<Cursor<&[u8]>>, MediaError> {
 fn decode(bytes: &[u8]) -> Result<DynamicImage, MediaError> {
     reader(bytes)?.decode().map_err(|e| match e {
         ImageError::Limits(_) => MediaError::TooLargeDimensions,
-        _ => MediaError::Corrupt,
+        error => corrupt("decode", error),
     })
+}
+
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !message.ends_with(&detail) {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+        source = cause.source();
+    }
+    message
+}
+
+fn corrupt(stage: &'static str, error: impl std::error::Error) -> MediaError {
+    tracing::warn!(stage, error = %error_chain(&error), "image processing failed");
+    MediaError::Corrupt
 }

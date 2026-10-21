@@ -36,7 +36,8 @@ impl Tool for Write {
                     )))
                 }
                 Ok(_) => true,
-                Err(_) => false,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                Err(error) => return Err(io_error("stat before write", &display, error)),
             };
             atomic_write(&path, args.content.as_bytes())
                 .map_err(|e| io_error("write", &display, e))?;

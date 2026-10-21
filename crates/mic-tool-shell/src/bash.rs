@@ -141,7 +141,7 @@ fn spawn(command: &str, workdir: PathBuf) -> Result<Spawned, ToolError> {
         .process_group(0)
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| ToolError::dependency(format!("failed to start bash: {e}")))?;
+        .map_err(|e| ToolError::dependency(format!("failed to start bash: {}", error_chain(&e))))?;
     let group = ProcessGroup(Pid::from_raw(
         child.id().expect("刚启动的子进程尚未被回收") as i32
     ));
@@ -185,11 +185,12 @@ async fn run(command: &str, workdir: PathBuf, timeout_ms: u64) -> Result<Run, To
     } = spawn(command, workdir)?;
     let (waited, stdout, stderr) = tokio::join!(
         wait(&mut child, &group, Some(timeout_ms)),
-        read_tail(stdout),
-        read_tail(stderr)
+        read_tail(stdout, Stream::Stdout),
+        read_tail(stderr, Stream::Stderr)
     );
-    let (status, timed_out) =
-        waited.map_err(|e| ToolError::dependency(format!("failed to wait for bash: {e}")))?;
+    let (status, timed_out) = waited.map_err(|e| {
+        ToolError::dependency(format!("failed to wait for bash: {}", error_chain(&e)))
+    })?;
     Ok(Run {
         status,
         timed_out,
@@ -224,7 +225,8 @@ async fn run_background(
     let (waited, pumped) = tokio::join!(wait(&mut child, &group, None), pumped);
     if let Err(e) = pumped {
         return failed(ToolError::dependency(format!(
-            "failed to write output: {e}"
+            "failed to write output: {}",
+            error_chain(&e)
         )));
     }
     match waited {
@@ -234,7 +236,8 @@ async fn run_background(
             }],
         },
         Err(e) => failed(ToolError::dependency(format!(
-            "failed to wait for bash: {e}"
+            "failed to wait for bash: {}",
+            error_chain(&e)
         ))),
     }
 }
@@ -264,6 +267,9 @@ async fn pump(
             Stream::Stdout => (&out_buf, &mut out_open),
             Stream::Stderr => (&err_buf, &mut err_open),
         };
+        if let Err(error) = &read {
+            tracing::warn!(stream = ?stream, error = %error_chain(error), "bash output read failed");
+        }
         let notice = match read {
             Ok(n) if n > 0 => {
                 sink.write(&buf[..n]).await?;
@@ -287,7 +293,11 @@ struct ProcessGroup(Pid);
 impl ProcessGroup {
     fn kill(&self) {
         // 进程组已空时返回 ESRCH，无需处理。
-        let _ = killpg(self.0, Signal::SIGKILL);
+        if let Err(error) = killpg(self.0, Signal::SIGKILL) {
+            if error != nix::errno::Errno::ESRCH {
+                tracing::warn!(process_group = self.0.as_raw(), %error, "bash process group kill failed");
+            }
+        }
     }
 }
 
@@ -303,15 +313,20 @@ struct Tail {
     truncated: bool,
 }
 
-async fn read_tail(mut stream: impl AsyncRead + Unpin) -> Tail {
+async fn read_tail(mut stream: impl AsyncRead + Unpin, name: Stream) -> Tail {
     let mut bytes = Vec::new();
     let mut truncated = false;
     let mut buf = [0u8; 8192];
     // 读错误视同 EOF：已读到的部分照常返回。
-    while let Ok(n) = stream.read(&mut buf).await {
-        if n == 0 {
-            break;
-        }
+    loop {
+        let n = match stream.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(error) => {
+                tracing::warn!(stream = ?name, error = %error_chain(&error), "bash output read failed");
+                break;
+            }
+        };
         bytes.extend_from_slice(&buf[..n]);
         if bytes.len() > 2 * MAX_OUTPUT_BYTES {
             bytes.drain(..bytes.len() - MAX_OUTPUT_BYTES);
@@ -390,3 +405,17 @@ mod watch;
 
 #[cfg(test)]
 mod tests;
+
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !message.ends_with(&detail) {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+        source = cause.source();
+    }
+    message
+}

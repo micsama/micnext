@@ -5,7 +5,7 @@ use tokio::time::Instant;
 
 use crate::limits::{NOTIFY_COOLDOWN, NOTIFY_LINE_BYTES, NOTIFY_MAX};
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(super) enum Stream {
     Stdout,
     Stderr,

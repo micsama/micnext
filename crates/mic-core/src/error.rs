@@ -112,3 +112,17 @@ pub enum WorkdirError {
         source: std::io::Error,
     },
 }
+
+pub(crate) fn chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !message.ends_with(&detail) {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+        source = cause.source();
+    }
+    message
+}

@@ -244,7 +244,11 @@ struct Cleanup(Vec<PathBuf>);
 impl Drop for Cleanup {
     fn drop(&mut self) {
         for path in &self.0 {
-            let _ = std::fs::remove_file(path);
+            if let Err(error) = std::fs::remove_file(path) {
+                if error.kind() != ErrorKind::NotFound {
+                    tracing::warn!(%error, path = %path.display(), "wechat attachment cleanup failed");
+                }
+            }
         }
     }
 }

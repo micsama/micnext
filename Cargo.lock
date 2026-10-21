@@ -1505,6 +1505,7 @@ dependencies = [
  "image",
  "mic-message",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -1575,6 +1576,7 @@ dependencies = [
  "serde",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1589,6 +1591,7 @@ dependencies = [
  "schemars",
  "serde",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

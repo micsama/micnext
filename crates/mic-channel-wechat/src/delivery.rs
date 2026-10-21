@@ -373,7 +373,10 @@ fn failure(error: &ClientError) -> &'static str {
 
 fn client_id() -> Result<String, ClientError> {
     let mut bytes = [0; ATTEMPT_ID_BYTES];
-    getrandom::fill(&mut bytes).map_err(|_| ClientError::Protocol("随机源不可用"))?;
+    getrandom::fill(&mut bytes).map_err(|error| {
+        tracing::error!(%error, "wechat random source failed");
+        ClientError::Protocol("随机源不可用")
+    })?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 

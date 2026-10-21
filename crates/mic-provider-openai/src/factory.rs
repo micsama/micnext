@@ -87,7 +87,7 @@ impl ProviderFactory for OpenAiFactory {
 fn connect(endpoint: &EndpointConfig, key: Option<SecretValue>) -> Result<Client, ConfigError> {
     Client::build(endpoint.base_url(), endpoint.headers(key)?).map_err(|e| ConfigError {
         field: "config".into(),
-        message: e.to_string(),
+        message: error::chain(&e.without_url()),
     })
 }
 

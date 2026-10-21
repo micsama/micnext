@@ -127,7 +127,7 @@ impl Client {
             .timeout(QR_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .build()
-            .map_err(|_| ClientError::Protocol("HTTP client 初始化失败"))?;
+            .map_err(|error| network_error("client_build", error))?;
         Ok(Self { http })
     }
 
@@ -169,7 +169,10 @@ impl Client {
 
     pub async fn qr(&self, tokens: &[Token]) -> Result<Qr, ClientError> {
         let mut random = [0u8; 4];
-        getrandom::fill(&mut random).map_err(|_| ClientError::Protocol("随机源不可用"))?;
+        getrandom::fill(&mut random).map_err(|error| {
+            tracing::error!(%error, "wechat random source failed");
+            ClientError::Protocol("随机源不可用")
+        })?;
         let uin = STANDARD.encode(u32::from_be_bytes(random).to_string());
         let body = QrRequest {
             local_token_list: tokens.iter().map(Token::expose).collect(),
@@ -207,7 +210,10 @@ impl Client {
             .join(endpoint)
             .map_err(|_| ClientError::Protocol("API 地址无效"))?;
         let mut random = [0u8; 4];
-        getrandom::fill(&mut random).map_err(|_| ClientError::Protocol("随机源不可用"))?;
+        getrandom::fill(&mut random).map_err(|error| {
+            tracing::error!(%error, "wechat random source failed");
+            ClientError::Protocol("随机源不可用")
+        })?;
         Ok(self
             .http
             .post(url)
@@ -579,11 +585,13 @@ fn network_error(endpoint: &'static str, error: reqwest::Error) -> ClientError {
     let error = error.without_url();
     let timeout = error.is_timeout();
     {
+        let mut message = error.to_string();
         let mut source = error.source();
         let mut io_kind = None;
         let mut os_error = None;
         let mut tls_handshake_eof = false;
         while let Some(cause) = source {
+            message.push_str(&format!(": {cause}"));
             if let Some(io) = cause.downcast_ref::<std::io::Error>() {
                 io_kind = Some(io.kind());
                 os_error = io.raw_os_error();
@@ -591,16 +599,29 @@ fn network_error(endpoint: &'static str, error: reqwest::Error) -> ClientError {
             tls_handshake_eof |= cause.to_string() == "tls handshake eof";
             source = cause.source();
         }
-        tracing::debug!(
-            endpoint,
-            timeout,
-            error = %error,
-            connect = error.is_connect(),
-            ?io_kind,
-            ?os_error,
-            tls_handshake_eof,
-            "wechat HTTP transport failed"
-        );
+        if endpoint == "getupdates" && timeout {
+            tracing::debug!(
+                endpoint,
+                timeout,
+                error = %message,
+                connect = error.is_connect(),
+                ?io_kind,
+                ?os_error,
+                tls_handshake_eof,
+                "wechat HTTP transport failed"
+            );
+        } else {
+            tracing::warn!(
+                endpoint,
+                timeout,
+                error = %message,
+                connect = error.is_connect(),
+                ?io_kind,
+                ?os_error,
+                tls_handshake_eof,
+                "wechat HTTP transport failed"
+            );
+        }
     }
     if timeout {
         ClientError::Timeout

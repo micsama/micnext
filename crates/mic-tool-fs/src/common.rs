@@ -57,15 +57,13 @@ pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce(Cancel) -> T + Se
 
 /// I/O 失败分类：不存在是参数问题，其余是环境问题。
 pub(crate) fn io_error(action: &str, display: &str, e: io::Error) -> ToolError {
-    match e.kind() {
-        io::ErrorKind::NotFound => {
-            ToolError::input(format!("cannot {action} \"{display}\": not found"))
-        }
-        io::ErrorKind::PermissionDenied => {
-            ToolError::dependency(format!("cannot {action} \"{display}\": permission denied"))
-        }
-        _ => ToolError::dependency(format!("cannot {action} \"{display}\": {e}")),
+    if e.kind() == io::ErrorKind::NotFound {
+        return ToolError::input(format!("cannot {action} \"{display}\": not found"));
     }
+    ToolError::dependency(format!(
+        "cannot {action} \"{display}\": {}",
+        error_chain(&e)
+    ))
 }
 
 /// 前 `BINARY_SNIFF_BYTES` 字节含 NUL 视为二进制。
@@ -106,4 +104,50 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     }
     tmp.persist(path).map_err(|e| e.error)?;
     Ok(())
+}
+
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !message.ends_with(&detail) {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+        source = cause.source();
+    }
+    message
+}
+
+/// 每次扫描只汇总一条，保留首个根因。
+pub(crate) struct ScanErrors {
+    action: &'static str,
+    count: usize,
+    first: Option<String>,
+}
+
+impl ScanErrors {
+    pub(crate) fn new(action: &'static str) -> Self {
+        Self {
+            action,
+            count: 0,
+            first: None,
+        }
+    }
+
+    pub(crate) fn record(&mut self, path: &Path, error: &dyn std::error::Error) {
+        self.count += 1;
+        if self.first.is_none() {
+            self.first = Some(format!("{}: {}", path.display(), error_chain(error)));
+        }
+    }
+}
+
+impl Drop for ScanErrors {
+    fn drop(&mut self) {
+        if let Some(error) = &self.first {
+            tracing::warn!(action = self.action, failures = self.count, %error, "file scan incomplete");
+        }
+    }
 }

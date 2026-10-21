@@ -160,7 +160,11 @@ impl Writer {
                 self.set(Storage::Sqlite { path });
                 self.backend = Backend::Sqlite(db);
             }
-            Err(e) => self.degrade_to_text(format!("日志库 {} 打不开：{e}", path.display())),
+            Err(e) => self.degrade_to_text(format!(
+                "日志库 {} 打不开：{}",
+                path.display(),
+                crate::error::chain(e.as_ref())
+            )),
         }
     }
 
@@ -170,7 +174,9 @@ impl Writer {
             match &mut self.backend {
                 Backend::Sqlite(db) => match db.write(self.boot_id, batch) {
                     Ok(()) => return,
-                    Err(e) => self.degrade_to_text(format!("日志库写入失败：{e}")),
+                    Err(e) => {
+                        self.degrade_to_text(format!("日志库写入失败：{}", crate::error::chain(&e)))
+                    }
                 },
                 Backend::File(text) => match text.write(batch) {
                     Ok(()) => return,

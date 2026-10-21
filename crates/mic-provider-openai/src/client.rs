@@ -86,8 +86,17 @@ async fn send(req: RequestBuilder) -> Result<Response, Failure> {
     let error = resp
         .bytes()
         .await
+        .map_err(|e| {
+            tracing::warn!(status = status.as_u16(), error = %crate::error::chain(&e.without_url()), "upstream error body read failed");
+        })
         .ok()
-        .and_then(|b| serde_json::from_slice::<WrappedError>(&b).ok())
+        .and_then(|b| match serde_json::from_slice::<WrappedError>(&b) {
+            Ok(error) => Some(error),
+            Err(error) => {
+                tracing::warn!(status = status.as_u16(), body_len = b.len(), category = ?error.classify(), line = error.line(), column = error.column(), "upstream error body decode failed");
+                None
+            }
+        })
         .map(|w| w.error);
     tracing::debug!(
         status = status.as_u16(),

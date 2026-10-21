@@ -506,7 +506,9 @@ fn settle(
     shutdown.cancel();
     match failure {
         None => *failure = Some(error),
-        Some(_) => tracing::error!(%error, "additional service failure"),
+        Some(_) => {
+            tracing::error!(error = %crate::error::chain(&error), "additional service failure")
+        }
     }
 }
 

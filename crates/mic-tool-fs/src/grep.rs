@@ -10,7 +10,7 @@ use mic_tool::{Tool, ToolContext, ToolError, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::common::{blocking, display_path, resolve, Cancel};
+use crate::common::{blocking, display_path, io_error, resolve, Cancel, ScanErrors};
 use crate::limits::{GREP_MAX_LINE_BYTES, GREP_MAX_MATCHES, SEARCH_TIMEOUT};
 
 pub(crate) struct Grep;
@@ -65,7 +65,10 @@ struct Found {
 }
 
 fn search(root: &Path, args: &Args, cwd: &Path, cancel: &Cancel) -> Result<Found, ToolError> {
-    if !root.exists() {
+    if !root
+        .try_exists()
+        .map_err(|error| io_error("stat", &display_path(cwd, root), error))?
+    {
         return Err(ToolError::input(format!(
             "path not found: \"{}\"",
             display_path(cwd, root)
@@ -94,6 +97,7 @@ fn search(root: &Path, args: &Args, cwd: &Path, cancel: &Cancel) -> Result<Found
         kept: Vec::new(),
         seen: 0,
     };
+    let mut errors = ScanErrors::new("grep");
     for entry in walk.build() {
         if cancel.is_cancelled() {
             break;
@@ -102,7 +106,18 @@ fn search(root: &Path, args: &Args, cwd: &Path, cancel: &Cancel) -> Result<Found
             return Err(timed_out());
         }
         // 不可读的条目跳过，与 rg 一致。
-        let Ok(entry) = entry else { continue };
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                if error
+                    .io_error()
+                    .is_none_or(|e| e.kind() != std::io::ErrorKind::NotFound)
+                {
+                    errors.record(root, &error);
+                }
+                continue;
+            }
+        };
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
@@ -113,6 +128,7 @@ fn search(root: &Path, args: &Args, cwd: &Path, cancel: &Cancel) -> Result<Found
             cwd,
             deadline,
             &mut found,
+            &mut errors,
         );
     }
     if Instant::now() > deadline {
@@ -128,10 +144,11 @@ fn search_file(
     cwd: &Path,
     deadline: Instant,
     found: &mut Found,
+    errors: &mut ScanErrors,
 ) {
     let display = display_path(cwd, path);
     // 单个文件读失败不影响其余结果，与 rg 一致。
-    let _ = searcher.search_path(
+    if let Err(error) = searcher.search_path(
         matcher,
         PathBuf::from(path),
         sinks::Lossy(|line, text| {
@@ -145,7 +162,11 @@ fn search_file(
             }
             Ok(Instant::now() <= deadline)
         }),
-    );
+    ) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            errors.record(path, &error);
+        }
+    }
 }
 
 fn timed_out() -> ToolError {

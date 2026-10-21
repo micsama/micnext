@@ -23,7 +23,7 @@ pub(crate) fn transient(message: impl Into<String>) -> ProviderError {
 pub(crate) fn provider(e: Failure) -> ProviderError {
     match e {
         Failure::Http(f) => http(f),
-        Failure::Network(e) => transient(format!("请求失败：{}", e.without_url())),
+        Failure::Network(e) => transient(format!("请求失败：{}", chain(&e.without_url()))),
     }
 }
 
@@ -109,12 +109,24 @@ pub(crate) fn probe(e: Failure) -> ProbeError {
             Some(e) => format!("HTTP {}：{}", f.status.as_u16(), e.message),
             None => format!("HTTP {}", f.status.as_u16()),
         }),
-        Failure::Network(e) => ProbeError::Network(if e.is_timeout() {
-            "连接超时".to_owned()
-        } else if e.is_connect() {
-            "无法建立连接".to_owned()
-        } else {
-            e.without_url().to_string()
-        }),
+        Failure::Network(e) => ProbeError::Network(chain(&e.without_url())),
     }
 }
+
+pub(crate) fn chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !message.ends_with(&detail) {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+        source = cause.source();
+    }
+    message
+}
+
+#[cfg(test)]
+#[path = "error/tests.rs"]
+mod tests;

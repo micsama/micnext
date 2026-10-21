@@ -162,7 +162,7 @@ impl IntoResponse for ApiError {
             }
             Self::ImportPartial(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
             Self::Internal(e) => {
-                tracing::error!(error = %e, "gateway request failed");
+                tracing::error!(error = %crate::error::chain(&e), "gateway request failed");
                 (StatusCode::INTERNAL_SERVER_ERROR, "内部错误".to_owned())
             }
             Self::Setup(e) => {
@@ -173,7 +173,7 @@ impl IntoResponse for ApiError {
                     ChannelSetupError::InvalidCode => StatusCode::BAD_REQUEST,
                     ChannelSetupError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
                     ChannelSetupError::Internal { source } => {
-                        tracing::error!(error = %source, "channel setup failed");
+                        tracing::error!(error = %crate::error::chain(source.as_ref()), "channel setup failed");
                         StatusCode::INTERNAL_SERVER_ERROR
                     }
                 };
@@ -182,4 +182,18 @@ impl IntoResponse for ApiError {
         };
         (status, Json(ErrorBody { error: message })).into_response()
     }
+}
+
+pub(crate) fn chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !message.ends_with(&detail) {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+        source = cause.source();
+    }
+    message
 }

@@ -92,7 +92,7 @@ async fn restore_channels(prepared: PreparedChannels) -> Result<(), ApiError> {
     for (name, action) in prepared {
         if let Err(error) = action.restore().await {
             if let mic_core::ChannelSetupError::Internal { source } = &error {
-                tracing::error!(channel = name, error = %source, "settings channel restore failed");
+                tracing::error!(channel = name, error = %crate::error::chain(source.as_ref()), "settings channel restore failed");
             }
             let label = if name == "wechat" { "微信" } else { name };
             failures.push(format!("{label}账号恢复失败：{error}"));

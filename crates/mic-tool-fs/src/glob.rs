@@ -8,7 +8,7 @@ use mic_tool::{Tool, ToolContext, ToolError, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::common::{blocking, display_path, resolve, Cancel};
+use crate::common::{blocking, display_path, io_error, resolve, Cancel, ScanErrors};
 use crate::limits::GLOB_MAX_RESULTS;
 
 pub(crate) struct Glob;
@@ -59,7 +59,12 @@ fn find(
     cwd: &Path,
     cancel: &Cancel,
 ) -> Result<Vec<PathBuf>, ToolError> {
-    if !root.is_dir() {
+    let is_dir = match std::fs::metadata(root) {
+        Ok(metadata) => metadata.is_dir(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(io_error("stat", &display_path(cwd, root), error)),
+    };
+    if !is_dir {
         return Err(ToolError::input(format!(
             "path is not an existing directory: \"{}\"",
             display_path(cwd, root)
@@ -76,20 +81,45 @@ fn find(
         .build();
 
     let mut found: Vec<(SystemTime, PathBuf)> = Vec::new();
+    let mut errors = ScanErrors::new("glob");
     for entry in walk {
         if cancel.is_cancelled() {
             break;
         }
         // 无权限等不可读的条目跳过，与 rg 一致。
-        let Ok(entry) = entry else { continue };
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                if error
+                    .io_error()
+                    .is_none_or(|e| e.kind() != std::io::ErrorKind::NotFound)
+                {
+                    errors.record(root, &error);
+                }
+                continue;
+            }
+        };
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
-        let modified = entry
-            .metadata()
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let modified = match entry.metadata() {
+            Ok(metadata) => match metadata.modified() {
+                Ok(modified) => modified,
+                Err(error) => {
+                    errors.record(entry.path(), &error);
+                    SystemTime::UNIX_EPOCH
+                }
+            },
+            Err(error) => {
+                if error
+                    .io_error()
+                    .is_none_or(|e| e.kind() != std::io::ErrorKind::NotFound)
+                {
+                    errors.record(entry.path(), &error);
+                }
+                SystemTime::UNIX_EPOCH
+            }
+        };
         found.push((modified, entry.into_path()));
     }
     found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));

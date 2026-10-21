@@ -100,7 +100,7 @@ async fn feed(
     };
     let (replayed, has_earlier) = match replayed {
         Ok(replayed) => replayed,
-        Err(e) => return tracing::error!(error = %e, "gateway replay failed"),
+        Err(e) => return tracing::error!(error = %crate::error::chain(&e), "gateway replay failed"),
     };
     let mut last = after;
     for message in replayed {
@@ -111,7 +111,7 @@ async fn feed(
     }
     let executing_run = match app.kernel.executing_run(session_id).await {
         Ok(run) => run,
-        Err(e) => return tracing::error!(error = %e, "gateway replay failed"),
+        Err(e) => return tracing::error!(error = %crate::error::chain(&e), "gateway replay failed"),
     };
     let ready = Ready {
         executing_run: executing_run.map(|r| r.0),

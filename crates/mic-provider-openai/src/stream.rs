@@ -77,7 +77,12 @@ pub(crate) fn drive<A: Accumulate>(open: Open, acc: A) -> BoxStream<Item> {
                         Ok(Step::Failed(e, usage)) => fail_with(e, usage),
                         Err(e) => fail(e),
                     },
-                    Ok(Some(Err(e))) => fail(transient(format!("流中途断开：{e}"))),
+                    Ok(Some(Err(e))) => fail(match e {
+                        EventStreamError::Transport(e) => {
+                            crate::error::provider(crate::client::Failure::Network(e))
+                        }
+                        e => transient(format!("流中途断开：{}", crate::error::chain(&e))),
+                    }),
                     Ok(None) => finish(acc.eof(), None),
                     Err(e) => fail(e),
                 }),

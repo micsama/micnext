@@ -81,7 +81,7 @@ impl Tool for AgentTool {
                     jobs.spawn_agent(origin, scope, description, task)
                         .await
                         .map_err(|e| {
-                            tracing::error!(error = %e, "sub-agent registration failed");
+                            tracing::error!(error = %crate::error::chain(&e), "sub-agent registration failed");
                             format!("failed to start the sub-agent: {e}")
                         })
                 })
@@ -91,7 +91,7 @@ impl Tool for AgentTool {
                 let child = self.follow_up_target(&origin, JobId(id)).await?;
                 port.register(async move {
                     jobs.follow_up(origin, child, task).await.map_err(|e| {
-                        tracing::error!(error = %e, "sub-agent follow-up failed");
+                        tracing::error!(error = %crate::error::chain(&e), "sub-agent follow-up failed");
                         format!("failed to send the follow-up: {e}")
                     })?;
                     Ok(JobId(id))

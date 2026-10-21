@@ -34,6 +34,8 @@ pub struct Schedule {
     /// 下次应触发时刻；空即停用（含暂停、一次性已触发）。
     pub next_run_at: Option<i64>,
     pub paused_reason: Option<String>,
+    /// 最近一次由停用转启用（含新建）的时刻；连续失败只数此后的触发。
+    pub enabled_at: i64,
     pub session_id: SessionId,
     pub created_at: i64,
     pub updated_at: i64,
@@ -60,7 +62,7 @@ pub struct NewSchedule {
 }
 
 /// 只改给出的字段。`next_run_at`：`None` 不动，`Some(None)` 停用，`Some(Some(t))` 从 t 起；
-/// 给出时同时清暂停原因。
+/// 给出时同时清暂停原因，由停用转启用时记 `enabled_at`。
 #[derive(Default)]
 pub struct ScheduleEdit {
     pub name: Option<String>,
@@ -124,7 +126,8 @@ pub enum FireResult {
 }
 
 const SCHEDULE_COLS: &str =
-    "id, person_id, name, rule, prompt, next_run_at, paused_reason, session_id, created_at, updated_at";
+    "id, person_id, name, rule, prompt, next_run_at, paused_reason, enabled_at, session_id,
+     created_at, updated_at";
 
 /// `f` 为 core_schedule_fires 别名；列序同 `fire`。
 const FIRE_SELECT: &str = "
@@ -144,9 +147,10 @@ fn schedule(row: &Row<'_>) -> rusqlite::Result<Schedule> {
         prompt: row.get(4)?,
         next_run_at: row.get(5)?,
         paused_reason: row.get(6)?,
-        session_id: SessionId(row.get(7)?),
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        enabled_at: row.get(7)?,
+        session_id: SessionId(row.get(8)?),
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
@@ -216,8 +220,8 @@ impl Store {
             )?;
             tx.execute(
                 "INSERT INTO core_schedules
-                   (person_id, name, rule, prompt, next_run_at, session_id, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+                   (person_id, name, rule, prompt, next_run_at, enabled_at, session_id, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, ?7, ?7)",
                 params![
                     new.person.0,
                     new.name,
@@ -260,7 +264,10 @@ impl Store {
             }
             tx.execute(
                 "UPDATE core_schedules SET name = ?2, rule = ?3, prompt = ?4, next_run_at = ?5,
-                   paused_reason = CASE WHEN ?6 THEN NULL ELSE paused_reason END, updated_at = ?7
+                   paused_reason = CASE WHEN ?6 THEN NULL ELSE paused_reason END,
+                   enabled_at = CASE WHEN next_run_at IS NULL AND ?5 IS NOT NULL THEN ?7
+                                     ELSE enabled_at END,
+                   updated_at = ?7
                  WHERE id = ?1",
                 params![
                     id.0,

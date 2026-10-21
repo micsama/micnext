@@ -93,7 +93,7 @@ impl Schedules {
             .schedule_fires(schedule.id, STREAK_SCAN)
             .await?
             .iter()
-            .filter(|f| !f.outcome.is_neutral())
+            .filter(|f| f.due_at >= schedule.enabled_at && !f.outcome.is_neutral())
             .take(SCHEDULE_FAIL_PAUSE)
             .filter(|f| f.outcome.is_failure())
             .count();

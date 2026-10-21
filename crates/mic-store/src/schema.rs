@@ -82,6 +82,7 @@ CREATE TABLE core_schedules (
   prompt         TEXT NOT NULL,
   next_run_at    INTEGER,
   paused_reason  TEXT CHECK(paused_reason IS NULL OR next_run_at IS NULL),
+  enabled_at     INTEGER NOT NULL,
   session_id     INTEGER NOT NULL UNIQUE REFERENCES core_sessions(id),
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL

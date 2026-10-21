@@ -99,6 +99,7 @@ CREATE TABLE core_schedules (
   rule           TEXT NOT NULL,          -- 工具参数 when：cron 表达式或一次性本地时刻
   prompt         TEXT NOT NULL,
   paused_reason  TEXT,                   -- 框架自动暂停时的原因
+  enabled_at     INTEGER NOT NULL,       -- 最近一次由停用转启用（含新建）的时刻；连续失败只数此后
   next_run_at    INTEGER,                -- 下次应触发时刻；空即停用（含暂停、一次性已触发）。调度与启停的唯一真相
   session_id     INTEGER NOT NULL REFERENCES core_sessions(id),
   created_at     INTEGER NOT NULL,
@@ -170,7 +171,7 @@ core 内一个 tokio 任务，状态只在库里：
 
 ### P2.6 系统级失败
 
-上表标「是」的结局由框架以框架推送（来源 = 任务会话）通知「定时任务 X：结局与原因」。与所有推送一样进 Web 通知中心，并发往默认推送 Channel；不可用的 IM 照样建投递行、`failure` 写原因。同一任务最近连续 `SCHEDULE_FAIL_PAUSE`（暂定 3）次触发都是系统级失败时：`next_run_at` 置空，写 `paused_reason`，并推送。「忙」「已停止」既不计入也不打断连续计数；正常完成打断连续计数。agent 判断「没发现」属于正常完成。
+上表标「是」的结局由框架以框架推送（来源 = 任务会话）通知「定时任务 X：结局与原因」。与所有推送一样进 Web 通知中心，并发往默认推送 Channel；不可用的 IM 照样建投递行、`failure` 写原因。同一任务自最近一次启用以来，最近连续 `SCHEDULE_FAIL_PAUSE`（暂定 3）次触发都是系统级失败时：`next_run_at` 置空，写 `paused_reason`，并推送。「忙」「已停止」既不计入也不打断连续计数；正常完成打断连续计数。agent 判断「没发现」属于正常完成。
 
 ### P2.7 `schedule` / `schedules` 工具
 
@@ -207,7 +208,7 @@ core 内一个 tokio 任务，状态只在库里：
 验收中发现：下次触发时刻由内存游标现推，游标的毫秒残留曾跳过整点；运行中长时间卡顿只跑一次、中间次数既不执行也不记录；启动补记与运行是两条流程，任务页还得另算「下次运行」。改为 `next_run_at` 一处真相（P2.2、P2.3、P2.5 已改入正文）：
 
 - 删 `enabled`（启用即 `next_run_at` 非空）、`active_since`、内存游标与启动补记；`schedule`/`schedules` 工具显示的下次运行直接读列。
-- 迁移 v19：重建两张表，以 `next_run_at` 取代 `enabled` 与 `active_since`。现有任务是验收期测试数据，迁移清空 `core_schedules` 与 `core_schedule_fires`（任务会话、run、trace 保留），升级后在对话里重建。
+- 迁移 v19：重建两张表，以 `next_run_at` 取代 `enabled` 与 `active_since`；加 `enabled_at`，重新启用后连续失败从零数（human 2026-10-21）。现有任务是验收期测试数据，迁移清空 `core_schedules` 与 `core_schedule_fires`（任务会话、run、trace 保留），升级后在对话里重建。
 - 补测试：store 测试覆盖 `next_run_at` 被改动后不触发、触发与错过都前移下次时刻。
 
 本地冒烟（临时库，无模型）：准点任务在整分 +3ms 触发；迟到超过 30 秒合并为一条错过并推送；一次性任务错过后停用；停机 2 分多钟重启立即补记「错过 2 次」；连续 3 次失败自动暂停并清空下次时刻。

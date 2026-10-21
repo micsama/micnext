@@ -83,7 +83,12 @@ async fn check() {
         next_run_at: Some(Some(106)),
         ..Default::default()
     };
-    store.update_schedule(s.id, enable, 105).await.unwrap();
+    let enabled = store
+        .update_schedule(s.id, enable, 105)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(enabled.enabled_at, 105, "重新启用记启用时刻");
     assert!(matches!(
         store
             .fire_schedule(s.id, 106, Some(166), false, 106)

@@ -133,13 +133,13 @@
     return () => seen.disconnect();
   });
 
-  // 哨兵离顶部三屏内就取更早一页，用户划到顶前通常已接上。IntersectionObserver 只在相交变化时通知，
+  // 哨兵离顶部半屏内就取更早一页，用户划到顶前通常已接上。IntersectionObserver 只在相交变化时通知，
   // 就绪或一页取完后重新 observe，让它按最新布局再报一次。
   let io: IntersectionObserver;
   $effect(() => {
     io = new IntersectionObserver((entries) => {
       if (entries.at(-1)?.isIntersecting) void view.loadEarlier();
-    }, { root: scroller, rootMargin: "300% 0px 0px 0px" });
+    }, { root: scroller, rootMargin: `${Math.round(scroller.clientHeight / 2)}px 0px 0px 0px` });
     return () => io.disconnect();
   });
   $effect(() => {

@@ -21,8 +21,8 @@ pub(crate) const PAGE_MAX: u32 = 100;
 /// trace 页默认一次取的完整 run 数。
 pub(crate) const TRACE_RUNS_DEFAULT: u32 = 20;
 /// 会话消息一页：最近轮数与条数上限。
-pub(crate) const PAGE_ROUNDS: NonZeroU32 = NonZeroU32::new(20).unwrap();
-pub(crate) const PAGE_MESSAGES: NonZeroU32 = NonZeroU32::new(300).unwrap();
+pub(crate) const PAGE_ROUNDS: NonZeroU32 = NonZeroU32::new(5).unwrap();
+pub(crate) const PAGE_MESSAGES: NonZeroU32 = NonZeroU32::new(100).unwrap();
 /// SSE 心跳注释间隔。
 pub(crate) const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
 /// 单条流待发事件的缓冲；客户端读得慢时回压到内核订阅，落后即断流重连。

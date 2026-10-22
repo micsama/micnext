@@ -108,4 +108,32 @@ async fn check() {
     assert_eq!(page.unread, 1);
     assert_eq!(page.pushes[0].read_at, None, "更新的不标");
     assert_eq!(page.pushes[1].read_at, Some(30));
+
+    let (gave_up, notices) = store
+        .create_push(
+            push(
+                owner,
+                source,
+                vec![PushRoute::Session {
+                    channel: "wechat".into(),
+                    session: dm,
+                }],
+            ),
+            40,
+        )
+        .await
+        .unwrap();
+    store
+        .mark_delivery_failed(notices[0].id, "微信请求超时".into())
+        .await
+        .unwrap();
+    let page = store.pushes(owner, None, 1).await.unwrap();
+    assert_eq!(page.pushes[0].id, gave_up);
+    assert!(
+        matches!(
+            &page.pushes[0].deliveries[0].state,
+            PushDeliveryState::Failed { reason } if reason == "微信请求超时"
+        ),
+        "Channel 放弃投递即终态"
+    );
 }

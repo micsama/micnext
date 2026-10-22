@@ -447,6 +447,20 @@ impl Kernel {
 
     pub async fn mark_delivered(&self, id: MessageId) -> Result<(), KernelError> {
         self.store.mark_delivered(id, now_ms()).await?;
+        self.delivery_changed(id).await
+    }
+
+    /// Channel 放弃投递；`reason` 给人看。
+    pub async fn mark_delivery_failed(
+        &self,
+        id: MessageId,
+        reason: String,
+    ) -> Result<(), KernelError> {
+        self.store.mark_delivery_failed(id, reason).await?;
+        self.delivery_changed(id).await
+    }
+
+    async fn delivery_changed(&self, id: MessageId) -> Result<(), KernelError> {
         if let Some((push_id, source)) = self.store.push_of_delivery(id).await? {
             let session = self.store.session(source).await?.expect("来源会话存在");
             let channel = session_channel(&self.store, &session).await?;

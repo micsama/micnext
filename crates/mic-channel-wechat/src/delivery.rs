@@ -188,6 +188,12 @@ async fn deliver(
                     }
                     if attempt == SEND_ATTEMPTS {
                         finish(kernel, id, Outcome::Skipped).await?;
+                        let reason = if chunk_index == 0 {
+                            error.to_string()
+                        } else {
+                            format!("只送达前 {chunk_index} 段：{error}")
+                        };
+                        kernel.mark_delivery_failed(id, reason).await?;
                         tracing::debug!(message_id = id.0, chunk_index, "wechat delivery skipped");
                         return Ok(DeliveryResult::Complete(authentication));
                     }
@@ -361,6 +367,8 @@ async fn finish(kernel: &Kernel, id: MessageId, outcome: Outcome) -> Result<(), 
     Ok(())
 }
 
+const INTERRUPTED: &str = "投递中途服务重启，可能未送达";
+
 fn failure(error: &ClientError) -> &'static str {
     match error {
         ClientError::Network => "network",
@@ -383,18 +391,25 @@ fn client_id() -> Result<String, ClientError> {
 pub(crate) async fn recover(kernel: &Kernel) -> Result<(), AccountError> {
     let plans = kernel
         .with_module_tx(|tx| {
-            tx.prepare("SELECT plan FROM wechat_delivery WHERE outcome = 'sending'")?
-                .query_map([], |row| row.get::<_, String>(0))?
+            tx.prepare("SELECT message_id, plan FROM wechat_delivery WHERE outcome = 'sending'")?
+                .query_map([], |row| {
+                    Ok((MessageId(row.get(0)?), row.get::<_, String>(1)?))
+                })?
                 .collect::<Result<Vec<_>, _>>()
         })
         .await?;
-    for plan in plans {
-        disk_plan(&plan)?;
+    for (_, plan) in &plans {
+        disk_plan(plan)?;
     }
     kernel.with_module_tx(|tx| {
         tx.execute("UPDATE wechat_delivery_attempt SET finished_at = ?1, failure = 'interrupted' WHERE finished_at IS NULL", [now_ms()])?;
         tx.execute("UPDATE wechat_delivery SET outcome = 'interrupted', finished_at = ?1 WHERE outcome = 'sending'", [now_ms()])?;
         Ok(())
     }).await?;
+    for (id, _) in plans {
+        kernel
+            .mark_delivery_failed(id, INTERRUPTED.to_owned())
+            .await?;
+    }
     Ok(())
 }

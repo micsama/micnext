@@ -1,9 +1,10 @@
 use mic_store::{Migration, SecretColumn};
 
-pub(crate) const MIGRATIONS: &[Migration] = &[Migration {
-    module: "wechat",
-    version: 3,
-    sql: "
+pub(crate) const MIGRATIONS: &[Migration] = &[
+    Migration {
+        module: "wechat",
+        version: 3,
+        sql: "
 CREATE TABLE wechat_account (
   user_id TEXT PRIMARY KEY,
   bot_id TEXT NOT NULL,
@@ -60,17 +61,31 @@ CREATE TABLE wechat_inbound_message (
 CREATE INDEX wechat_inbound_message_external
   ON wechat_inbound_message(user_id, external_message_id, message_id);
 ",
-    secret_columns: &[
-        SecretColumn {
-            table: "wechat_account",
-            column: "bot_token",
-        },
-        SecretColumn {
-            table: "wechat_state",
-            column: "context_token",
-        },
-    ],
-}];
+        secret_columns: &[
+            SecretColumn {
+                table: "wechat_account",
+                column: "bot_token",
+            },
+            SecretColumn {
+                table: "wechat_state",
+                column: "context_token",
+            },
+        ],
+    },
+    Migration {
+        module: "wechat",
+        version: 4,
+        // 内核新增投递失败终态前，放弃或中断的投递只记在本模块，补记到消息上。
+        sql: "
+UPDATE core_messages SET delivery_failure = (
+  SELECT CASE d.outcome WHEN 'skipped' THEN '重试后仍未送达' ELSE '投递中途服务重启，可能未送达' END
+  FROM wechat_delivery d WHERE d.message_id = core_messages.id)
+WHERE delivered_at IS NULL AND delivery_failure IS NULL
+  AND id IN (SELECT message_id FROM wechat_delivery WHERE outcome IN ('skipped', 'interrupted'));
+",
+        secret_columns: &[],
+    },
+];
 
 #[cfg(test)]
 mod tests;

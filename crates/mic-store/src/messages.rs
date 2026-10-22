@@ -172,6 +172,7 @@ impl Store {
                      FROM {MESSAGE_FROM} JOIN core_sessions s ON s.id = m.session_id
                      WHERE s.delivery_channel = ?1
                        AND m.delivered_at IS NULL
+                       AND m.delivery_failure IS NULL
                        AND m.kind IN ('Reply', 'Notification')
                      ORDER BY m.id"
                 ))?
@@ -198,6 +199,21 @@ impl Store {
             conn.execute(
                 "UPDATE core_messages SET delivered_at = ?2 WHERE id = ?1",
                 params![id.0, at],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn mark_delivery_failed(
+        &self,
+        id: MessageId,
+        reason: String,
+    ) -> Result<(), StoreError> {
+        self.call(move |conn| {
+            conn.execute(
+                "UPDATE core_messages SET delivery_failure = ?2 WHERE id = ?1",
+                params![id.0, reason],
             )?;
             Ok(())
         })

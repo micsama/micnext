@@ -232,7 +232,7 @@ impl Store {
 
 fn deliveries(conn: &Connection, push: PushId) -> rusqlite::Result<Vec<PushDelivery>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT d.channel, d.message_id, d.failure, m.delivered_at
+        "SELECT d.channel, d.message_id, COALESCE(d.failure, m.delivery_failure), m.delivered_at
          FROM core_push_deliveries d LEFT JOIN core_messages m ON m.id = d.message_id
          WHERE d.push_id = ?1 ORDER BY d.channel",
     )?;

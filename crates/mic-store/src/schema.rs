@@ -68,7 +68,22 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_SCHEDULE_NEXT,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 20,
+        sql: CORE_DELIVERY_FAILURE,
+        secret_columns: &[],
+    },
 ];
+
+/// Channel 放弃投递也是终态：与 `delivered_at` 互斥，不再列为待投递。
+const CORE_DELIVERY_FAILURE: &str = "
+ALTER TABLE core_messages ADD COLUMN delivery_failure TEXT
+  CHECK(delivery_failure IS NULL OR delivered_at IS NULL);
+DROP INDEX idx_messages_undelivered;
+CREATE INDEX idx_messages_undelivered ON core_messages(session_id)
+  WHERE delivered_at IS NULL AND delivery_failure IS NULL AND kind IN ('Reply', 'Notification');
+";
 
 /// 调度以 `next_run_at` 为唯一真相，空即停用。旧任务是验收期数据，直接清空重建（任务会话保留）。
 const CORE_SCHEDULE_NEXT: &str = "

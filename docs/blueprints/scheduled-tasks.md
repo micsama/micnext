@@ -11,7 +11,7 @@
 | 实体 | 职责 | 唯一事实来源 |
 |---|---|---|
 | 推送 | agent 或框架发给某 person 的一条消息，可发多个 Channel | `core_pushes` |
-| 推送投递 | 每个 Channel 一行：发往哪、投递状态 | `core_push_deliveries`；微信的送达取对应 `Notification` 消息的 `delivered_at` |
+| 推送投递 | 每个 Channel 一行：发往哪、投递状态 | `core_push_deliveries`；微信的送达取对应 `Notification` 消息的 `delivered_at`，失败取其 `delivery_failure` |
 | 定时任务 | 归属 person：名字、规则、指令、启停、任务会话 | `core_schedules` |
 | 触发 | 每次到点一行：开跑（关联触发消息，run 经消息取得）或没跑（错过 / 忙） | `core_schedule_fires` |
 | 运行 | 任务会话里的一个 run | `core_runs`；结局即 run 状态，是否推送由推送表按 run 关联 |

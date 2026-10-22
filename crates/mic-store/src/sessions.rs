@@ -87,18 +87,6 @@ impl Store {
         .await
     }
 
-    pub async fn set_pwd(&self, id: SessionId, pwd: &str) -> Result<(), StoreError> {
-        let pwd = pwd.to_owned();
-        self.call(move |conn| {
-            conn.execute(
-                "UPDATE core_sessions SET pwd = ?2 WHERE id = ?1",
-                params![id.0, pwd],
-            )?;
-            Ok(())
-        })
-        .await
-    }
-
     pub async fn archive_session(&self, session: SessionId, at: i64) -> Result<(), StoreError> {
         self.call(move |conn| {
             conn.execute(

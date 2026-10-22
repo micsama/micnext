@@ -95,14 +95,21 @@ fn newer_format_is_rejected() {
     ));
 }
 
-fn old_compactions() -> Connection {
-    let mut conn = Connection::open_in_memory().unwrap();
-    init(&mut conn, &[]).unwrap();
-    conn.execute(
-        "UPDATE schema_migrations SET version = 20 WHERE module = 'core'",
-        [],
+fn core_at_version(version: u32) -> Connection {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE schema_migrations (module TEXT PRIMARY KEY, version INTEGER NOT NULL);",
     )
     .unwrap();
+    for migration in CORE_MIGRATIONS.iter().filter(|m| m.version <= version) {
+        conn.execute_batch(migration.sql).unwrap();
+    }
+    set_version(&conn, "core", version);
+    conn
+}
+
+fn old_compactions() -> Connection {
+    let conn = core_at_version(20);
     conn.execute("INSERT INTO core_sessions (id, kind, channel, chat, pwd, tool_scope, created_at, persona_id, archived_at) VALUES (1, 'root', 'web', 'a', '/tmp', '\"All\"', 1, 1, 9)", []).unwrap();
     let files = serde_json::json!([
         {"path": "a.rs", "outcome": {"Read": {"text": "frozen text", "extent": "Truncated"}}},
@@ -152,4 +159,51 @@ fn malformed_old_compaction_rolls_back_migration() {
         })
         .unwrap();
     assert!(payload.contains("frozen text"));
+}
+
+#[test]
+fn dropping_job_report_pointer_keeps_completion_and_run_pointer() {
+    let mut conn = core_at_version(21);
+    conn.execute_batch("INSERT INTO core_persons VALUES (1, 'owner', 1);
+        INSERT INTO core_sessions (id, kind, channel, chat, pwd, tool_scope, created_at, persona_id)
+        VALUES (1, 'root', 'web', 'a', '/tmp', '\"All\"', 1, 1);
+        INSERT INTO core_runs (id, session_id, state, created_at, finished_at) VALUES (1, 1, 'completed', 1, 2);").unwrap();
+    let payload = serde_json::to_string(&mic_message::MessageBody::Completion {
+        person: mic_message::PersonId(1),
+        tool_name: "bash".into(),
+        exec_id: "1".into(),
+        outcome: mic_message::ExecOutcome::Completed { output: vec![] },
+    })
+    .unwrap();
+    conn.execute(
+        "INSERT INTO core_messages (id, session_id, payload, created_at) VALUES (1, 1, ?1, 3)",
+        [&payload],
+    )
+    .unwrap();
+    conn.execute_batch("INSERT INTO core_jobs (id, kind, owner_session_id, person_id, origin_run_id, origin_tool_call_id, tool_name, description, created_at, state, finished_at, report_message_id)
+        VALUES (1, 'tool', 1, 1, 1, 'call_0', 'bash', 'test', 1, 'completed', 3, 1);
+        UPDATE core_runs SET report_message_id = 1 WHERE id = 1;").unwrap();
+    init(&mut conn, &[]).unwrap();
+    let actual: String = conn
+        .query_row("SELECT payload FROM core_messages WHERE id = 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(actual, payload);
+    let run_report: i64 = conn
+        .query_row(
+            "SELECT report_message_id FROM core_runs WHERE id = 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(run_report, 1);
+    assert!(conn
+        .prepare("SELECT report_message_id FROM core_jobs")
+        .is_err());
+    assert!(!conn
+        .prepare("PRAGMA foreign_key_check")
+        .unwrap()
+        .exists([])
+        .unwrap());
 }

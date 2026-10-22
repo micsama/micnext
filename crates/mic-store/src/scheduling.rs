@@ -187,20 +187,6 @@ impl Store {
         .await
     }
 
-    /// 有非 held 未认领输入的会话，按 id 升序。
-    pub async fn sessions_with_unclaimed_input(&self) -> Result<Vec<SessionId>, StoreError> {
-        self.call(move |conn| {
-            Ok(conn
-                .prepare(&format!(
-                    "SELECT DISTINCT m.session_id FROM core_messages m
-                     WHERE {UNCLAIMED} AND NOT ({HELD_INPUT}) ORDER BY m.session_id"
-                ))?
-                .query_map([], |r| Ok(SessionId(r.get(0)?)))?
-                .collect::<rusqlite::Result<Vec<_>>>()?)
-        })
-        .await
-    }
-
     /// 落终态；`report` 给出时（子 run）同事务把交付写成父 session 的 Completion 并记到
     /// `core_runs.report_message_id`，返回该消息。
     pub async fn finish_run(

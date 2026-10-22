@@ -80,6 +80,12 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_COMPACTION_PATHS,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 22,
+        sql: "ALTER TABLE core_jobs DROP COLUMN report_message_id;",
+        secret_columns: &[],
+    },
 ];
 
 /// 压缩保留必读路径，不再冻结文件正文。

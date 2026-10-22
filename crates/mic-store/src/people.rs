@@ -16,30 +16,6 @@ impl Store {
         .await
     }
 
-    /// 返回改绑前的 person（原先未绑定则 None）。
-    pub async fn bind_identity(
-        &self,
-        identity: Identity,
-        person: PersonId,
-        now: i64,
-    ) -> Result<Option<PersonId>, StoreError> {
-        self.call(move |conn| {
-            let tx = conn.transaction()?;
-            let old = identity_person(&tx, &identity)?;
-            // NOTE: 新建绑定时 display_name 留空，待该身份下次入站经 resolve_identity 刷新。
-            tx.execute(
-                "INSERT INTO core_person_identities
-                   (channel, external_id, person_id, display_name, created_at)
-                 VALUES (?1, ?2, ?3, '', ?4)
-                 ON CONFLICT(channel, external_id) DO UPDATE SET person_id = excluded.person_id",
-                params![identity.channel, identity.external_id, person.0, now],
-            )?;
-            tx.commit()?;
-            Ok(old)
-        })
-        .await
-    }
-
     /// 已绑定则刷新 display_name 并返回其 person；未绑定则绑到 `person`。
     pub async fn resolve_identity(
         &self,

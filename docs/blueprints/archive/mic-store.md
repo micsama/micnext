@@ -1,5 +1,7 @@
 # B2: mic-store（连带 mic-message 修订）
 
+2026-10-22 修订：删除无消费者方法及 job 回注关系副本，见 [公开面收缩](../unused-public-surface.md)。
+
 **现行扩展（2026-10-12）**：边界、指令认领、absorb 返回值与 schema core v6按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
 
 **状态**: 本文契约 CLOSED（2026-09-23 批准并实现于 `crates/mic-store`，含会话列举增量）；2026-09-24 按 [`storage-restructure.md`](storage-restructure.md) 重写为 session / run / message / model_call；微信投递完成判据随 v0b；2026-10-08 按 [`runtime-settings.md`](runtime-settings.md) 加 schema core v2（§6.1）（人设、对话偏好、会话人设、run 设置快照）

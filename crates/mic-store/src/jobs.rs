@@ -343,10 +343,6 @@ impl Store {
                     )?;
                     let session_id = SessionId(owner);
                     let message_id = insert_message(&tx, session_id, None, &body, at)?;
-                    tx.execute(
-                        "UPDATE core_jobs SET report_message_id = ?2 WHERE id = ?1",
-                        params![id.0, message_id.0],
-                    )?;
                     Some(message(session_id, message_id, body, at))
                 }
                 None => None,

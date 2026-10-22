@@ -120,6 +120,7 @@ async fn run_stats_fixture() {
     let reply = MessageBody::Reply {
         stats: mic_message::ReplyStats {
             model_ms: 0,
+            first_output_ms: None,
             usage: None,
         },
         model: "m".into(),

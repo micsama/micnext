@@ -16,7 +16,10 @@ pub(crate) const MESSAGE_FROM: &str =
     "core_messages m LEFT JOIN core_model_calls c ON c.id = m.model_call_id";
 
 pub(crate) const MESSAGE_COLS: &str =
-    "m.id, m.session_id, m.payload, m.created_at, m.delivered_at, c.model, c.finished_at - c.started_at, c.input_tokens, c.output_tokens, c.cache_read_tokens";
+    "m.id, m.session_id, m.payload, m.created_at, m.delivered_at, c.model, c.finished_at - c.started_at, c.first_output_at - c.started_at, c.input_tokens, c.output_tokens, c.cache_read_tokens";
+
+/// 紧跟 `MESSAGE_COLS` 追加的列从这个序号开始。
+pub(crate) const MESSAGE_NEXT: usize = 11;
 
 pub(crate) const SESSION_COLS: &str =
     "id, kind, channel, chat, parent_tool_call_id, trigger_module, \
@@ -203,13 +206,14 @@ pub(crate) fn message(row: &Row<'_>) -> rusqlite::Result<Message> {
         fields.insert("model".to_owned(), Value::String(row.get(5)?));
         let stats = mic_message::ReplyStats {
             model_ms: row.get(6)?,
+            first_output_ms: row.get(7)?,
             usage: row
-                .get::<_, Option<i64>>(7)?
+                .get::<_, Option<i64>>(8)?
                 .map(|input| -> rusqlite::Result<_> {
                     Ok(mic_message::ReplyUsage {
                         input_tokens: input as u64,
-                        output_tokens: row.get::<_, i64>(8)? as u64,
-                        cache_read_tokens: row.get::<_, Option<i64>>(9)?.map(|n| n as u64),
+                        output_tokens: row.get::<_, i64>(9)? as u64,
+                        cache_read_tokens: row.get::<_, Option<i64>>(10)?.map(|n| n as u64),
                     })
                 })
                 .transpose()?,

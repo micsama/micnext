@@ -58,6 +58,7 @@ impl Store {
                     let body = MessageBody::Reply {
                         stats: mic_message::ReplyStats {
                             model_ms: call.finished_at - call.started_at,
+                            first_output_ms: call.first_output_at.map(|t| t - call.started_at),
                             usage: call.usage.map(|u| mic_message::ReplyUsage {
                                 input_tokens: u.input_tokens,
                                 output_tokens: u.output_tokens,

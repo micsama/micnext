@@ -72,7 +72,7 @@ export type RunStats = {
   cost: number | null;
 };
 export type ReplyUsage = { input_tokens: number; output_tokens: number; cache_read_tokens: number | null };
-export type ReplyStats = { model_ms: number; usage: ReplyUsage | null };
+export type ReplyStats = { model_ms: number; first_output_ms: number | null; usage: ReplyUsage | null };
 export type CommandSpec = { name: string; usage: string; description: string };
 
 export type MessageBody =
@@ -320,7 +320,7 @@ const boundary: Decoder<ContextBoundary> = (v, at) => (v === "UserClear" ? v : c
 const messageBody: Decoder<MessageBody> = kinded({
   Command: { person: num, command },
   UserInput: { person: num, parts: arr(contentPart) },
-  Reply: { model: str, blocks: arr(replyBlock), stats: obj({ model_ms: num, usage: nullable(obj({ input_tokens: num, output_tokens: num, cache_read_tokens: nullable(num) })) }) },
+  Reply: { model: str, blocks: arr(replyBlock), stats: obj({ model_ms: num, first_output_ms: nullable(num), usage: nullable(obj({ input_tokens: num, output_tokens: num, cache_read_tokens: nullable(num) })) }) },
   ToolResult: {
     tool_name: str,
     tool_call_id: str,

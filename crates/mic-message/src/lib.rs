@@ -175,6 +175,8 @@ pub enum SnapshotExtent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReplyStats {
     pub model_ms: i64,
+    /// 首个输出增量距请求开始的毫秒数；非流式或无输出时为空。
+    pub first_output_ms: Option<i64>,
     pub usage: Option<ReplyUsage>,
 }
 

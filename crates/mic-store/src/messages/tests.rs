@@ -89,6 +89,7 @@ async fn check_reply_stats() {
             .record_model_call(NewModelCall {
                 context_at: 0,
                 started_at: 1000 * i as i64 + 100,
+                first_output_at: Some(1000 * i as i64 + 150),
                 finished_at: 1000 * i as i64 + 300,
                 usage: Some(usage),
                 ..call.clone()
@@ -98,6 +99,7 @@ async fn check_reply_stats() {
         let reply = reply.unwrap();
         let expected = ReplyStats {
             model_ms: 200,
+            first_output_ms: Some(50),
             usage: Some(ReplyUsage {
                 input_tokens: 100,
                 output_tokens: 20,

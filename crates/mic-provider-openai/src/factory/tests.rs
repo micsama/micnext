@@ -146,6 +146,7 @@ fn history() -> ModelRequest {
                 MessageBody::Reply {
                     stats: mic_message::ReplyStats {
                         model_ms: 0,
+                        first_output_ms: None,
                         usage: None,
                     },
                     model: "m".into(),

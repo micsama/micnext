@@ -604,6 +604,7 @@ fn delivery_maps_terminal_states() {
         body: MessageBody::Reply {
             stats: mic_message::ReplyStats {
                 model_ms: 0,
+                first_output_ms: None,
                 usage: None,
             },
             model: "test".into(),

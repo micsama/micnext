@@ -3,7 +3,7 @@
 mod bash;
 mod limits;
 
-use mic_core::{Activation, BoxError, Module, ModuleConfig, Registry};
+use mic_core::{BoxError, Module, ModuleConfig, Registry};
 use serde::Deserialize;
 
 /// 常驻模块，登记 `bash`。
@@ -16,10 +16,6 @@ struct Config {}
 impl Module for ShellModule {
     fn name(&self) -> &'static str {
         "shell"
-    }
-
-    fn activation(&self) -> Activation {
-        Activation::Always
     }
 
     fn install(&self, reg: &mut Registry, cfg: ModuleConfig) -> Result<(), BoxError> {

@@ -12,21 +12,8 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 pub trait Module {
     /// 配置段名、迁移 module 名、表前缀共用此名。
     fn name(&self) -> &'static str;
-    /// 缺省 `WhenConfigured`。
-    fn activation(&self) -> Activation {
-        Activation::WhenConfigured
-    }
     /// 第一阶段：同步、纯声明。解析自己的配置段并登记贡献；不做 I/O，拿不到 Store。
     fn install(&self, reg: &mut Registry, cfg: ModuleConfig) -> Result<(), BoxError>;
-}
-
-/// 模块何时装配。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Activation {
-    /// 配置里有同名段才装配。
-    WhenConfigured,
-    /// 总是装配；没有同名段时收到空表。
-    Always,
 }
 
 /// 本模块配置段的原始内容，只能由模块自己一次 parse 成强类型。

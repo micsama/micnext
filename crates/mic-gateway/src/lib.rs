@@ -26,7 +26,7 @@ mod trace;
 mod update;
 mod web;
 
-use mic_core::{Activation, BoxError, Module, ModuleConfig, Registry};
+use mic_core::{BoxError, Module, ModuleConfig, Registry};
 
 pub use crate::logs::DeveloperLogs;
 pub use crate::update::RestartRequest;
@@ -65,10 +65,6 @@ impl GatewayModule {
 impl Module for GatewayModule {
     fn name(&self) -> &'static str {
         "gateway"
-    }
-
-    fn activation(&self) -> Activation {
-        Activation::Always
     }
 
     fn install(&self, reg: &mut Registry, cfg: ModuleConfig) -> Result<(), BoxError> {

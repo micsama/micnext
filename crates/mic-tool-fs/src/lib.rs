@@ -9,7 +9,7 @@ mod limits;
 mod read;
 mod write;
 
-use mic_core::{Activation, BoxError, Module, ModuleConfig, Registry};
+use mic_core::{BoxError, Module, ModuleConfig, Registry};
 use serde::Deserialize;
 
 /// 常驻模块，按顺序登记 `read`、`write`、`edit`、`glob`、`grep`。
@@ -22,10 +22,6 @@ struct Config {}
 impl Module for FsModule {
     fn name(&self) -> &'static str {
         "fs"
-    }
-
-    fn activation(&self) -> Activation {
-        Activation::Always
     }
 
     fn install(&self, reg: &mut Registry, cfg: ModuleConfig) -> Result<(), BoxError> {

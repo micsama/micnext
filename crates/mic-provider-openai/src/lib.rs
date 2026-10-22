@@ -13,7 +13,7 @@ mod responses;
 mod stream;
 mod token;
 
-use mic_core::{Activation, BoxError, Module, ModuleConfig, Registry};
+use mic_core::{BoxError, Module, ModuleConfig, Registry};
 
 /// 模型模块：登记 `openai` 工厂；具体模型条目由用户在 Web 设置页维护。
 pub struct OpenAiModule;
@@ -21,10 +21,6 @@ pub struct OpenAiModule;
 impl Module for OpenAiModule {
     fn name(&self) -> &'static str {
         "openai"
-    }
-
-    fn activation(&self) -> Activation {
-        Activation::Always
     }
 
     fn install(&self, reg: &mut Registry, _cfg: ModuleConfig) -> Result<(), BoxError> {

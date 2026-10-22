@@ -26,8 +26,8 @@ use crate::run::{now_ms, Engine};
 use crate::schedule::Schedules;
 use crate::scheduler::panic_message;
 use crate::{
-    kernel, recovery, scheduler, Activation, AssembleError, BoxError, ChannelSetup, IncomingPart,
-    Kernel, Module, ModuleConfig, Registry, RunError, Service,
+    kernel, recovery, scheduler, AssembleError, BoxError, ChannelSetup, IncomingPart, Kernel,
+    Module, ModuleConfig, Registry, RunError, Service,
 };
 
 const DEFAULT_OWNER: &str = "dzmfg";
@@ -146,7 +146,7 @@ impl Assembly {
                     });
                 }
                 install(m.as_ref(), &mut reg, section)?;
-            } else if m.activation() == Activation::Always {
+            } else {
                 install(m.as_ref(), &mut reg, toml::Value::Table(toml::Table::new()))?;
             }
         }

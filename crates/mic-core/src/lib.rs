@@ -43,7 +43,7 @@ pub use mic_media::MediaError;
 pub use mic_store::SecretValue;
 pub use mic_store::{JobId, JobState};
 pub use mic_tool::ToolSpec;
-pub use module::{Activation, BoxError, Module, ModuleConfig, Registry, Service};
+pub use module::{BoxError, Module, ModuleConfig, Registry, Service};
 pub use provider::{
     BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ModelResponse, ProbeError,
     Provider, ProviderError, ProviderFactory, ProviderKindView, ReasoningOptions, StopReason,

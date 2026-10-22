@@ -3,9 +3,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use mic_core::{
-    Activation, BoxError, BoxFuture, ChannelConnection, ChannelRestore, ChannelSetup,
-    ChannelSetupError, ChannelSetupView, EventReceiver, IncomingPart, Kernel, Module, ModuleConfig,
-    Registry, Service, SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
+    BoxError, BoxFuture, ChannelConnection, ChannelRestore, ChannelSetup, ChannelSetupError,
+    ChannelSetupView, EventReceiver, IncomingPart, Kernel, Module, ModuleConfig, Registry, Service,
+    SetupAttempt, SetupAttemptId, SetupFailure, SetupProgress,
 };
 use mic_message::limits::MAX_IMAGES_PER_INPUT;
 use serde::Deserialize;
@@ -35,9 +35,6 @@ struct Config {}
 impl Module for WechatModule {
     fn name(&self) -> &'static str {
         "wechat"
-    }
-    fn activation(&self) -> Activation {
-        Activation::Always
     }
     fn install(&self, reg: &mut Registry, config: ModuleConfig) -> Result<(), BoxError> {
         config.parse::<Config>()?;

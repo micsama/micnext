@@ -14,8 +14,10 @@ function initial(): ThemeChoice {
 /** `data-theme` 恒为解析后的明暗；首帧由 index.html 写入同样的值。 */
 class Theme {
   choice = $state<ThemeChoice>(initial());
+  dark = $state(false);
 
   constructor() {
+    this.dark = this.resolve();
     systemDark.addEventListener("change", () => this.apply());
   }
 
@@ -25,9 +27,13 @@ class Theme {
     this.apply();
   }
 
+  private resolve(): boolean {
+    return this.choice === "dark" || (this.choice === "system" && systemDark.matches);
+  }
+
   private apply(): void {
-    const dark = this.choice === "dark" || (this.choice === "system" && systemDark.matches);
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    this.dark = this.resolve();
+    document.documentElement.dataset.theme = this.dark ? "dark" : "light";
   }
 }
 

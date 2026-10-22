@@ -246,6 +246,40 @@ fn chunk(delta: Value, finish: Option<&str>) -> Value {
     json!({"choices": [{"index": 0, "delta": delta, "finish_reason": finish}]})
 }
 
+#[test]
+fn reasoning_only_history_keeps_empty_content_across_models() {
+    let mut req = history();
+    req.messages
+        .retain(|m| matches!(m.body, MessageBody::Reply { .. }));
+    let MessageBody::Reply { blocks, .. } = &mut req.messages[0].body else {
+        unreachable!()
+    };
+    blocks.retain(|b| matches!(b, ReplyBlock::Reasoning(_)));
+    for (dialect, model, echo) in [
+        (Dialect::DeepSeek, "m", true),
+        (Dialect::DeepSeek, "other", false),
+        (Dialect::Generic, "m", false),
+        (Dialect::Ollama, "m", false),
+    ] {
+        let cfg = Resolved {
+            model: model.into(),
+            protocol: Protocol::Chat(dialect),
+            max_tokens: None,
+            reasoning_effort: Some(ReasoningEffort::High),
+        };
+        let body =
+            serde_json::to_value(crate::chat::request(&cfg, dialect, &req).unwrap()).unwrap();
+        let assistant = &body["messages"][1];
+        assert_eq!(assistant["role"], "assistant");
+        assert_eq!(assistant["content"], "");
+        assert!(assistant.get("tool_calls").is_none());
+        assert_eq!(
+            assistant.get("reasoning_content"),
+            echo.then_some(&json!("想"))
+        );
+    }
+}
+
 #[tokio::test]
 async fn reasoning_presets_reach_both_protocols() {
     for (preset, name, protocol, effort, field) in [

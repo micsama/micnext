@@ -198,7 +198,8 @@ fn assistant(blocks: &[ReplyBlock], echo_reasoning: bool) -> Message {
         }
     }
     Message::Assistant {
-        content: (!text.is_empty()).then_some(text),
+        // 无工具调用时必须带 content，只有推理的历史回复也发空正文。
+        content: (!text.is_empty() || tool_calls.is_empty()).then_some(text),
         tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
         reasoning_content: echo_reasoning.then_some(reasoning),
     }

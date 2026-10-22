@@ -103,12 +103,9 @@ async fn check() {
     assert_eq!(older.pushes[0].id, delivered);
     assert!(!older.has_more);
 
-    store
-        .mark_pushes_read(owner, vec![failed], 30)
-        .await
-        .unwrap();
+    store.mark_pushes_read(owner, delivered, 30).await.unwrap();
     let page = store.pushes(owner, None, 10).await.unwrap();
     assert_eq!(page.unread, 1);
-    assert_eq!(page.pushes[0].read_at, Some(30));
-    assert_eq!(page.pushes[1].read_at, None, "只标传入的");
+    assert_eq!(page.pushes[0].read_at, None, "更新的不标");
+    assert_eq!(page.pushes[1].read_at, Some(30));
 }

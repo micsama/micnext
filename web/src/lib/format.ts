@@ -14,6 +14,18 @@ export function formatTime(ms: number): string {
   return ms >= startOfToday() ? time : `${d.toLocaleDateString("zh-CN")} ${time}`;
 }
 
+/** 通知用：刚刚 / N 分钟前 / 今天时刻 / 昨天 / 日期。 */
+export function formatAgo(ms: number): string {
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  const time = new Date(ms).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const today = startOfToday();
+  if (ms >= today) return time;
+  if (ms >= today - DAY) return `昨天 ${time}`;
+  return formatTime(ms);
+}
+
 export type SessionGroup = { label: string; items: SessionItem[] };
 
 /** 按最近活跃分组：今天 / 昨天 / 最近 7 天 / 更早。输入已按活跃时间倒序。 */

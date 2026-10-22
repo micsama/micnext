@@ -1,34 +1,34 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { Popover } from "bits-ui";
   import BellIcon from "@lucide/svelte/icons/bell";
   import XIcon from "@lucide/svelte/icons/x";
-  import { channelLabel, type PushDelivery, type PushView } from "../api/pushes";
-  import { formatTime } from "../lib/format";
+  import type { PushView } from "../api/pushes";
+  import { formatAgo, formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import { pushCenter } from "../state/pushes.svelte";
   import { router } from "../state/route.svelte";
+  import DeliveryChips from "./DeliveryChips.svelte";
 
-  // 展开期间看到的未读（含展开时新到的）即标已读。
   $effect(() => {
-    if (!pushCenter.open) return;
-    pushCenter.dismiss();
-    const ids = pushCenter.items.filter((p) => p.read_at === null).map((p) => p.id);
-    void pushCenter.markRead(ids);
+    if (!pushCenter.open) { untrack(() => pushCenter.close()); return; }
+    void pushCenter.items;
+    void pushCenter.unread;
+    untrack(() => void pushCenter.see());
   });
 
-  function ask(p: PushView) {
-    pushCenter.askIn(p);
+  /** 展开过的长推送。 */
+  let expanded = $state<number[]>([]);
+  const isLong = (text: string) => text.length > 160 || text.split("\n").length > 4;
+
+  function open(p: PushView) {
     pushCenter.open = false;
     router.go(`/s/${p.source_session_id}`);
   }
 
-  function deliveryTitle(d: PushDelivery): string {
-    const name = channelLabel(d.channel);
-    switch (d.state.kind) {
-      case "pending": return `${name}：投递中`;
-      case "delivered": return `${name}：${formatTime(d.state.at)} 送达`;
-      case "failed": return `${name}：未送达（${d.state.reason}）`;
-    }
+  function ask(p: PushView) {
+    pushCenter.askIn(p);
+    open(p);
   }
 </script>
 
@@ -54,34 +54,48 @@
       sideOffset={6}
       collisionPadding={16}
       aria-label="通知"
-      class="z-50 flex max-h-[min(32rem,calc(100vh-5rem))] w-[24rem] max-w-[calc(100vw-2rem)] flex-col rounded-xl border border-border bg-popover text-popover-foreground shadow-lg outline-none">
-      <div class="border-b px-4 py-2.5 text-sm font-medium">通知</div>
+      class="z-50 flex max-h-[min(36rem,calc(100vh-5rem))] w-[26rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg outline-none">
+      <div class="flex items-center gap-2 border-b px-4 py-3">
+        <span class="text-sm font-semibold">通知</span>
+        {#if pushCenter.unseen.size > 0}<span class="rounded-full bg-primary/10 px-1.5 text-xs font-medium text-primary tabular-nums">{pushCenter.unseen.size} 条新</span>{/if}
+      </div>
       <div class="min-h-0 flex-1 overflow-y-auto">
         {#if pushCenter.error}
           <p role="alert" class="px-4 py-3 text-xs text-destructive">{pushCenter.error}</p>
         {/if}
         {#each pushCenter.items as p (p.id)}
-          <article class="space-y-1.5 border-b px-4 py-3 last:border-b-0">
-            <div class="flex items-center gap-2 text-xs text-muted-foreground">
-              <span class="min-w-0 flex-1 truncate">{p.source_session_title ?? `会话 #${p.source_session_id}`}</span>
-              {#each p.deliveries as d (d.channel)}
-                <span title={deliveryTitle(d)} class={["shrink-0", d.state.kind === "failed" && "text-destructive"]}>
-                  {channelLabel(d.channel)}{#if d.state.kind === "failed"}<Icon name="alert" class="ml-0.5 inline size-3" />{/if}
-                </span>
-              {/each}
-              <span class="shrink-0 tabular-nums">{formatTime(p.created_at)}</span>
+          {@const fresh = pushCenter.unseen.has(p.id)}
+          {@const long = isLong(p.text)}
+          {@const full = expanded.includes(p.id)}
+          <article class={["flex gap-3 border-b py-3 pr-4 pl-3 transition-colors last:border-b-0", fresh && "bg-primary/[0.04]"]}>
+            <span class={["mt-1.5 size-2 shrink-0 rounded-full", fresh ? "bg-primary" : "bg-transparent"]} aria-label={fresh ? "新" : undefined}></span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-baseline gap-2 text-xs">
+                <button type="button" class="min-w-0 truncate font-medium hover:underline" title="打开来源会话" onclick={() => open(p)}>{p.source_session_title ?? `会话 #${p.source_session_id}`}</button>
+                <time class="ml-auto shrink-0 text-muted-foreground tabular-nums" title={formatTime(p.created_at)}>{formatAgo(p.created_at)}</time>
+              </div>
+              <p class={["mt-1 text-sm leading-relaxed break-words whitespace-pre-wrap", !fresh && "text-foreground/80", long && !full && "line-clamp-4"]}>{p.text}</p>
+              <div class="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
+                {#if long}
+                  <button type="button" class="hover:text-foreground" onclick={() => (expanded = full ? expanded.filter((id) => id !== p.id) : [...expanded, p.id])}>{full ? "收起" : "展开全文"}</button>
+                {/if}
+                <DeliveryChips deliveries={p.deliveries} />
+                <button type="button" class="-mr-1.5 ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-foreground" onclick={() => ask(p)}>
+                  <Icon name="reply" class="size-3" />去会话里问
+                </button>
+              </div>
             </div>
-            <p class="text-sm break-words whitespace-pre-wrap">{p.text}</p>
-            <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -ml-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => ask(p)}>
-              <Icon name="reply" class="size-3" />去会话里问
-            </button>
           </article>
         {:else}
-          {#if !pushCenter.error}<p class="px-4 py-6 text-center text-sm text-muted-foreground">还没有推送</p>{/if}
+          {#if !pushCenter.error}
+            <div class="flex flex-col items-center gap-2 px-4 py-10 text-sm text-muted-foreground">
+              <BellIcon class="size-6 opacity-40" />还没有通知
+            </div>
+          {/if}
         {/each}
         {#if pushCenter.hasMore}
-          <button type="button" disabled={pushCenter.loadingMore} class="w-full px-4 py-2 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50" onclick={() => pushCenter.loadMore()}>
-            {pushCenter.loadingMore ? "加载中…" : "更早的推送"}
+          <button type="button" disabled={pushCenter.loadingMore} class="w-full border-t px-4 py-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50" onclick={() => pushCenter.loadMore()}>
+            {pushCenter.loadingMore ? "加载中…" : "更早的通知"}
           </button>
         {/if}
       </div>
@@ -92,9 +106,9 @@
   {@const latest = pushCenter.fresh[0]!}
   {@const count = pushCenter.fresh.length}
   <div role="status" class="push-banner absolute top-full right-0 z-40 mt-3 flex w-[24rem] max-w-[calc(100vw-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg">
-    <button type="button" aria-label="打开通知看板" class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-3 text-left transition-colors hover:bg-accent focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring" onclick={() => pushCenter.show()}>
+    <button type="button" aria-label="打开通知" class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-3 text-left transition-colors hover:bg-accent focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring" onclick={() => pushCenter.show()}>
       <span class="size-1.5 shrink-0 rounded-full bg-primary"></span>
-      <span class="shrink-0 text-xs font-medium">{count > 1 ? `${count} 条新推送` : "新推送"}</span>
+      <span class="shrink-0 text-xs font-medium">{count > 1 ? `${count} 条新通知` : "新通知"}</span>
       <span class="min-w-0 truncate text-xs text-muted-foreground">{latest.text}</span>
     </button>
     <button type="button" aria-label="收起通知提醒" title="收起" class="mr-1.5 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" onclick={() => pushCenter.dismiss()}><XIcon class="size-3.5" /></button>

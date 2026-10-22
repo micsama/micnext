@@ -215,21 +215,15 @@ impl Store {
     pub async fn mark_pushes_read(
         &self,
         person: PersonId,
-        ids: Vec<PushId>,
+        through: PushId,
         now: i64,
     ) -> Result<(), StoreError> {
         self.call(move |conn| {
-            let tx = conn.transaction()?;
-            {
-                let mut stmt = tx.prepare(
-                    "UPDATE core_pushes SET read_at = ?3
-                     WHERE id = ?1 AND person_id = ?2 AND read_at IS NULL",
-                )?;
-                for id in ids {
-                    stmt.execute(params![id.0, person.0, now])?;
-                }
-            }
-            tx.commit()?;
+            conn.execute(
+                "UPDATE core_pushes SET read_at = ?3
+                 WHERE person_id = ?1 AND id <= ?2 AND read_at IS NULL",
+                params![person.0, through.0, now],
+            )?;
             Ok(())
         })
         .await

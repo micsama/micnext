@@ -63,7 +63,7 @@
 | 接口 | 说明 |
 |---|---|
 | `GET /api/pushes?before&limit` | 新的在前；每条含来源会话 id 与标题（任务会话标题即任务名）、各 Channel 投递状态、是否已读 |
-| `POST /api/pushes/read` | body `{ ids: [...] }`，只把实际展示过的这些标为已读 |
+| `POST /api/pushes/read` | body `{ through }`：打开通知中心即视为看过，`through` 及更早的推送全部标为已读 |
 | `GET` / `PUT /api/settings/push` | 读：`{ channels: 可选, chosen: 用户所选, effective: 省略 via 时实际去向 }`；写：`{ channels: [...] }`，未知 Channel 400 |
 | `POST /api/pushes/stream-ticket` → `GET /api/pushes/stream` | 全局 SSE，事件 `push_created { id }`；Web 收到即重拉首页，每次（重）连先补拉 |
 

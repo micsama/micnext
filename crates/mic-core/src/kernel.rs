@@ -552,8 +552,9 @@ impl Kernel {
         Ok(self.pushes.page(before, limit).await?)
     }
 
-    pub async fn mark_pushes_read(&self, ids: Vec<PushId>) -> Result<(), KernelError> {
-        Ok(self.pushes.mark_read(ids).await?)
+    /// 打开通知中心即视为看过：`through` 及更早的推送全部已读。
+    pub async fn mark_pushes_read(&self, through: PushId) -> Result<(), KernelError> {
+        Ok(self.pushes.mark_read(through).await?)
     }
 
     pub async fn push_settings(&self) -> Result<PushSettings, KernelError> {

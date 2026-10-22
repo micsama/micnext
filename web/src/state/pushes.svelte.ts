@@ -1,4 +1,5 @@
 import { listPushes, markPushesRead } from "../api/client";
+import { SvelteSet } from "svelte/reactivity";
 import { type PushView } from "../api/pushes";
 import type { ComposerReply } from "./session.svelte";
 
@@ -14,6 +15,8 @@ class PushCenter {
   open = $state(false);
   /** 横幅里待查看的新推送，新的在前；空即不显示。 */
   fresh = $state<PushView[]>([]);
+  /** 本次展开时仍是未读的，收起前保持高亮。 */
+  unseen = new SvelteSet<number>();
   /** 每到一批新推送加一，铃铛据此重放动效。 */
   arrivals = $state(0);
   /** 已见过的最大推送 id；首次加载前为 null，首屏历史不提醒。 */
@@ -91,15 +94,24 @@ class PushCenter {
     if (!this.open) this.fresh = [...added, ...this.fresh];
   }
 
-  /** 只标这些实际展示过的。 */
-  async markRead(ids: number[]): Promise<void> {
-    if (ids.length === 0) return;
+  /** 展开即看过：记下未读用于高亮，再把最新一条及更早的全部标已读。 */
+  async see(): Promise<void> {
+    this.fresh = [];
+    for (const p of this.items) if (p.read_at === null) this.unseen.add(p.id);
+    const latest = this.items[0];
+    if (this.unread === 0 || !latest) return;
+    this.unread = 0;
     try {
-      await markPushesRead(ids);
-      await this.refresh();
+      await markPushesRead(latest.id);
     } catch (e) {
       this.error = (e as Error).message;
     }
+    await this.refresh();
+  }
+
+  /** 收起后高亮清掉。 */
+  close(): void {
+    this.unseen.clear();
   }
 
   askIn(push: PushView): void {

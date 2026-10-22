@@ -47,11 +47,17 @@
     <span class="pointer-events-none absolute top-full right-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{time}</span>
   </div>
 {:else if body.kind === "Trigger"}
-  <div class="flex flex-col items-end">
-    <div class="max-w-[85%] rounded-2xl border border-dashed border-border px-4 py-2 whitespace-pre-wrap break-words text-muted-foreground" title={time}>
-      <span class="mb-1 flex items-center gap-1 text-xs"><Icon name="clock" class="size-3" />定时任务</span>{body.text}
-    </div>
-  </div>
+  <!-- 每次触发的指令相同：默认只露分隔条，点开看指令。 -->
+  <details class="group">
+    <summary class="flex cursor-pointer list-none items-center gap-3 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
+      <span class="h-px flex-1 bg-border"></span>
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 transition-colors group-hover:text-foreground">
+        <Icon name="clock" class="size-3" />定时触发 · {time}<Icon name="chevron" class="size-3 transition-transform group-open:rotate-90" />
+      </span>
+      <span class="h-px flex-1 bg-border"></span>
+    </summary>
+    <p class="mx-auto mt-2 max-w-[85%] rounded-lg bg-muted/50 px-3 py-2 text-sm whitespace-pre-wrap break-words text-muted-foreground">{body.text}</p>
+  </details>
 {:else if body.kind === "Command"}
   <p class="text-sm text-muted-foreground" title={time}>
     {#if body.command === "Clear"}/clear

@@ -42,7 +42,7 @@ pub(crate) async fn list(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReadBody {
-    ids: Vec<i64>,
+    through: i64,
 }
 
 pub(crate) async fn read(
@@ -50,9 +50,7 @@ pub(crate) async fn read(
     body: Result<Json<ReadBody>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let body = json(body)?;
-    app.kernel
-        .mark_pushes_read(body.ids.into_iter().map(PushId).collect())
-        .await?;
+    app.kernel.mark_pushes_read(PushId(body.through)).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

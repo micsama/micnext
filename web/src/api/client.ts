@@ -362,8 +362,8 @@ export async function listPushes(before: number | null): Promise<PushPage> {
   return parsePushPage(await request("GET", `/pushes?${q}`));
 }
 
-export async function markPushesRead(ids: number[]): Promise<void> {
-  await request("POST", "/pushes/read", { ids });
+export async function markPushesRead(through: number): Promise<void> {
+  await request("POST", "/pushes/read", { through });
 }
 
 export async function getPushSettings(): Promise<PushSettings> {

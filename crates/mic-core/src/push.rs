@@ -176,8 +176,10 @@ impl Pushes {
         self.store.pushes(self.owner, before, limit).await
     }
 
-    pub(crate) async fn mark_read(&self, ids: Vec<PushId>) -> Result<(), StoreError> {
-        self.store.mark_pushes_read(self.owner, ids, now_ms()).await
+    pub(crate) async fn mark_read(&self, through: PushId) -> Result<(), StoreError> {
+        self.store
+            .mark_pushes_read(self.owner, through, now_ms())
+            .await
     }
 
     async fn route(&self, channel: &str) -> Result<Route, PushError> {

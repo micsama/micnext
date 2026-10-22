@@ -85,6 +85,47 @@ WHERE delivered_at IS NULL AND delivery_failure IS NULL
 ",
         secret_columns: &[],
     },
+    Migration {
+        module: "wechat",
+        version: 5,
+        // 投递终态只在 core；发送不重试，每段一行；入站中断现场只留进度（旧现场删除）。
+        sql: "
+UPDATE core_messages SET delivery_failure = '投递中途中断，可能未送达'
+WHERE delivered_at IS NULL AND delivery_failure IS NULL
+  AND id IN (SELECT message_id FROM wechat_delivery WHERE outcome = 'sending');
+CREATE TABLE wechat_delivery_chunk (
+  message_id INTEGER NOT NULL REFERENCES wechat_delivery(message_id),
+  chunk_index INTEGER NOT NULL CHECK(chunk_index >= 0),
+  client_id TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  external_message_id TEXT,
+  failure TEXT,
+  PRIMARY KEY (message_id, chunk_index)
+);
+INSERT INTO wechat_delivery_chunk
+SELECT message_id, chunk_index, client_id, started_at, finished_at, external_message_id, failure
+FROM wechat_delivery_attempt a
+WHERE attempt_no = (
+  SELECT b.attempt_no FROM wechat_delivery_attempt b
+  WHERE b.message_id = a.message_id AND b.chunk_index = a.chunk_index
+  ORDER BY b.external_message_id IS NULL, b.attempt_no DESC LIMIT 1);
+DROP TABLE wechat_delivery_attempt;
+ALTER TABLE wechat_delivery DROP COLUMN outcome;
+ALTER TABLE wechat_delivery DROP COLUMN finished_at;
+DROP TABLE wechat_inbound_batch;
+CREATE TABLE wechat_inbound_batch (
+  id INTEGER PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES wechat_account(user_id),
+  total INTEGER NOT NULL CHECK(total > 0),
+  imported INTEGER NOT NULL CHECK(imported >= 0 AND imported <= total),
+  phase TEXT NOT NULL CHECK(phase IN ('importing', 'interrupted')),
+  created_at INTEGER NOT NULL,
+  finished_at INTEGER
+);
+",
+        secret_columns: &[],
+    },
 ];
 
 #[cfg(test)]

@@ -52,7 +52,6 @@ pub(crate) enum LoginStatus {
 }
 
 pub(crate) struct Updates {
-    pub snapshot: wire::GetUpdatesResponse,
     pub cursor: String,
     pub timeout_ms: Option<u32>,
     pub incoming: Vec<IncomingMessage>,
@@ -399,7 +398,7 @@ fn base_info() -> wire::BaseInfo {
     }
 }
 
-pub(crate) fn parse_updates(
+fn parse_updates(
     snapshot: wire::GetUpdatesResponse,
     user: &WechatUserId,
 ) -> Result<Updates, ClientError> {
@@ -506,7 +505,6 @@ pub(crate) fn parse_updates(
         });
     }
     Ok(Updates {
-        snapshot,
         cursor,
         timeout_ms,
         incoming,
@@ -648,48 +646,18 @@ async fn decode<T: DeserializeOwned>(
         .map_err(|error| network_error(endpoint, error))?;
     let mut deserializer = serde_json::Deserializer::from_slice(&body);
     serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
-        // NOTE: serde 的 invalid type/value 错误会带出原值，可能含消息正文。
+        // 不记 serde 错误文本：invalid type/value 会带出原值。
         tracing::warn!(
             endpoint,
             path = %error.path(),
             category = ?error.inner().classify(),
-            error = %error.inner(),
+            line = error.inner().line(),
+            column = error.inner().column(),
             body_len = body.len(),
             "wechat response decode failed"
         );
-        // NOTE: 网页开发者日志常驻采集 DEBUG，凭据在此遮蔽；消息正文仍可见。
-        tracing::debug!(endpoint, body = %redacted(&body), "wechat response raw body");
         ClientError::Protocol("响应字段或枚举不匹配")
     })
-}
-
-/// 响应中携带凭据的字段名；值替换为占位。
-const SECRET_KEYS: [&str; 2] = ["bot_token", "context_token"];
-
-/// 非 JSON 无法定位凭据，只给长度。
-fn redacted(body: &[u8]) -> String {
-    fn walk(value: &mut serde_json::Value) {
-        match value {
-            serde_json::Value::Object(map) => {
-                for (key, value) in map.iter_mut() {
-                    if SECRET_KEYS.contains(&key.as_str()) {
-                        *value = serde_json::Value::String("<已隐藏>".into());
-                    } else {
-                        walk(value);
-                    }
-                }
-            }
-            serde_json::Value::Array(items) => items.iter_mut().for_each(walk),
-            _ => {}
-        }
-    }
-    match serde_json::from_slice::<serde_json::Value>(body) {
-        Ok(mut value) => {
-            walk(&mut value);
-            value.to_string()
-        }
-        Err(_) => format!("<非 JSON 响应，{} 字节>", body.len()),
-    }
 }
 
 /// 规则同 SDK：密钥优先 `image_item.aeskey`（hex），否则 `media.aes_key`，都没有为明文。

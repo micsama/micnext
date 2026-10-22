@@ -15,8 +15,6 @@ pub(crate) const ATTEMPT_ID_BYTES: usize = 16;
 pub(crate) const LOCAL_TOKEN_LIMIT: usize = 10;
 pub(crate) const VERIFY_CODE_MAX_CHARS: usize = 128;
 pub(crate) const TEXT_CHUNK_CHARS: usize = 4000;
-pub(crate) const SEND_ATTEMPTS: u32 = 2;
-pub(crate) const SEND_RETRY: Duration = Duration::from_secs(2);
 /// 与 SDK 一致：输入中指示每 5 秒续发一次。
 pub(crate) const TYPING_KEEPALIVE: Duration = Duration::from_secs(5);
 /// SDK 在 24 小时内随机刷新 typing ticket，取其期望值。

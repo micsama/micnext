@@ -2,6 +2,8 @@
 
 **状态：CLOSED（2026-10-10）：Phase 1–6 均已实现并经服务器人工验收（扫码、收发、typing）。后续能力见 [V2 B1](../../brainstorm/wechat-v2.md)。**
 
+**修订（2026-10-22）：[微信收尾 B2](../wechat-wrap-up.md) 取代本文关于发送重试、模块 outcome、入站 batch snapshot 与解码原文调试的条目：投递终态只在 core，每段只发一次，失败即标失败；入站批次只记进度；解码失败只记字段路径与类别。**
+
 本文是微信 Channel 的现行基础契约；V2 增量见 [引用 B2](wechat-quotes.md)、[入站图片 B2](wechat-inbound-images.md)。
 协议事实见 [iLink 协议素材](../../brainstorm/wechat-protocol.md)，依据官方包 `@tencent-weixin/openclaw-weixin@2.4.9`。
 

@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::account::{now_ms, Account, AccountError, WechatTarget};
 use crate::client::{Client, ClientError};
-use crate::limits::{ATTEMPT_ID_BYTES, SEND_ATTEMPTS, SEND_RETRY, TEXT_CHUNK_CHARS};
+use crate::limits::{ATTEMPT_ID_BYTES, TEXT_CHUNK_CHARS};
 use crate::service::ConnectionExit;
 
 #[derive(Serialize, Deserialize)]
@@ -19,12 +19,6 @@ struct Plan {
     chunks: Vec<String>,
 }
 
-enum Outcome {
-    Sending,
-    Sent,
-    Skipped,
-    Interrupted,
-}
 enum Authentication {
     Current,
     Expired,
@@ -34,7 +28,8 @@ enum DeliveryResult {
     Stopped,
 }
 
-/// `delivered` 发布已处理（送达、跳过或此前已有结果）的出站前缀游标，供 typing 在回复送达后取消。
+/// 投递结果只记在 core；本模块只留引用要用的分段计划与每段发送事实。
+/// `delivered` 发布已处理的出站前缀游标，供 typing 在回复送达后取消。
 pub(crate) async fn run(
     kernel: Kernel,
     account: Arc<Account>,
@@ -45,6 +40,7 @@ pub(crate) async fn run(
 ) -> Result<ConnectionExit, BoxError> {
     let client = Client::new()?;
     let mut cursor = *delivered.borrow();
+    settle_before(&kernel, &account, cursor).await?;
     loop {
         let event = tokio::select! {
             biased;
@@ -72,14 +68,6 @@ pub(crate) async fn run(
                 continue;
             }
             let id = pending.message.id;
-            if let Some(outcome) = stored(&kernel, id).await? {
-                match outcome {
-                    Outcome::Sending | Outcome::Sent | Outcome::Skipped | Outcome::Interrupted => {}
-                }
-                cursor = Some(id);
-                delivered.send_replace(cursor);
-                continue;
-            }
             let token = loop {
                 if let Some(token) = context.borrow_and_update().clone() {
                     break token;
@@ -134,82 +122,61 @@ async fn deliver(
     let plan = plan(text);
     let id = pending.message.id;
     begin(kernel, id, &account.credentials.user_id.0, &plan).await?;
-    let mut authentication = Authentication::Current;
+    // 结果未知不重放：每段只发一次。
     for (chunk_index, chunk) in plan.chunks.iter().enumerate() {
-        let client_id = client_id()?;
-        for attempt in 1..=SEND_ATTEMPTS {
-            if stop.is_cancelled() {
-                return Ok(DeliveryResult::Stopped);
-            }
-            start_attempt(kernel, id, chunk_index, attempt, &client_id).await?;
-            let sent = tokio::select! {
-                biased;
-                () = stop.cancelled() => return Ok(DeliveryResult::Stopped),
-                result = client.send(&account.credentials, token, &client_id, chunk) => result,
-            };
-            match sent {
-                Ok(external_id) => {
-                    finish_attempt(
-                        kernel,
-                        id,
-                        chunk_index,
-                        attempt,
-                        Some(external_id.0.to_string()),
-                        None,
-                    )
-                    .await?;
-                    break;
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        session = account.view.session_id.0,
-                        message_id = id.0,
-                        chunk_index,
-                        attempt,
-                        max_attempts = SEND_ATTEMPTS,
-                        kind = failure(&error),
-                        %error,
-                        "wechat delivery attempt failed"
-                    );
-                    if matches!(error, ClientError::SessionExpired) {
-                        authentication = Authentication::Expired;
-                    }
-                    finish_attempt(
-                        kernel,
-                        id,
-                        chunk_index,
-                        attempt,
-                        None,
-                        Some(failure(&error)),
-                    )
-                    .await?;
-                    if matches!(error, ClientError::Protocol(_)) {
-                        return Err(error.into());
-                    }
-                    if attempt == SEND_ATTEMPTS {
-                        finish(kernel, id, Outcome::Skipped).await?;
-                        let reason = if chunk_index == 0 {
-                            error.to_string()
-                        } else {
-                            format!("只送达前 {chunk_index} 段：{error}")
-                        };
-                        kernel.mark_delivery_failed(id, reason).await?;
-                        tracing::debug!(message_id = id.0, chunk_index, "wechat delivery skipped");
-                        return Ok(DeliveryResult::Complete(authentication));
-                    }
-                    tokio::select! {
-                        biased;
-                        () = stop.cancelled() => return Ok(DeliveryResult::Stopped),
-                        () = tokio::time::sleep(SEND_RETRY) => {},
-                    }
-                }
-            }
+        if stop.is_cancelled() {
+            return Ok(DeliveryResult::Stopped);
         }
+        let client_id = client_id()?;
+        start_chunk(kernel, id, chunk_index, &client_id).await?;
+        let sent = tokio::select! {
+            biased;
+            () = stop.cancelled() => return Ok(DeliveryResult::Stopped),
+            result = client.send(&account.credentials, token, &client_id, chunk) => result,
+        };
+        let error = match sent {
+            Ok(external_id) => {
+                finish_chunk(
+                    kernel,
+                    id,
+                    chunk_index,
+                    Some(external_id.0.to_string()),
+                    None,
+                )
+                .await?;
+                continue;
+            }
+            Err(error) => error,
+        };
+        tracing::warn!(
+            session = account.view.session_id.0,
+            message_id = id.0,
+            chunk_index,
+            kind = failure(&error),
+            %error,
+            "wechat delivery failed"
+        );
+        finish_chunk(kernel, id, chunk_index, None, Some(failure(&error))).await?;
+        if matches!(error, ClientError::Protocol(_)) {
+            return Err(error.into());
+        }
+        let reason = if chunk_index == 0 {
+            error.to_string()
+        } else {
+            format!("只送达前 {chunk_index} 段：{error}")
+        };
+        kernel.mark_delivery_failed(id, reason).await?;
+        return Ok(DeliveryResult::Complete(
+            if matches!(error, ClientError::SessionExpired) {
+                Authentication::Expired
+            } else {
+                Authentication::Current
+            },
+        ));
     }
     kernel.mark_delivered(id).await?;
-    finish(kernel, id, Outcome::Sent).await?;
     tracing::debug!(message_id = id.0, "wechat delivery accepted");
-    Ok(DeliveryResult::Complete(authentication))
+    Ok(DeliveryResult::Complete(Authentication::Current))
 }
 
 fn plan(text: String) -> Plan {
@@ -230,47 +197,6 @@ fn plan(text: String) -> Plan {
     Plan { chunks }
 }
 
-fn disk_plan(raw: &str) -> Result<Plan, AccountError> {
-    let plan: Plan =
-        serde_json::from_str(raw).map_err(|_| AccountError::Invalid("投递计划字段不匹配"))?;
-    if plan
-        .chunks
-        .iter()
-        .any(|chunk| chunk.is_empty() || chunk.chars().count() > TEXT_CHUNK_CHARS)
-    {
-        return Err(AccountError::Invalid("投递计划分段无效"));
-    }
-    Ok(plan)
-}
-
-fn outcome(raw: &str) -> Result<Outcome, AccountError> {
-    match raw {
-        "sending" => Ok(Outcome::Sending),
-        "sent" => Ok(Outcome::Sent),
-        "skipped" => Ok(Outcome::Skipped),
-        "interrupted" => Ok(Outcome::Interrupted),
-        _ => Err(AccountError::Invalid("投递状态未知")),
-    }
-}
-
-async fn stored(kernel: &Kernel, id: MessageId) -> Result<Option<Outcome>, AccountError> {
-    let raw = kernel
-        .with_module_tx(move |tx| {
-            tx.query_row(
-                "SELECT outcome, plan FROM wechat_delivery WHERE message_id = ?1",
-                [id.0],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-            .optional()
-        })
-        .await?;
-    raw.map(|(raw, plan)| {
-        disk_plan(&plan)?;
-        outcome(&raw)
-    })
-    .transpose()
-}
-
 pub(crate) async fn quoted_text(
     kernel: &Kernel,
     user: &crate::account::WechatUserId,
@@ -281,11 +207,11 @@ pub(crate) async fn quoted_text(
     let raw = kernel
         .with_module_tx(move |tx| {
             tx.query_row(
-                "SELECT d.plan, a.chunk_index
-                 FROM wechat_delivery_attempt a
-                 JOIN wechat_delivery d ON d.message_id = a.message_id
-                 WHERE d.user_id = ?1 AND a.external_message_id = ?2
-                 ORDER BY a.message_id, a.chunk_index, a.attempt_no LIMIT 1",
+                "SELECT d.plan, c.chunk_index
+                 FROM wechat_delivery_chunk c
+                 JOIN wechat_delivery d ON d.message_id = c.message_id
+                 WHERE d.user_id = ?1 AND c.external_message_id = ?2
+                 ORDER BY c.message_id, c.chunk_index LIMIT 1",
                 params![user, external_id],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )
@@ -293,7 +219,8 @@ pub(crate) async fn quoted_text(
         })
         .await?;
     raw.map(|(raw, chunk)| {
-        let plan = disk_plan(&raw)?;
+        let plan: Plan =
+            serde_json::from_str(&raw).map_err(|_| AccountError::Invalid("投递计划字段不匹配"))?;
         let chunk =
             usize::try_from(chunk).map_err(|_| AccountError::Invalid("引用发送段位置不合法"))?;
         plan.chunks
@@ -312,54 +239,11 @@ async fn begin(
 ) -> Result<(), AccountError> {
     let plan = serde_json::to_string(plan).expect("分段计划可序列化");
     let user = user.to_owned();
-    kernel.with_module_tx(move |tx| {
-        tx.execute("INSERT INTO wechat_delivery(message_id, user_id, plan, outcome) VALUES (?1, ?2, ?3, 'sending')", params![id.0, user, plan])?;
-        Ok(())
-    }).await?;
-    Ok(())
-}
-
-async fn start_attempt(
-    kernel: &Kernel,
-    id: MessageId,
-    chunk: usize,
-    attempt: u32,
-    client_id: &str,
-) -> Result<(), AccountError> {
-    let client_id = client_id.to_owned();
-    kernel.with_module_tx(move |tx| {
-        tx.execute("INSERT INTO wechat_delivery_attempt(message_id, chunk_index, attempt_no, client_id, started_at) VALUES (?1, ?2, ?3, ?4, ?5)", params![id.0, chunk as i64, attempt, client_id, now_ms()])?;
-        Ok(())
-    }).await?;
-    Ok(())
-}
-
-async fn finish_attempt(
-    kernel: &Kernel,
-    id: MessageId,
-    chunk: usize,
-    attempt: u32,
-    external: Option<String>,
-    failure: Option<&'static str>,
-) -> Result<(), AccountError> {
-    kernel.with_module_tx(move |tx| {
-        tx.execute("UPDATE wechat_delivery_attempt SET finished_at = ?4, external_message_id = ?5, failure = ?6 WHERE message_id = ?1 AND chunk_index = ?2 AND attempt_no = ?3", params![id.0, chunk as i64, attempt, now_ms(), external, failure])?;
-        Ok(())
-    }).await?;
-    Ok(())
-}
-
-async fn finish(kernel: &Kernel, id: MessageId, outcome: Outcome) -> Result<(), AccountError> {
-    let outcome = match outcome {
-        Outcome::Sent => "sent",
-        Outcome::Skipped => "skipped",
-        _ => unreachable!("运行期只收尾 sent/skipped"),
-    };
     kernel
         .with_module_tx(move |tx| {
             tx.execute(
-                "UPDATE wechat_delivery SET outcome = ?2, finished_at = ?3 WHERE message_id = ?1",
-                params![id.0, outcome, now_ms()],
+                "INSERT INTO wechat_delivery(message_id, user_id, plan) VALUES (?1, ?2, ?3)",
+                params![id.0, user, plan],
             )?;
             Ok(())
         })
@@ -367,7 +251,36 @@ async fn finish(kernel: &Kernel, id: MessageId, outcome: Outcome) -> Result<(), 
     Ok(())
 }
 
-const INTERRUPTED: &str = "投递中途服务重启，可能未送达";
+async fn start_chunk(
+    kernel: &Kernel,
+    id: MessageId,
+    chunk: usize,
+    client_id: &str,
+) -> Result<(), AccountError> {
+    let client_id = client_id.to_owned();
+    kernel.with_module_tx(move |tx| {
+        tx.execute("INSERT INTO wechat_delivery_chunk(message_id, chunk_index, client_id, started_at) VALUES (?1, ?2, ?3, ?4)", params![id.0, chunk as i64, client_id, now_ms()])?;
+        Ok(())
+    }).await?;
+    Ok(())
+}
+
+async fn finish_chunk(
+    kernel: &Kernel,
+    id: MessageId,
+    chunk: usize,
+    external: Option<String>,
+    failure: Option<&'static str>,
+) -> Result<(), AccountError> {
+    kernel.with_module_tx(move |tx| {
+        tx.execute("UPDATE wechat_delivery_chunk SET finished_at = ?3, external_message_id = ?4, failure = ?5 WHERE message_id = ?1 AND chunk_index = ?2", params![id.0, chunk as i64, now_ms(), external, failure])?;
+        Ok(())
+    }).await?;
+    Ok(())
+}
+
+const INTERRUPTED: &str = "投递中途中断，可能未送达";
+const BEFORE_CONNECTION: &str = "连接恢复前的消息不补发";
 
 fn failure(error: &ClientError) -> &'static str {
     match error {
@@ -388,28 +301,48 @@ fn client_id() -> Result<String, ClientError> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-pub(crate) async fn recover(kernel: &Kernel) -> Result<(), AccountError> {
-    let plans = kernel
+/// 连接开始投递前收尾本会话切点及以前的待投递消息：已开始发送的结果未知，其余不补发。
+/// 投递循环尚未启动，没有并发；逐条各自提交，中途退出下次再跑结果相同。
+async fn settle_before(
+    kernel: &Kernel,
+    account: &Account,
+    cut: Option<MessageId>,
+) -> Result<(), BoxError> {
+    let Some(cut) = cut else {
+        return Ok(());
+    };
+    let session = account.view.session_id;
+    for pending in kernel.pending_deliveries("wechat").await? {
+        let id = pending.message.id;
+        if pending.message.session_id != session || id > cut {
+            continue;
+        }
+        let started = kernel
+            .with_module_tx(move |tx| {
+                tx.query_row(
+                    "SELECT 1 FROM wechat_delivery WHERE message_id = ?1",
+                    [id.0],
+                    |_| Ok(()),
+                )
+                .optional()
+            })
+            .await?
+            .is_some();
+        let reason = if started {
+            INTERRUPTED
+        } else {
+            BEFORE_CONNECTION
+        };
+        kernel.mark_delivery_failed(id, reason.to_owned()).await?;
+    }
+    kernel
         .with_module_tx(|tx| {
-            tx.prepare("SELECT message_id, plan FROM wechat_delivery WHERE outcome = 'sending'")?
-                .query_map([], |row| {
-                    Ok((MessageId(row.get(0)?), row.get::<_, String>(1)?))
-                })?
-                .collect::<Result<Vec<_>, _>>()
+            tx.execute(
+                "UPDATE wechat_delivery_chunk SET finished_at = ?1, failure = 'interrupted' WHERE finished_at IS NULL",
+                [now_ms()],
+            )?;
+            Ok(())
         })
         .await?;
-    for (_, plan) in &plans {
-        disk_plan(plan)?;
-    }
-    kernel.with_module_tx(|tx| {
-        tx.execute("UPDATE wechat_delivery_attempt SET finished_at = ?1, failure = 'interrupted' WHERE finished_at IS NULL", [now_ms()])?;
-        tx.execute("UPDATE wechat_delivery SET outcome = 'interrupted', finished_at = ?1 WHERE outcome = 'sending'", [now_ms()])?;
-        Ok(())
-    }).await?;
-    for (id, _) in plans {
-        kernel
-            .mark_delivery_failed(id, INTERRUPTED.to_owned())
-            .await?;
-    }
     Ok(())
 }

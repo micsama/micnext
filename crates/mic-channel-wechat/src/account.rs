@@ -304,21 +304,15 @@ pub(crate) async fn persist_batch(
     updates: &crate::client::Updates,
     timeout_ms: u32,
 ) -> Result<Option<i64>, AccountError> {
-    let snapshot = match updates.snapshot.msgs.as_ref() {
-        Some(messages) if !messages.is_empty() => {
-            Some(serde_json::to_string(&updates.snapshot).expect("完整响应可序列化"))
-        }
-        _ => None,
-    };
+    let total = updates.incoming.len();
     let user = user.0.clone();
     let cursor = updates.cursor.clone();
     Ok(kernel.with_module_tx(move |tx| {
-        let batch = match snapshot {
-            Some(snapshot) => {
-                tx.execute("INSERT INTO wechat_inbound_batch(user_id, snapshot, phase, created_at) VALUES (?1, ?2, 'importing', ?3)", params![user, snapshot, now_ms()])?;
-                Some(tx.last_insert_rowid())
-            }
-            None => None,
+        let batch = if total > 0 {
+            tx.execute("INSERT INTO wechat_inbound_batch(user_id, total, imported, phase, created_at) VALUES (?1, ?2, 0, 'importing', ?3)", params![user, total as i64, now_ms()])?;
+            Some(tx.last_insert_rowid())
+        } else {
+            None
         };
         tx.execute("UPDATE wechat_state SET get_updates_buf = ?2, longpoll_timeout_ms = ?3 WHERE user_id = ?1", params![user, cursor, timeout_ms])?;
         Ok(batch)
@@ -344,32 +338,37 @@ pub(crate) async fn remember_context(
     Ok(())
 }
 
-pub(crate) async fn finish_batch(kernel: &Kernel, id: i64) -> Result<(), AccountError> {
-    kernel.with_module_tx(move |tx| {
-        tx.execute("UPDATE wechat_inbound_batch SET phase = 'completed', finished_at = ?2 WHERE id = ?1", params![id, now_ms()])?;
-        tx.execute("DELETE FROM wechat_inbound_batch WHERE id = ?1 AND phase = 'completed'", [id])?;
-        Ok(())
-    }).await?;
+/// 前 `imported` 条已处理完。
+pub(crate) async fn batch_progress(
+    kernel: &Kernel,
+    id: i64,
+    imported: usize,
+) -> Result<(), AccountError> {
+    kernel
+        .with_module_tx(move |tx| {
+            tx.execute(
+                "UPDATE wechat_inbound_batch SET imported = ?2 WHERE id = ?1",
+                params![id, imported as i64],
+            )?;
+            Ok(())
+        })
+        .await?;
     Ok(())
 }
 
-pub(crate) async fn recover_batches(kernel: &Kernel) -> Result<(), AccountError> {
-    let batches = kernel
-        .with_module_tx(|tx| {
-            tx.prepare(
-                "SELECT user_id, snapshot FROM wechat_inbound_batch WHERE phase = 'importing'",
-            )?
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?
-            .collect::<Result<Vec<_>, _>>()
+/// 整批处理完不留现场。
+pub(crate) async fn finish_batch(kernel: &Kernel, id: i64) -> Result<(), AccountError> {
+    kernel
+        .with_module_tx(move |tx| {
+            tx.execute("DELETE FROM wechat_inbound_batch WHERE id = ?1", [id])?;
+            Ok(())
         })
         .await?;
-    for (user, snapshot) in batches {
-        let snapshot = serde_json::from_str(&snapshot)
-            .map_err(|_| AccountError::Invalid("入站 snapshot 字段不匹配"))?;
-        crate::client::parse_updates(snapshot, &WechatUserId(user))?;
-    }
+    Ok(())
+}
+
+/// 上次未处理完的批次标为中断；只留身份、时间与进度，不重放。
+pub(crate) async fn recover_batches(kernel: &Kernel) -> Result<(), AccountError> {
     kernel.with_module_tx(|tx| {
         tx.execute("UPDATE wechat_inbound_batch SET phase = 'interrupted', finished_at = ?1 WHERE phase = 'importing'", [now_ms()])?;
         Ok(())

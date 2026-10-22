@@ -206,7 +206,6 @@ impl Service for Coordinator {
 impl Coordinator {
     async fn serve(mut self, kernel: Kernel, stop: CancellationToken) -> Result<(), BoxError> {
         account::recover_batches(&kernel).await?;
-        delivery::recover(&kernel).await?;
         let account = account::active(&kernel).await?;
         let mut view = ChannelSetupView {
             account: account.as_ref().map(|a| a.view.clone()),
@@ -562,9 +561,12 @@ async fn inbound(
         )
         .await?;
         state.cursor = updates.cursor;
-        for incoming in updates.incoming {
+        for (imported, incoming) in updates.incoming.into_iter().enumerate() {
             if stop.is_cancelled() {
                 return Ok(ConnectionExit::Stopped);
+            }
+            if let Some(batch) = batch.filter(|_| imported > 0) {
+                account::batch_progress(&kernel, batch, imported).await?;
             }
             account::remember_context(
                 &kernel,

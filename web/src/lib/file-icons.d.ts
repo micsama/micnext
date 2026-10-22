@@ -5,5 +5,9 @@ declare module "virtual:file-icons" {
   export const lightExtensions: IconMap;
   export const lightNames: IconMap;
   export const fallback: string;
-  export const urls: IconMap;
+}
+
+declare module "virtual:file-icon-svgs" {
+  const urls: Record<string, string>;
+  export default urls;
 }

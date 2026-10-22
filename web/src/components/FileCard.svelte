@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fileIconUrl } from "../lib/file-icon";
+  import { fileIconUrl } from "../lib/file-icon.svelte";
   import { formatBytes } from "../lib/format";
   import { theme } from "../state/theme.svelte";
 

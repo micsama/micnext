@@ -19,6 +19,8 @@ async fn empty_database() {
     assert!(peers.models.is_empty() && peers.tools.is_empty());
     let board = store.dashboard(7).await.unwrap();
     assert!(board.days.is_empty() && board.models.is_empty() && board.tools.is_empty());
+    let usage = store.session_usage(SessionId(1)).await.unwrap();
+    assert_eq!((usage.own, usage.tree), (UsageTotal::default(), None));
 }
 
 #[test]
@@ -151,19 +153,22 @@ async fn run_stats_fixture() {
             run(1, "completed", Some(10_000))?;
             run(2, "completed", Some(1_000))?;
             run(3, "executing", None)?;
-            // (id, run, model_id, error, started, first, finished, input, output, cache)
+            run(4, "stopped", Some(900))?;
+            // (id, run, model_id, error, stop, started, first, finished, input, output, cache)
             let calls = [
-                (1, 1, None, Some("boom"), 0, None, 100, None, None, None),
-                (2, 1, None, None, 1_100, Some(1_300), 2_100, Some(100), Some(40), Some(50)),
-                (3, 1, None, None, 4_200, Some(4_400), 5_200, Some(200), Some(60), None),
-                (4, 2, Some(model_id), None, 0, Some(100), 500, Some(1_000_000), Some(1_000_000), Some(0)),
+                (1, 1, None, Some("boom"), None, 0, None, 100, None, None, None),
+                (2, 1, None, None, None, 1_100, Some(1_300), 2_100, Some(100), Some(40), Some(50)),
+                (3, 1, None, None, None, 4_200, Some(4_400), 5_200, Some(200), Some(60), None),
+                (4, 2, Some(model_id), None, None, 0, Some(100), 500, Some(1_000_000), Some(1_000_000), Some(0)),
+                (5, 4, Some(model_id), Some("net"), None, 0, Some(100), 300, Some(1_000_000), Some(1_000_000), Some(0)),
+                (6, 4, Some(model_id), None, Some("stopped"), 400, Some(500), 900, Some(1_000), Some(10), None),
             ];
-            for (id, run, model, error, started, first, finished, i, o, c) in calls {
+            for (id, run, model, error, stop, started, first, finished, i, o, c) in calls {
                 conn.execute(
-                    "INSERT INTO core_model_calls (id, session_id, run_id, purpose, model, model_id, error,
+                    "INSERT INTO core_model_calls (id, session_id, run_id, purpose, model, model_id, error, stop,
                        input_tokens, output_tokens, cache_read_tokens, started_at, first_output_at, finished_at)
-                     VALUES (?1, ?2, ?3, 'conversation', 'm', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                    params![id, session.0, run, model, error, i, o, c, started, first, finished],
+                     VALUES (?1, ?2, ?3, 'conversation', 'm', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    params![id, session.0, run, model, error, stop, i, o, c, started, first, finished],
                 )?;
             }
             // (id, run, call, body, created_at)
@@ -195,16 +200,33 @@ async fn run_stats_fixture() {
     assert_eq!((s.steps, s.requests, s.tools), (2, 3, 2), "重试合并为一步");
     assert_eq!(s.model_ms, 2_100);
     assert_eq!(s.tool_ms, 2_000, "并行工具取墙钟");
-    assert_eq!(s.first_output_ms, Some(200));
-    assert_eq!(s.output_tps, Some(62.5));
-    assert_eq!(
-        (s.input_tokens, s.output_tokens, s.cache_read_tokens),
-        (300, 100, 50)
-    );
-    assert!(s.usage_complete && !s.cache_complete, "失败调用不算缺用量");
-    assert_eq!(s.cost, None, "无价即未知");
-    let s = &all[1].stats;
-    assert!(s.usage_complete && s.cache_complete);
-    assert_eq!(s.cost, Some(3.0));
-    assert_eq!(s.total_ms, Some(1_000));
+    assert_eq!(all[1].stats.total_ms, Some(1_000));
+
+    // 已知部分一律计入，不论成败；缓存未上报只是不参与合计。
+    let usage = store.session_usage(session).await.unwrap().own;
+    let want = UsageTotal {
+        calls: 6,
+        input_tokens: 2_001_300,
+        output_tokens: 2_000_110,
+        cache_read_tokens: 50,
+        cache_write_tokens: 0,
+        reasoning_tokens: None,
+        unknown_usage: 1,
+        cost: 6.0,
+        unknown_cost: 4,
+    };
+    assert_eq!(usage, want);
+    let stat = store
+        .call(move |conn| {
+            let mut stat = CallStat::default();
+            for c in &load_calls(conn, "c.session_id = ?1", session.0)? {
+                stat.add(c);
+            }
+            Ok(stat)
+        })
+        .await
+        .unwrap();
+    assert_eq!((stat.failed_calls, stat.stopped_calls), (2, 1));
+    assert_eq!(mean(&stat.ok_ms), Some(833), "平均耗时只取成功调用");
+    assert_eq!(stat.usage, want);
 }

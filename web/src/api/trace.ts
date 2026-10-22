@@ -1,4 +1,4 @@
-import { bool, arr, nullable, num, obj, oneOf, record, str, type Decoder } from "./decode";
+import { arr, nullable, num, obj, oneOf, record, str, type Decoder } from "./decode";
 import { runStats, type ContextKind, type ReasoningEffort, type RunStats } from "./types";
 
 // 与 docs/blueprints/run-trace.md §六 及 mic-store `trace` 的 serde 形状一一对应。
@@ -83,18 +83,21 @@ export type Peers = {
   tools: { name: string; median_ms: number; samples: number }[];
 };
 
-export type CallStat = {
+/** 调用用量合计，口径见 docs/blueprints/usage-stats.md：已知部分一律计入，未知另计次数。 */
+export type UsageTotal = {
   calls: number;
-  failed_calls: number;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  reasoning_tokens: number | null;
   unknown_usage: number;
   cost: number;
   unknown_cost: number;
-  avg_ms: number | null;
 };
+
+/** 有 error 为失败，被停止为停止，其余为成功；`avg_ms` 只取成功调用。 */
+export type CallStat = UsageTotal & { failed_calls: number; stopped_calls: number; avg_ms: number | null };
 
 export type DayStat = CallStat & { day: string; runs: number; completed_runs: number };
 export type ModelStat = CallStat & { purpose: Purpose; model_id: number | null; model: string };
@@ -180,18 +183,19 @@ const peers: Decoder<Peers> = obj({
   tools: arr(obj({ name: str, median_ms: num, samples: num })),
 });
 
-export const callStat = {
+const usageTotalFields = {
   calls: num,
-  failed_calls: num,
   input_tokens: num,
   output_tokens: num,
   cache_read_tokens: num,
   cache_write_tokens: num,
+  reasoning_tokens: nullable(num),
   unknown_usage: num,
   cost: num,
   unknown_cost: num,
-  avg_ms: nullable(num),
 };
+const usageTotal: Decoder<UsageTotal> = obj(usageTotalFields);
+export const callStat = { ...usageTotalFields, failed_calls: num, stopped_calls: num, avg_ms: nullable(num) };
 
 const dashboard: Decoder<Dashboard> = obj({
   days: arr(obj<DayStat>({ day: str, runs: num, completed_runs: num, ...callStat })),
@@ -217,17 +221,7 @@ export const parsePeers = (v: unknown): Peers => peers(v, "同类耗时");
 export const parseDashboard = (v: unknown): Dashboard => dashboard(v, "看板");
 
 
-export type SessionUsage = {
-  input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number;
-  reasoning_tokens: number | null; known_usage: number; unknown_usage: number;
-  usage_complete: boolean; cache_complete: boolean; cost: number | null; unknown_cost: number;
-};
 /** `own` 为本会话；`tree` 为本会话加全部后代，无后代为 null。 */
-export type SessionUsageView = { own: SessionUsage; tree: { descendants: number; usage: SessionUsage } | null };
-const sessionUsage: Decoder<SessionUsage> = obj({
-  input_tokens: num, output_tokens: num, cache_read_tokens: num, cache_write_tokens: num,
-  reasoning_tokens: nullable(num), known_usage: num, unknown_usage: num,
-  usage_complete: bool, cache_complete: bool, cost: nullable(num), unknown_cost: num,
-});
+export type SessionUsageView = { own: UsageTotal; tree: { descendants: number; usage: UsageTotal } | null };
 export const parseSessionUsage = (v: unknown): SessionUsageView =>
-  obj({ own: sessionUsage, tree: nullable(obj({ descendants: num, usage: sessionUsage })) })(v, "会话用量");
+  obj({ own: usageTotal, tree: nullable(obj({ descendants: num, usage: usageTotal })) })(v, "会话用量");

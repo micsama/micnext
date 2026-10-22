@@ -550,11 +550,11 @@ async fn trace_rebuild_survives_later_holds_absorption_and_retries() {
     assert!(calls[0].first_output_at.is_some());
     assert!(calls[0].reply_id.is_none());
     let board = f.store.dashboard(1).await.unwrap();
-    assert_eq!(board.models[0].calls.calls, 3);
+    assert_eq!(board.models[0].calls.usage.calls, 3);
     assert_eq!(board.models[0].calls.failed_calls, 1);
-    assert_eq!(board.models[0].calls.unknown_usage, 2);
-    assert_eq!(board.models[0].calls.unknown_cost, 2);
-    assert_eq!(board.models[0].calls.cost, 0.000016);
+    assert_eq!(board.models[0].calls.usage.unknown_usage, 2);
+    assert_eq!(board.models[0].calls.usage.unknown_cost, 2);
+    assert_eq!(board.models[0].calls.usage.cost, 0.000016);
 }
 
 #[tokio::test]
@@ -909,7 +909,7 @@ async fn trace_paging_keeps_session_side_calls_out_of_runs() {
     let board = f.store.dashboard(1).await.unwrap();
     assert_eq!(board.days[0].runs, 2);
     assert_eq!(board.days[0].completed_runs, 1);
-    assert_eq!(board.days[0].calls.calls, 2);
+    assert_eq!(board.days[0].calls.usage.calls, 2);
     assert_eq!(board.models.len(), 2); // 旁路按 purpose 独立聚合
     let peers = f.store.call_peers().await.unwrap();
     assert_eq!(peers.models.len(), 2);

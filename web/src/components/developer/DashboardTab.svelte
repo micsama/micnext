@@ -3,7 +3,7 @@
   import "./dashboard.css";
   import { getDashboard } from "../../api/client";
   import type { CallStat, Dashboard, DayStat } from "../../api/trace";
-  import { formatCost, formatDuration, formatTokens } from "../../lib/format";
+  import { atLeast, formatCost, formatDuration, formatTokens } from "../../lib/format";
   import Icon from "../../lib/Icon.svelte";
 
   let { active }: { active: boolean } = $props();
@@ -41,7 +41,7 @@
 
   const PURPOSE = { conversation: "对话", compaction: "压缩", title: "标题" } as const;
   const rate = (n: number, total: number) => (total === 0 ? "—" : `${((n / total) * 100).toFixed(n === total || n === 0 ? 0 : 1)}%`);
-  const cacheHit = (s: CallStat) => (s.input_tokens === 0 ? "—" : rate(s.cache_read_tokens, s.input_tokens));
+  const tokens = (s: CallStat) => atLeast(`${formatTokens(s.input_tokens)} / ${formatTokens(s.output_tokens)}`, s.unknown_usage, s.calls);
 
   // 服务端只回有数据的日子；按范围补齐空日，图上才连续。
   const series = $derived.by((): DayStat[] => {
@@ -55,7 +55,7 @@
       const d = new Date(end);
       d.setDate(end.getDate() - (days - 1 - i));
       const k = key(d);
-      return by.get(k) ?? { day: k, runs: 0, completed_runs: 0, calls: 0, failed_calls: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, unknown_usage: 0, cost: 0, unknown_cost: 0, avg_ms: null };
+      return by.get(k) ?? { day: k, runs: 0, completed_runs: 0, calls: 0, failed_calls: 0, stopped_calls: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: null, unknown_usage: 0, cost: 0, unknown_cost: 0, avg_ms: null };
     });
   });
 
@@ -66,14 +66,14 @@
         completed: s.completed + d.completed_runs,
         calls: s.calls + d.calls,
         failed: s.failed + d.failed_calls,
+        stopped: s.stopped + d.stopped_calls,
         input: s.input + d.input_tokens,
         output: s.output + d.output_tokens,
-        cacheRead: s.cacheRead + d.cache_read_tokens,
         unknownUsage: s.unknownUsage + d.unknown_usage,
         cost: s.cost + d.cost,
         unknownCost: s.unknownCost + d.unknown_cost,
       }),
-      { runs: 0, completed: 0, calls: 0, failed: 0, input: 0, output: 0, cacheRead: 0, unknownUsage: 0, cost: 0, unknownCost: 0 },
+      { runs: 0, completed: 0, calls: 0, failed: 0, stopped: 0, input: 0, output: 0, unknownUsage: 0, cost: 0, unknownCost: 0 },
     ),
   );
 
@@ -89,7 +89,7 @@
 
   // 每根柱拆成至多两段：[主段, 次段]，次段在上。
   const parts = (d: DayStat, m: Metric): [number, number] =>
-    m === "calls" ? [d.calls - d.failed_calls, d.failed_calls]
+    m === "calls" ? [d.calls - d.failed_calls - d.stopped_calls, d.failed_calls]
     : m === "runs" ? [d.completed_runs, d.runs - d.completed_runs]
     : m === "tokens" ? [d.input_tokens, d.output_tokens]
     : [d.cost, 0];
@@ -119,7 +119,7 @@
 {/snippet}
 
 {#snippet cost(s: CallStat)}
-  {formatCost(s.cost)}{#if s.unknown_cost > 0}<span class="unk" title="{s.unknown_cost} 次调用缺用量或单价，未计入">+{s.unknown_cost} 未知</span>{/if}
+  <span title={s.unknown_cost > 0 ? `${s.unknown_cost} 次调用缺用量或单价，未计入` : undefined}>{atLeast(formatCost(s.cost), s.unknown_cost, s.calls)}</span>
 {/snippet}
 
 <div class="trace-board">
@@ -145,18 +145,18 @@
         <div class="panel kpi">
           <div class="kpi-label">模型调用</div>
           <div class="kpi-val num">{total.calls}</div>
-          <div class="kpi-sub">{#if total.failed > 0}<span class="bad">失败 {total.failed}（{rate(total.failed, total.calls)}）</span>{:else}含重试与旁路{/if}</div>
+          <div class="kpi-sub" title={total.stopped > 0 ? `另有 ${total.stopped} 次被停止` : undefined}>{#if total.failed > 0}<span class="bad">失败 {total.failed}（{rate(total.failed, total.calls)}）</span>{:else}含重试与旁路{/if}</div>
           {@render spark(sparkOf((d) => d.calls))}
         </div>
         <div class="panel kpi">
           <div class="kpi-label">Token</div>
-          <div class="kpi-val num">{formatTokens(total.input + total.output)}</div>
-          <div class="kpi-sub" title="缓存读取占输入的比例">缓存命中 {total.input === 0 ? "—" : rate(total.cacheRead, total.input)}{#if total.unknownUsage > 0} · {total.unknownUsage} 次未报{/if}</div>
+          <div class="kpi-val num">{atLeast(formatTokens(total.input + total.output), total.unknownUsage, total.calls)}</div>
+          <div class="kpi-sub">{#if total.unknownUsage > 0}{total.unknownUsage} 次用量未知{:else}输入 {formatTokens(total.input)} · 输出 {formatTokens(total.output)}{/if}</div>
           {@render spark(sparkOf((d) => d.input_tokens + d.output_tokens))}
         </div>
         <div class="panel kpi">
           <div class="kpi-label">估算费用</div>
-          <div class="kpi-val num">{formatCost(total.cost)}</div>
+          <div class="kpi-val num">{atLeast(formatCost(total.cost), total.unknownCost, total.calls)}</div>
           <div class="kpi-sub">{#if total.unknownCost > 0}<span title="缺用量或单价的调用未计入">{total.unknownCost} 次未计入</span>{:else}日均 {formatCost(total.cost / days)}{/if}</div>
           {@render spark(sparkOf((d) => d.cost))}
         </div>
@@ -175,8 +175,8 @@
               <span><b>{focus.day}</b></span>
               <span>运行 <b>{focus.runs}</b></span>
               <span>调用 <b>{focus.calls}</b>{#if focus.failed_calls}<span class="bad"> · 失败 {focus.failed_calls}</span>{/if}</span>
-              <span>Token <b>{formatTokens(focus.input_tokens)}</b> / <b>{formatTokens(focus.output_tokens)}</b></span>
-              <span>费用 <b>{formatCost(focus.cost)}</b></span>
+              <span>Token <b>{tokens(focus)}</b></span>
+              <span>费用 <b>{atLeast(formatCost(focus.cost), focus.unknown_cost, focus.calls)}</b></span>
             {:else}
               <span class="faint">悬停柱子查看当天</span>
             {/if}
@@ -203,15 +203,14 @@
         {#if models.length === 0}<p class="blank">暂无调用</p>{:else}
           <div class="scroll">
             <table>
-              <thead><tr><th>模型</th><th>调用</th><th>失败率</th><th class="hide-sm">输入 / 输出</th><th class="hide-sm" title="缓存读取占输入的比例">缓存命中</th><th>费用</th><th class="hide-sm">平均耗时</th></tr></thead>
+              <thead><tr><th>模型</th><th>调用</th><th>失败率</th><th class="hide-sm">输入 / 输出</th><th>费用</th><th class="hide-sm">平均耗时</th></tr></thead>
               <tbody>
                 {#each models as m (`${m.purpose}:${m.model_id}:${m.model}`)}
                   <tr>
                     <td><span class="name"><span title={m.model}>{m.model}</span>{#if m.purpose !== "conversation"}<span class="cap">{PURPOSE[m.purpose]}</span>{/if}</span></td>
                     <td>{m.calls}</td>
                     <td class:bad={m.failed_calls > 0} title="失败 {m.failed_calls} 次">{rate(m.failed_calls, m.calls)}</td>
-                    <td class="hide-sm" title="缓存读 {m.cache_read_tokens} · 缓存写 {m.cache_write_tokens}">{formatTokens(m.input_tokens)} / {formatTokens(m.output_tokens)}{#if m.unknown_usage > 0}<span class="unk">+{m.unknown_usage} 未报</span>{/if}</td>
-                    <td class="hide-sm">{cacheHit(m)}</td>
+                    <td class="hide-sm" title="缓存读 {m.cache_read_tokens} · 缓存写 {m.cache_write_tokens}{m.unknown_usage > 0 ? `\n${m.unknown_usage} 次用量未知` : ''}">{tokens(m)}</td>
                     <td><span class="share"><span>{@render cost(m)}</span><i style="--w:{maxCost === 0 ? 0 : (m.cost / maxCost) * 100}%"></i></span></td>
                     <td class="hide-sm">{m.avg_ms === null ? "—" : formatDuration(m.avg_ms)}</td>
                   </tr>
@@ -256,7 +255,7 @@
                   <td class:bad={d.completed_runs < d.runs}>{rate(d.completed_runs, d.runs)}</td>
                   <td>{d.calls}</td>
                   <td class:bad={d.failed_calls > 0}>{d.failed_calls}</td>
-                  <td class="hide-sm">{formatTokens(d.input_tokens)} / {formatTokens(d.output_tokens)}</td>
+                  <td class="hide-sm">{tokens(d)}</td>
                   <td>{@render cost(d)}</td>
                   <td class="hide-sm">{d.avg_ms === null ? "—" : formatDuration(d.avg_ms)}</td>
                 </tr>

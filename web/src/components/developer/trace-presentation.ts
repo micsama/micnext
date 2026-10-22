@@ -1,4 +1,4 @@
-import type { TraceCall, TraceMessage, TraceRun } from "../../api/trace";
+import type { TraceCall, TraceMessage, TraceRun, UsageTotal } from "../../api/trace";
 import { formatDuration } from "../../lib/format";
 import hljs from "highlight.js/lib/common";
 
@@ -105,16 +105,16 @@ export function bar(run: TraceRun, from: number, to: number, call?: TraceCall): 
   return `left:${left}%;width:${Math.min(Math.max((place(segs, to) * scale - left), .8), 100 - left)}%`;
 }
 
-export function usageOf(calls: TraceCall[]) {
-  const known = calls.filter((c) => c.usage !== null);
-  const sum = (key: "input_tokens" | "output_tokens" | "cache_read_tokens" | "cache_write_tokens" | "reasoning_tokens") => known.reduce((n, c) => n + (c.usage![key] ?? 0), 0);
-  const priced = calls.filter((c) => c.cost !== null);
-  return { input: sum("input_tokens"), output: sum("output_tokens"), cache: sum("cache_read_tokens"),
-    cacheWrite: sum("cache_write_tokens"), reasoning: sum("reasoning_tokens"),
-    reasoningKnown: known.some((c) => c.usage!.reasoning_tokens !== null),
-    known: known.length, unknown: calls.length - known.length,
-    cacheKnown: known.length > 0 && known.every((c) => c.usage!.cache_read_tokens !== null),
-    cost: priced.length ? priced.reduce((n, c) => n + c.cost!, 0) : null,
-    unknownCost: calls.length - priced.length,
+/** 与 mic-store `UsageTotal::add` 同一口径：已知部分一律计入，缓存与推理只合计已上报的。 */
+export function usageOf(calls: TraceCall[]): UsageTotal {
+  const known = calls.flatMap((c) => (c.usage ? [c.usage] : []));
+  const sum = (key: "input_tokens" | "output_tokens" | "cache_read_tokens" | "cache_write_tokens" | "reasoning_tokens") => known.reduce((n, u) => n + (u[key] ?? 0), 0);
+  const priced = calls.flatMap((c) => (c.cost === null ? [] : [c.cost]));
+  return {
+    calls: calls.length, input_tokens: sum("input_tokens"), output_tokens: sum("output_tokens"),
+    cache_read_tokens: sum("cache_read_tokens"), cache_write_tokens: sum("cache_write_tokens"),
+    reasoning_tokens: known.some((u) => u.reasoning_tokens !== null) ? sum("reasoning_tokens") : null,
+    unknown_usage: calls.length - known.length,
+    cost: priced.reduce((n, c) => n + c, 0), unknown_cost: calls.length - priced.length,
   };
 }

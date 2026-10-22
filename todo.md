@@ -12,3 +12,4 @@
 | 实现完成，待真实环境验收 | 外部交互错误链日志 | [B2](docs/blueprints/external-error-observability.md) |
 | Web 已验收，微信文件待验收 | Web 上传文件，统一文件消息 | [B2](docs/blueprints/web-file-upload.md) |
 | 实现完成，待验收 | 微信收尾：投递终态归 core、不重试、日志收敛、入站现场精简 | [B2](docs/blueprints/wechat-wrap-up.md) |
+| 实现完成，待页面验收 | 调用统计统一口径（已知一律计入，未知显示下限） | [B2](docs/blueprints/usage-stats.md) |

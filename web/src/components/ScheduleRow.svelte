@@ -4,7 +4,7 @@
   import { outcomeLabel, ruleLabel } from "../api/schedules";
   import type { ScheduleList } from "../state/schedules.svelte";
   import { router } from "../state/route.svelte";
-  import { formatCost, formatTokens } from "../lib/format";
+  import { atLeast, formatCost, formatTokens } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import DeliveryChips from "./DeliveryChips.svelte";
 
@@ -83,7 +83,7 @@
       </span>
     </button>
     <span class="ml-auto tabular-nums" title="全部历史触发的已记录调用；不含人工追问与独立压缩{task.usage.unknown_cost > 0 ? `\n${task.usage.unknown_cost} 次未计价` : ''}{task.usage.unknown_usage > 0 ? `\n${task.usage.unknown_usage} 次用量未知` : ''}">
-      {task.usage.calls} 次调用 · {formatTokens(tokens)} token · {formatCost(task.usage.cost)}{#if task.usage.unknown_cost > 0 || task.usage.unknown_usage > 0}<Icon name="info" class="ml-1 inline size-3 align-[-2px]" />{/if}
+      {task.usage.calls} 次调用 · {atLeast(formatTokens(tokens), task.usage.unknown_usage, task.usage.calls)} token · {atLeast(formatCost(task.usage.cost), task.usage.unknown_cost, task.usage.calls)}
     </span>
     <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 -mr-1.5 hover:bg-accent hover:text-foreground" onclick={() => router.go(`/s/${task.session_id}`)}><Icon name="message" class="size-3.5" />打开会话</button>
   </div>

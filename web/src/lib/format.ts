@@ -83,6 +83,11 @@ export function formatCost(usd: number): string {
   return `$${usd < 0.01 ? usd.toFixed(5) : usd.toFixed(usd < 1 ? 4 : 2)}`;
 }
 
+/** 合计的展示：有未知为下限「≥ x」，全部未知为「未知」，无调用为「—」。 */
+export function atLeast(text: string, unknown: number, calls: number): string {
+  return calls === 0 ? "—" : unknown === calls ? "未知" : unknown > 0 ? `≥ ${text}` : text;
+}
+
 export function formatBytes(n: number): string {
   return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 }

@@ -44,8 +44,8 @@ pub use store::Store;
 pub use title::reply_answer;
 pub use trace::{
     call_cost, CallRecord, CallStat, Dashboard, DayStat, ModelPeers, ModelStat, Peers, RunStats,
-    SessionUsage, SessionUsageView, ToolPeers, ToolStat, ToolTraceOutcome, TraceCall, TraceMessage,
-    TraceRun, TraceRunPage, TraceSession, TraceSessionKind, TraceTool, TreeUsage,
+    SessionUsageView, ToolPeers, ToolStat, ToolTraceOutcome, TraceCall, TraceMessage, TraceRun,
+    TraceRunPage, TraceSession, TraceSessionKind, TraceTool, TreeUsage, UsageTotal,
 };
 pub use types::{
     ClaimedModel, ClaimedRun, CompactionSettings, CompactionState, CompactionView, ContextUsage,

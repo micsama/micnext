@@ -99,7 +99,7 @@ pub struct TraceRun {
     pub stats: RunStats,
 }
 
-/// Trace 的执行合计。
+/// Trace 的执行耗时与计数；用量由调用明细合计。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RunStats {
     pub total_ms: Option<i64>,
@@ -109,16 +109,6 @@ pub struct RunStats {
     pub steps: u32,
     pub requests: u32,
     pub tools: u32,
-    pub first_output_ms: Option<i64>,
-    pub output_tps: Option<f64>,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    /// 有调用缺用量时为 false，token 合计只含已知部分。
-    pub usage_complete: bool,
-    pub cache_read_tokens: u64,
-    /// 有调用缺用量或未报缓存读取时为 false。
-    pub cache_complete: bool,
-    pub cost: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -132,51 +122,59 @@ pub enum TraceSessionKind {
 /// `tree` 为本会话加全部后代；无后代时为 None。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SessionUsageView {
-    pub own: SessionUsage,
+    pub own: UsageTotal,
     pub tree: Option<TreeUsage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TreeUsage {
     pub descendants: u32,
-    pub usage: SessionUsage,
+    pub usage: UsageTotal,
 }
 
-/// 全会话用量；费用合计已知部分，未知次数单列，沿用 trace 展示口径。
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct SessionUsage {
+/// 调用用量合计，口径见 docs/blueprints/usage-stats.md：已知部分一律计入，不论成败；
+/// 缺用量、缺费用各记未知次数；缓存与推理只合计已上报的。
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct UsageTotal {
+    pub calls: u32,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
+    /// 都未上报为 None。
     pub reasoning_tokens: Option<u64>,
-    pub known_usage: u32,
     pub unknown_usage: u32,
-    pub usage_complete: bool,
-    pub cache_complete: bool,
-    pub cost: Option<f64>,
+    pub cost: f64,
     pub unknown_cost: u32,
 }
 
-fn session_usage(calls: &[TraceCall]) -> SessionUsage {
-    let known: Vec<_> = calls.iter().filter_map(|c| c.usage.as_ref()).collect();
-    let priced: Vec<_> = calls.iter().filter_map(|c| c.cost).collect();
-    let unknown_usage = (calls.len() - known.len()) as u32;
-    SessionUsage {
-        input_tokens: known.iter().map(|u| u.input_tokens).sum(),
-        output_tokens: known.iter().map(|u| u.output_tokens).sum(),
-        cache_read_tokens: known.iter().filter_map(|u| u.cache_read_tokens).sum(),
-        cache_write_tokens: known.iter().filter_map(|u| u.cache_write_tokens).sum(),
-        reasoning_tokens: known
-            .iter()
-            .any(|u| u.reasoning_tokens.is_some())
-            .then(|| known.iter().filter_map(|u| u.reasoning_tokens).sum()),
-        known_usage: known.len() as u32,
-        unknown_usage,
-        usage_complete: unknown_usage == 0,
-        cache_complete: !known.is_empty() && known.iter().all(|u| u.cache_read_tokens.is_some()),
-        cost: (!priced.is_empty()).then(|| priced.iter().sum()),
-        unknown_cost: (calls.len() - priced.len()) as u32,
+impl UsageTotal {
+    fn add(&mut self, c: &TraceCall) {
+        self.calls += 1;
+        match &c.usage {
+            Some(u) => {
+                self.input_tokens += u.input_tokens;
+                self.output_tokens += u.output_tokens;
+                self.cache_read_tokens += u.cache_read_tokens.unwrap_or(0);
+                self.cache_write_tokens += u.cache_write_tokens.unwrap_or(0);
+                if let Some(n) = u.reasoning_tokens {
+                    *self.reasoning_tokens.get_or_insert(0) += n;
+                }
+            }
+            None => self.unknown_usage += 1,
+        }
+        match c.cost {
+            Some(cost) => self.cost += cost,
+            None => self.unknown_cost += 1,
+        }
+    }
+
+    fn of(calls: &[TraceCall]) -> Self {
+        let mut total = Self::default();
+        for c in calls {
+            total.add(c);
+        }
+        total
     }
 }
 
@@ -218,18 +216,13 @@ pub struct Peers {
     pub tools: Vec<ToolPeers>,
 }
 
-/// 调用聚合；token 只合计已知项，未知另计次数。
+/// 调用聚合；有 error 为失败，被停止为停止，其余为成功。
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct CallStat {
-    pub calls: u32,
+    #[serde(flatten)]
+    pub usage: UsageTotal,
     pub failed_calls: u32,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub cache_read_tokens: u64,
-    pub cache_write_tokens: u64,
-    pub unknown_usage: u32,
-    pub cost: f64,
-    pub unknown_cost: u32,
+    pub stopped_calls: u32,
     /// 成功调用的平均耗时。
     pub avg_ms: Option<i64>,
     #[serde(skip)]
@@ -415,22 +408,6 @@ fn run_stats(
                 .map_or(0, |end| (end - step.finished_at).max(0))
         })
         .sum();
-    // 失败与被停止的调用拿不到用量，按零计，不影响完整性与费用。
-    let settled: Vec<&TraceCall> = calls
-        .iter()
-        .filter(|c| c.error.is_none() && c.stop != Some(StopReason::Stopped))
-        .collect();
-    let known: Vec<&Usage> = calls.iter().filter_map(|c| c.usage.as_ref()).collect();
-    let usage_complete = settled.iter().all(|c| c.usage.is_some());
-    let (speed_tokens, speed_ms) = calls
-        .iter()
-        .filter_map(|c| match (c.usage.as_ref(), c.first_output_at) {
-            (Some(u), Some(first)) if c.finished_at > first => {
-                Some((u.output_tokens, c.finished_at - first))
-            }
-            _ => None,
-        })
-        .fold((0, 0), |(t, ms), (dt, dms)| (t + dt, ms + dms));
     RunStats {
         total_ms: finished_at.map(|f| f - created_at),
         model_ms: calls.iter().map(|c| c.finished_at - c.started_at).sum(),
@@ -438,17 +415,6 @@ fn run_stats(
         steps: step_ends.len() as u32,
         requests: calls.len() as u32,
         tools: messages.iter().filter(|m| m.tool.is_some()).count() as u32,
-        first_output_ms: calls
-            .iter()
-            .filter(|c| c.purpose == ModelCallPurpose::Conversation)
-            .find_map(|c| Some(c.first_output_at? - c.started_at)),
-        output_tps: (speed_ms > 0).then(|| speed_tokens as f64 * 1000.0 / speed_ms as f64),
-        input_tokens: known.iter().map(|u| u.input_tokens).sum(),
-        output_tokens: known.iter().map(|u| u.output_tokens).sum(),
-        usage_complete,
-        cache_read_tokens: known.iter().filter_map(|u| u.cache_read_tokens).sum(),
-        cache_complete: usage_complete && known.iter().all(|u| u.cache_read_tokens.is_some()),
-        cost: settled.iter().try_fold(0.0, |n, c| Some(n + c.cost?)),
     }
 }
 
@@ -608,7 +574,7 @@ impl Store {
     /// 所有已记录调用，包括重试、压缩、标题；整树递归含归档、隐藏后代。
     pub async fn session_usage(&self, session: SessionId) -> Result<SessionUsageView, StoreError> {
         self.call(move |conn| {
-            let own = session_usage(&load_calls(conn, "c.session_id = ?1", session.0)?);
+            let own = UsageTotal::of(&load_calls(conn, "c.session_id = ?1", session.0)?);
             let descendants: u32 = conn.query_row(
                 "WITH RECURSIVE tree(id) AS (SELECT id FROM core_sessions WHERE parent_session_id = ?1
                  UNION ALL SELECT s.id FROM core_sessions s JOIN tree t ON s.parent_session_id = t.id)
@@ -628,7 +594,7 @@ impl Store {
                 )?;
                 Some(TreeUsage {
                     descendants,
-                    usage: session_usage(&calls),
+                    usage: UsageTotal::of(&calls),
                 })
             };
             Ok(SessionUsageView { own, tree })
@@ -880,7 +846,7 @@ impl Store {
             let calls = stmt
                 .query_map([&since], call)?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            for c in calls.into_iter().filter(|c| c.stop != Some(StopReason::Stopped)) {
+            for c in calls {
                 let d = c.day.clone();
                 let model_key = (
                     c.purpose.as_str(),
@@ -950,24 +916,13 @@ impl Store {
 
 impl CallStat {
     fn add(&mut self, c: &TraceCall) {
-        self.calls += 1;
+        self.usage.add(c);
         if c.error.is_some() {
             self.failed_calls += 1;
+        } else if c.stop == Some(StopReason::Stopped) {
+            self.stopped_calls += 1;
         } else {
             self.ok_ms.push(c.finished_at - c.started_at);
-        }
-        match &c.usage {
-            Some(u) => {
-                self.input_tokens += u.input_tokens;
-                self.output_tokens += u.output_tokens;
-                self.cache_read_tokens += u.cache_read_tokens.unwrap_or(0);
-                self.cache_write_tokens += u.cache_write_tokens.unwrap_or(0);
-            }
-            None => self.unknown_usage += 1,
-        }
-        match c.cost {
-            Some(cost) => self.cost += cost,
-            None => self.unknown_cost += 1,
         }
     }
 }

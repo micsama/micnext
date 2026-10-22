@@ -5,7 +5,7 @@
   import type { StoredLogRecord } from "../../api/developer";
   import type { SessionUsageView, Peers, SystemPromptView, TraceCall, TraceMessage, TraceRun } from "../../api/trace";
   import { cn } from "$lib/utils";
-  import { formatDuration, formatTokens } from "../../lib/format";
+  import { atLeast, formatDuration, formatTokens } from "../../lib/format";
   import Icon from "../../lib/Icon.svelte";
   import type { Message, SessionDetail } from "../../api/types";
   import { settingsStore } from "../../state/settings.svelte";
@@ -238,7 +238,7 @@
     c.model_id === null ? undefined : peers.models.find((p) => p.purpose === c.purpose && p.model_id === c.model_id);
   const toolPeer = (name: string) => peers.tools.find((p) => p.name === name);
   const runMs = (r: TraceRun) => r.stats.total_ms;
-  const tokensOf = (calls: TraceCall[]) => { const u = usageOf(calls); return u.known ? `${formatTokens(u.input + u.output)}${u.unknown ? "+?" : ""}` : "—"; };
+  const tokensOf = (calls: TraceCall[]) => { const u = usageOf(calls); return atLeast(formatTokens(u.input_tokens + u.output_tokens), u.unknown_usage, u.calls); };
   const stopName = (c: TraceCall) => c.stop === null ? "—" : { end_turn: "正常结束", tool_use: "发起工具调用", max_tokens: "达到输出上限", content_filter: "被内容过滤", stopped: "用户停止" }[c.stop];
   const speed = (c: TraceCall) => c.usage && c.first_output_at !== null && c.finished_at > c.first_output_at ? c.usage.output_tokens / ((c.finished_at - c.first_output_at) / 1000) : null;
   const runToolErrors = (r: TraceRun) => r.messages.filter((m) => m.tool?.outcome === "failed").length;
@@ -524,7 +524,7 @@
                   {#if runBad(r)}<span class={cn("signal", r.state === "interrupted" ? "c-warn" : "c-bad")} title={r.state === "interrupted" ? "已中断 · 恢复只补记未知结果，不重跑工具" : stateName(r)}><Icon name={r.state === "interrupted" ? "pause" : "error"} class="size-[13px]" />{stateName(r)}</span>{:else if r.state === "stopped"}<span class="signal c-ghost" title="用户停止"><Icon name="stop" class="size-[13px]" />{stateName(r)}</span>{/if}
                 </span>
                 <span class="track track-empty"></span>
-                <span class="cap c-ghost tk">{r.stats.requests ? `${r.stats.usage_complete ? "" : "≥"}${formatTokens(r.stats.input_tokens + r.stats.output_tokens)}` : "—"} tok</span>
+                <span class="cap c-ghost tk">{tokensOf(r.calls)} tok</span>
                 {@render durCap(runMs(r), "run")}
                 <time title={time(r.created_at)}>{hm(r.created_at)}</time>
               </button>

@@ -62,14 +62,6 @@ export type RunStats = {
   steps: number;
   requests: number;
   tools: number;
-  first_output_ms: number | null;
-  output_tps: number | null;
-  input_tokens: number;
-  output_tokens: number;
-  usage_complete: boolean;
-  cache_read_tokens: number;
-  cache_complete: boolean;
-  cost: number | null;
 };
 export type ReplyUsage = { input_tokens: number; output_tokens: number; cache_read_tokens: number | null };
 export type ReplyStats = { model_ms: number; first_output_ms: number | null; usage: ReplyUsage | null };
@@ -294,8 +286,6 @@ const occupancy: Decoder<Occupancy> = obj({ used_tokens: num, window: num, trigg
 const contextView: Decoder<ContextView> = obj({ active_boundary: nullable(num), compactions: arr(obj({ boundary_id: num, result: compactionResult, state: compactionState })), occupancy: nullable(occupancy) });
 const runStatsFields = {
   total_ms: nullable(num), model_ms: num, tool_ms: num, steps: num, requests: num, tools: num,
-  first_output_ms: nullable(num), output_tps: nullable(num), input_tokens: num, output_tokens: num,
-  usage_complete: bool, cache_read_tokens: num, cache_complete: bool, cost: nullable(num),
 };
 export const runStats: Decoder<RunStats> = obj(runStatsFields);
 const jobState: Decoder<JobState> = oneOf("running", "completed", "failed", "timed_out", "cancelled", "interrupted");

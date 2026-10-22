@@ -56,7 +56,6 @@
 .trace-board .share { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .trace-board .share i { display: block; width: 56px; height: 4px; border-radius: 2px; background: var(--t-line2); overflow: hidden; }
 .trace-board .share i::before { content: ""; display: block; height: 100%; width: var(--w); background: var(--t-accent); opacity: .6; }
-.trace-board .unk { margin-left: 4px; font-size: 11px; color: var(--t-warn); }
 .trace-board .two { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .trace-board .blank { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--t-faint); }
 .trace-board details > summary { cursor: pointer; list-style: none; }

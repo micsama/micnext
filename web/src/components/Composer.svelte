@@ -3,7 +3,7 @@
   import { listCommands } from "../api/client";
   import type { CommandSpec } from "../api/types";
   import type { InputPart } from "../api/types";
-  import { formatBytes } from "../lib/format";
+  import FileCard from "./FileCard.svelte";
   import Icon from "../lib/Icon.svelte";
   import { settingsStore } from "../state/settings.svelte";
   import type { ComposerReply } from "../state/session.svelte";
@@ -206,13 +206,7 @@
             {#if a.url}
               <img src={a.url} alt={a.file.name} class="size-16 rounded-lg object-cover" />
             {:else}
-              <div class="flex h-16 w-44 items-center gap-2 rounded-lg bg-muted px-3 text-xs" title={a.file.name}>
-                <Icon name="file" class="size-5 shrink-0 text-muted-foreground" />
-                <div class="min-w-0">
-                  <p class="truncate">{a.file.name}</p>
-                  <p class="text-muted-foreground">{formatBytes(a.file.size)}</p>
-                </div>
-              </div>
+              <FileCard name={a.file.name} size={a.file.size} />
             {/if}
             <button
               type="button"

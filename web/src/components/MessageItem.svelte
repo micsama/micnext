@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { ExecOutcome, Message, ToolResultOutcome } from "../api/types";
-  import { formatBytes, formatTime } from "../lib/format";
+  import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
+  import FileCard from "./FileCard.svelte";
   import HistoryImage from "./HistoryImage.svelte";
   import { outcomeText } from "./outcome";
   import type { SessionView } from "../state/session.svelte";
@@ -30,20 +31,23 @@
 </script>
 
 {#if body.kind === "UserInput"}
-  <div class="group relative flex flex-col items-end">
-    <div class="max-w-[85%] rounded-2xl bg-accent px-4 py-2 whitespace-pre-wrap break-words">
-      {#each body.parts as part, i (i)}
-        {#if "Text" in part}
-          {part.Text.text}
-        {:else if "Image" in part}
-          <HistoryImage sessionId={message.session_id} imageId={part.Image.id} />
-        {:else}
-          <span class="my-0.5 inline-flex items-center gap-1 rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground" title={part.File.path}>
-            <Icon name="file" class="size-3" />{basename(part.File.path)} · {formatBytes(part.File.size_bytes)}
-          </span>
-        {/if}
-      {/each}
-    </div>
+  {@const attachments = body.parts.filter((p) => !("Text" in p))}
+  {@const text = body.parts.flatMap((p) => ("Text" in p ? [p.Text.text] : [])).join("")}
+  <div class="group relative flex flex-col items-end gap-1.5">
+    {#if attachments.length > 0}
+      <div class="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
+        {#each attachments as part, i (i)}
+          {#if "Image" in part}
+            <HistoryImage sessionId={message.session_id} imageId={part.Image.id} />
+          {:else if "File" in part}
+            <FileCard name={basename(part.File.path)} size={part.File.size_bytes} title={part.File.path} />
+          {/if}
+        {/each}
+      </div>
+    {/if}
+    {#if text}
+      <div class="max-w-[85%] rounded-2xl bg-accent px-4 py-2 whitespace-pre-wrap break-words">{text}</div>
+    {/if}
     <span class="pointer-events-none absolute top-full right-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{time}</span>
   </div>
 {:else if body.kind === "Trigger"}

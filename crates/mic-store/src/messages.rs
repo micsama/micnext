@@ -178,9 +178,9 @@ impl Store {
                      ORDER BY m.id"
                 ))?
                 .query_map([channel], |r| {
-                    let target = row::delivery_target(r, 10)?.ok_or_else(|| {
+                    let target = row::delivery_target(r, row::MESSAGE_NEXT)?.ok_or_else(|| {
                         rusqlite::Error::InvalidColumnType(
-                            10,
+                            row::MESSAGE_NEXT,
                             "delivery_channel".to_owned(),
                             rusqlite::types::Type::Null,
                         )

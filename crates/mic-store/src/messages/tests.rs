@@ -1,8 +1,8 @@
 use mic_message::{MessageBody, ReplyBlock, ReplyStats, ReplyUsage};
 
 use crate::{
-    ModelCallContext, ModelCallOutcome, ModelCallPurpose, NewModelCall, NewSession, SessionKind,
-    StopReason, Store, ToolScope, Usage,
+    DeliveryTarget, ModelCallContext, ModelCallOutcome, ModelCallPurpose, NewModelCall, NewSession,
+    SessionKind, StopReason, Store, ToolScope, Usage,
 };
 
 #[test]
@@ -22,7 +22,10 @@ async fn check_reply_stats() {
                 chat: "stats".into(),
             },
             parent_session_id: None,
-            delivery_target: None,
+            delivery_target: Some(DeliveryTarget {
+                channel: "wechat".into(),
+                payload: "u".into(),
+            }),
             pwd: "/tmp".into(),
             tool_scope: ToolScope::All,
             created_at: 0,
@@ -125,6 +128,10 @@ async fn check_reply_stats() {
                 .last(),
             Some(&reply)
         );
+        // 投递查询在消息列后追加目标列，统计列不得错位。
+        let pending = store.pending_deliveries("wechat").await.unwrap();
+        let last = pending.last().unwrap();
+        assert_eq!((&last.message, last.target.payload.as_str()), (&reply, "u"));
         let serialized = serde_json::to_value(&reply).unwrap();
         assert_eq!(serialized["body"]["stats"]["model_ms"], 200);
     }

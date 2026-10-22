@@ -3,6 +3,11 @@
 
   let { view }: { view: SessionView } = $props();
 
+  const THINKING = ["让我想想…", "正在琢磨…", "组织一下语言…", "灵感加载中…", "翻翻脑子里的笔记…", "斟酌措辞中…", "脑细胞加班中…", "在想怎么说更清楚…", "马上就好…"];
+  const SLOW = ["这题有点难，多想一会儿…", "还在想，快了快了…", "想得有点深，再等等…", "认真起来了…"];
+  /** 按阶段起点取句，同一阶段内不换。 */
+  const pick = (lines: string[], since: number | null) => lines[(since ?? 0) % lines.length];
+
   /** 当前阶段：停止中、等某个工具返回、或等模型开口；`since` 为阶段起点。 */
   const phase = $derived.by(() => {
     if (view.stopping !== null) return { label: "正在停止", since: null };
@@ -15,7 +20,7 @@
       if (pending.length)
         return { label: `正在执行 ${pending.map((c) => c.name).join("、")}`, since: reply.created_at };
     }
-    return { label: "等待模型回复", since: last?.created_at ?? null };
+    return { label: null, since: last?.created_at ?? null };
   });
 
   let now = $state(Date.now());
@@ -24,11 +29,12 @@
     return () => clearInterval(timer);
   });
   const seconds = $derived(phase.since === null ? 0 : Math.floor((now - phase.since) / 1000));
+  const label = $derived(phase.label ?? pick(seconds >= 20 ? SLOW : THINKING, phase.since));
 </script>
 
 <div class="flex items-center gap-2.5 text-sm" role="status">
   <span class="dots flex gap-1" aria-hidden="true"><i></i><i></i><i></i></span>
-  <span class="shimmer font-medium">{phase.label}</span>
+  <span class="shimmer font-medium">{label}</span>
   {#if seconds >= 2}<span class="text-xs text-muted-foreground tabular-nums">{seconds}s</span>{/if}
 </div>
 

@@ -14,9 +14,9 @@ use crate::wire::{self, QrRequest, QrResponse, QrStatus, QrStatusResponse};
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ClientError {
     #[error("微信网络连接失败")]
-    Network,
+    Network(String),
     #[error("微信请求超时")]
-    Timeout,
+    Timeout(String),
     #[error("微信服务拒绝请求（HTTP {0}）")]
     Rejected(u16),
     #[error("微信服务拒绝请求（ret={ret:?}, errcode={errcode:?}, errmsg={errmsg:?}）")]
@@ -29,6 +29,16 @@ pub(crate) enum ClientError {
     SessionExpired,
     #[error("微信协议不匹配：{0}")]
     Protocol(&'static str),
+}
+
+impl ClientError {
+    /// 诊断保留脱敏后的完整原因；用户文案仍由 Display 给出。
+    pub(crate) fn diagnostic(&self) -> String {
+        match self {
+            Self::Network(detail) | Self::Timeout(detail) => detail.clone(),
+            _ => self.to_string(),
+        }
+    }
 }
 
 pub(crate) struct Client {
@@ -126,7 +136,10 @@ impl Client {
             .timeout(QR_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .build()
-            .map_err(|error| network_error("client_build", error))?;
+            .map_err(|error| network_error("client_build", error))
+            .inspect_err(
+                |error| tracing::warn!(error = %error.diagnostic(), "wechat client build failed"),
+            )?;
         Ok(Self { http })
     }
 
@@ -582,49 +595,28 @@ pub(crate) fn required(value: Option<String>, field: &'static str) -> Result<Str
 fn network_error(endpoint: &'static str, error: reqwest::Error) -> ClientError {
     let error = error.without_url();
     let timeout = error.is_timeout();
-    {
-        let mut message = error.to_string();
-        let mut source = error.source();
-        let mut io_kind = None;
-        let mut os_error = None;
-        let mut tls_handshake_eof = false;
-        while let Some(cause) = source {
-            message.push_str(&format!(": {cause}"));
-            if let Some(io) = cause.downcast_ref::<std::io::Error>() {
-                io_kind = Some(io.kind());
-                os_error = io.raw_os_error();
-            }
-            tls_handshake_eof |= cause.to_string() == "tls handshake eof";
-            source = cause.source();
+    let mut message = error.to_string();
+    let mut source = error.source();
+    let mut io_kind = None;
+    let mut os_error = None;
+    let mut tls_handshake_eof = false;
+    while let Some(cause) = source {
+        message.push_str(&format!(": {cause}"));
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            io_kind = Some(io.kind());
+            os_error = io.raw_os_error();
         }
-        if endpoint == "getupdates" && timeout {
-            tracing::debug!(
-                endpoint,
-                timeout,
-                error = %message,
-                connect = error.is_connect(),
-                ?io_kind,
-                ?os_error,
-                tls_handshake_eof,
-                "wechat HTTP transport failed"
-            );
-        } else {
-            tracing::warn!(
-                endpoint,
-                timeout,
-                error = %message,
-                connect = error.is_connect(),
-                ?io_kind,
-                ?os_error,
-                tls_handshake_eof,
-                "wechat HTTP transport failed"
-            );
-        }
+        tls_handshake_eof |= cause.to_string() == "tls handshake eof";
+        source = cause.source();
     }
+    let detail = format!(
+        "endpoint={endpoint}, timeout={timeout}, connect={}, io_kind={io_kind:?}, os_error={os_error:?}, tls_handshake_eof={tls_handshake_eof}: {message}",
+        error.is_connect(),
+    );
     if timeout {
-        ClientError::Timeout
+        ClientError::Timeout(detail)
     } else {
-        ClientError::Network
+        ClientError::Network(detail)
     }
 }
 
@@ -633,11 +625,6 @@ async fn decode<T: DeserializeOwned>(
     endpoint: &'static str,
 ) -> Result<T, ClientError> {
     if !response.status().is_success() {
-        tracing::warn!(
-            endpoint,
-            status = response.status().as_u16(),
-            "wechat HTTP rejected"
-        );
         return Err(ClientError::Rejected(response.status().as_u16()));
     }
     let body = response
@@ -722,3 +709,6 @@ fn hex_key(hex: &[u8]) -> Option<[u8; 16]> {
     }
     Some(key)
 }
+
+#[cfg(test)]
+mod tests;

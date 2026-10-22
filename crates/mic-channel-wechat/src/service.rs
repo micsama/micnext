@@ -531,12 +531,15 @@ async fn inbound(
                 failures = 0;
                 updates
             }
-            Err(ClientError::Timeout) => continue,
+            Err(error @ ClientError::Timeout(_)) => {
+                tracing::debug!(session_id = account.view.session_id.0, endpoint = "getupdates", error = %error.diagnostic(), "wechat inbound poll timed out");
+                continue;
+            }
             Err(ClientError::SessionExpired) => return Ok(ConnectionExit::NeedsLogin),
             Err(error @ ClientError::Protocol(_)) => return Err(error.into()),
             Err(error) => {
                 failures = failures.saturating_add(1);
-                tracing::warn!(failures, error = %error, "wechat inbound network or business failure");
+                tracing::warn!(session_id = account.view.session_id.0, endpoint = "getupdates", failures, error = %error.diagnostic(), "wechat inbound network or business failure");
                 let delay = if failures >= NETWORK_SLOW_THRESHOLD {
                     NETWORK_SLOW_RETRY
                 } else {
@@ -579,7 +582,7 @@ async fn inbound(
             let flattened = tokio::select! {
                 biased;
                 () = stop.cancelled() => return Ok(ConnectionExit::Stopped),
-                flattened = flatten(&client, incoming.content) => flattened,
+                flattened = flatten(&client, account.view.session_id, incoming.external_id.0, incoming.content) => flattened,
             };
             let Flattened {
                 parts,
@@ -708,13 +711,23 @@ struct Flattened {
 
 /// 按原位置展开：图片下载规整后入列，文件与视频下载后交内核落盘，失败与不支持的
 /// item 打扁成短占位，供用户与模型看到同一份记录。
-async fn flatten(client: &Client, content: Vec<IncomingContent>) -> Flattened {
+async fn flatten(
+    client: &Client,
+    session: mic_message::SessionId,
+    external_id: u64,
+    content: Vec<IncomingContent>,
+) -> Flattened {
     let mut out = Flattened {
         parts: Vec::with_capacity(content.len()),
         unsupported: Vec::new(),
         failures: Vec::new(),
     };
-    for item in content {
+    for (item_index, item) in content.into_iter().enumerate() {
+        let context = media::MediaContext {
+            session_id: session.0,
+            external_id,
+            item_index,
+        };
         let (placeholder, kind) = match item {
             IncomingContent::Text(text) => {
                 out.parts.push(IncomingPart::Text(text));
@@ -727,13 +740,21 @@ async fn flatten(client: &Client, content: Vec<IncomingContent>) -> Flattened {
             }
             IncomingContent::Image(source) => {
                 let fetched = match source {
-                    Ok(source) => media::fetch(client, &source).await,
+                    Ok(source) => media::fetch(client, &source, &context).await,
                     Err(failure) => Err(failure),
                 };
                 match fetched {
                     Ok(bytes) => out.parts.push(IncomingPart::Image(bytes)),
                     Err(failure) => {
-                        tracing::warn!(?failure, "wechat inbound image dropped");
+                        if !matches!(failure, ImageFailure::Download) {
+                            tracing::warn!(
+                                session_id = session.0,
+                                external_id,
+                                item_index,
+                                ?failure,
+                                "wechat inbound image dropped"
+                            );
+                        }
                         out.parts
                             .push(IncomingPart::Text(failure.placeholder().to_owned()));
                         out.failures.push(failure.reason());
@@ -742,10 +763,21 @@ async fn flatten(client: &Client, content: Vec<IncomingContent>) -> Flattened {
                 continue;
             }
             IncomingContent::Attachment(attachment) => {
-                match media::fetch_attachment(client, &attachment).await {
+                match media::fetch_attachment(client, &attachment, &context).await {
                     Ok((name, bytes)) => out.parts.push(IncomingPart::File { name, bytes }),
                     Err(failure) => {
-                        tracing::warn!(?failure, "wechat inbound attachment dropped");
+                        if !matches!(
+                            failure,
+                            media::AttachmentFailure::Download | media::AttachmentFailure::TooLarge
+                        ) {
+                            tracing::warn!(
+                                session_id = session.0,
+                                external_id,
+                                item_index,
+                                ?failure,
+                                "wechat inbound attachment dropped"
+                            );
+                        }
                         out.failures.push(failure.reason(&attachment.kind));
                         out.parts
                             .push(IncomingPart::Text(media::attachment_placeholder(

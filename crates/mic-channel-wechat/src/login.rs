@@ -34,7 +34,7 @@ pub(crate) async fn run(
             Ok(qr) => qr,
             Err(ClientError::Protocol(reason)) => return Err(ClientError::Protocol(reason)),
             Err(error) => {
-                tracing::warn!(error = %error, "wechat QR fetch failed");
+                tracing::warn!(attempt_id = %id.0, endpoint = "get_bot_qrcode", error = %error.diagnostic(), "wechat QR fetch failed");
                 return Ok(Outcome::Failed(SetupFailure::Network));
             }
         };
@@ -52,14 +52,17 @@ pub(crate) async fn run(
         loop {
             let status = match client.poll(&base, &qr, verify_code.as_deref()).await {
                 Ok(status) => status,
-                Err(ClientError::Timeout) => continue,
+                Err(error @ ClientError::Timeout(_)) => {
+                    tracing::debug!(attempt_id = %id.0, endpoint = "get_qrcode_status", error = %error.diagnostic(), "wechat QR poll timed out");
+                    continue;
+                }
                 Err(
-                    error @ (ClientError::Network
+                    error @ (ClientError::Network(_)
                     | ClientError::Rejected(_)
                     | ClientError::BusinessRejected { .. }
                     | ClientError::SessionExpired),
                 ) => {
-                    tracing::warn!(error = %error, "wechat QR polling network failure");
+                    tracing::warn!(attempt_id = %id.0, endpoint = "get_qrcode_status", error = %error.diagnostic(), "wechat QR polling network failure");
                     tokio::time::sleep(NETWORK_RETRY).await;
                     continue;
                 }

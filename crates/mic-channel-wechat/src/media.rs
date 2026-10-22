@@ -14,6 +14,12 @@ use crate::limits::{
 
 type Decryptor = ecb::Decryptor<aes::Aes128>;
 
+pub(crate) struct MediaContext {
+    pub session_id: i64,
+    pub external_id: u64,
+    pub item_index: usize,
+}
+
 /// 图片未能交给模型的原因；该条消息只记录并提示重发。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ImageFailure {
@@ -88,13 +94,23 @@ pub(crate) fn attachment_placeholder(kind: &AttachmentKind, failure: AttachmentF
 }
 
 /// 返回合规图片字节。
-pub(crate) async fn fetch(client: &Client, source: &CdnSource) -> Result<Vec<u8>, ImageFailure> {
-    let bytes = download(client, source, IMAGE_DOWNLOAD_BYTES, IMAGE_DOWNLOAD_TIMEOUT)
-        .await
-        .map_err(|failure| match failure {
-            Fetch::Download | Fetch::TooLarge => ImageFailure::Download,
-            Fetch::Decrypt => ImageFailure::Decrypt,
-        })?;
+pub(crate) async fn fetch(
+    client: &Client,
+    source: &CdnSource,
+    context: &MediaContext,
+) -> Result<Vec<u8>, ImageFailure> {
+    let bytes = download(
+        client,
+        source,
+        IMAGE_DOWNLOAD_BYTES,
+        IMAGE_DOWNLOAD_TIMEOUT,
+        context,
+    )
+    .await
+    .map_err(|failure| match failure {
+        Fetch::Download | Fetch::TooLarge => ImageFailure::Download,
+        Fetch::Decrypt => ImageFailure::Decrypt,
+    })?;
     let image = tokio::task::spawn_blocking(move || mic_media::normalize(bytes))
         .await
         .expect("图片规整不 panic")
@@ -106,6 +122,7 @@ pub(crate) async fn fetch(client: &Client, source: &CdnSource) -> Result<Vec<u8>
 pub(crate) async fn fetch_attachment(
     client: &Client,
     attachment: &Attachment,
+    context: &MediaContext,
 ) -> Result<(String, Vec<u8>), AttachmentFailure> {
     let source = attachment.source.as_ref().map_err(|failure| *failure)?;
     let bytes = download(
@@ -113,6 +130,7 @@ pub(crate) async fn fetch_attachment(
         source,
         ATTACHMENT_DOWNLOAD_BYTES,
         ATTACHMENT_DOWNLOAD_TIMEOUT,
+        context,
     )
     .await
     .map_err(|failure| match failure {
@@ -139,21 +157,29 @@ async fn download(
     source: &CdnSource,
     limit: usize,
     timeout: Duration,
+    context: &MediaContext,
 ) -> Result<Vec<u8>, Fetch> {
     let mut attempt = 1;
     let mut bytes = loop {
         match client.download(&source.url, limit, timeout).await {
             Ok(bytes) => break bytes,
             Err(DownloadError::TooLarge) => {
-                tracing::warn!(limit, "wechat cdn download over limit");
+                tracing::warn!(
+                    session_id = context.session_id,
+                    external_id = context.external_id,
+                    item_index = context.item_index,
+                    attempt,
+                    limit,
+                    "wechat cdn download over limit"
+                );
                 return Err(Fetch::TooLarge);
             }
             Err(DownloadError::Client(error)) if attempt < CDN_DOWNLOAD_ATTEMPTS => {
-                tracing::warn!(attempt, %error, "wechat cdn download failed, retrying");
+                tracing::warn!(session_id = context.session_id, external_id = context.external_id, item_index = context.item_index, attempt, error = %error.diagnostic(), "wechat cdn download failed, retrying");
                 attempt += 1;
             }
             Err(DownloadError::Client(error)) => {
-                tracing::warn!(attempt, %error, "wechat cdn download failed");
+                tracing::warn!(session_id = context.session_id, external_id = context.external_id, item_index = context.item_index, attempt, error = %error.diagnostic(), "wechat cdn download failed");
                 return Err(Fetch::Download);
             }
         }

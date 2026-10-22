@@ -153,7 +153,7 @@ async fn deliver(
             message_id = id.0,
             chunk_index,
             kind = failure(&error),
-            %error,
+            error = %error.diagnostic(),
             "wechat delivery failed"
         );
         finish_chunk(kernel, id, chunk_index, None, Some(failure(&error))).await?;
@@ -284,8 +284,8 @@ const BEFORE_CONNECTION: &str = "连接恢复前的消息不补发";
 
 fn failure(error: &ClientError) -> &'static str {
     match error {
-        ClientError::Network => "network",
-        ClientError::Timeout => "timeout",
+        ClientError::Network(_) => "network",
+        ClientError::Timeout(_) => "timeout",
         ClientError::Rejected(_) | ClientError::BusinessRejected { .. } => "rejected",
         ClientError::SessionExpired => "session_expired",
         ClientError::Protocol(_) => "protocol",

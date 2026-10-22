@@ -154,7 +154,7 @@ impl Typing<'_> {
                 tracing::info!(run_id = run.0, "wechat typing skipped: ticket absent");
                 return Ok(Flow::Continue);
             }
-            Err(error) => return best_effort(error),
+            Err(error) => return best_effort(error, self.account.view.session_id, "getconfig"),
         };
         let flow = self.send(&ticket, TypingStatus::Typing).await?;
         tracing::debug!(run_id = run.0, "wechat typing started");
@@ -238,7 +238,7 @@ impl Typing<'_> {
             .await
         {
             Ok(()) => Ok(Flow::Continue),
-            Err(error) => best_effort(error),
+            Err(error) => best_effort(error, self.account.view.session_id, "sendtyping"),
         }
     }
 
@@ -249,18 +249,22 @@ impl Typing<'_> {
     ) -> Result<T, ClientError> {
         tokio::select! {
             biased;
-            () = self.stop.cancelled() => Err(ClientError::Network),
+            () = self.stop.cancelled() => Err(ClientError::Network("typing request cancelled".to_owned())),
             result = request => result,
         }
     }
 }
 
-fn best_effort(error: ClientError) -> Result<Flow, ClientError> {
+fn best_effort(
+    error: ClientError,
+    session: mic_message::SessionId,
+    endpoint: &'static str,
+) -> Result<Flow, ClientError> {
     match error {
         ClientError::SessionExpired => Ok(Flow::Expired),
         ClientError::Protocol(_) => Err(error),
         error => {
-            tracing::warn!(error = %error, "wechat typing failed");
+            tracing::warn!(session_id = session.0, endpoint, error = %error.diagnostic(), "wechat typing failed");
             Ok(Flow::Continue)
         }
     }

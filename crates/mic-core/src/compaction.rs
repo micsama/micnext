@@ -1,22 +1,16 @@
-use std::path::PathBuf;
-
 use mic_message::{
-    Compaction, ContentPart, ExecOutcome, FileSnapshot, FileSnapshotOutcome, Message, MessageBody,
-    MessageId, ModelView, ReplyBlock, SessionCommand, SessionId, SnapshotExtent, ToolResultOutcome,
+    Compaction, ContentPart, ExecOutcome, Message, MessageBody, MessageId, ModelView, ReplyBlock,
+    SessionCommand, SessionId, ToolResultOutcome,
 };
 use mic_store::{
     ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
     StoreError,
 };
-use mic_tool::{ToolContext, ToolOutput};
 use serde::Serialize;
 
 use crate::attempt::{stream_attempt, Facts};
 use crate::context_usage::{estimate_tokens, message_tokens};
-use crate::limits::{
-    COMPACTION_BUDGET_PERCENT, DEFAULT_CONTEXT_WINDOW, ELIDE_TOOL_TOKENS, SNAPSHOT_BYTES,
-    SNAPSHOT_FILES,
-};
+use crate::limits::{COMPACTION_BUDGET_PERCENT, DEFAULT_CONTEXT_WINDOW, ELIDE_TOOL_TOKENS};
 use crate::run::{now_ms, Engine, Exec};
 use crate::{request, ModelRequest, ModelResponse, Provider, StopReason, ToolChoice};
 
@@ -205,7 +199,7 @@ impl Exec<'_> {
                     let stop = Some(response.stop);
                     match parse_summary(&response) {
                         Ok((summary, paths)) => {
-                            let files = self.read_snapshots(paths).await;
+                            let files = paths;
                             let call = facts.row(
                                 &caller,
                                 ModelCallPurpose::Compaction,
@@ -293,66 +287,6 @@ impl Exec<'_> {
                 }
             }
         }
-    }
-
-    async fn read_snapshots(&self, paths: Vec<String>) -> Vec<FileSnapshot> {
-        let read = self.tools.iter().find(|t| t.name() == "read");
-        let ctx = ToolContext::new(
-            PathBuf::from(&self.session.pwd),
-            std::sync::Arc::new(crate::jobs::NoBackground),
-        );
-        let mut remaining = SNAPSHOT_BYTES;
-        let mut files = Vec::new();
-        for (index, path) in paths.into_iter().enumerate() {
-            let outcome = if index >= SNAPSHOT_FILES || remaining == 0 {
-                FileSnapshotOutcome::Unavailable {
-                    reason: "文件快照限额已用完".into(),
-                }
-            } else if let Some(read) = read {
-                #[derive(Serialize)]
-                struct ReadArgs<'a> {
-                    file_path: &'a str,
-                }
-                let args =
-                    serde_json::to_value(ReadArgs { file_path: &path }).expect("read 参数可序列化");
-                match read.invoke(&args, &ctx).await {
-                    Ok(output) => {
-                        let ToolOutput::Completed(parts) = output else {
-                            unreachable!("read 不派出后台任务")
-                        };
-                        let mut text = parts
-                            .into_iter()
-                            .filter_map(|p| match p {
-                                ContentPart::Text { text } => Some(text),
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        let extent = if text.len() > remaining {
-                            let mut end = remaining;
-                            while !text.is_char_boundary(end) {
-                                end -= 1;
-                            }
-                            text.truncate(end);
-                            SnapshotExtent::Truncated
-                        } else {
-                            SnapshotExtent::Complete
-                        };
-                        remaining -= text.len();
-                        FileSnapshotOutcome::Read { text, extent }
-                    }
-                    Err(error) => FileSnapshotOutcome::Unavailable {
-                        reason: error.message,
-                    },
-                }
-            } else {
-                FileSnapshotOutcome::Unavailable {
-                    reason: "当前会话未开放 read 工具".into(),
-                }
-            };
-            files.push(FileSnapshot { path, outcome });
-        }
-        files
     }
 }
 

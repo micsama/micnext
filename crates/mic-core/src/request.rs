@@ -193,18 +193,10 @@ pub(crate) fn system_prompt(
             ),
         ));
     }
-    for file in &window.files {
-        let content = match &file.outcome {
-            mic_message::FileSnapshotOutcome::Read { text, extent } => {
-                format!("{text}\nSnapshot extent: {extent:?}")
-            }
-            mic_message::FileSnapshotOutcome::Unavailable { reason } => {
-                format!("Unavailable: {reason}")
-            }
-        };
+    if !window.files.is_empty() {
         context.push(part(
             Summary,
-            format!("File snapshot at compaction time: {}\n{content}", file.path),
+            format!("Files essential to continuing the work (read them as needed; contents are not saved):\n{}", window.files.join("\n")),
         ));
     }
     let blocks = [

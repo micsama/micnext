@@ -74,7 +74,36 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: CORE_DELIVERY_FAILURE,
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 21,
+        sql: CORE_COMPACTION_PATHS,
+        secret_columns: &[],
+    },
 ];
+
+/// 压缩保留必读路径，不再冻结文件正文。
+const CORE_COMPACTION_PATHS: &str = "
+CREATE TEMP TABLE compaction_files (
+  message_id INTEGER PRIMARY KEY,
+  files TEXT NOT NULL CHECK(json_type(files) = 'array')
+);
+INSERT INTO compaction_files
+SELECT id, json_extract(payload, '$.boundary.Compaction.files') FROM core_messages
+WHERE kind = 'Boundary' AND json_type(payload, '$.boundary.Compaction') = 'object';
+CREATE TEMP TABLE compaction_paths (message_id INTEGER, position INTEGER, path TEXT NOT NULL);
+INSERT INTO compaction_paths
+SELECT c.message_id, f.key,
+       CASE WHEN f.type = 'object' AND json_type(f.value, '$.path') = 'text'
+            THEN json_extract(f.value, '$.path') END
+FROM compaction_files c, json_each(c.files) f;
+UPDATE core_messages SET payload = json_set(payload, '$.boundary.Compaction.files',
+  json((SELECT json_group_array(path) FROM
+       (SELECT path FROM compaction_paths WHERE message_id = core_messages.id ORDER BY position))))
+WHERE id IN (SELECT message_id FROM compaction_files);
+DROP TABLE compaction_paths;
+DROP TABLE compaction_files;
+";
 
 /// Channel 放弃投递也是终态：与 `delivered_at` 互斥，不再列为待投递。
 const CORE_DELIVERY_FAILURE: &str = "

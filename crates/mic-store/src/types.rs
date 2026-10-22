@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::num::NonZeroU32;
 
 use mic_message::{
-    Compaction, FileSnapshot, Message, MessageId, PersonId, ReplyBlock, SessionCommand, SessionId,
+    Compaction, Message, MessageId, PersonId, ReplyBlock, SessionCommand, SessionId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -341,7 +341,7 @@ pub struct Run {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextWindow {
     pub boundary_id: Option<MessageId>,
-    pub files: Vec<FileSnapshot>,
+    pub files: Vec<String>,
     /// 范围内、`messages` 末条之前因未认领且非 held 而排除的输入（held 输入留在 `messages`）。
     pub filtered: Vec<MessageId>,
     /// 当前有效压缩边界的摘要。

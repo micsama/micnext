@@ -618,6 +618,29 @@ async fn compaction_links_boundary_and_parse_failure_keeps_provider_success() {
 }
 
 #[tokio::test]
+async fn compaction_keeps_paths_without_reading_files() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![
+        reply("reply"),
+        reply("summary\n<required_files>\n/does/not/exist\na.rs\na.rs\n</required_files>"),
+        reply("continued"),
+    ]);
+    let mut exec = f.exec();
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    exec.compact(&provider).await.unwrap().unwrap();
+    let view = f.store.context_view(f.session.id).await.unwrap();
+    assert_eq!(
+        view.compactions[0].result.files,
+        ["/does/not/exist", "a.rs"]
+    );
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    let requests = provider.requests.lock().unwrap();
+    let system = &requests.last().unwrap().system;
+    assert!(system.contains("/does/not/exist\na.rs"));
+    assert!(!system.contains("File snapshot at compaction time"));
+}
+
+#[tokio::test]
 async fn compaction_can_trim_every_message_and_rebuild_instruction_only() {
     let f = Fixture::new().await;
     let provider = scripted(vec![reply("history"), reply("summary")]);

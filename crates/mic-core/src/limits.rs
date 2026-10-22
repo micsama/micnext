@@ -22,8 +22,6 @@ pub(crate) const ELIDE_TOOL_TOKENS: u64 = 2_000;
 pub(crate) const QUOTE_FULL_TOKENS: u64 = 500;
 pub(crate) const QUOTE_HEAD_TOKENS: u64 = 300;
 pub(crate) const QUOTE_TAIL_TOKENS: u64 = 150;
-pub(crate) const SNAPSHOT_FILES: usize = 8;
-pub(crate) const SNAPSHOT_BYTES: usize = 64 * 1024;
 /// 标题取材：用户文字合计保留最近部分；每条回复保留开头。
 pub(crate) const TITLE_INPUT_CHARS: usize = 2_000;
 pub(crate) const TITLE_INPUTS: u32 = 8;

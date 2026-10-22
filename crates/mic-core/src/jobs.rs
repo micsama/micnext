@@ -790,18 +790,5 @@ impl Background for JobPort {
     }
 }
 
-/// 不允许后台派出的调用场景（如压缩时读文件快照）。
-pub(crate) struct NoBackground;
-
-impl Background for NoBackground {
-    fn dispatch(&self, _: BackgroundTask) -> BoxFuture<'_, Result<String, ToolError>> {
-        Box::pin(async {
-            Err(ToolError::business(
-                "background execution is not available here",
-            ))
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests;

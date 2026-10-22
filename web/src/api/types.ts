@@ -34,8 +34,7 @@ export type ReplyBlock =
   | { Text: { text: string; phase: "commentary" | "final_answer" | null } }
   | { ToolCall: { id: string; name: string; args: unknown } };
 
-export type FileSnapshot = { path: string; outcome: { Read: { text: string; extent: "Complete" | "Truncated" } } | { Unavailable: { reason: string } } };
-export type Compaction = { summary: string; keep_from: number | null; files: FileSnapshot[]; elided: number[]; quoted: number[] };
+export type Compaction = { summary: string; keep_from: number | null; files: string[]; elided: number[]; quoted: number[] };
 export type ContextBoundary = { Compaction: Compaction } | "UserClear";
 export type SessionCommand = { Compact: { text: string | null } } | "Clear" | { RevokeCompaction: { boundary_id: number } };
 export type CompactionView = { boundary_id: number; result: Compaction; state: { kind: "applied" } | { kind: "revoked"; at: number } };
@@ -276,8 +275,7 @@ const replyBlock: Decoder<ReplyBlock> = tagged({
   ToolCall: obj({ id: str, name: str, args: any }),
 });
 
-const fileSnapshot: Decoder<FileSnapshot> = obj({ path: str, outcome: tagged({ Read: obj({ text: str, extent: oneOf("Complete", "Truncated") }), Unavailable: obj({ reason: str }) }) });
-const compactionResult: Decoder<Compaction> = obj({ summary: str, keep_from: nullable(num), files: arr(fileSnapshot), elided: arr(num), quoted: arr(num) });
+const compactionResult: Decoder<Compaction> = obj({ summary: str, keep_from: nullable(num), files: arr(str), elided: arr(num), quoted: arr(num) });
 const compaction = tagged({ Compaction: compactionResult });
 const command: Decoder<SessionCommand> = (v, at) => v === "Clear" ? v : tagged({ Compact: obj({ text: nullable(str) }), RevokeCompaction: obj({ boundary_id: num }) })(v, at);
 const compactionState: Decoder<CompactionView["state"]> = kinded<{ applied: Record<string, never>; revoked: { at: number } }>({ applied: {}, revoked: { at: num } });

@@ -49,17 +49,12 @@
   </summary>
   <div class="summary-panel mt-2 space-y-4 rounded-xl border border-border px-4 py-3">
     <Markdown source={result.summary} />
-    {#each result.files as file (file.path)}
-      <details class="rounded-lg border border-border">
-        <summary class="cursor-pointer px-3 py-2 font-mono text-xs">{file.path}</summary>
-        {#if "Read" in file.outcome}
-          <pre class="max-h-72 overflow-auto border-t border-border px-3 py-2 text-xs whitespace-pre-wrap">{file.outcome.Read.text}</pre>
-          {#if file.outcome.Read.extent === "Truncated"}<p class="px-3 pb-2 text-xs text-muted-foreground">快照已截断</p>{/if}
-        {:else}
-          <p class="px-3 pb-2 text-xs text-muted-foreground">{file.outcome.Unavailable.reason}</p>
-        {/if}
-      </details>
-    {/each}
+    {#if result.files.length}
+      <div class="space-y-1 text-xs text-muted-foreground">
+        <p>继续工作时按需读取</p>
+        {#each result.files as path (path)}<p class="font-mono break-all">{path}</p>{/each}
+      </div>
+    {/if}
     {#if error}<p class="text-xs text-destructive">{error}</p>{/if}
     {#if canRevoke}
       <button type="button" class="rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50" disabled={view.revoking !== null} onclick={revoke}>{view.revoking === id ? "撤回排队中…" : "撤回压缩"}</button>

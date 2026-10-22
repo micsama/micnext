@@ -146,36 +146,13 @@ pub enum SessionCommand {
 pub struct Compaction {
     pub summary: String,
     pub keep_from: Option<MessageId>,
-    pub files: Vec<FileSnapshot>,
+    pub files: Vec<String>,
     /// 保留段里换成占位的工具结果（`ToolResult` / `Completion`）。
     #[serde(default)]
     pub elided: Vec<MessageId>,
     /// 压掉范围内带回原文的用户输入。
     #[serde(default)]
     pub quoted: Vec<MessageId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileSnapshot {
-    pub path: String,
-    pub outcome: FileSnapshotOutcome,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FileSnapshotOutcome {
-    Read {
-        text: String,
-        extent: SnapshotExtent,
-    },
-    Unavailable {
-        reason: String,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SnapshotExtent {
-    Complete,
-    Truncated,
 }
 
 /// 产出回复的单次模型请求事实，不进入模型上下文。

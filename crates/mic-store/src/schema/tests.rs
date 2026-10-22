@@ -37,7 +37,10 @@ fn empty_database_builds_every_baseline() {
     ] {
         assert!(tables.contains(&expected.to_owned()), "缺少 {expected}");
     }
-    assert_eq!(applied_version(&conn, "core").unwrap(), Some(20));
+    assert_eq!(
+        applied_version(&conn, "core").unwrap(),
+        Some(CORE_MIGRATIONS.last().unwrap().version)
+    );
     assert_eq!(applied_version(&conn, "demo").unwrap(), Some(3));
 }
 
@@ -80,17 +83,73 @@ fn older_format_asks_for_rebuild_instead_of_migrating() {
 fn newer_format_is_rejected() {
     let mut conn = Connection::open_in_memory().unwrap();
     init(&mut conn, &[]).unwrap();
+    let known = CORE_MIGRATIONS.last().unwrap().version;
     conn.execute(
-        "UPDATE schema_migrations SET version = 21 WHERE module = 'core'",
-        [],
+        "UPDATE schema_migrations SET version = ?1 WHERE module = 'core'",
+        [known + 1],
     )
     .unwrap();
     assert!(matches!(
         init(&mut conn, &[]),
-        Err(StoreError::SchemaAhead {
-            db: 21,
-            known: 20,
-            ..
-        })
+        Err(StoreError::SchemaAhead { db, known: actual, .. }) if db == known + 1 && actual == known
     ));
+}
+
+fn old_compactions() -> Connection {
+    let mut conn = Connection::open_in_memory().unwrap();
+    init(&mut conn, &[]).unwrap();
+    conn.execute(
+        "UPDATE schema_migrations SET version = 20 WHERE module = 'core'",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO core_sessions (id, kind, channel, chat, pwd, tool_scope, created_at, persona_id, archived_at) VALUES (1, 'root', 'web', 'a', '/tmp', '\"All\"', 1, 1, 9)", []).unwrap();
+    let files = serde_json::json!([
+        {"path": "a.rs", "outcome": {"Read": {"text": "frozen text", "extent": "Truncated"}}},
+        {"path": "b.rs", "outcome": {"Unavailable": {"reason": "missing"}}}
+    ]);
+    for (id, files, revoked) in [(1, files, Some(8)), (2, serde_json::json!([]), None)] {
+        let payload = serde_json::json!({"kind": "Boundary", "boundary": {"Compaction": {
+            "summary": "summary", "keep_from": null, "files": files, "elided": [], "quoted": []
+        }}});
+        conn.execute("INSERT INTO core_messages (id, session_id, payload, created_at, compaction_revoked_at) VALUES (?1, 1, ?2, 3, ?3)", params![id, payload.to_string(), revoked]).unwrap();
+    }
+    conn
+}
+
+#[test]
+fn compaction_paths_migrate_revoked_and_empty_boundaries() {
+    let mut conn = old_compactions();
+    init(&mut conn, &[]).unwrap();
+    for (id, expected) in [(1, vec!["a.rs", "b.rs"]), (2, vec![])] {
+        let (payload, at, revoked): (String, i64, Option<i64>) = conn.query_row(
+            "SELECT payload, created_at, compaction_revoked_at FROM core_messages WHERE id = ?1", [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+        let mic_message::MessageBody::Boundary {
+            boundary: mic_message::ContextBoundary::Compaction(result),
+        } = serde_json::from_str(&payload).unwrap()
+        else {
+            panic!("boundary expected")
+        };
+        assert_eq!(result.files, expected);
+        assert_eq!(result.summary, "summary");
+        assert_eq!(at, 3);
+        assert_eq!(revoked, if id == 1 { Some(8) } else { None });
+        assert!(!payload.contains("frozen text") && !payload.contains("outcome"));
+    }
+}
+
+#[test]
+fn malformed_old_compaction_rolls_back_migration() {
+    let mut conn = old_compactions();
+    conn.execute("UPDATE core_messages SET payload = json_set(payload, '$.boundary.Compaction.files', json('[{\"path\":3}]')) WHERE id = 2", []).unwrap();
+    assert!(init(&mut conn, &[]).is_err());
+    assert_eq!(applied_version(&conn, "core").unwrap(), Some(20));
+    let payload: String = conn
+        .query_row("SELECT payload FROM core_messages WHERE id = 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert!(payload.contains("frozen text"));
 }

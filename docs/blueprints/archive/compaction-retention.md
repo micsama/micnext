@@ -1,5 +1,7 @@
 # B2：压缩后的保留规则
 
+2026-10-22 修订：文件快照改为必读路径清单，见 [压缩只保留必读文件路径](../compaction-file-paths.md)。
+
 **状态：CLOSED（2026-10-19，真实会话人工验收通过）。验收中修正：保留预算改按当前历史长度；必读文件清单只认正文结尾的 `<required_files>` 块。**
 
 方向见 [B1](../../brainstorm/compaction-retention.md)。修订 [context-compaction](context-compaction.md) 的 §3.5「保留最近 N 个 step」与设置项；触发、请求形状、`/compact`、`/clear`、撤回、文件快照不变。

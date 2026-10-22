@@ -99,11 +99,14 @@ impl Exec<'_> {
         Ok((req, context))
     }
 
-    /// 每次模型返回后判定：这次的上游用量达到触发比例即压缩；之后的工具结果与新输入压完再接上。
+    /// 每步工具结果落盘后判定：本步上游用量达到触发比例即压缩；已停止不再发起。
     pub(crate) async fn compact_if_full(
         &self,
         provider: &dyn Provider,
     ) -> Result<Result<(), RunState>, StoreError> {
+        if self.stop.is_cancelled() {
+            return Ok(Ok(()));
+        }
         let Some(usage) = self.engine.store.context_usage(self.session.id).await? else {
             return Ok(Ok(()));
         };

@@ -208,7 +208,11 @@ impl Updater {
         self.capture(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
             .await
             .map_err(|e| format!("当前分支没有 upstream：{e}"))?;
-        let from = self.capture(&["rev-parse", "HEAD"]).await?;
+        // 以运行版本为准：上次构建失败时源码已前进，进程仍是旧版。
+        let from = match COMMIT {
+            Some(commit) => commit.to_owned(),
+            None => self.capture(&["rev-parse", "HEAD"]).await?,
+        };
         tracing::info!(%from, "update pulling");
 
         self.fetch(&from).await?;

@@ -19,7 +19,7 @@ use mic_store::{
 };
 use mic_tool::{Background, BackgroundTask, BoxFuture, ToolError, ToolHandle};
 use serde::Serialize;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch, Notify};
 use tokio::task::AbortHandle;
 
 use crate::control::{RunControl, StopBy};
@@ -43,6 +43,9 @@ pub(crate) struct Jobs {
     wake: Option<mpsc::Sender<SessionId>>,
     dir: PathBuf,
     running: Mutex<HashMap<JobId, Running>>,
+    /// 终态未能落盘的第一个错误；装配层据此停服务，下次启动按中断收尾。
+    fault: Mutex<Option<StoreError>>,
+    fault_set: Notify,
     control: Arc<RunControl>,
     /// 子 agent 可用的工具名上限（白名单模块的登记工具与管理工具）。
     agent_tools: BTreeSet<String>,
@@ -161,6 +164,8 @@ impl Jobs {
             wake,
             dir: jobs_dir(data_dir),
             running: Mutex::default(),
+            fault: Mutex::default(),
+            fault_set: Notify::new(),
             control,
             agent_tools,
         }
@@ -274,7 +279,11 @@ impl Jobs {
         };
         let id = job.id;
         if let Err(e) = self.finish(job, &tree, end).await {
-            tracing::error!(job = id.0, error = %crate::error::chain(&e), "background job finish failed");
+            // 库里仍是 Running：留在运行表，不当作已结束。
+            tracing::error!(job = id.0, "background job finish failed");
+            self.fault.lock().expect("故障槽未中毒").get_or_insert(e);
+            self.fault_set.notify_one();
+            return;
         }
         self.running.lock().expect("任务表未中毒").remove(&id);
         let _ = done.send(true);
@@ -601,6 +610,16 @@ impl Jobs {
     }
 
     /// 退出前丢弃全部后台任务（工具随之释放资源）；状态留在 `running`，下次启动收尾。
+    /// 等到第一次终态落盘失败。
+    pub(crate) async fn fault(&self) -> StoreError {
+        loop {
+            if let Some(e) = self.fault.lock().expect("故障槽未中毒").take() {
+                return e;
+            }
+            self.fault_set.notified().await;
+        }
+    }
+
     pub(crate) async fn shutdown(&self) {
         let running: Vec<_> = self
             .running

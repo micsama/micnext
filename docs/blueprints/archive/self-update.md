@@ -23,7 +23,7 @@
 
 1. **检查**（不重试）：
    - `git rev-parse --abbrev-ref --symbolic-full-name @{u}` 失败 → 失败「当前分支没有 upstream」（同时覆盖 detached HEAD/rebase 中）。
-   - `git rev-parse HEAD` 记为 `from`，写入状态与终端日志。
+   - 当前进程构建时的提交（`MICNEXT_COMMIT`）记为 `from`；直接 cargo build 没有该值时退回 `git rev-parse HEAD`。写入状态与终端日志。上次构建失败后源码已是新版、进程仍是旧版，再次点击按运行版本比较，会重新构建（2026-10-22 修订，原为源码 HEAD）。
 2. **拉取**：`git fetch`，总共最多 5 次，各次超时依次为 20s、30s、40s、50s、60s，超时杀掉 git；失败或超时立即重试，不等待；不解析 stderr。全部失败 → 失败（最坏约 3 分 20 秒）。成功后 `git reset --hard @{u}`：服务器上不手改代码，已跟踪文件的本地改动和未推送提交一律以 upstream 覆盖，覆盖前先列入输出；未跟踪文件不动（human 2026-10-19，取代原「工作区不干净即失败、不 reset」）。
 3. `git rev-parse HEAD` 记为 `to`；`to == from` → 「已是最新」结束。
 4. **构建**：`./build.sh` 一次（无参数 = release）。非零 → 失败，不重试。源码已是新版、旧进程仍在跑，属预期。

@@ -412,11 +412,15 @@ impl Exec<'_> {
                 Ok(tool_calls) => tool_calls,
                 Err(failed) => return Ok(failed),
             };
+            // 先闭合本步工具调用再压缩，压缩失败或停止也不留无结果的调用。
+            let has_tools = !tool_calls.is_empty();
+            if has_tools {
+                self.run_tools(tool_calls).await?;
+            }
             if let Err(failed) = self.compact_if_full(provider).await? {
                 return Ok(failed);
             }
-            if !tool_calls.is_empty() {
-                self.run_tools(tool_calls).await?;
+            if has_tools {
                 continue;
             }
             if self.absorb().await? {

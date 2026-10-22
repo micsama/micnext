@@ -272,6 +272,11 @@ impl Assembly {
                     failure = Some(error);
                     break;
                 }
+                error = jobs.fault() => {
+                    shutdown.cancel();
+                    failure = Some(error.into());
+                    break;
+                }
                 Some(joined) = tasks.join_next_with_id() => {
                     settle(joined, &owners, &shutdown, &mut failure);
                 }
@@ -351,7 +356,10 @@ impl Assembly {
 
         let engine = Arc::new(self.engine(store, events, None, started.owner));
         let jobs = engine.jobs.clone();
-        let outcome = Self::drive_once(engine, session, claimed, rx, on_event, stop).await;
+        let outcome = tokio::select! {
+            outcome = Self::drive_once(engine, session, claimed, rx, on_event, stop) => outcome,
+            error = jobs.fault() => Err(error.into()),
+        };
         // 不为后台结果延长寿命。
         jobs.shutdown().await;
         outcome

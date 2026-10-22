@@ -1026,6 +1026,43 @@ async fn compaction_right_after_tool_call_keeps_the_call_for_its_result() {
     assert_eq!(kinds, ["reply", "result"]);
 }
 
+#[tokio::test]
+async fn compaction_failure_after_tool_call_keeps_the_call_closed() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![
+        vec![
+            Ok(ModelEvent::Usage(mic_store::Usage {
+                input_tokens: 12,
+                output_tokens: 2,
+                cache_read_tokens: Some(0),
+                cache_write_tokens: Some(0),
+                reasoning_tokens: None,
+            })),
+            Ok(ModelEvent::Finished(ModelResponse {
+                blocks: vec![ReplyBlock::ToolCall {
+                    id: "t".into(),
+                    name: "timed".into(),
+                    args: serde_json::json!({ "delay": 0 }),
+                }],
+                stop: StopReason::ToolUse,
+            })),
+        ],
+        vec![Err(ProviderError::Stalled {
+            message: "300 秒没有收到数据".into(),
+        })],
+    ]);
+    let mut exec = f.exec();
+    exec.tools = vec![ToolHandle::new(TimedTool)];
+    exec.context_window = 15;
+    assert_eq!(
+        exec.execute(&provider).await.unwrap(),
+        RunState::ProviderFailed
+    );
+    let messages = f.store.run_messages(f.claimed.run.id).await.unwrap();
+    assert!(messages.iter().any(|m| matches!(&m.body,
+        MessageBody::ToolResult { tool_call_id, .. } if tool_call_id == "t")));
+}
+
 // 先吐出给定事件，之后一直挂起，模拟卡住的上游。
 struct Hanging(Mutex<std::collections::VecDeque<Result<ModelEvent, ProviderError>>>);
 struct HangEvents(std::collections::VecDeque<Result<ModelEvent, ProviderError>>);

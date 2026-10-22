@@ -3,21 +3,15 @@
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use mic_core::ProviderError;
-use mic_message::{ContentPart, FileRef, ImageData};
+use mic_message::{ContentPart, ImageData};
 
-pub(crate) fn unsupported_file(file: &FileRef) -> ProviderError {
-    ProviderError::Rejected {
-        message: format!("该模型配置不支持文件内容（{}，{}）", file.path, file.mime),
-    }
-}
-
-/// 工具结果与无图 user 消息：文本片段按行拼接，含文件或图片即拒绝。
+/// 工具结果与无图 user 消息：文本片段按行拼接，含图片即拒绝。
 pub(crate) fn text_of(parts: Vec<ContentPart>) -> Result<String, ProviderError> {
     let mut texts = Vec::with_capacity(parts.len());
     for part in parts {
         match part {
             ContentPart::Text { text } => texts.push(text),
-            ContentPart::File(file) => return Err(unsupported_file(&file)),
+            ContentPart::File(_) => unreachable!("文件只出现在用户输入，model_view 已转成文字"),
             ContentPart::Image(_) => {
                 return Err(ProviderError::Rejected {
                     message: "工具结果里的图片暂不支持".into(),

@@ -55,6 +55,7 @@ impl Store {
             for part in parts {
                 out.push(match part {
                     NewInputPart::Text(text) => ContentPart::Text { text },
+                    NewInputPart::File(file) => ContentPart::File(file),
                     NewInputPart::Image(img) => {
                         tx.execute(
                             "INSERT INTO core_images (session_id, format, size_bytes, bytes)

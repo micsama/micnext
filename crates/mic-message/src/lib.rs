@@ -22,12 +22,19 @@ pub struct MessageId(pub i64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PersonId(pub i64);
 
-/// 文件引用。`path` 相对 `<data_dir>/files`。
+/// 用户随输入附带、已由内核存入 `<data_dir>/files/<person>/` 的文件。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileRef {
+    /// 绝对路径。
     pub path: String,
-    pub mime: String,
     pub size_bytes: u64,
+}
+
+impl FileRef {
+    /// 路径最后一段。
+    pub fn name(&self) -> &str {
+        self.path.rsplit(['/', '\\']).next().unwrap_or(&self.path)
+    }
 }
 
 /// 消息里的片段：文本、文件引用或用户入站图片。

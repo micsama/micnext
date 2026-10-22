@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use crate::control::{RunControl, Slot};
 use crate::event::{Events, KernelEvent};
 use crate::input::validate;
+use crate::input::FILES_DIR;
 use crate::jobs::{Jobs, AGENT_MODULES, CORE_TOOLS};
 use crate::limits::WAKE_CHANNEL_CAPACITY;
 use crate::provider::Factories;
@@ -238,6 +239,7 @@ impl Assembly {
             self.channel_setups.clone(),
             title_handle,
             engine.clone(),
+            self.data_dir.join(FILES_DIR),
         );
         let mut schedules = Box::pin(crate::schedule::run(engine.clone(), started.boot));
         let mut scheduler = Box::pin(scheduler::run(engine, wake_rx));
@@ -325,16 +327,23 @@ impl Assembly {
             )
             .await?;
         let session_id = session.id;
+        let input = validate(
+            vec![IncomingPart::Text(once.prompt)],
+            &self.data_dir.join(FILES_DIR),
+            started.owner,
+        )
+        .await?;
         kernel::append_input(
             &store,
             &events,
             session_id,
             started.owner,
-            validate(vec![IncomingPart::Text(once.prompt)]).await?,
+            input.parts,
             InputDisposition::Pending,
             None,
         )
         .await?;
+        input.files.keep();
         let claimed = store
             .claim_next(session_id, now_ms())
             .await?

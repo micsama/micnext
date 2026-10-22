@@ -413,6 +413,7 @@ impl Fixture {
             Arc::default(),
             titles,
             engine.clone(),
+            std::env::temp_dir(),
         );
         Self {
             store,

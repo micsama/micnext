@@ -37,7 +37,7 @@
 
 {#snippet media(items: ContentPart[])}
   {@const extra = items.filter((p) => !("Text" in p))}
-  {#if extra.length}<div class="thumbs">{#each extra as p, i (i)}{#if "Image" in p}<HistoryImage sessionId={message.session_id} imageId={p.Image.id} />{:else if "File" in p}<span class="cap" title={p.File.mime}>文件 · {p.File.path}</span>{/if}{/each}</div>{/if}
+  {#if extra.length}<div class="thumbs">{#each extra as p, i (i)}{#if "Image" in p}<HistoryImage sessionId={message.session_id} imageId={p.Image.id} />{:else if "File" in p}<span class="cap" title={p.File.path}>[文件：{p.File.path.split(/[\\/]/).at(-1)}]</span>{/if}{/each}</div>{/if}
 {/snippet}
 
 {#snippet result(title: string, outcome: ExecOutcome)}

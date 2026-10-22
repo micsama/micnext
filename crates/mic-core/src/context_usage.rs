@@ -18,7 +18,7 @@ fn parts_tokens(parts: &[ContentPart]) -> u64 {
         .map(|part| match part {
             ContentPart::Text { text } => text_tokens(text),
             ContentPart::Image(_) => IMAGE_TOKENS,
-            ContentPart::File(file) => text_tokens(&file.path),
+            ContentPart::File(_) => unreachable!("文件只出现在用户输入，model_view 已转成文字"),
         })
         .sum()
 }

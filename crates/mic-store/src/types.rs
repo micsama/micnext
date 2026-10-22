@@ -503,10 +503,11 @@ pub struct NewSession {
     pub reasoning_effort: Option<ReasoningEffort>,
 }
 
-/// 入站输入的片段；图片是已验证的原件，由 `append_input` 同事务落库。
+/// 入站输入的片段；图片是已验证的原件，由 `append_input` 同事务落库；文件已由内核落盘。
 pub enum NewInputPart {
     Text(String),
     Image(mic_message::ImageData),
+    File(mic_message::FileRef),
 }
 
 /// 入站输入落盘后的执行处置。

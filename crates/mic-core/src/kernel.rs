@@ -43,6 +43,8 @@ pub struct Kernel {
     channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
     pushes: Arc<Pushes>,
     engine: Arc<Engine>,
+    /// 入站文件根目录 `<data_dir>/files`。
+    files: PathBuf,
 }
 
 /// 默认推送 Channel 设置。
@@ -292,8 +294,10 @@ impl Kernel {
         channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
         titles: crate::title::TitleHandle,
         engine: Arc<Engine>,
+        files: PathBuf,
     ) -> Self {
         Self {
+            files,
             titles,
             store: engine.store.clone(),
             owner,
@@ -365,16 +369,18 @@ impl Kernel {
             .ok_or(KernelError::SessionNotFound)?;
         self.store.ensure_session_active(session.id).await?;
         reject_task(&session)?;
+        let input = validate(parts, &self.files, person).await?;
         let messages = append_input(
             &self.store,
             &self.events,
             session_id,
             person,
-            validate(parts).await?,
+            input.parts,
             InputDisposition::Pending,
             None,
         )
         .await?;
+        input.files.keep();
         // 调度循环已退出（停止中）时发送失败，按上面的约定忽略。
         let _ = self.wake.send(session_id).await;
         self.maybe_title(&messages[0]).await?;
@@ -390,12 +396,13 @@ impl Kernel {
         source: &str,
         notice: String,
     ) -> Result<MessageId, KernelError> {
+        let input = validate(parts, &self.files, person).await?;
         let messages = append_input(
             &self.store,
             &self.events,
             session_id,
             person,
-            validate(parts).await?,
+            input.parts,
             InputDisposition::Held,
             Some(NewNotice {
                 source: source.to_owned(),
@@ -403,6 +410,7 @@ impl Kernel {
             }),
         )
         .await?;
+        input.files.keep();
         self.maybe_title(&messages[0]).await?;
         Ok(messages[0].id)
     }

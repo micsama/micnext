@@ -3,6 +3,7 @@
   import { listCommands } from "../api/client";
   import type { CommandSpec } from "../api/types";
   import type { InputPart } from "../api/types";
+  import { formatBytes } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import { settingsStore } from "../state/settings.svelte";
   import type { ComposerReply } from "../state/session.svelte";
@@ -45,7 +46,9 @@
 
   const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
-  type Attachment = { file: File; url: string };
+  /** 支持的图片带预览 `url`，按图片发送；其余按文件发送。 */
+  type Attachment = { id: number; file: File; url: string | null };
+  let nextId = 0;
 
   let text = $state("");
   let commands = $state<CommandSpec[]>([]);
@@ -82,28 +85,31 @@
     if (autofocus || reply) input.focus();
   });
 
-  $effect(() => () => attachments.forEach((a) => URL.revokeObjectURL(a.url)));
+  const release = (a: Attachment) => a.url && URL.revokeObjectURL(a.url);
+  $effect(() => () => attachments.forEach(release));
 
   function attach(files: File[]) {
-    if (!limits || readonly !== null) return;
-    const images = files.filter((f) => f.type.startsWith("image/"));
-    if (images.length === 0) return;
+    if (!limits || readonly !== null || files.length === 0) return;
     error = null;
-    for (const f of images) {
-      if (!IMAGE_TYPES.includes(f.type)) {
-        error = "只支持 PNG、JPEG、WebP 图片";
-      } else if (f.size > limits.max_image_bytes) {
+    for (const f of files) {
+      const image = IMAGE_TYPES.includes(f.type);
+      const count = attachments.filter((a) => (a.url !== null) === image).length;
+      if (image && f.size > limits.max_image_bytes) {
         error = `图片不能超过 ${limits.max_image_bytes / 1024 / 1024} MB`;
-      } else if (attachments.length >= limits.max_images) {
+      } else if (image && count >= limits.max_images) {
         error = `一条消息最多带 ${limits.max_images} 张图片`;
+      } else if (!image && f.size > limits.max_file_bytes) {
+        error = `文件不能超过 ${limits.max_file_bytes / 1024 / 1024} MB`;
+      } else if (!image && count >= limits.max_files) {
+        error = `一条消息最多带 ${limits.max_files} 个文件`;
       } else {
-        attachments.push({ file: f, url: URL.createObjectURL(f) });
+        attachments.push({ id: nextId++, file: f, url: image ? URL.createObjectURL(f) : null });
       }
     }
   }
 
   function detach(i: number) {
-    URL.revokeObjectURL(attachments[i]!.url);
+    release(attachments[i]!);
     attachments.splice(i, 1);
   }
 
@@ -116,7 +122,7 @@
 
   function onpaste(e: ClipboardEvent) {
     const files = [...(e.clipboardData?.files ?? [])];
-    if (files.some((f) => f.type.startsWith("image/"))) {
+    if (files.length > 0) {
       e.preventDefault();
       attach(files);
     }
@@ -135,9 +141,12 @@
     try {
       const parts: InputPart[] = [];
       if (text.trim() !== "") parts.push({ kind: "text", text: reply ? `${reply.quote.replace(/^/gm, "> ")}\n\n${text}` : text });
-      for (const a of attachments) parts.push({ kind: "image", base64: await toBase64(a.file) });
+      for (const a of attachments) {
+        const base64 = await toBase64(a.file);
+        parts.push(a.url ? { kind: "image", base64 } : { kind: "file", name: a.file.name, base64 });
+      }
       await onsend(parts);
-      attachments.forEach((a) => URL.revokeObjectURL(a.url));
+      attachments.forEach(release);
       attachments = [];
       text = "";
       reply = null;
@@ -192,14 +201,24 @@
       : 'border-border'}">
     {#if attachments.length > 0}
       <div class="flex flex-wrap gap-2 px-2 pt-2">
-        {#each attachments as a, i (a.url)}
+        {#each attachments as a, i (a.id)}
           <div class="relative">
-            <img src={a.url} alt={a.file.name} class="size-16 rounded-lg object-cover" />
+            {#if a.url}
+              <img src={a.url} alt={a.file.name} class="size-16 rounded-lg object-cover" />
+            {:else}
+              <div class="flex h-16 w-44 items-center gap-2 rounded-lg bg-muted px-3 text-xs" title={a.file.name}>
+                <Icon name="file" class="size-5 shrink-0 text-muted-foreground" />
+                <div class="min-w-0">
+                  <p class="truncate">{a.file.name}</p>
+                  <p class="text-muted-foreground">{formatBytes(a.file.size)}</p>
+                </div>
+              </div>
+            {/if}
             <button
               type="button"
               onclick={() => detach(i)}
               disabled={posting}
-              aria-label="移除图片"
+              aria-label="移除附件"
               class="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-foreground text-background">
               <Icon name="x" class="size-3" />
             </button>
@@ -237,7 +256,6 @@
       <input
         bind:this={picker}
         type="file"
-        accept={IMAGE_TYPES.join(",")}
         multiple
         hidden
         onchange={() => {
@@ -249,8 +267,8 @@
           type="button"
           onclick={() => picker.click()}
           disabled={posting}
-          aria-label="添加图片"
-          title="添加图片"
+          aria-label="添加图片或文件"
+          title="添加图片或文件"
           class="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-foreground hover:bg-accent disabled:opacity-30">
           <Icon name="plus" class="size-5" />
         </button>

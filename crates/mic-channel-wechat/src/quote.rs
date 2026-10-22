@@ -119,7 +119,8 @@ fn source_text(
     for part in &parts[source_start..] {
         match part {
             ContentPart::Text { text: part } => text.push_str(part),
-            _ => return Err(AccountError::Invalid("引用入站包含未支持的内容类型")),
+            ContentPart::Image(_) => text.push_str("[图片]"),
+            ContentPart::File(file) => text.push_str(&format!("[文件：{}]", file.name())),
         }
     }
     Ok(text)

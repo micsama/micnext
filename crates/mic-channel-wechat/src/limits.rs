@@ -29,7 +29,5 @@ pub(crate) const CDN_BASE: &str = "https://novac2c.cdn.weixin.qq.com/c2c";
 pub(crate) const CDN_DOWNLOAD_ATTEMPTS: u32 = 2;
 pub(crate) const IMAGE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) const IMAGE_DOWNLOAD_BYTES: usize = 32 * 1024 * 1024;
-/// 会话工作目录下存放微信入站文件的子目录。
-pub(crate) const WECHAT_FILES_DIR: &str = "微信文件";
 pub(crate) const ATTACHMENT_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 pub(crate) const ATTACHMENT_DOWNLOAD_BYTES: usize = 100 * 1024 * 1024;

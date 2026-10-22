@@ -82,3 +82,7 @@ export function formatTokens(n: number): string {
 export function formatCost(usd: number): string {
   return `$${usd < 0.01 ? usd.toFixed(5) : usd.toFixed(usd < 1 ? 4 : 2)}`;
 }
+
+export function formatBytes(n: number): string {
+  return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
+}

@@ -7,7 +7,9 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use mic_core::{EndpointDraft, ModelDraft, ReasoningOptions};
-use mic_message::limits::{MAX_IMAGES_PER_INPUT, MAX_IMAGE_BYTES};
+use mic_message::limits::{
+    MAX_FILES_PER_INPUT, MAX_FILE_BYTES, MAX_IMAGES_PER_INPUT, MAX_IMAGE_BYTES,
+};
 use mic_store::{
     CredentialWrite, EndpointId, EndpointView, ModelId, ModelPrice, ModelView, ReasoningEffort,
     SecretValue, SessionKind,
@@ -37,6 +39,8 @@ pub(crate) struct KindList {
 struct InputLimits {
     max_images: usize,
     max_image_bytes: usize,
+    max_files: usize,
+    max_file_bytes: usize,
 }
 
 #[derive(Serialize)]
@@ -164,6 +168,8 @@ pub(crate) async fn list_kinds(State(app): State<Arc<App>>) -> Json<KindList> {
         input_limits: InputLimits {
             max_images: MAX_IMAGES_PER_INPUT,
             max_image_bytes: MAX_IMAGE_BYTES,
+            max_files: MAX_FILES_PER_INPUT,
+            max_file_bytes: MAX_FILE_BYTES,
         },
     })
 }

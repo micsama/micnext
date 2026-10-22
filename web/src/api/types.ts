@@ -4,17 +4,17 @@ export { ProtocolError };
 
 // 与 gateway §4.2、§5.1 及 mic-message 的 serde 形状一一对应。
 
-export type FileRef = { path: string; mime: string; size_bytes: number };
+export type FileRef = { path: string; size_bytes: number };
 
 export type ImageRef = { id: number };
 
 export type ContentPart = { Text: { text: string } } | { File: FileRef } | { Image: ImageRef };
 
 /** 提交给服务端的消息片段；图片为 base64 原始字节。 */
-export type InputPart = { kind: "text"; text: string } | { kind: "image"; base64: string };
+export type InputPart = { kind: "text"; text: string } | { kind: "image"; base64: string } | { kind: "file"; name: string; base64: string };
 
 /** 一条消息的图片限额；服务端仍是最终裁决。 */
-export type InputLimits = { max_images: number; max_image_bytes: number };
+export type InputLimits = { max_images: number; max_image_bytes: number; max_files: number; max_file_bytes: number };
 
 export type ExecFailureKind = "Input" | "Business" | "Dependency";
 
@@ -259,7 +259,7 @@ export type StreamEvent =
   | { event: "run_finished"; data: { run_id: number; state: RunState } }
   | { event: "ready"; data: { executing_run: number | null; has_earlier: boolean | null } };
 
-const fileRef: Decoder<FileRef> = obj({ path: str, mime: str, size_bytes: num });
+const fileRef: Decoder<FileRef> = obj({ path: str, size_bytes: num });
 
 const contentPart: Decoder<ContentPart> = tagged({
   Text: obj({ text: str }),
@@ -403,7 +403,7 @@ const modelList: Decoder<ModelList> = obj({
 
 const kindList: Decoder<{ items: { kind: string; display_name: string }[]; input_limits: InputLimits }> = obj({
   items: arr(obj({ kind: str, display_name: str })),
-  input_limits: obj({ max_images: num, max_image_bytes: num }),
+  input_limits: obj({ max_images: num, max_image_bytes: num, max_files: num, max_file_bytes: num }),
 });
 
 const testResult: Decoder<{ models: string[] }> = obj({ models: arr(str) });

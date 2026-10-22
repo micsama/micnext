@@ -9,9 +9,7 @@ use mic_tool::ToolSpec;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Dialect, Resolved};
-use crate::content::{
-    arguments_text, data_url, has_image, parse_arguments, text_of, unsupported_file,
-};
+use crate::content::{arguments_text, data_url, has_image, parse_arguments, text_of};
 use crate::error::{protocol, transient};
 use crate::stream::{Accumulate, Step};
 
@@ -225,7 +223,7 @@ fn user_content(
     for part in parts {
         match part {
             ContentPart::Text { text } => texts.push(text),
-            ContentPart::File(file) => return Err(unsupported_file(&file)),
+            ContentPart::File(_) => unreachable!("文件只出现在用户输入，model_view 已转成文字"),
             ContentPart::Image(r) => {
                 flush(&mut texts, &mut out);
                 let img = images

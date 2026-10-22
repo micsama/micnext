@@ -12,6 +12,7 @@ use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use mic_core::{IncomingPart, ParsedCommand, StopOutcome};
+use mic_message::limits::{MAX_FILES_PER_INPUT, MAX_FILE_BYTES};
 use mic_message::{ImageId, SessionId};
 use mic_store::{
     ModelId, NewSession, PersonaId, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
@@ -231,12 +232,13 @@ pub(crate) struct SendBody {
     parts: Vec<PartBody>,
 }
 
-/// 入站消息片段；图片只收 base64 字节，格式由内核按魔数识别。
+/// 入站消息片段；图片只收 base64 字节，格式由内核按魔数识别；文件原样落盘。
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum PartBody {
     Text { text: String },
     Image { base64: String },
+    File { name: String, base64: String },
 }
 
 #[derive(Deserialize)]
@@ -355,17 +357,26 @@ pub(crate) fn json<T: DeserializeOwned>(
     Ok(body)
 }
 
-/// 文本总长受限；图片 base64 在此解码，其余校验归内核。
+/// 文本总长与文件数量、大小在此限定；base64 在此解码，其余校验归内核。
 fn parts(parts: Vec<PartBody>) -> Result<Vec<IncomingPart>, ApiError> {
     let chars: usize = parts
         .iter()
         .map(|p| match p {
             PartBody::Text { text } => text.chars().count(),
-            PartBody::Image { .. } => 0,
+            PartBody::Image { .. } | PartBody::File { .. } => 0,
         })
         .sum();
     if chars > MAX_TEXT_CHARS {
         return Err(ApiError::TooLarge("消息太长".into()));
+    }
+    let files = parts
+        .iter()
+        .filter(|p| matches!(p, PartBody::File { .. }))
+        .count();
+    if files > MAX_FILES_PER_INPUT {
+        return Err(ApiError::Unprocessable(format!(
+            "一条消息最多带 {MAX_FILES_PER_INPUT} 个文件"
+        )));
     }
     parts
         .into_iter()
@@ -375,6 +386,18 @@ fn parts(parts: Vec<PartBody>) -> Result<Vec<IncomingPart>, ApiError> {
                 .decode(base64)
                 .map(IncomingPart::Image)
                 .map_err(|_| ApiError::BadRequest("图片不是合法的 base64".into())),
+            PartBody::File { name, base64 } => {
+                let bytes = BASE64
+                    .decode(base64)
+                    .map_err(|_| ApiError::BadRequest("文件不是合法的 base64".into()))?;
+                if bytes.len() > MAX_FILE_BYTES {
+                    return Err(ApiError::TooLarge(format!(
+                        "文件不能超过 {} MB",
+                        MAX_FILE_BYTES / 1024 / 1024
+                    )));
+                }
+                Ok(IncomingPart::File { name, bytes })
+            }
         })
         .collect()
 }

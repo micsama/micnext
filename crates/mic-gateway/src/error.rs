@@ -115,6 +115,7 @@ impl From<KernelError> for ApiError {
                 InputError::Empty => Self::BadRequest(e.to_string()),
                 InputError::Image(MediaError::TooManyBytes) => Self::TooLarge(e.to_string()),
                 InputError::ImageLimit | InputError::Image(_) => Self::Unprocessable(e.to_string()),
+                InputError::FileSave => Self::Unavailable(e.to_string()),
             },
             KernelError::Config(e) if e.field == "reasoning_effort" => {
                 Self::BadRequest(e.to_string())

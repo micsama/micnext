@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -20,7 +19,7 @@ use crate::client::{Client, ClientError, IncomingContent, Unsupported};
 use crate::delivery;
 use crate::limits::{
     ATTEMPT_ID_BYTES, COMMAND_CAPACITY, NETWORK_RETRY, NETWORK_SLOW_RETRY, NETWORK_SLOW_THRESHOLD,
-    VERIFY_CODE_MAX_CHARS, WECHAT_FILES_DIR,
+    VERIFY_CODE_MAX_CHARS,
 };
 use crate::login::{self, Outcome, Progress};
 use crate::media::{self, ImageFailure};
@@ -574,12 +573,11 @@ async fn inbound(
             )
             .await?;
             context.send_replace(Some(incoming.context_token));
-            let dir = attachment_dir(&kernel, &account).await?;
             // 取消时这条消息不落盘；批次未完成，下次启动按既有规则标 interrupted。
             let flattened = tokio::select! {
                 biased;
                 () = stop.cancelled() => return Ok(ConnectionExit::Stopped),
-                flattened = flatten(&client, incoming.content, &dir) => flattened,
+                flattened = flatten(&client, incoming.content) => flattened,
             };
             let Flattened {
                 parts,
@@ -688,6 +686,12 @@ async fn accept_input<T>(
                 .await?;
             Ok(None)
         }
+        Err(mic_core::KernelError::Input(error)) => {
+            kernel
+                .append_notification(session, "micnext", format!("这条消息没有收下：{error}"))
+                .await?;
+            Ok(None)
+        }
         Err(error) => Err(error.into()),
     }
 }
@@ -700,20 +704,9 @@ struct Flattened {
     failures: Vec<&'static str>,
 }
 
-/// 微信文件存到会话当时的工作目录下按本机日期分组。
-async fn attachment_dir(kernel: &Kernel, account: &Account) -> Result<PathBuf, BoxError> {
-    let session = kernel
-        .session(account.view.session_id)
-        .await?
-        .ok_or("微信会话不存在")?;
-    Ok(Path::new(&session.pwd)
-        .join(WECHAT_FILES_DIR)
-        .join(chrono::Local::now().format("%Y-%m-%d").to_string()))
-}
-
-/// 按原位置展开：图片下载规整后入列，文件与视频存盘后以路径入列，失败与不支持的
+/// 按原位置展开：图片下载规整后入列，文件与视频下载后交内核落盘，失败与不支持的
 /// item 打扁成短占位，供用户与模型看到同一份记录。
-async fn flatten(client: &Client, content: Vec<IncomingContent>, dir: &Path) -> Flattened {
+async fn flatten(client: &Client, content: Vec<IncomingContent>) -> Flattened {
     let mut out = Flattened {
         parts: Vec::with_capacity(content.len()),
         unsupported: Vec::new(),
@@ -747,16 +740,18 @@ async fn flatten(client: &Client, content: Vec<IncomingContent>, dir: &Path) -> 
                 continue;
             }
             IncomingContent::Attachment(attachment) => {
-                let saved = media::save(client, &attachment, dir).await;
-                let placeholder = media::attachment_placeholder(
-                    &attachment.kind,
-                    saved.as_deref().map_err(|failure| *failure),
-                );
-                if let Err(failure) = saved {
-                    tracing::warn!(?failure, "wechat inbound attachment dropped");
-                    out.failures.push(failure.reason(&attachment.kind));
+                match media::fetch_attachment(client, &attachment).await {
+                    Ok((name, bytes)) => out.parts.push(IncomingPart::File { name, bytes }),
+                    Err(failure) => {
+                        tracing::warn!(?failure, "wechat inbound attachment dropped");
+                        out.failures.push(failure.reason(&attachment.kind));
+                        out.parts
+                            .push(IncomingPart::Text(media::attachment_placeholder(
+                                &attachment.kind,
+                                failure,
+                            )));
+                    }
                 }
-                out.parts.push(IncomingPart::Text(placeholder));
                 continue;
             }
             IncomingContent::Unsupported(Unsupported::Voice) => ("[语音]".to_owned(), "语音"),

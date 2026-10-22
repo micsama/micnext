@@ -1,13 +1,10 @@
-//! 微信入站媒体：CDN 下载、AES-128-ECB 解密；图片交 `mic_media` 规整，文件与视频存入会话工作目录。
+//! 微信入站媒体：CDN 下载、AES-128-ECB 解密；图片交 `mic_media` 规整，文件与视频交内核落盘。
 
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use aes::cipher::block_padding::Pkcs7;
 use aes::cipher::{BlockDecryptMut, KeyInit};
 use mic_media::MediaError;
-use tokio::io::AsyncWriteExt;
 
 use crate::client::{Attachment, AttachmentKind, CdnSource, Client, DownloadError};
 use crate::limits::{
@@ -48,7 +45,7 @@ impl ImageFailure {
     }
 }
 
-/// 文件或视频未能保存的原因；该条消息只记录并提示重发。
+/// 文件或视频未能下载的原因；该条消息只记录并提示重发。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AttachmentFailure {
     /// 缺地址或 `media.aes_key`。
@@ -56,7 +53,6 @@ pub(crate) enum AttachmentFailure {
     Download,
     TooLarge,
     Decrypt,
-    Save,
 }
 
 impl AttachmentFailure {
@@ -65,7 +61,6 @@ impl AttachmentFailure {
             Self::Download => "下载失败",
             Self::TooLarge => "超过 100 MB",
             Self::Unparsable | Self::Decrypt => "无法识别",
-            Self::Save => "保存失败",
         }
     }
 
@@ -75,24 +70,16 @@ impl AttachmentFailure {
             (AttachmentKind::File { .. }, Self::Download) => "文件下载失败",
             (AttachmentKind::File { .. }, Self::TooLarge) => "文件超过 100 MB",
             (AttachmentKind::File { .. }, Self::Unparsable | Self::Decrypt) => "文件无法识别",
-            (AttachmentKind::File { .. }, Self::Save) => "文件保存失败",
             (AttachmentKind::Video, Self::Download) => "视频下载失败",
             (AttachmentKind::Video, Self::TooLarge) => "视频超过 100 MB",
             (AttachmentKind::Video, Self::Unparsable | Self::Decrypt) => "视频无法识别",
-            (AttachmentKind::Video, Self::Save) => "视频保存失败",
         }
     }
 }
 
-/// 用户与模型看到的附件占位：成功带绝对路径，失败带原因。
-pub(crate) fn attachment_placeholder(
-    kind: &AttachmentKind,
-    result: Result<&Path, AttachmentFailure>,
-) -> String {
-    let status = match result {
-        Ok(path) => format!("已保存到 {}", path.display()),
-        Err(failure) => failure.phrase().to_owned(),
-    };
+/// 附件未能收下时用户与模型看到的占位。
+pub(crate) fn attachment_placeholder(kind: &AttachmentKind, failure: AttachmentFailure) -> String {
+    let status = failure.phrase();
     match kind {
         AttachmentKind::File { name: Some(name) } => format!("[文件：{name}，{status}]"),
         AttachmentKind::File { name: None } => format!("[文件：{status}]"),
@@ -115,12 +102,11 @@ pub(crate) async fn fetch(client: &Client, source: &CdnSource) -> Result<Vec<u8>
     Ok(image.bytes.to_vec())
 }
 
-/// 下载解密后存入 `dir`，返回最终绝对路径；同名不覆盖，失败或取消不留半截文件。
-pub(crate) async fn save(
+/// 下载解密，返回上游文件名与字节；落盘归内核。
+pub(crate) async fn fetch_attachment(
     client: &Client,
     attachment: &Attachment,
-    dir: &Path,
-) -> Result<PathBuf, AttachmentFailure> {
+) -> Result<(String, Vec<u8>), AttachmentFailure> {
     let source = attachment.source.as_ref().map_err(|failure| *failure)?;
     let bytes = download(
         client,
@@ -135,13 +121,10 @@ pub(crate) async fn save(
         Fetch::Decrypt => AttachmentFailure::Decrypt,
     })?;
     let name = match &attachment.kind {
-        AttachmentKind::File { name } => name.as_deref().and_then(file_name).unwrap_or("文件"),
-        AttachmentKind::Video => "视频.mp4",
+        AttachmentKind::File { name } => name.clone().unwrap_or_else(|| "文件".to_owned()),
+        AttachmentKind::Video => "视频.mp4".to_owned(),
     };
-    write(dir, name, &bytes).await.map_err(|error| {
-        tracing::warn!(%error, dir = %dir.display(), "wechat attachment save failed");
-        AttachmentFailure::Save
-    })
+    Ok((name, bytes))
 }
 
 enum Fetch {
@@ -183,72 +166,4 @@ async fn download(
         bytes.truncate(len);
     }
     Ok(bytes)
-}
-
-/// 取上游文件名最后一段，去掉控制字符；空、`.`、`..` 视为缺失。
-fn file_name(raw: &str) -> Option<&str> {
-    let last = raw.rsplit(['/', '\\']).next()?.trim();
-    match last {
-        "" | "." | ".." => None,
-        name if name.chars().any(char::is_control) => None,
-        name => Some(name),
-    }
-}
-
-/// 先以 `create_new` 占住最终名，再写 `.part` 后 rename 覆盖占位。
-async fn write(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
-    tokio::fs::create_dir_all(dir).await?;
-    let dir = tokio::fs::canonicalize(dir).await?;
-    let (stem, ext) = split_name(name);
-    let mut n = 1u32;
-    let target = loop {
-        let candidate = match (n, ext) {
-            (1, _) => dir.join(name),
-            (_, Some(ext)) => dir.join(format!("{stem} ({n}).{ext}")),
-            (_, None) => dir.join(format!("{stem} ({n})")),
-        };
-        match tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-            .await
-        {
-            Ok(_) => break candidate,
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => n += 1,
-            Err(error) => return Err(error),
-        }
-    };
-    let mut part = target.clone().into_os_string();
-    part.push(".part");
-    let mut guard = Cleanup(vec![target.clone(), PathBuf::from(part)]);
-    let mut file = tokio::fs::File::create(&guard.0[1]).await?;
-    file.write_all(bytes).await?;
-    file.sync_all().await?;
-    drop(file);
-    tokio::fs::rename(&guard.0[1], &target).await?;
-    guard.0.clear();
-    Ok(target)
-}
-
-/// `报告.pdf` → (`报告`, `pdf`)；`.bashrc`、无扩展名不拆。
-fn split_name(name: &str) -> (&str, Option<&str>) {
-    match name.rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => (stem, Some(ext)),
-        _ => (name, None),
-    }
-}
-
-/// 未完成写盘时删掉占位与 `.part`；取消即 drop。
-struct Cleanup(Vec<PathBuf>);
-
-impl Drop for Cleanup {
-    fn drop(&mut self) {
-        for path in &self.0 {
-            if let Err(error) = std::fs::remove_file(path) {
-                if error.kind() != ErrorKind::NotFound {
-                    tracing::warn!(%error, path = %path.display(), "wechat attachment cleanup failed");
-                }
-            }
-        }
-    }
 }

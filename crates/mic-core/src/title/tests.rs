@@ -26,6 +26,7 @@ async fn held_first_text_is_eligible_but_commands_old_text_and_failed_first_are_
         Arc::new(HashMap::new()),
         handle.clone(),
         engine,
+        std::env::temp_dir(),
     );
     let make = |chat: &str| NewSession {
         kind: SessionKind::Root {
@@ -378,7 +379,14 @@ async fn manual_title_records_sources_and_side_output() {
         schedules: None,
     });
     let (handle, _runtime) = TitleRuntime::new(store.clone(), factories, Events::new());
-    let kernel = crate::Kernel::new(owner, wake, Arc::new(HashMap::new()), handle, engine);
+    let kernel = crate::Kernel::new(
+        owner,
+        wake,
+        Arc::new(HashMap::new()),
+        handle,
+        engine,
+        std::env::temp_dir(),
+    );
     let rebuilt = kernel.call_input(call.id).await.unwrap().unwrap();
     let actual = requests.lock().unwrap()[0].messages.clone();
     let bodies = |messages: Vec<Message>| {

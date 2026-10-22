@@ -44,7 +44,7 @@ impl Message {
                 let (id, at) = (person.0.to_string(), local_time(self.created_at));
                 ModelView::User(with_header(
                     Header::User { id: &id, at: &at }.render(),
-                    parts.clone(),
+                    parts.iter().map(user_part).collect(),
                 ))
             }
             MessageBody::Reply { model, blocks, .. } => ModelView::Assistant { model, blocks },
@@ -265,6 +265,17 @@ fn with_header(header: String, mut parts: Vec<ContentPart>) -> Vec<ContentPart> 
         _ => parts.insert(0, self::text(header)),
     }
     parts
+}
+
+/// 文件只给路径，模型按需用工具读取；Provider 因此不会见到 `File`。
+fn user_part(part: &ContentPart) -> ContentPart {
+    match part {
+        ContentPart::File(file) => text(format!(
+            "[Attached file saved at {} ({} bytes)]",
+            file.path, file.size_bytes
+        )),
+        other => other.clone(),
+    }
 }
 
 fn text(text: String) -> ContentPart {

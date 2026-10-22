@@ -275,7 +275,7 @@ impl Render {
                     ToolResultOutcome::Terminal(ExecOutcome::Completed { output }) => {
                         let first = match output.first() {
                             Some(ContentPart::Text { text }) => text.lines().next().unwrap_or(""),
-                            Some(ContentPart::File(f)) => f.path.as_str(),
+                            Some(ContentPart::File(f)) => f.name(),
                             Some(ContentPart::Image(_)) => "[image]",
                             None => "",
                         };

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ExecOutcome, Message, ToolResultOutcome } from "../api/types";
-  import { formatTime } from "../lib/format";
+  import { formatBytes, formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import HistoryImage from "./HistoryImage.svelte";
   import { outcomeText } from "./outcome";
@@ -38,8 +38,8 @@
         {:else if "Image" in part}
           <HistoryImage sessionId={message.session_id} imageId={part.Image.id} />
         {:else}
-          <span class="my-0.5 inline-flex items-center gap-1 rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
-            <Icon name="file" class="size-3" />{basename(part.File.path)}
+          <span class="my-0.5 inline-flex items-center gap-1 rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground" title={part.File.path}>
+            <Icon name="file" class="size-3" />{basename(part.File.path)} · {formatBytes(part.File.size_bytes)}
           </span>
         {/if}
       {/each}

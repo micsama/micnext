@@ -131,10 +131,17 @@ impl Engine {
                 stop.cancel();
             })
         });
+        let inputs = match &input {
+            RunInput::Conversation { message_ids } => message_ids.clone(),
+            RunInput::Command { message_id, .. } => vec![*message_id],
+        };
         self.events.emit(
             session.id,
             channel,
-            KernelEventKind::RunStarted { run_id: run.id },
+            KernelEventKind::InputsClaimed {
+                run_id: run.id,
+                inputs,
+            },
         );
         if let (SessionKind::Triggered { .. }, Some(schedules)) = (&session.kind, &self.schedules) {
             if let Some(fire) = self.store.fire_of_run(run.id).await? {
@@ -421,9 +428,19 @@ impl Exec<'_> {
             return Ok(false);
         }
         let inputs = self.engine.store.absorb(self.run.id).await?;
-        let absorbed = !inputs.is_empty();
-        self.pending_inputs.extend(inputs);
-        Ok(absorbed)
+        if inputs.is_empty() {
+            return Ok(false);
+        }
+        self.pending_inputs.extend(&inputs);
+        self.engine.events.emit(
+            self.session.id,
+            self.channel,
+            KernelEventKind::InputsClaimed {
+                run_id: self.run.id,
+                inputs,
+            },
+        );
+        Ok(true)
     }
 
     /// `tools` 为空即不开放工具。每次尝试落盘调用行，成功时连同 `Reply`；返回其中的工具调用。

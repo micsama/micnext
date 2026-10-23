@@ -25,17 +25,22 @@
 
   const body = $derived(message.body);
   const time = $derived(formatTime(message.created_at));
+  const queued = $derived(view.isQueued(message.id));
   const basename = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
   const VERDICT = { Completed: "完成", Failed: "失败", Cancelled: "取消", TimedOut: "超时" } as const;
   const outcomeKind = (o: ExecOutcome) => ("Completed" in o ? "Completed" : "TimedOut" in o ? "TimedOut" : "Failed" in o ? "Failed" : "Cancelled");
 </script>
+
+{#snippet queuedTag()}
+  <span class="inline-flex items-center gap-1 text-xs text-muted-foreground"><Icon name="clock" class="size-3" />排队中</span>
+{/snippet}
 
 {#if body.kind === "UserInput"}
   {@const attachments = body.parts.filter((p) => !("Text" in p))}
   {@const text = body.parts.flatMap((p) => ("Text" in p ? [p.Text.text] : [])).join("")}
   <div class="group relative flex flex-col items-end gap-1.5">
     {#if attachments.length > 0}
-      <div class="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
+      <div class={["flex max-w-[85%] flex-wrap items-end justify-end gap-2", queued && "opacity-60"]}>
         {#each attachments as part, i (i)}
           {#if "Image" in part}
             <HistoryImage sessionId={message.session_id} imageId={part.Image.id} />
@@ -46,8 +51,9 @@
       </div>
     {/if}
     {#if text}
-      <div class="max-w-[85%] rounded-2xl bg-accent px-4 py-2 whitespace-pre-wrap break-words">{text}</div>
+      <div class={["max-w-[85%] rounded-2xl bg-accent px-4 py-2 whitespace-pre-wrap break-words", queued && "opacity-60"]}>{text}</div>
     {/if}
+    {#if queued}{@render queuedTag()}{/if}
     <span class="pointer-events-none absolute top-full right-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{time}</span>
   </div>
 {:else if body.kind === "Trigger"}
@@ -63,10 +69,13 @@
     <p class="mx-auto mt-2 max-w-[85%] rounded-lg bg-muted/50 px-3 py-2 text-sm whitespace-pre-wrap break-words text-muted-foreground">{body.text}</p>
   </details>
 {:else if body.kind === "Command"}
-  <p class="text-sm text-muted-foreground" title={time}>
-    {#if body.command === "Clear"}/clear
-    {:else if "Compact" in body.command}/compact{body.command.Compact.text ? ` ${body.command.Compact.text}` : ""}
-    {:else}撤回压缩{/if}
+  <p class={["flex items-center gap-2 text-sm text-muted-foreground", queued && "opacity-60"]} title={time}>
+    <span>
+      {#if body.command === "Clear"}/clear
+      {:else if "Compact" in body.command}/compact{body.command.Compact.text ? ` ${body.command.Compact.text}` : ""}
+      {:else}撤回压缩{/if}
+    </span>
+    {#if queued}{@render queuedTag()}{/if}
   </p>
 {:else if body.kind === "Reply"}
   <ReplyView {view} replyId={message.id} blocks={body.blocks} {results} {running} {time} model={body.model} stats={body.stats} />

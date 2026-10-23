@@ -734,6 +734,14 @@ impl Kernel {
         Ok(self.store.executing_run(session_id).await?)
     }
 
+    /// 会话中排队等待认领的输入。
+    pub async fn queued_inputs(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Vec<MessageId>, KernelError> {
+        Ok(self.store.queued_inputs(session_id).await?)
+    }
+
     /// 内置 instructions 块（不可改），供设置页只读展示。
     pub fn base_prompt(&self) -> &'static str {
         request::base_prompt()

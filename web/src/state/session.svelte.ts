@@ -130,6 +130,13 @@ export class SessionView {
   }
   draft = $state<Draft | null>(null);
   executingRun = $state<number | null>(null);
+  /** 排队等待认领的输入 id：`ready` 给全量，新输入加入，认领时移出。 */
+  readonly #queued = new SvelteSet<number>();
+
+  /** 归档会话不再认领输入，不显示排队。 */
+  isQueued(id: number): boolean {
+    return !this.info?.archived_at && this.#queued.has(id);
+  }
   modelRetry = $state<{ attempt: number; until: number } | null>(null);
   /** 已对本次执行发出停止，等它收尾。 */
   stopping = $state<number | null>(null);
@@ -276,6 +283,7 @@ export class SessionView {
         if (["Reply", "Boundary", "Notification"].includes(e.data.body.kind)) this.modelRetry = null;
         if (e.data.body.kind === "Reply") this.draft = null;
         if (e.data.body.kind === "UserInput") this.notice = null;
+        if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") this.#queued.add(e.data.id);
         break;
       case "text_delta":
         (this.draft ??= { reasoning: "", text: "", afterId: this.lastId ?? 0 }).text += e.data.text;
@@ -294,10 +302,13 @@ export class SessionView {
         this.reconnecting = false;
         if (e.data.has_earlier !== null) this.earlier = e.data.has_earlier ? "idle" : "none";
         this.executingRun = e.data.executing_run;
+        this.#queued.clear();
+        for (const id of e.data.queued) this.#queued.add(id);
         break;
-      case "run_started":
+      case "inputs_claimed":
         this.executingRun = e.data.run_id;
         this.notice = null;
+        for (const id of e.data.inputs) this.#queued.delete(id);
         break;
       case "run_finished":
         this.modelRetry = null;

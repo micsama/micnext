@@ -1,4 +1,4 @@
-use mic_message::{Message, SessionId};
+use mic_message::{Message, MessageId, SessionId};
 use mic_store::{PushId, RunId, RunState, ScheduleId};
 use std::sync::Arc;
 
@@ -26,9 +26,10 @@ pub enum KernelEventKind {
     },
     /// 会话行的列表投影变了（标题、置顶、归档、已读）；订阅方重新拉取。
     SessionChanged,
-    /// 一次执行开始（已认领）。
-    RunStarted {
+    /// run 认领了这些输入；某个 run_id 第一次出现即该 run 开始。
+    InputsClaimed {
         run_id: RunId,
+        inputs: Vec<MessageId>,
     },
     /// 即将进行第 `attempt` 次重试，等待 `delay_ms` 毫秒。
     ModelRetrying {

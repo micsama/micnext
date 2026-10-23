@@ -76,7 +76,7 @@ pub(crate) async fn run(
                         outbound = Some(message.id);
                         Flow::Continue
                     }
-                    KernelEventKind::RunStarted { run_id } => {
+                    KernelEventKind::InputsClaimed { run_id, .. } => {
                         let token = context.borrow().clone();
                         let flow = typing.begin(run_id, token).await?;
                         keepalive.reset();
@@ -136,7 +136,7 @@ impl Typing<'_> {
             .is_some_and(|active| active.until.is_some())
     }
 
-    /// 同一 run 重复开始（启动校准与 RunStarted 重叠）不重复发送。
+    /// 同一 run 重复开始（启动校准与 InputsClaimed 重叠、中途并入输入）不重复发送。
     async fn begin(&mut self, run: RunId, context: Option<String>) -> Result<Flow, ClientError> {
         if self.active.as_ref().is_some_and(|active| active.run == run) {
             return Ok(Flow::Continue);

@@ -109,12 +109,17 @@ async fn feed(
             return;
         }
     }
-    let executing_run = match app.kernel.executing_run(session_id).await {
-        Ok(run) => run,
+    let state = tokio::try_join!(
+        app.kernel.executing_run(session_id),
+        app.kernel.queued_inputs(session_id)
+    );
+    let (executing_run, queued) = match state {
+        Ok(state) => state,
         Err(e) => return tracing::error!(error = %crate::error::chain(&e), "gateway replay failed"),
     };
     let ready = Ready {
         executing_run: executing_run.map(|r| r.0),
+        queued: queued.into_iter().map(|id| id.0).collect(),
         has_earlier,
     };
     if !send(&app, &tx, json_event("ready", &ready)).await {
@@ -172,9 +177,13 @@ async fn feed(
                 draft_open = false;
                 json_event("draft_discarded", &Empty {})
             }
-            KernelEventKind::RunStarted { run_id } => {
-                json_event("run_started", &RunStarted { run_id: run_id.0 })
-            }
+            KernelEventKind::InputsClaimed { run_id, inputs } => json_event(
+                "inputs_claimed",
+                &InputsClaimed {
+                    run_id: run_id.0,
+                    inputs: inputs.into_iter().map(|id| id.0).collect(),
+                },
+            ),
             KernelEventKind::RunFinished { run_id, state } => json_event(
                 "run_finished",
                 &RunFinished {
@@ -200,6 +209,8 @@ async fn send(app: &App, tx: &mpsc::Sender<Event>, event: Event) -> bool {
 #[derive(Serialize)]
 struct Ready {
     executing_run: Option<i64>,
+    /// 排队等待认领的输入 id。
+    queued: Vec<i64>,
     /// 首次回放之前是否还有消息；重连续传时为 null。
     has_earlier: Option<bool>,
 }
@@ -219,8 +230,9 @@ struct Delta {
 struct Empty {}
 
 #[derive(Serialize)]
-struct RunStarted {
+struct InputsClaimed {
     run_id: i64,
+    inputs: Vec<i64>,
 }
 
 #[derive(Serialize)]

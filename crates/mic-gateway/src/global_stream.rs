@@ -59,7 +59,7 @@ pub(crate) async fn stream(
                 {
                     ("session_activity", event.session_id.0)
                 }
-                KernelEventKind::RunStarted { .. }
+                KernelEventKind::InputsClaimed { .. }
                 | KernelEventKind::RunFinished { .. }
                 | KernelEventKind::SessionChanged => ("session_activity", event.session_id.0),
                 _ => continue,

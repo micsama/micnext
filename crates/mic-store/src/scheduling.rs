@@ -276,6 +276,21 @@ impl Store {
         })
         .await
     }
+
+    /// 会话中排队等待认领的输入（未认领且非 held，模型尚不可见），按 id 升序。
+    pub async fn queued_inputs(&self, session_id: SessionId) -> Result<Vec<MessageId>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn
+                .prepare(&format!(
+                    "SELECT m.id FROM core_messages m
+                     WHERE m.session_id = ?1 AND {UNCLAIMED} AND NOT ({HELD_INPUT})
+                     ORDER BY m.id"
+                ))?
+                .query_map([session_id.0], |r| Ok(MessageId(r.get(0)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+        .await
+    }
 }
 
 /// 子 run 的交付：父 session 的 Completion，发起人取本 run 首条输入。
@@ -392,3 +407,6 @@ fn resolve_persona(
     )?;
     Ok((default, true))
 }
+
+#[cfg(test)]
+mod tests;

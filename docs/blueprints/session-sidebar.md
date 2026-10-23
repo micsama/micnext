@@ -50,7 +50,7 @@ Root 会话有 `Executing` 状态的 run，就算运行中。这里不看子会�
 **全局 SSE** 新增 `session_activity { id }` 事件，由 Gateway 从下面这些 Kernel 事件映射过来：
 
 - `MessageAppended`，且消息是 `Reply` 或 `Notification`；
-- `RunStarted`、`RunFinished`；
+- `InputsClaimed`、`RunFinished`；
 - `SessionChanged`。
 
 `id` 取事件里的 `session_id`。如果是子会话的事件，客户端多拉一次也没有坏处，不在 Gateway 查树根。

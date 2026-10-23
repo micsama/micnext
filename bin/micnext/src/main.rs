@@ -241,9 +241,12 @@ struct Render {
 impl Render {
     fn on(&mut self, event: &KernelEvent) {
         match &event.kind {
-            KernelEventKind::RunStarted { run_id } => {
-                eprintln!("[session {} · run {}]", event.session_id.0, run_id.0)
-            }
+            KernelEventKind::InputsClaimed { run_id, inputs } => eprintln!(
+                "[session {} · run {} · inputs {:?}]",
+                event.session_id.0,
+                run_id.0,
+                inputs.iter().map(|id| id.0).collect::<Vec<_>>()
+            ),
             KernelEventKind::TextDelta(text) => {
                 if self.reasoning_open {
                     eprintln!();

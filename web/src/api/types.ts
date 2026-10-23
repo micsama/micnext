@@ -259,9 +259,9 @@ export type StreamEvent =
   | { event: "reasoning_delta"; data: { text: string } }
   | { event: "model_retry"; data: { attempt: number; delay_ms: number } }
   | { event: "draft_discarded"; data: Record<string, never> }
-  | { event: "run_started"; data: { run_id: number } }
+  | { event: "inputs_claimed"; data: { run_id: number; inputs: number[] } }
   | { event: "run_finished"; data: { run_id: number; state: RunState } }
-  | { event: "ready"; data: { executing_run: number | null; has_earlier: boolean | null } };
+  | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null } };
 
 const fileRef: Decoder<FileRef> = obj({ path: str, size_bytes: num });
 
@@ -447,12 +447,12 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   draft_discarded: obj({}),
   session_changed: obj({}),
   jobs_changed: obj({}),
-  run_started: obj({ run_id: num }),
+  inputs_claimed: obj({ run_id: num, inputs: arr(num) }),
   run_finished: obj({
     run_id: num,
     state: runState,
   }),
-  ready: obj({ executing_run: nullable(num), has_earlier: nullable(bool) }),
+  ready: obj({ executing_run: nullable(num), queued: arr(num), has_earlier: nullable(bool) }),
 };
 
 export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入限额").input_limits;

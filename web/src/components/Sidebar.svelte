@@ -4,7 +4,6 @@
   import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
   import ArchiveIcon from "@lucide/svelte/icons/archive";
   import PinIcon from "@lucide/svelte/icons/pin";
-  import PinOffIcon from "@lucide/svelte/icons/pin-off";
   import { listJobs, archiveSession, pinSession } from "../api/client";
   import { jobActive } from "../api/types";
   import { confirm } from "../state/confirm.svelte";
@@ -173,20 +172,22 @@
   {/if}
 {/snippet}
 
-{#snippet entry(s: SessionItem)}
+{#snippet entry(s: SessionItem, index: number)}
   {@const id = s.id}
   {@const current = activeSession?.id === id ? activeSession : s}
-  <div class="group flex items-center rounded-md hover:bg-accent" class:bg-accent={activeId === id}>
+  {@const running = s.running || (activeId === id && executingRun !== null)}
+  {@const unread = s.unread && !running}
+  <div class="session-entry group flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={index % 2 === 1} data-state={running ? "running" : unread ? "unread" : undefined}>
+    <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && "md:opacity-0"]}>
+      <PinIcon class="size-3" />
+    </button>
     <a
       href="/s/{id}"
       onclick={(e) => (e.preventDefault(), go(`/s/${id}`))}
-      class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-3 pl-1.5 text-sm">
-      <!-- 状态槽：未读优先于运行中。 -->
-      <span class="flex size-2 shrink-0 items-center justify-center">
-        {#if s.unread}<span class="size-2 rounded-full bg-primary" title="有新回复"></span>
-        {:else if s.running}<Icon name="loader" class="size-2.5 animate-spin text-muted-foreground" />{/if}
-      </span>
-      <span class={["min-w-0 flex-1 truncate", activeId === id && "font-medium", s.unread && "font-semibold"]}>{current.title ?? current.preview ?? `会话 ${id}`}</span>
+      class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-sm">
+      <span class={["min-w-0 flex-1 truncate", activeId === id && "font-medium", unread && "font-semibold"]}>{current.title ?? current.preview ?? `会话 ${id}`}</span>
+      {#if running}<span role="status" aria-label="运行中" title="运行中" class="flex shrink-0"><Icon name="loader" class="size-3 animate-spin text-primary motion-reduce:animate-none" /></span>
+      {:else if unread}<span class="sr-only">有新回复</span>{/if}
     </a>
     <Popover.Root>
       <Popover.Trigger aria-label="会话操作" title="会话操作" class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100 data-[state=open]:opacity-100">
@@ -194,9 +195,6 @@
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content side="bottom" align="end" sideOffset={4} collisionPadding={8} class="z-50 w-36 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none">
-          <button type="button" onclick={() => togglePin(s)} class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent">
-            {#if s.pinned_at === null}<PinIcon class="size-4" />置顶{:else}<PinOffIcon class="size-4" />取消置顶{/if}
-          </button>
           <button type="button" disabled={archiving !== null} onclick={() => archive(id)} class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50">
             <ArchiveIcon class="size-4" />{archiving === id ? "正在归档…" : "归档会话"}
           </button>
@@ -269,14 +267,14 @@
     {#if pinnedSessions.error}<p class="px-3 py-1 text-xs text-destructive">{pinnedSessions.error}</p>{/if}
     {#if pinnedSessions.items.length > 0}
       <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">置顶</p>
-      {#each pinnedSessions.items as s (s.id)}
-        {@render entry(s)}
+      {#each pinnedSessions.items as s, index (s.id)}
+        {@render entry(s, index)}
       {/each}
     {/if}
     {#each groups as group (group.label)}
       <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">{group.label}</p>
-      {#each group.items as s (s.id)}
-        {@render entry(s)}
+      {#each group.items as s, index (s.id)}
+        {@render entry(s, index)}
       {/each}
     {/each}
     {#if webSessions.loaded && webSessions.items.length === 0 && pinnedSessions.items.length === 0}
@@ -286,8 +284,8 @@
 
     {#each otherSessions.filter((o) => o.items.length > 0 || o.error) as other (other.channel)}
       <p class="mt-3 border-t border-border px-3 pt-3 pb-1 text-xs text-muted-foreground">{channelName(other.channel)}</p>
-      {#each other.items as s (s.id)}
-        {@render entry(s)}
+      {#each other.items as s, index (s.id)}
+        {@render entry(s, index)}
       {/each}
       {@render list(other)}
     {/each}
@@ -334,3 +332,22 @@
   </div>
   </div>
 </aside>
+
+<style>
+  .session-entry.striped:not(.bg-accent):not(:hover) {
+    background-color: color-mix(in srgb, var(--foreground) 3%, transparent);
+  }
+  .session-entry[data-state="unread"] {
+    border-color: color-mix(in srgb, var(--primary) 32%, transparent);
+  }
+  .session-entry[data-state="running"] {
+    border-color: color-mix(in srgb, var(--primary) 24%, transparent);
+    animation: running-border 2.4s ease-in-out infinite;
+  }
+  @keyframes running-border {
+    50% { border-color: color-mix(in srgb, var(--primary) 55%, transparent); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .session-entry[data-state="running"] { animation: none; }
+  }
+</style>

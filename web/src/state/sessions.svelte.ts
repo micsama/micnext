@@ -97,7 +97,7 @@ class SessionsSync {
   }
 
   get unread(): boolean {
-    return pinnedSessions.items.some((s) => s.unread) || webSessions.items.some((s) => s.unread);
+    return pinnedSessions.items.some((s) => s.unread && !s.running) || webSessions.items.some((s) => s.unread && !s.running);
   }
 }
 

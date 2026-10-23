@@ -25,6 +25,7 @@ fn includes_transport_root_cause() {
 
 #[tokio::test]
 async fn network_error_omits_secret_url() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let error = reqwest::Client::new()
         .get("http://user:password@localhost:99999/private?token=secret")
         .send()

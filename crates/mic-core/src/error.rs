@@ -17,8 +17,6 @@ pub enum AssembleError {
         module: &'static str,
         source: BoxError,
     },
-    #[error("配置里的 [models] 已废弃：模型现在在网页 设置 → 模型 里添加，请从配置文件删掉整个 [models] 段")]
-    RemovedModelsConfig,
     #[error("模型类型 `{kind}` 被重复登记")]
     DuplicateProviderKind { kind: &'static str },
     #[error("Channel `{channel}` 的登录能力被重复登记")]

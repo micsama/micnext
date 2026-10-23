@@ -23,6 +23,7 @@ pub(crate) const COMMIT: Option<&str> = option_env!("MICNEXT_COMMIT");
 /// 构建成功后请装配根停止并 exec 的目标。
 pub struct RestartRequest {
     pub executable: PathBuf,
+    pub arguments: Vec<std::ffi::OsString>,
 }
 
 pub(crate) struct Updater {
@@ -249,7 +250,17 @@ impl Updater {
         });
         tracing::info!(%from, %to, "update building");
         let status = self
-            .stream(Command::new("./build.sh"))
+            .stream({
+                let mut build = Command::new("./build.sh");
+                let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+                if let Some(index) = args.iter().position(|arg| arg == "--config") {
+                    args[index + 1] = std::path::absolute(&args[index + 1])
+                        .map_err(|e| format!("无法解析配置文件路径：{e}"))?
+                        .into_os_string();
+                }
+                build.arg("prepare").args(args);
+                build
+            })
             .await
             .map_err(|e| format!("无法运行 build.sh：{e}"))?;
         if !status.success() {
@@ -267,7 +278,10 @@ impl Updater {
         });
         tracing::info!(%from, %to, from_size = ?self.running_size, to_size, "update restarting");
         self.restart
-            .try_send(RestartRequest { executable })
+            .try_send(RestartRequest {
+                executable: self.repo.join("build.sh"),
+                arguments: vec!["start".into()],
+            })
             .map_err(|e| format!("无法通知重启：{e}"))
     }
 

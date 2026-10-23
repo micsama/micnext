@@ -12,13 +12,11 @@ pub enum StoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("payload 序列化: {0}")]
     Payload(#[from] serde_json::Error),
-    #[error("模块 {module} 库版本 v{db} 高于二进制已知 v{known}")]
-    SchemaAhead { module: String, db: u32, known: u32 },
-    #[error("模块 {module} 库格式 v{version} 低于当前最低支持的 v{baseline}，需重建数据库")]
-    SchemaRebuild {
+    #[error("模块 {module} 库结构 v{db} 与当前 v{expected} 不一致，请停止服务后运行 build.sh 或独立转换脚本")]
+    SchemaMismatch {
         module: String,
-        version: u32,
-        baseline: u32,
+        db: u32,
+        expected: u32,
     },
     #[error("主密钥文件读写失败: {0}")]
     SecretKeyIo(#[from] std::io::Error),

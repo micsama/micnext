@@ -1,5 +1,7 @@
 # B2：工具调用身份限定到回复中的一次发生
 
+2026-10-23 修订：数据库结构初始化、独立转换脚本和更新重启契约以[数据库转换移出 Rust](../database-conversion.md)为准；本文的应用内历史迁移/自动换库内容不再适用。
+
 状态：CLOSED（2026-10-23 human 页面与生产验收通过；2026-10-22 human 授权，2026-10-23 实现完成）。采用已有 Reply 身份与块位置，不新增全局执行 id。
 
 来源：[Gateway G2](../../reviews/design-review-2026-10-22/gateway-web.md)、[执行 R4](../../reviews/design-review-2026-10-22/execution.md)。

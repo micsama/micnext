@@ -4,17 +4,20 @@
 
 ## 启动
 
-需要 Rust 和 Bun，在仓库根目录运行：
+需要 Rust、Bun 和 Python 3，在仓库根目录运行：
 
 ```sh
 ./build.sh                         # 构建前端与 release 二进制
 ./target/release/micnext            # 常驻，终端打印带 token 的 Web 地址
 ./target/release/micnext -p '你好'   # 一次性调试
+./build.sh run --config /path/config.toml # 构建、转换指定库并启动
 ```
 
 首次启动自动生成 `~/.config/micnext/config.toml`（支持 `XDG_CONFIG_HOME`）；也可用
 `--config <路径>` 指定已有配置。默认监听 `127.0.0.1:7878`。
 在 Web「设置 → 服务商与模型」添加服务商、凭据和模型后开始对话。
+
+Rust 程序只接受当前数据库结构，不含历史迁移或兼容代码。`build.sh` 检查库版本并调用 `scripts/db/convert.py` 独立转换；服务运行中只检查，网页更新在旧服务退出后转换，再启动新程序。缺转换脚本或转换失败会明确报错，不自动删除或替换旧库。详见[数据库转换](docs/blueprints/database-conversion.md)。
 
 ## 基础功能与入口
 

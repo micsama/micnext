@@ -31,8 +31,10 @@ CREATE TEMP TABLE job_occurrences (
   call_index INTEGER NOT NULL
 );
 INSERT INTO job_occurrences
-SELECT j.id, r.reply_id, r.call_index FROM core_jobs j
+SELECT DISTINCT j.id, r.reply_id, r.call_index FROM core_jobs j
 JOIN core_messages m ON m.kind = 'ToolResult'
+  AND m.run_id = j.origin_run_id
+  AND json_extract(m.payload, '$.tool_call_id') = j.origin_tool_call_id
   AND json_extract(m.payload, '$.outcome.Dispatched.exec_id') = CAST(j.id AS TEXT)
 JOIN result_occurrences r ON r.message_id = m.id;
 INSERT INTO job_occurrences

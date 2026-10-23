@@ -483,13 +483,13 @@ pub enum ModelCallOutcome {
     },
 }
 
-/// 模块迁移。`module` 不得为 `"core"`（内核保留）；同一模块 `version` 从基线起连续递增，首条即基线。
+/// 模块当前完整结构；`module` 不得为 `"core"`（内核保留），每个模块只声明一次。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Migration {
+pub struct Schema {
     pub module: &'static str,
-    pub version: u32,
+    pub version: &'static str,
     pub sql: &'static str,
-    /// 本次迁移引入的明文凭据列；诊断查询读作 NULL。
+    /// 本模块明文凭据列；诊断查询读作 NULL。
     pub secret_columns: &'static [SecretColumn],
 }
 

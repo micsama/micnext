@@ -1,5 +1,7 @@
 # B2: mic-store（连带 mic-message 修订）
 
+2026-10-23 修订：数据库结构初始化、独立转换脚本和更新重启契约以[数据库转换移出 Rust](../database-conversion.md)为准；本文的应用内历史迁移/自动换库内容不再适用。
+
 2026-10-22 修订：删除无消费者方法及 job 回注关系副本，见 [公开面收缩](unused-public-surface.md)。
 
 **现行扩展（2026-10-12）**：边界、指令认领、absorb 返回值与 schema core v6按已批准的 [context-compaction](context-compaction.md) 联合契约实施。

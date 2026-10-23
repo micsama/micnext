@@ -6,7 +6,7 @@ use rusqlite::{Connection, Transaction};
 use crate::diagnostic::Diagnostic;
 use crate::endpoints;
 use crate::secrets::Cipher;
-use crate::{Migration, SecretColumn, SecretKeyFile, SettingsError, StoreError};
+use crate::{Schema, SecretColumn, SecretKeyFile, SettingsError, StoreError};
 
 #[derive(Clone)]
 pub struct Store {
@@ -19,7 +19,7 @@ pub struct Store {
 impl Store {
     pub async fn open(
         path: &Path,
-        modules: &[Migration],
+        modules: &[Schema],
         key: SecretKeyFile,
     ) -> Result<Self, StoreError> {
         let path = path.to_owned();
@@ -34,7 +34,7 @@ impl Store {
     }
 
     /// 主密钥为随机内存密钥，不写磁盘。
-    pub async fn open_in_memory(modules: &[Migration]) -> Result<Self, StoreError> {
+    pub async fn open_in_memory(modules: &[Schema]) -> Result<Self, StoreError> {
         Self::init(
             Connection::open_in_memory,
             |_| Ok(None),
@@ -47,7 +47,7 @@ impl Store {
     async fn init<F, D, K>(
         connect: F,
         diagnostic: D,
-        modules: &[Migration],
+        modules: &[Schema],
         key: K,
     ) -> Result<Self, StoreError>
     where

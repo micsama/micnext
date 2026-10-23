@@ -1,551 +1,52 @@
-use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::{Migration, SecretColumn, StoreError};
+use crate::{Schema, SecretColumn, StoreError};
 
-const CORE: &str = "core";
+const CORE: Schema = Schema {
+    module: "core",
+    version: include_str!("schema/version"),
+    sql: include_str!("schema/core.sql"),
+    secret_columns: &[],
+};
 
-const CORE_MIGRATIONS: &[Migration] = &[
-    Migration {
-        module: CORE,
-        version: 10,
-        sql: CORE_BASELINE,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 11,
-        sql: "ALTER TABLE core_models ADD COLUMN images INTEGER NOT NULL DEFAULT 1 CHECK(images IN (0, 1));",
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 12,
-        sql: CORE_JOBS,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 13,
-        sql: CORE_RETENTION,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 14,
-        sql: CORE_TIMELINE,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 15,
-        sql: CORE_JOB_NOTICE,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 16,
-        sql: CORE_PUSHES,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 17,
-        sql: CORE_PUSH_INBOX,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 18,
-        sql: CORE_SCHEDULES,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 19,
-        sql: CORE_SCHEDULE_NEXT,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 20,
-        sql: CORE_DELIVERY_FAILURE,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 21,
-        sql: CORE_COMPACTION_PATHS,
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 22,
-        sql: "ALTER TABLE core_jobs DROP COLUMN report_message_id;",
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 23,
-        sql: include_str!("schema/tool_call_identity.sql"),
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 24,
-        sql: "ALTER TABLE core_settings ADD COLUMN redact_rules INTEGER NOT NULL DEFAULT 1 CHECK(redact_rules IN (0, 1));",
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 25,
-        sql: "ALTER TABLE core_settings DROP COLUMN redact_rules;
-              ALTER TABLE core_sessions ADD COLUMN plain_after INTEGER;",
-        secret_columns: &[],
-    },
-    Migration {
-        module: CORE,
-        version: 26,
-        sql: "ALTER TABLE core_sessions ADD COLUMN pinned_at INTEGER;
-              ALTER TABLE core_sessions ADD COLUMN seen_message_id INTEGER;
-              UPDATE core_sessions SET seen_message_id =
-                (SELECT MAX(id) FROM core_messages m WHERE m.session_id = core_sessions.id);",
-        secret_columns: &[],
-    },
-];
-
-/// 压缩保留必读路径，不再冻结文件正文。
-const CORE_COMPACTION_PATHS: &str = "
-CREATE TEMP TABLE compaction_files (
-  message_id INTEGER PRIMARY KEY,
-  files TEXT NOT NULL CHECK(json_type(files) = 'array')
-);
-INSERT INTO compaction_files
-SELECT id, json_extract(payload, '$.boundary.Compaction.files') FROM core_messages
-WHERE kind = 'Boundary' AND json_type(payload, '$.boundary.Compaction') = 'object';
-CREATE TEMP TABLE compaction_paths (message_id INTEGER, position INTEGER, path TEXT NOT NULL);
-INSERT INTO compaction_paths
-SELECT c.message_id, f.key,
-       CASE WHEN f.type = 'object' AND json_type(f.value, '$.path') = 'text'
-            THEN json_extract(f.value, '$.path') END
-FROM compaction_files c, json_each(c.files) f;
-UPDATE core_messages SET payload = json_set(payload, '$.boundary.Compaction.files',
-  json((SELECT json_group_array(path) FROM
-       (SELECT path FROM compaction_paths WHERE message_id = core_messages.id ORDER BY position))))
-WHERE id IN (SELECT message_id FROM compaction_files);
-DROP TABLE compaction_paths;
-DROP TABLE compaction_files;
-";
-
-/// Channel 放弃投递也是终态：与 `delivered_at` 互斥，不再列为待投递。
-const CORE_DELIVERY_FAILURE: &str = "
-ALTER TABLE core_messages ADD COLUMN delivery_failure TEXT
-  CHECK(delivery_failure IS NULL OR delivered_at IS NULL);
-DROP INDEX idx_messages_undelivered;
-CREATE INDEX idx_messages_undelivered ON core_messages(session_id)
-  WHERE delivered_at IS NULL AND delivery_failure IS NULL AND kind IN ('Reply', 'Notification');
-";
-
-/// 调度以 `next_run_at` 为唯一真相，空即停用。旧任务是验收期数据，直接清空重建（任务会话保留）。
-const CORE_SCHEDULE_NEXT: &str = "
-DROP TABLE core_schedule_fires;
-DROP TABLE core_schedules;
-CREATE TABLE core_schedules (
-  id             INTEGER PRIMARY KEY,
-  person_id      INTEGER NOT NULL REFERENCES core_persons(id),
-  name           TEXT NOT NULL,
-  rule           TEXT NOT NULL,
-  prompt         TEXT NOT NULL,
-  next_run_at    INTEGER,
-  paused_reason  TEXT CHECK(paused_reason IS NULL OR next_run_at IS NULL),
-  enabled_at     INTEGER NOT NULL,
-  session_id     INTEGER NOT NULL UNIQUE REFERENCES core_sessions(id),
-  created_at     INTEGER NOT NULL,
-  updated_at     INTEGER NOT NULL
-);
-CREATE TABLE core_schedule_fires (
-  id            INTEGER PRIMARY KEY,
-  schedule_id   INTEGER NOT NULL REFERENCES core_schedules(id) ON DELETE CASCADE,
-  due_at        INTEGER NOT NULL,
-  message_id    INTEGER REFERENCES core_messages(id),
-  skipped       TEXT CHECK(skipped IN ('missed', 'busy')),
-  missed_count  INTEGER,
-  CHECK((message_id IS NULL) <> (skipped IS NULL)),
-  CHECK((skipped = 'missed') = (missed_count IS NOT NULL))
-);
-CREATE INDEX idx_schedule_fires ON core_schedule_fires(schedule_id, id);
-";
-
-/// 定时任务与每次到点的触发；`Trigger` 是 run 输入。结局由触发消息所在 run 推导，不另存。
-const CORE_SCHEDULES: &str = "
-DROP INDEX idx_messages_unclaimed;
-CREATE INDEX idx_messages_unclaimed ON core_messages(session_id, id)
-  WHERE run_id IS NULL AND kind IN ('UserInput', 'Completion', 'Command', 'JobNotice', 'Trigger');
-CREATE TABLE core_schedules (
-  id             INTEGER PRIMARY KEY,
-  person_id      INTEGER NOT NULL REFERENCES core_persons(id),
-  name           TEXT NOT NULL,
-  rule           TEXT NOT NULL,
-  prompt         TEXT NOT NULL,
-  enabled        INTEGER NOT NULL,
-  paused_reason  TEXT,
-  active_since   INTEGER NOT NULL,
-  session_id     INTEGER NOT NULL UNIQUE REFERENCES core_sessions(id),
-  created_at     INTEGER NOT NULL,
-  updated_at     INTEGER NOT NULL
-);
-CREATE TABLE core_schedule_fires (
-  id            INTEGER PRIMARY KEY,
-  schedule_id   INTEGER NOT NULL REFERENCES core_schedules(id) ON DELETE CASCADE,
-  due_at        INTEGER NOT NULL,
-  message_id    INTEGER REFERENCES core_messages(id),
-  skipped       TEXT CHECK(skipped IN ('missed', 'busy')),
-  missed_count  INTEGER,
-  CHECK((message_id IS NULL) <> (skipped IS NULL)),
-  CHECK((skipped = 'missed') = (missed_count IS NOT NULL))
-);
-CREATE INDEX idx_schedule_fires ON core_schedule_fires(schedule_id, id);
-";
-
-/// Web 通知中心收下全部推送，不再是可选去向：删去 `web` 投递行与默认去向里的 `web`，投递行必有消息或失败原因。
-const CORE_PUSH_INBOX: &str = "
-CREATE TABLE core_push_deliveries_new (
-  push_id     INTEGER NOT NULL REFERENCES core_pushes(id),
-  channel     TEXT NOT NULL,
-  message_id  INTEGER REFERENCES core_messages(id),
-  failure     TEXT,
-  PRIMARY KEY (push_id, channel),
-  CHECK((message_id IS NULL) <> (failure IS NULL))
-);
-INSERT INTO core_push_deliveries_new
-  SELECT push_id, channel, message_id, failure FROM core_push_deliveries WHERE channel <> 'web';
-DROP TABLE core_push_deliveries;
-ALTER TABLE core_push_deliveries_new RENAME TO core_push_deliveries;
-UPDATE core_settings SET push_channels =
-  (SELECT json_group_array(value) FROM json_each(push_channels) WHERE value <> 'web');
-";
-
-/// 推送与各 Channel 投递；默认推送 Channel 为 JSON 数组，空 = 按连接情况取默认。
-const CORE_PUSHES: &str = "
-ALTER TABLE core_settings ADD COLUMN push_channels TEXT NOT NULL DEFAULT '[]';
-CREATE TABLE core_pushes (
-  id                 INTEGER PRIMARY KEY,
-  person_id          INTEGER NOT NULL REFERENCES core_persons(id),
-  source_session_id  INTEGER NOT NULL REFERENCES core_sessions(id),
-  source_run_id      INTEGER REFERENCES core_runs(id),
-  text               TEXT NOT NULL,
-  created_at         INTEGER NOT NULL,
-  read_at            INTEGER
-);
-CREATE INDEX idx_pushes_person ON core_pushes(person_id, id);
-CREATE INDEX idx_pushes_run ON core_pushes(source_run_id) WHERE source_run_id IS NOT NULL;
-CREATE TABLE core_push_deliveries (
-  push_id     INTEGER NOT NULL REFERENCES core_pushes(id),
-  channel     TEXT NOT NULL,
-  message_id  INTEGER REFERENCES core_messages(id),
-  failure     TEXT,
-  PRIMARY KEY (push_id, channel),
-  CHECK(message_id IS NULL OR failure IS NULL)
-);
-";
-
-/// 后台任务中途通知 `JobNotice` 也是 run 输入。
-const CORE_JOB_NOTICE: &str = "
-DROP INDEX idx_messages_unclaimed;
-CREATE INDEX idx_messages_unclaimed ON core_messages(session_id, id)
-  WHERE run_id IS NULL AND kind IN ('UserInput', 'Completion', 'Command', 'JobNotice');
-";
-
-const CORE_TIMELINE: &str = "
-CREATE TABLE core_model_call_inputs_v14 (
-  call_id INTEGER NOT NULL REFERENCES core_model_calls(id),
-  message_id INTEGER NOT NULL REFERENCES core_messages(id),
-  role TEXT NOT NULL CHECK(role IN ('excluded', 'instruction', 'elide')),
-  PRIMARY KEY (call_id, message_id, role)
-);
-INSERT INTO core_model_call_inputs_v14 SELECT call_id, message_id, role FROM core_model_call_inputs WHERE role <> 'tail';
-DROP TABLE core_model_call_inputs;
-ALTER TABLE core_model_call_inputs_v14 RENAME TO core_model_call_inputs;
-";
-
-/// 压缩保留按窗口比例；调用记录补压缩指令的重建事实。
-const CORE_RETENTION: &str = "
-ALTER TABLE core_settings DROP COLUMN compaction_keep_steps;
-ALTER TABLE core_settings ADD COLUMN compaction_keep_percent INTEGER NOT NULL DEFAULT 15
-  CHECK(compaction_keep_percent BETWEEN 0 AND 50);
-ALTER TABLE core_model_calls ADD COLUMN context_keep_from INTEGER REFERENCES core_messages(id);
-CREATE TABLE core_model_call_inputs_v13 (
-  call_id     INTEGER NOT NULL REFERENCES core_model_calls(id),
-  message_id  INTEGER NOT NULL REFERENCES core_messages(id),
-  role        TEXT NOT NULL CHECK(role IN ('excluded', 'tail', 'instruction', 'elide')),
-  PRIMARY KEY (call_id, message_id, role)
-);
-INSERT INTO core_model_call_inputs_v13 SELECT call_id, message_id, role FROM core_model_call_inputs;
-DROP TABLE core_model_call_inputs;
-ALTER TABLE core_model_call_inputs_v13 RENAME TO core_model_call_inputs;
-";
-
-/// 后台任务；输出在数据目录 `jobs/<id>/`，不进库。
-const CORE_JOBS: &str = "
-CREATE TABLE core_jobs (
-  id                  INTEGER PRIMARY KEY,
-  kind                TEXT NOT NULL CHECK(kind IN ('tool', 'agent')),
-  owner_session_id    INTEGER NOT NULL REFERENCES core_sessions(id),
-  person_id           INTEGER NOT NULL REFERENCES core_persons(id),
-  origin_run_id       INTEGER NOT NULL REFERENCES core_runs(id),
-  origin_tool_call_id TEXT NOT NULL,
-  tool_name           TEXT NOT NULL,
-  description         TEXT NOT NULL,
-  created_at          INTEGER NOT NULL,
-  timeout_ms          INTEGER,
-  state               TEXT CHECK(state IN
-                        ('running', 'completed', 'failed', 'timed_out', 'cancelled', 'interrupted')),
-  finished_at         INTEGER,
-  report_message_id   INTEGER REFERENCES core_messages(id),
-  child_session_id    INTEGER UNIQUE REFERENCES core_sessions(id),
-  UNIQUE(origin_run_id, origin_tool_call_id),
-  CHECK((kind = 'tool') = (state IS NOT NULL)),
-  CHECK((kind = 'agent') = (child_session_id IS NOT NULL))
-);
-CREATE INDEX idx_jobs_owner ON core_jobs(owner_session_id);
-CREATE INDEX idx_jobs_running ON core_jobs(id) WHERE state = 'running';
-ALTER TABLE core_runs ADD COLUMN report_message_id INTEGER REFERENCES core_messages(id);
-";
-
-/// 当前形态的完整 schema；更早的迁移链已删除。
-const CORE_BASELINE: &str = "
-CREATE TABLE core_persons (
-  id          INTEGER PRIMARY KEY,
-  name        TEXT NOT NULL UNIQUE,
-  created_at  INTEGER NOT NULL
-);
-
-CREATE TABLE core_person_identities (
-  channel       TEXT NOT NULL,
-  external_id   TEXT NOT NULL,
-  person_id     INTEGER NOT NULL REFERENCES core_persons(id),
-  display_name  TEXT NOT NULL,
-  created_at    INTEGER NOT NULL,
-  PRIMARY KEY (channel, external_id)
-);
-
-CREATE TABLE core_personas (
-  id          INTEGER PRIMARY KEY,
-  name        TEXT NOT NULL,
-  prompt      TEXT NOT NULL,
-  builtin     INTEGER NOT NULL,
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL,
-  deleted_at  INTEGER
-);
-CREATE UNIQUE INDEX idx_personas_name ON core_personas(name) WHERE deleted_at IS NULL;
--- NOTE: 内置人设内容由启动同步写入（personas.rs），此处只占位 id 1 以满足 core_settings 外键。
-INSERT INTO core_personas (id, name, prompt, builtin, created_at, updated_at) VALUES (1, '默认', '', 1, 0, 0);
-
-CREATE TABLE core_endpoints (
-  id          INTEGER PRIMARY KEY,
-  name        TEXT NOT NULL,
-  kind        TEXT NOT NULL,
-  config_json TEXT NOT NULL,
-  key_cipher  BLOB,
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL,
-  deleted_at  INTEGER
-);
-CREATE UNIQUE INDEX idx_endpoints_name ON core_endpoints(name) WHERE deleted_at IS NULL;
-
-CREATE TABLE core_models (
-  id                 INTEGER PRIMARY KEY,
-  endpoint_id        INTEGER NOT NULL REFERENCES core_endpoints(id),
-  name               TEXT NOT NULL,
-  config_json        TEXT NOT NULL,
-  context_window     INTEGER CHECK(context_window > 0),
-  price_input        REAL CHECK(price_input >= 0),
-  price_cache_read   REAL CHECK(price_cache_read >= 0),
-  price_cache_write  REAL CHECK(price_cache_write >= 0),
-  price_output       REAL CHECK(price_output >= 0),
-  created_at         INTEGER NOT NULL,
-  updated_at         INTEGER NOT NULL,
-  deleted_at         INTEGER
-);
-CREATE UNIQUE INDEX idx_models_name ON core_models(endpoint_id, name) WHERE deleted_at IS NULL;
-
-CREATE TABLE core_settings (
-  id                          INTEGER PRIMARY KEY CHECK (id = 1),
-  default_persona_id          INTEGER NOT NULL REFERENCES core_personas(id),
-  general_prompt              TEXT NOT NULL,
-  default_workdir             TEXT NOT NULL,
-  max_turns                   INTEGER NOT NULL CHECK (max_turns >= 1),
-  default_model_id            INTEGER REFERENCES core_models(id),
-  compaction_trigger_percent  INTEGER NOT NULL DEFAULT 80 CHECK(compaction_trigger_percent BETWEEN 1 AND 80),
-  compaction_keep_steps       INTEGER NOT NULL DEFAULT 15 CHECK(compaction_keep_steps BETWEEN 0 AND 100),
-  title_model_id              INTEGER REFERENCES core_models(id),
-  title_reasoning_effort      TEXT
-    CHECK(title_reasoning_effort IS NULL OR (title_model_id IS NOT NULL AND title_reasoning_effort IN ('none','minimal','low','medium','high','xhigh','max')))
-);
-INSERT INTO core_settings (id, default_persona_id, general_prompt, default_workdir, max_turns)
-  VALUES (1, 1, '', '~/workspace/mic', 50);
-
-CREATE TABLE core_sessions (
-  id                  INTEGER PRIMARY KEY,
-  kind                TEXT NOT NULL,
-  channel             TEXT,
-  chat                TEXT,
-  parent_tool_call_id TEXT,
-  trigger_module      TEXT,
-  trigger_ref         TEXT,
-  parent_session_id   INTEGER REFERENCES core_sessions(id),
-  delivery_channel    TEXT,
-  delivery_payload    TEXT,
-  pwd                 TEXT NOT NULL,
-  tool_scope          TEXT NOT NULL,
-  created_at          INTEGER NOT NULL,
-  persona_id          INTEGER NOT NULL REFERENCES core_personas(id),
-  model_id            INTEGER REFERENCES core_models(id),
-  reasoning_effort    TEXT
-    CHECK(reasoning_effort IS NULL OR (model_id IS NOT NULL AND reasoning_effort IN ('none','minimal','low','medium','high','xhigh','max'))),
-  archived_at         INTEGER,
-  title               TEXT,
-  title_error         TEXT
-);
-CREATE UNIQUE INDEX idx_root_chat ON core_sessions(channel, chat) WHERE kind = 'root';
-CREATE INDEX idx_sessions_delivery ON core_sessions(delivery_channel)
-  WHERE delivery_channel IS NOT NULL;
-
-CREATE TABLE core_runs (
-  id           INTEGER PRIMARY KEY,
-  session_id   INTEGER NOT NULL REFERENCES core_sessions(id),
-  state        TEXT NOT NULL,
-  created_at   INTEGER NOT NULL,
-  finished_at  INTEGER
-);
-CREATE INDEX idx_runs_executing ON core_runs(session_id) WHERE state = 'executing';
-
-CREATE TABLE core_model_calls (
-  id                  INTEGER PRIMARY KEY,
-  session_id          INTEGER NOT NULL REFERENCES core_sessions(id),
-  run_id              INTEGER REFERENCES core_runs(id),
-  purpose             TEXT NOT NULL,
-  model               TEXT NOT NULL,
-  model_id            INTEGER REFERENCES core_models(id),
-  reasoning_effort    TEXT,
-  error               TEXT,
-  stop                TEXT,
-  input_tokens        INTEGER,
-  output_tokens       INTEGER,
-  cache_read_tokens   INTEGER,
-  cache_write_tokens  INTEGER,
-  reasoning_tokens    INTEGER,
-  started_at          INTEGER NOT NULL,
-  first_output_at     INTEGER,
-  finished_at         INTEGER NOT NULL,
-  context_boundary_id INTEGER REFERENCES core_messages(id),
-  context_through_id  INTEGER REFERENCES core_messages(id),
-  context_skip        INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX idx_model_calls_run ON core_model_calls(run_id);
-CREATE INDEX idx_model_calls_session ON core_model_calls(session_id);
-
-CREATE TABLE core_messages (
-  id                    INTEGER PRIMARY KEY,
-  session_id            INTEGER NOT NULL REFERENCES core_sessions(id),
-  run_id                INTEGER REFERENCES core_runs(id),
-  model_call_id         INTEGER REFERENCES core_model_calls(id),
-  payload               TEXT NOT NULL,
-  created_at            INTEGER NOT NULL,
-  delivered_at          INTEGER,
-  compaction_revoked_at INTEGER,
-  kind                  TEXT NOT NULL GENERATED ALWAYS AS (json_extract(payload, '$.kind')) VIRTUAL,
-  person_id             INTEGER GENERATED ALWAYS AS (json_extract(payload, '$.person')) VIRTUAL
-                        REFERENCES core_persons(id)
-);
-CREATE INDEX idx_messages_session ON core_messages(session_id, id);
-CREATE INDEX idx_messages_run ON core_messages(run_id);
-CREATE INDEX idx_messages_unclaimed ON core_messages(session_id, id)
-  WHERE run_id IS NULL AND kind IN ('UserInput', 'Completion', 'Command');
-CREATE INDEX idx_messages_undelivered ON core_messages(session_id)
-  WHERE delivered_at IS NULL AND kind IN ('Reply', 'Notification');
-
-CREATE TABLE core_model_call_inputs (
-  call_id     INTEGER NOT NULL REFERENCES core_model_calls(id),
-  message_id  INTEGER NOT NULL REFERENCES core_messages(id),
-  role        TEXT NOT NULL CHECK(role IN ('excluded', 'tail', 'instruction')),
-  PRIMARY KEY (call_id, message_id, role)
-);
-
-CREATE TABLE core_boundary_inputs (
-  boundary_id INTEGER NOT NULL REFERENCES core_messages(id),
-  message_id INTEGER NOT NULL REFERENCES core_messages(id),
-  PRIMARY KEY(boundary_id, message_id)
-);
-
-CREATE TABLE core_input_holds (
-  message_id INTEGER PRIMARY KEY REFERENCES core_messages(id),
-  held_at    INTEGER NOT NULL
-);
-
-CREATE TABLE core_images (
-  id         INTEGER PRIMARY KEY,
-  session_id INTEGER NOT NULL REFERENCES core_sessions(id),
-  format     TEXT NOT NULL,
-  size_bytes INTEGER NOT NULL,
-  bytes      BLOB NOT NULL
-);
-CREATE INDEX core_images_session ON core_images(session_id);
-";
-
-/// 设置连接级 pragma，先应用内核迁移，再按传入顺序应用各模块迁移。
-/// 版本检查先于任何写入：模块没有版本记录即直接建基线；库版本低于基线（旧格式）或超前即整体拒绝打开。
-pub(crate) fn init(conn: &mut Connection, modules: &[Migration]) -> Result<(), StoreError> {
-    // NOTE: journal_mode/foreign_keys 在事务内无效，只能在迁移事务外设置。
+/// 只创建当前结构；已有模块必须与当前版本完全一致。
+pub(crate) fn init(conn: &mut Connection, modules: &[Schema]) -> Result<(), StoreError> {
     conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
-    conn.execute_batch(
+    let tx = conn.transaction()?;
+    tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
-           module   TEXT PRIMARY KEY,
-           version  INTEGER NOT NULL
+           module TEXT PRIMARY KEY,
+           version INTEGER NOT NULL
          );",
     )?;
-
-    let plan = group(CORE_MIGRATIONS.iter().chain(modules));
-    let mut pending: Vec<&Migration> = Vec::new();
-    for (module, migrations) in plan {
-        let baseline = migrations.first().map_or(0, |m| m.version);
-        let known = migrations.last().map_or(0, |m| m.version);
-        let db = applied_version(conn, module)?;
-        match db {
-            Some(version) if version < baseline => {
-                return Err(StoreError::SchemaRebuild {
-                    module: module.to_owned(),
-                    version,
-                    baseline,
-                })
-            }
-            Some(db) if db > known => {
-                return Err(StoreError::SchemaAhead {
-                    module: module.to_owned(),
+    for schema in std::iter::once(&CORE).chain(modules) {
+        let expected = schema
+            .version
+            .trim()
+            .parse::<u32>()
+            .expect("schema 版本为整数");
+        match applied_version(&tx, schema.module)? {
+            Some(db) if db != expected => {
+                return Err(StoreError::SchemaMismatch {
+                    module: schema.module.to_owned(),
                     db,
-                    known,
-                })
+                    expected,
+                });
             }
-            _ => {}
+            Some(_) => {}
+            None => {
+                tx.execute_batch(schema.sql)?;
+                tx.execute(
+                    "INSERT INTO schema_migrations (module, version) VALUES (?1, ?2)",
+                    params![schema.module, expected],
+                )?;
+            }
         }
-        let db = db.unwrap_or(0);
-        pending.extend(migrations.into_iter().filter(|m| m.version > db));
     }
-
-    for m in pending {
-        let tx = conn.transaction()?;
-        tx.execute_batch(m.sql)?;
-        tx.execute(
-            "INSERT INTO schema_migrations (module, version) VALUES (?1, ?2)
-             ON CONFLICT(module) DO UPDATE SET version = excluded.version",
-            params![m.module, m.version],
-        )?;
-        tx.commit()?;
-    }
+    tx.commit()?;
     crate::personas::sync(conn, now_ms())?;
     Ok(())
 }
@@ -557,37 +58,10 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-/// 内核与各模块迁移声明的全部凭据列。
-pub(crate) fn secret_columns(modules: &[Migration]) -> Vec<SecretColumn> {
-    CORE_MIGRATIONS
+pub(crate) fn secret_columns(modules: &[Schema]) -> Vec<SecretColumn> {
+    modules
         .iter()
-        .chain(modules)
-        .flat_map(|m| m.secret_columns.iter().copied())
-        .collect()
-}
-
-/// 按模块首次出现的顺序分组，组内按版本升序。
-fn group<'a>(
-    migrations: impl Iterator<Item = &'a Migration>,
-) -> Vec<(&'a str, Vec<&'a Migration>)> {
-    let mut order: Vec<&str> = Vec::new();
-    let mut by_module: BTreeMap<&str, Vec<&Migration>> = BTreeMap::new();
-    for m in migrations {
-        by_module
-            .entry(m.module)
-            .or_insert_with(|| {
-                order.push(m.module);
-                Vec::new()
-            })
-            .push(m);
-    }
-    order
-        .into_iter()
-        .map(|module| {
-            let mut ms = by_module.remove(module).unwrap_or_default();
-            ms.sort_by_key(|m| m.version);
-            (module, ms)
-        })
+        .flat_map(|schema| schema.secret_columns.iter().copied())
         .collect()
 }
 

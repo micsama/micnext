@@ -151,12 +151,23 @@ async fn run() -> Result<ExitCode> {
             if !stopper.is_finished() {
                 return Ok(ExitCode::SUCCESS);
             }
-            let Some(RestartRequest { executable }) = stopper.await.context("停止任务异常")?
+            let Some(RestartRequest {
+                executable,
+                arguments,
+            }) = stopper.await.context("停止任务异常")?
             else {
                 return Ok(ExitCode::SUCCESS);
             };
             eprintln!("正在重启：{}", executable.display());
             let error = std::process::Command::new(&executable)
+                .env(
+                    "MICNEXT_RUN_CWD",
+                    std::env::current_dir().context("无法读取重启工作目录")?,
+                )
+                .args(arguments)
+                .arg("--db")
+                .arg(dir.join("micnext.db"))
+                .arg("--")
                 .args(std::env::args_os().skip(1))
                 .exec();
             Err(error).with_context(|| format!("无法启动新程序 {}", executable.display()))

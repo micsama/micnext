@@ -1,5 +1,7 @@
 # B2: mic-core 模块装配（Module / Registry / Service / Kernel 句柄）
 
+2026-10-23 修订：数据库结构初始化、独立转换脚本和更新重启契约以[数据库转换移出 Rust](../database-conversion.md)为准；本文的应用内历史迁移/自动换库内容不再适用。
+
 2026-10-22 修订：传入 Assembly 的模块一律安装，删除 Activation；见 [公开面收缩](unused-public-surface.md)。
 
 **状态**: 已实现部分 CLOSED（2026-09-23，`crates/mic-core`、`bin/micnext`）；`[models]` 分组与 `provider` 登记（随 provider-port）、`tool` 登记与 `DuplicateTool`（随 [mic-tool](mic-tool.md) §三.5）、`Module::activation` 与 `Activation`（随 [tools-basic](tools-basic.md) §三.1）修订已批准并实现；占定方法见 §三。执行主路径（M6）对本文 §三、§四、§六、§七 的修订（`run_once`、`Kernel::owner/append_user_input/subscribe`、`[core] owner`（`max_turns` 已移到网页设置，见 [runtime-settings](runtime-settings.md)）、`[models] default` 必填、新错误变体、`-p`）见 [run-execution](run-execution.md)，以该文为准。微信设置采用保存后重启生效，凭据写入和重启按钮仍待 Channel/Gateway B2

@@ -3,7 +3,7 @@
 
 use std::fmt::Write as _;
 use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Write as _};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -225,26 +225,16 @@ struct SqliteLog {
 }
 
 impl SqliteLog {
-    /// 版本不符时删库重建：日志可丢。
+    /// 只打开当前结构，版本不符交由外部处理。
     fn open(path: &Path) -> Result<Self, Failure> {
-        let mut conn = Connection::open(path)?;
+        let conn = Connection::open(path)?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
         if version != 0 && version != SCHEMA_VERSION {
-            drop(conn);
-            for suffix in ["", "-wal", "-shm"] {
-                let mut file = path.as_os_str().to_owned();
-                file.push(suffix);
-                match fs::remove_file(&file) {
-                    Err(e) if e.kind() != ErrorKind::NotFound => return Err(e.into()),
-                    _ => {}
-                }
-            }
-            tracing::warn!(
-                found = version,
-                expected = SCHEMA_VERSION,
-                "developer log database version mismatch, recreated"
-            );
-            conn = Connection::open(path)?;
+            return Err(format!(
+                "日志库结构 v{version} 与当前 v{SCHEMA_VERSION} 不一致，请手动处理 {}",
+                path.display()
+            )
+            .into());
         }
         // NOTE: auto_vacuum 只在建表前设置才生效。
         conn.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;

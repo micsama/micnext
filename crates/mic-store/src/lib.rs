@@ -1,4 +1,4 @@
-//! 内核事实持久化与模块迁移事务入口。
+//! 内核事实持久化与模块事务入口。
 //! 契约：docs/blueprints/mic-store.md；表目录：schema.rs 的 TABLE_CATALOG。
 
 mod backup;
@@ -50,10 +50,10 @@ pub use trace::{
 pub use types::{
     ClaimedModel, ClaimedRun, CompactionSettings, CompactionState, CompactionView, ContextUsage,
     ContextView, ContextWindow, CredentialWrite, DeliveryTarget, EndpointId, EndpointView,
-    EndpointWrite, Identity, InputDisposition, InterruptedRun, MessagePage, Migration,
-    ModelCallContext, ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelPrice,
-    ModelView, ModelWrite, NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery,
-    Person, Persona, PersonaId, ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState,
-    SecretColumn, SelectedModel, Session, SessionCursor, SessionKind, SessionPage, SessionSummary,
-    Settings, StopReason, TitleCall, TitleModelSelection, ToolScope, Usage,
+    EndpointWrite, Identity, InputDisposition, InterruptedRun, MessagePage, ModelCallContext,
+    ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelPrice, ModelView, ModelWrite,
+    NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId,
+    ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState, Schema, SecretColumn,
+    SelectedModel, Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings,
+    StopReason, TitleCall, TitleModelSelection, ToolScope, Usage,
 };

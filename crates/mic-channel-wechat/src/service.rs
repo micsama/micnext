@@ -40,7 +40,7 @@ impl Module for WechatModule {
         config.parse::<Config>()?;
         let (commands, rx) = mpsc::channel(COMMAND_CAPACITY);
         let (view, snapshot) = watch::channel(None);
-        reg.migrations(crate::schema::MIGRATIONS);
+        reg.schemas(crate::schema::SCHEMAS);
         reg.channel_setup(Setup { commands, snapshot });
         reg.channel_prompt(
             "wechat",

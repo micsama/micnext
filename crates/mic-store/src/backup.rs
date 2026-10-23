@@ -69,7 +69,6 @@ pub struct ExportPreferences {
     #[serde(deserialize_with = "Deserialize::deserialize")]
     pub title_reasoning_effort: Option<ReasoningEffort>,
     /// 空 = 未设。
-    #[serde(default)]
     pub push_channels: Vec<String>,
 }
 

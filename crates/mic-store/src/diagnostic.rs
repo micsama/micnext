@@ -73,7 +73,7 @@ pub(crate) struct Diagnostic {
 }
 
 impl Diagnostic {
-    /// 须在业务连接完成迁移后打开。
+    /// 须在业务连接完成初始化后打开。
     pub(crate) fn open(path: &Path, secrets: Vec<SecretColumn>) -> rusqlite::Result<Self> {
         let conn = Connection::open_with_flags(
             path,

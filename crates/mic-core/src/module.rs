@@ -1,4 +1,4 @@
-use mic_store::Migration;
+use mic_store::Schema;
 use mic_tool::{Tool, ToolHandle};
 use std::future::Future;
 use std::pin::Pin;
@@ -10,7 +10,7 @@ use crate::{ChannelSetup, Kernel, ProviderFactory};
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 pub trait Module {
-    /// 配置段名、迁移 module 名、表前缀共用此名。
+    /// 配置段名、schema module 名、表前缀共用此名。
     fn name(&self) -> &'static str;
     /// 第一阶段：同步、纯声明。解析自己的配置段并登记贡献；不做 I/O，拿不到 Store。
     fn install(&self, reg: &mut Registry, cfg: ModuleConfig) -> Result<(), BoxError>;
@@ -27,7 +27,7 @@ impl ModuleConfig {
 }
 
 pub trait Service: Send + 'static {
-    /// 第二阶段：Store 已打开、迁移已跑完。`stop` 触发后应尽快返回 `Ok(())`。
+    /// 第二阶段：Store 已打开、结构已初始化。`stop` 触发后应尽快返回 `Ok(())`。
     /// 返回 `Err`、panic、或在未收到 `stop` 时返回 → 进程以错误退出。
     fn run(
         self: Box<Self>,
@@ -39,7 +39,7 @@ pub trait Service: Send + 'static {
 pub struct Registry {
     /// 正在 install 的模块，贡献归属于它。
     pub(crate) current: &'static str,
-    pub(crate) migrations: Vec<Migration>,
+    pub(crate) schemas: Vec<Schema>,
     pub(crate) services: Vec<(&'static str, Box<dyn Service>)>,
     pub(crate) providers: Vec<Box<dyn ProviderFactory>>,
     pub(crate) tools: Vec<(&'static str, ToolHandle)>,
@@ -57,8 +57,8 @@ impl Registry {
         self.channel_prompts.push((channel, prompt));
     }
 
-    pub fn migrations(&mut self, m: &'static [Migration]) {
-        self.migrations.extend_from_slice(m);
+    pub fn schemas(&mut self, m: &'static [Schema]) {
+        self.schemas.extend_from_slice(m);
     }
 
     pub fn service(&mut self, s: impl Service) {

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use mic_message::{PersonId, SessionId};
 use mic_store::{
-    InputDisposition, Migration, NewSession, RunState, SecretKeyFile, SessionKind, Store,
-    StoreError, ToolScope, SCHEDULE_MODULE,
+    InputDisposition, NewSession, RunState, Schema, SecretKeyFile, SessionKind, Store, ToolScope,
+    SCHEDULE_MODULE,
 };
 use mic_tool::ToolHandle;
 use serde::Deserialize;
@@ -37,7 +37,7 @@ const ONCE_CHANNEL: &str = "cli";
 /// 装配入口，由二进制调用。
 pub struct Assembly {
     data_dir: PathBuf,
-    migrations: Vec<Migration>,
+    schemas: Vec<Schema>,
     services: Vec<(&'static str, Box<dyn Service>)>,
     owner: String,
     key_file: SecretKeyFile,
@@ -97,9 +97,6 @@ impl Assembly {
             }
         }
 
-        if config.remove("models").is_some() {
-            return Err(AssembleError::RemovedModelsConfig);
-        }
         if let Some(name) = config
             .keys()
             .find(|k| *k != "core" && !names.contains(k.as_str()))
@@ -132,7 +129,7 @@ impl Assembly {
 
         let mut reg = Registry {
             current: "",
-            migrations: Vec::new(),
+            schemas: Vec::new(),
             services: Vec::new(),
             providers: Vec::new(),
             tools: Vec::new(),
@@ -190,7 +187,7 @@ impl Assembly {
 
         Ok(Self {
             data_dir,
-            migrations: reg.migrations,
+            schemas: reg.schemas,
             services: reg.services,
             owner,
             key_file: SecretKeyFile(key_file),
@@ -434,21 +431,8 @@ impl Assembly {
             }
         }
         let db = data_dir.join("micnext.db");
-        let migrations = std::mem::take(&mut self.migrations);
-        let store = match Store::open(&db, &migrations, self.key_file.clone()).await {
-            Err(error @ (StoreError::SchemaRebuild { .. } | StoreError::SchemaAhead { .. })) => {
-                let backup = set_aside(&db).map_err(|source| RunError::DataDir {
-                    path: db.clone(),
-                    source,
-                })?;
-                tracing::warn!(
-                    "{error}；旧库已备份为 {}，已新建空库，可在设置页导入设置",
-                    backup.display()
-                );
-                Store::open(&db, &migrations, self.key_file.clone()).await?
-            }
-            opened => opened?,
-        };
+        let schemas = std::mem::take(&mut self.schemas);
+        let store = Store::open(&db, &schemas, self.key_file.clone()).await?;
         let master_key = std::fs::read(&self.key_file.0).map_err(|source| RunError::KeyFile {
             path: self.key_file.0.clone(),
             source,
@@ -574,25 +558,4 @@ fn home() -> Result<PathBuf, BoxError> {
         .filter(|h| !h.is_empty())
         .map(PathBuf::from)
         .ok_or_else(|| "环境变量 HOME 未设置".into())
-}
-
-/// 把库及其 `-wal`、`-shm` 改名为 `<库名>.bak-<本地时间>`，返回新库名。
-fn set_aside(db: &Path) -> std::io::Result<PathBuf> {
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let backup = db.with_file_name(format!(
-        "{}.bak-{stamp}",
-        db.file_name().expect("库路径带文件名").to_string_lossy()
-    ));
-    std::fs::rename(db, &backup)?;
-    for suffix in ["-wal", "-shm"] {
-        let mut from = db.as_os_str().to_owned();
-        from.push(suffix);
-        let mut to = backup.as_os_str().to_owned();
-        to.push(suffix);
-        match std::fs::rename(&from, &to) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
-            _ => {}
-        }
-    }
-    Ok(backup)
 }

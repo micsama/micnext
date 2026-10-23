@@ -44,9 +44,9 @@ export function attempts(run: TraceRun | null, call: TraceCall): TraceCall[] {
 
 export const steps = (run: TraceRun) => run.calls.filter((c) => attempts(run, c).at(-1)!.id === c.id);
 
-// 执行器在下一次模型请求前收齐工具批次，结果属于其之前最近的回复。
+// 归属直接来自调用发生位置。
 export function owner(run: TraceRun, message: TraceMessage) {
-  return run.calls.filter((c) => c.reply_id !== null && c.reply_id < message.id).sort((a, b) => b.reply_id! - a.reply_id!)[0];
+  return message.tool ? run.calls.find((c) => c.reply_id === message.tool!.call.reply) : undefined;
 }
 
 export function toolsFor(run: TraceRun, call: TraceCall) {

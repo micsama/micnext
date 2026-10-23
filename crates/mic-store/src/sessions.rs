@@ -174,15 +174,14 @@ pub(crate) fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Se
     };
     tx.execute(
         "INSERT INTO core_sessions
-           (kind, channel, chat, parent_tool_call_id, trigger_module, trigger_ref,
+           (kind, channel, chat, trigger_module, trigger_ref,
             parent_session_id, delivery_channel, delivery_payload,
             pwd, tool_scope, created_at, persona_id, model_id, reasoning_effort)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             kind.kind,
             kind.channel,
             kind.chat,
-            kind.parent_tool_call_id,
             kind.trigger_module,
             kind.trigger_ref,
             new.parent_session_id.map(|id| id.0),
@@ -238,11 +237,11 @@ fn summaries(filter: &str) -> String {
 
 fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
     Ok(SessionSummary {
-        title: r.get(19)?,
-        title_error: r.get(20)?,
+        title: r.get(row::SESSION_NEXT + 2)?,
+        title_error: r.get(row::SESSION_NEXT + 3)?,
         session: row::session(r)?,
-        last_activity_at: r.get(17)?,
-        preview: r.get(18)?,
+        last_activity_at: r.get(row::SESSION_NEXT)?,
+        preview: r.get(row::SESSION_NEXT + 1)?,
     })
 }
 

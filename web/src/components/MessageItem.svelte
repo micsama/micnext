@@ -69,7 +69,7 @@
     {:else}撤回压缩{/if}
   </p>
 {:else if body.kind === "Reply"}
-  <ReplyView blocks={body.blocks} {results} {running} {time} model={body.model} stats={body.stats} />
+  <ReplyView replyId={message.id} blocks={body.blocks} {results} {running} {time} model={body.model} stats={body.stats} />
 {:else if body.kind === "ToolResult"}
   <ToolRow name={body.tool_name} result={body.outcome} />
 {:else if body.kind === "Completion"}

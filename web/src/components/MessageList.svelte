@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { Message, MessageBody, ToolResultOutcome } from "../api/types";
+  import type { Message, MessageBody } from "../api/types";
+  import { toolKey, toolResults } from "./tool-results";
   import { untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { formatTime } from "../lib/format";
@@ -11,22 +12,18 @@
 
   let { view }: { view: SessionView } = $props();
 
-  const results = $derived.by(() => {
-    const m = new Map<string, ToolResultOutcome>();
-    for (const { body } of view.messages) if (body.kind === "ToolResult") m.set(body.tool_call_id, body.outcome);
-    return m;
-  });
+  const results = $derived(toolResults(view.messages));
   const callIds = $derived.by(() => {
     const s = new Set<string>();
-    for (const { body } of view.messages)
-      if (body.kind === "Reply") for (const b of body.blocks) if ("ToolCall" in b) s.add(b.ToolCall.id);
+    for (const { id, body } of view.messages)
+      if (body.kind === "Reply") body.blocks.forEach((b, index) => { if ("ToolCall" in b) s.add(toolKey({ reply: id, index })); });
     return s;
   });
   const running = $derived(view.executingRun !== null);
   /** 不渲染任何内容的消息：已并入调用行的工具结果、只有空思考的回复。 */
   const hidden = (body: MessageBody) =>
     body.kind === "HarnessNote" ||
-    (body.kind === "ToolResult" && callIds.has(body.tool_call_id)) ||
+    (body.kind === "ToolResult" && callIds.has(toolKey(body.call))) ||
     (body.kind === "Reply" && body.blocks.every((b) => "Reasoning" in b && "Visible" in b.Reasoning && !b.Reasoning.Visible.text.trim()));
   /** 同属 agent 一侧的连续条目收紧间距。 */
   const AGENT_SIDE = new Set<MessageBody["kind"]>(["Reply", "ToolResult", "Completion", "JobNotice"]);

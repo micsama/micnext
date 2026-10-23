@@ -656,6 +656,62 @@ async fn compaction_can_trim_every_message_and_rebuild_instruction_only() {
 
 struct TimedTool;
 
+#[tokio::test]
+async fn repeated_wire_ids_keep_each_replys_result() {
+    let f = Fixture::new().await;
+    let response = |delay| {
+        vec![Ok(ModelEvent::Finished(ModelResponse {
+            blocks: vec![
+                ReplyBlock::Text {
+                    text: "step".into(),
+                    phase: None,
+                },
+                ReplyBlock::ToolCall {
+                    id: "call_0".into(),
+                    name: "timed".into(),
+                    args: serde_json::json!({"delay": delay}),
+                },
+            ],
+            stop: StopReason::ToolUse,
+        }))]
+    };
+    let provider = scripted(vec![response(1), response(2)]);
+    let mut exec = f.exec();
+    exec.tools = vec![ToolHandle::new(TimedTool)];
+    let tools = exec.tools.clone();
+    for _ in 0..2 {
+        let calls = exec.call_model(&provider, &tools).await.unwrap().unwrap();
+        exec.run_tools(calls).await.unwrap();
+    }
+    let messages = f.store.run_messages(f.claimed.run.id).await.unwrap();
+    let replies: Vec<_> = messages
+        .iter()
+        .filter(|m| matches!(m.body, MessageBody::Reply { .. }))
+        .map(|m| m.id)
+        .collect();
+    let results: Vec<_> = messages
+        .iter()
+        .filter_map(|m| match &m.body {
+            MessageBody::ToolResult { call, outcome, .. } => Some((*call, outcome)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(results.len(), 2);
+    for (i, (reference, outcome)) in results.iter().enumerate() {
+        assert_eq!(
+            *reference,
+            ToolCallRef {
+                reply: replies[i],
+                index: 1
+            }
+        );
+        assert!(
+            matches!(outcome, ToolResultOutcome::Terminal(ExecOutcome::Completed { output }) if matches!(&output[..], [mic_message::ContentPart::Text {text}] if text == &(i+1).to_string()))
+        );
+    }
+    f.verify(&provider).await;
+}
+
 struct CommittingTool {
     entered: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
@@ -701,11 +757,17 @@ async fn stopping_tools_waits_for_started_file_commits() {
         changed: changed.clone(),
     })];
     let stop = exec.stop.clone();
-    let mut running = Box::pin(exec.run_tools(vec![Call {
-        id: "c".into(),
-        name: "commit".into(),
-        args: serde_json::json!({}),
-    }]));
+    let provider = scripted(vec![vec![Ok(ModelEvent::Finished(ModelResponse {
+        blocks: vec![ReplyBlock::ToolCall {
+            id: "c".into(),
+            name: "commit".into(),
+            args: serde_json::json!({}),
+        }],
+        stop: StopReason::ToolUse,
+    }))]]);
+    let tools = exec.tools.clone();
+    let calls = exec.call_model(&provider, &tools).await.unwrap().unwrap();
+    let mut running = Box::pin(exec.run_tools(calls));
     tokio::select! { result = &mut running => panic!("ended early: {result:?}"), result = ready => result.unwrap() }
     stop.cancel();
     assert!(
@@ -1292,7 +1354,17 @@ async fn stop_mid_tools_keeps_finished_results_and_cancels_the_rest() {
     // 已提交的派出一定落 Dispatched，任务本身不受停止影响。
     let job = f
         .store
-        .job_by_origin(f.claimed.run.id, "bg")
+        .job_by_origin(
+            messages
+                .iter()
+                .find_map(|m| match &m.body {
+                    MessageBody::ToolResult {
+                        call, tool_call_id, ..
+                    } if tool_call_id == "bg" => Some(*call),
+                    _ => None,
+                })
+                .unwrap(),
+        )
         .await
         .unwrap()
         .unwrap();

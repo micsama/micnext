@@ -51,8 +51,5 @@ fn session_source_keeps_channels_and_triggers_distinct() {
         ref_id: "a".into()
     }))
     .is_none());
-    assert!(item(summary(SessionKind::Task {
-        parent_tool_call_id: "a".into()
-    }))
-    .is_none());
+    assert!(item(summary(SessionKind::Task)).is_none());
 }

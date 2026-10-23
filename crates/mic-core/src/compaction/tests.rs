@@ -35,6 +35,10 @@ fn result(id: i64, outcome: ExecOutcome) -> Message {
     message(
         id,
         MessageBody::ToolResult {
+            call: mic_message::ToolCallRef {
+                reply: MessageId(id - 1),
+                index: 0,
+            },
             tool_name: "read".into(),
             tool_call_id: (id - 1).to_string(),
             outcome: ToolResultOutcome::Terminal(outcome),

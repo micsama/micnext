@@ -86,6 +86,12 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: "ALTER TABLE core_jobs DROP COLUMN report_message_id;",
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 23,
+        sql: include_str!("schema/tool_call_identity.sql"),
+        secret_columns: &[],
+    },
 ];
 
 /// 压缩保留必读路径，不再冻结文件正文。

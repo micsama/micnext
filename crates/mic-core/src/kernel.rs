@@ -1209,7 +1209,7 @@ pub(crate) async fn session_channel(
         match &current.kind {
             SessionKind::Root { channel, .. } => return Ok(channel.clone()),
             SessionKind::Triggered { module, .. } => return Ok(module.clone()),
-            SessionKind::Task { .. } => {
+            SessionKind::Task => {
                 let parent = current
                     .parent_session_id
                     .expect("Task 会话必有父会话（store 保证）");
@@ -1225,7 +1225,7 @@ pub(crate) async fn session_channel(
 /// 外部输入只进 Root/Triggered 会话；子 agent 只经 `agent` 工具追问。
 fn reject_task(session: &Session) -> Result<(), KernelError> {
     match session.kind {
-        SessionKind::Task { .. } => Err(KernelError::TaskSessionInput),
+        SessionKind::Task => Err(KernelError::TaskSessionInput),
         _ => Ok(()),
     }
 }

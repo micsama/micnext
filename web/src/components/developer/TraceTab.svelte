@@ -318,7 +318,7 @@
     const parent = owner(r, m);
     if (parent?.reply_id == null) throw new Error("未找到发起工具的模型回复");
     const reply = await getTraceMessage(parent.reply_id);
-    const block = reply.body.kind === "Reply" ? reply.body.blocks.find((b) => "ToolCall" in b && b.ToolCall.id === m.tool!.call_id) : undefined;
+    const block = reply.body.kind === "Reply" ? reply.body.blocks[m.tool!.call.index] : undefined;
     if (!block || !("ToolCall" in block)) throw new Error("未找到工具调用参数");
     return JSON.stringify(block.ToolCall.args, null, 2);
   }

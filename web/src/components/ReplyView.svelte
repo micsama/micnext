@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toolKey } from "./tool-results";
   import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
   import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
   import GaugeIcon from "@lucide/svelte/icons/gauge";
@@ -12,13 +13,14 @@
   import Icon from "../lib/Icon.svelte";
 
   let {
+    replyId,
     blocks,
     results,
     running,
     time,
     model,
     stats,
-  }: { blocks: ReplyBlock[]; results: Map<string, ToolResultOutcome>; running: boolean; time: string; model: string; stats: ReplyStats } = $props();
+  }: { replyId: number; blocks: ReplyBlock[]; results: Map<string, ToolResultOutcome>; running: boolean; time: string; model: string; stats: ReplyStats } = $props();
 
   const u = $derived(stats.usage);
   /** 出字速度按首字之后的生成时长算，排除排队与首字等待。 */
@@ -55,7 +57,7 @@
       <ToolRow
         name={block.ToolCall.name}
         args={block.ToolCall.args}
-        result={results.get(block.ToolCall.id)}
+        result={results.get(toolKey({ reply: replyId, index: i }))}
         {running} />
     {/if}
   {/each}

@@ -343,7 +343,7 @@ fn origin(job: &Job) -> Origin {
     Origin {
         session: job.owner_session_id,
         run: job.origin_run_id,
-        tool_call_id: "follow".into(),
+        call: job.origin_call,
         tool_name: "agent".into(),
     }
 }

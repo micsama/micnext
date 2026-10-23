@@ -27,17 +27,27 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
         trees.entry(root).or_default().jobs.push((job.id.0, label));
     }
     for run in stale {
-        let mut open: Vec<(String, String)> = Vec::new();
+        let mut open: Vec<(mic_message::ToolCallRef, String, String)> = Vec::new();
         for m in store.run_messages(run.id).await? {
             match m.body {
-                MessageBody::Reply { blocks, .. } => {
-                    open.extend(blocks.into_iter().filter_map(|b| match b {
-                        ReplyBlock::ToolCall { id, name, .. } => Some((id, name)),
-                        _ => None,
-                    }))
-                }
-                MessageBody::ToolResult { tool_call_id, .. } => {
-                    open.retain(|(id, _)| *id != tool_call_id)
+                MessageBody::Reply { blocks, .. } => open.extend(
+                    blocks
+                        .into_iter()
+                        .enumerate()
+                        .filter_map(|(index, b)| match b {
+                            ReplyBlock::ToolCall { id, name, .. } => Some((
+                                mic_message::ToolCallRef {
+                                    reply: m.id,
+                                    index: index as u32,
+                                },
+                                id,
+                                name,
+                            )),
+                            _ => None,
+                        }),
+                ),
+                MessageBody::ToolResult { call, .. } => {
+                    open.retain(|(reference, _, _)| *reference != call)
                 }
                 _ => {}
             }
@@ -48,8 +58,8 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
             "上次执行已中断，部分工具结果未知。"
         };
         let mut closing = Vec::new();
-        for (tool_call_id, tool_name) in open {
-            let outcome = match store.job_by_origin(run.id, &tool_call_id).await? {
+        for (call, tool_call_id, tool_name) in open {
+            let outcome = match store.job_by_origin(call).await? {
                 Some(job) => ToolResultOutcome::Dispatched {
                     exec_id: job.0.to_string(),
                 },
@@ -58,6 +68,7 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
                 }),
             };
             closing.push(MessageBody::ToolResult {
+                call,
                 tool_name,
                 tool_call_id,
                 outcome,
@@ -75,7 +86,7 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
         let root = store.session_root(session.id).await?.id;
         let Tree { runs, jobs: agents } = trees.entry(root).or_default();
         let report = match session.kind {
-            SessionKind::Task { .. } => {
+            SessionKind::Task => {
                 let job = store
                     .agent_job(session.id)
                     .await?

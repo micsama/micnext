@@ -162,7 +162,7 @@ impl Jobs {
                 .create_agent_job(NewAgentJob {
                     owner_session_id: origin.session,
                     origin_run_id: origin.run,
-                    origin_tool_call_id: origin.tool_call_id,
+                    origin_call: origin.call,
                     tool_name: origin.tool_name,
                     description,
                     task,

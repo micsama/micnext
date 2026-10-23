@@ -233,7 +233,7 @@ pub enum SessionKind {
     /// Channel 入站创建；`(channel, chat)` 全局唯一。
     Root { channel: String, chat: String },
     /// 子 agent；父 session 在 `Session.parent_session_id`。
-    Task { parent_tool_call_id: String },
+    Task,
     /// 模块触发（cron、webhook…）。`ref_id` 由该模块解释，内核只当来源元数据。
     Triggered { module: String, ref_id: String },
 }

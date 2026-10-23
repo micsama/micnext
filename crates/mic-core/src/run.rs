@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use mic_message::{
     ExecFailureKind, ExecOutcome, ImageData, ImageId, MessageBody, MessageId, ReplyBlock,
-    SessionCommand, SessionId, ToolResultOutcome,
+    SessionCommand, SessionId, ToolCallRef, ToolResultOutcome,
 };
 use mic_store::{
     ClaimedModel, ClaimedRun, ContextCommandError, ContextWindow, ModelCallContext,
@@ -69,7 +69,7 @@ impl Engine {
                 }
                 tools
             }
-            SessionKind::Task { .. } => self.jobs.tools(session),
+            SessionKind::Task => self.jobs.tools(session),
             SessionKind::Triggered { .. } => Vec::new(),
         };
         let all = self.tools.iter().cloned().chain(core);
@@ -84,7 +84,7 @@ impl Engine {
         let key = match &session.kind {
             SessionKind::Root { channel, .. } => channel,
             SessionKind::Triggered { module, .. } => module,
-            SessionKind::Task { .. } => return None,
+            SessionKind::Task => return None,
         };
         self.channel_prompts.get(key.as_str()).copied()
     }
@@ -107,9 +107,7 @@ impl Engine {
         slot.set_run(run.id);
         let stop = slot.token();
         let parent = match session.kind {
-            SessionKind::Task { .. } => {
-                Some(session.parent_session_id.expect("Task 会话必有父会话"))
-            }
+            SessionKind::Task => Some(session.parent_session_id.expect("Task 会话必有父会话")),
             _ => None,
         };
         let tree = match parent {
@@ -117,7 +115,7 @@ impl Engine {
             None => None,
         };
         let limit = match session.kind {
-            SessionKind::Task { .. } => Some(AGENT_RUN_TIMEOUT),
+            SessionKind::Task => Some(AGENT_RUN_TIMEOUT),
             SessionKind::Triggered { .. } => Some(SCHEDULE_RUN_TIMEOUT),
             SessionKind::Root { .. } => None,
         };
@@ -372,6 +370,7 @@ pub(crate) struct Exec<'a> {
 }
 
 struct Call {
+    reference: ToolCallRef,
     id: String,
     name: String,
     args: serde_json::Value,
@@ -588,21 +587,34 @@ impl Exec<'_> {
         let calls = reply
             .blocks
             .iter()
-            .filter_map(|b| match b {
-                ReplyBlock::ToolCall { id, name, args } => Some(Call {
-                    id: id.clone(),
-                    name: name.clone(),
-                    args: args.clone(),
-                }),
+            .enumerate()
+            .filter_map(|(index, b)| match b {
+                ReplyBlock::ToolCall { id, name, args } => {
+                    Some((index as u32, id.clone(), name.clone(), args.clone()))
+                }
                 _ => None,
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let stop = reply.stop;
         let outcome = ModelCallOutcome::Replied {
             blocks: reply.blocks,
         };
-        self.record(caller, facts, Some(reply.stop), outcome, context)
+        let message = self
+            .record(caller, facts, Some(stop), outcome, context)
             .await?;
-        match reply.stop {
+        let calls = calls
+            .into_iter()
+            .map(|(index, id, name, args)| Call {
+                reference: ToolCallRef {
+                    reply: message.expect("含工具的回复已落盘"),
+                    index,
+                },
+                id,
+                name,
+                args,
+            })
+            .collect();
+        match stop {
             StopReason::MaxTokens => {
                 self.notify("回复达到输出长度上限，内容不完整。".into())
                     .await?
@@ -624,7 +636,7 @@ impl Exec<'_> {
         stop: Option<StopReason>,
         outcome: ModelCallOutcome,
         context: ModelCallContext,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Option<MessageId>, StoreError> {
         let call = facts.row(
             caller,
             ModelCallPurpose::Conversation,
@@ -634,11 +646,12 @@ impl Exec<'_> {
         );
         let publish = self.engine.events.publisher().await;
         let (_, reply) = self.engine.store.record_model_call(call).await?;
+        let id = reply.as_ref().map(|m| m.id);
         match reply {
             Some(message) => publish.appended(self.session.id, self.channel, message),
             None => self.emit(KernelEventKind::DraftDiscarded),
         }
-        Ok(())
+        Ok(id)
     }
 
     /// 本批调用并行执行，结果按返回顺序由本 run 落盘，故消息 id 只表示落盘顺序。
@@ -654,7 +667,7 @@ impl Exec<'_> {
                 Origin {
                     session: self.session.id,
                     run: self.run.id,
-                    tool_call_id: call.id.clone(),
+                    call: call.reference,
                     tool_name: call.name.clone(),
                 },
             ));
@@ -737,6 +750,7 @@ impl Exec<'_> {
                         self.session.id,
                         Some(self.run.id),
                         MessageBody::ToolResult {
+                            call: call.reference,
                             tool_name: call.name,
                             tool_call_id: call.id,
                             outcome,

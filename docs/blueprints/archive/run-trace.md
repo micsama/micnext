@@ -1,5 +1,7 @@
 # B2：轻量 trace 与存储整理
 
+2026-10-23 修订：工具调用与后台起源以 Reply + 块位置关联，见 [工具调用身份](../tool-call-identity.md)。
+
 2026-10-23 修订：前台、后台和子 agent 超时统一为 TimedOut，见 [工具超时终态](../tool-timeout-outcome.md)。
 
 **修订（2026-10-22）：[调用统计统一口径 B2](../usage-stats.md) 取代本文关于用量、费用合计与完整性的条目：已知用量和费用一律计入，不论成败；未知另计次数，合计显示为下限；`RunStats` 只留耗时与计数，`SessionUsage` 由 `UsageTotal` 取代；合计不再显示缓存命中率。**

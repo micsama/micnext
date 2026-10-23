@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toolKey, toolResults } from "./tool-results";
   import type { SessionView } from "../state/session.svelte";
 
   let { view }: { view: SessionView } = $props();
@@ -15,8 +16,9 @@
     // 并行调用的结果逐条到达，故看最近一条回复里还没有结果的调用。
     const reply = view.messages.filter((m) => m.body.kind === "Reply").at(-1);
     if (reply?.body.kind === "Reply") {
-      const pending = reply.body.blocks.flatMap((b) => ("ToolCall" in b ? [b.ToolCall] : []))
-        .filter((c) => !view.messages.some((m) => m.body.kind === "ToolResult" && m.body.tool_call_id === c.id));
+      const results = toolResults(view.messages);
+      const pending = reply.body.blocks.flatMap((b, index) =>
+        "ToolCall" in b && !results.has(toolKey({ reply: reply.id, index })) ? [b.ToolCall] : []);
       if (pending.length)
         return { label: `正在执行 ${pending.map((c) => c.name).join("、")}`, since: reply.created_at };
     }

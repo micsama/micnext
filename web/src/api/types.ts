@@ -24,6 +24,9 @@ export type ExecOutcome =
   | { Cancelled: { message: string } }
   | { TimedOut: { output: ContentPart[] } };
 
+export type ToolCallRef = { reply: number; index: number };
+export const toolCallRef = obj({ reply: num, index: num });
+
 export type ToolResultOutcome = { Terminal: ExecOutcome } | { Dispatched: { exec_id: string } };
 
 export type Reasoning =
@@ -71,7 +74,7 @@ export type MessageBody =
   | { kind: "Command"; person: number; command: SessionCommand }
   | { kind: "UserInput"; person: number; parts: ContentPart[] }
   | { kind: "Reply"; model: string; blocks: ReplyBlock[]; stats: ReplyStats }
-  | { kind: "ToolResult"; tool_name: string; tool_call_id: string; outcome: ToolResultOutcome; started_at: number | null }
+  | { kind: "ToolResult"; call: ToolCallRef; tool_name: string; tool_call_id: string; outcome: ToolResultOutcome; started_at: number | null }
   | { kind: "Completion"; person: number; tool_name: string; exec_id: string; outcome: ExecOutcome }
   /** 运行中的后台任务给模型的中途通知，不投递给用户。 */
   | { kind: "JobNotice"; person: number; tool_name: string; exec_id: string; text: string }
@@ -314,6 +317,7 @@ const messageBody: Decoder<MessageBody> = kinded({
   UserInput: { person: num, parts: arr(contentPart) },
   Reply: { model: str, blocks: arr(replyBlock), stats: obj({ model_ms: num, first_output_ms: nullable(num), usage: nullable(obj({ input_tokens: num, output_tokens: num, cache_read_tokens: nullable(num) })) }) },
   ToolResult: {
+    call: toolCallRef,
     tool_name: str,
     tool_call_id: str,
     outcome: tagged({ Terminal: execOutcome, Dispatched: obj({ exec_id: str }) }),

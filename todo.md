@@ -16,3 +16,4 @@
 | 实现完成，待页面验收 | 压缩只保留必读文件路径 | [B2](docs/blueprints/compaction-file-paths.md) |
 | 实现完成，待页面验收 | 前台、后台与子 agent 超时统一终态 | [B2](docs/blueprints/tool-timeout-outcome.md) |
 | 实现完成，待页面验收 | 会话来源改为明确的 HTTP 类型 | [B2](docs/blueprints/session-source.md) |
+| 实现完成，待页面验收 | 工具调用以回复与块位置关联执行、恢复和展示 | [B2](docs/blueprints/tool-call-identity.md) |

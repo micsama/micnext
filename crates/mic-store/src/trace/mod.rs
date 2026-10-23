@@ -73,6 +73,7 @@ pub enum ToolTraceOutcome {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TraceTool {
+    pub call: mic_message::ToolCallRef,
     pub name: String,
     pub call_id: String,
     pub started_at: Option<i64>,
@@ -374,7 +375,7 @@ fn tool_end(m: &TraceMessage) -> Option<i64> {
     t.started_at?;
     matches!(
         t.outcome,
-        ToolTraceOutcome::Completed | ToolTraceOutcome::Failed
+        ToolTraceOutcome::Completed | ToolTraceOutcome::Failed | ToolTraceOutcome::TimedOut
     )
     .then_some(m.created_at)
 }
@@ -385,7 +386,7 @@ fn run_stats(
     calls: &[TraceCall],
     messages: &[TraceMessage],
 ) -> RunStats {
-    // 每步以其最后一次尝试为准；工具结果归属它之前最近的回复。
+    // 每步以其最后一次尝试为准；工具结果按回复引用归属。
     let step_ends: Vec<&TraceCall> = calls
         .iter()
         .enumerate()
@@ -396,12 +397,9 @@ fn run_stats(
         .iter()
         .map(|step| {
             let owned = messages.iter().filter(|m| {
-                m.tool.is_some()
-                    && step.reply_id.is_some_and(|r| r < m.id)
-                    && !step_ends.iter().any(|o| {
-                        o.reply_id
-                            .is_some_and(|r| step.reply_id < Some(r) && r < m.id)
-                    })
+                m.tool
+                    .as_ref()
+                    .is_some_and(|t| Some(t.call.reply) == step.reply_id)
             });
             owned
                 .filter_map(tool_end)
@@ -492,6 +490,7 @@ fn trace_message(m: Message) -> TraceMessage {
             ("Reply", preview, None)
         }
         MessageBody::ToolResult {
+            call,
             tool_name,
             tool_call_id,
             outcome,
@@ -523,6 +522,7 @@ fn trace_message(m: Message) -> TraceMessage {
                 "ToolResult",
                 text,
                 Some(TraceTool {
+                    call: *call,
                     name: tool_name.clone(),
                     call_id: tool_call_id.clone(),
                     started_at: *started_at,

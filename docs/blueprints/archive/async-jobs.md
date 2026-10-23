@@ -1,5 +1,7 @@
 # B2：后台任务与子 agent
 
+2026-10-23 修订：工具调用与后台起源以 Reply + 块位置关联，见 [工具调用身份](../tool-call-identity.md)。
+
 2026-10-23 修订：前台、后台和子 agent 超时统一为 TimedOut，见 [工具超时终态](../tool-timeout-outcome.md)。
 
 **状态：CLOSED（2026-10-19 human 验收 P1–P3 通过）。运行中归档的人工验收按 §P3.4 延期。**

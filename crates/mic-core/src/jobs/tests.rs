@@ -78,14 +78,15 @@ impl Fixture {
         }
     }
 
-    fn port(&self, call: &str) -> JobPort {
+    async fn port(&self, call: &str) -> JobPort {
+        let reference = origin_call(&self.store, self.session, self.run, call, "bash").await;
         JobPort::new(
             self.jobs.clone(),
             true,
             Origin {
                 session: self.session,
                 run: self.run,
-                tool_call_id: call.into(),
+                call: reference,
                 tool_name: "bash".into(),
             },
         )
@@ -172,7 +173,7 @@ async fn wait_finished(f: &Fixture, id: JobId) {
 #[tokio::test]
 async fn completion_reports_tail_once_and_wakes_owner() {
     let mut f = Fixture::new().await;
-    let port = f.port("c1");
+    let port = f.port("c1").await;
     let exec_id = port.dispatch(task(None, "hello\n", exit0())).await.unwrap();
     let id = JobId(exec_id.parse().unwrap());
     assert_eq!(port.registered().await, Some(id));
@@ -183,7 +184,10 @@ async fn completion_reports_tail_once_and_wakes_owner() {
     assert_eq!(reports.len(), 1);
     let text = texts(&reports[0]);
     assert!(text.contains("[exit code: 0]") && text.contains("[output: 6 bytes]\nhello\n"));
-    assert_eq!(f.store.job_by_origin(f.run, "c1").await.unwrap(), Some(id));
+    assert_eq!(
+        f.store.job_by_origin(port.origin.call).await.unwrap(),
+        Some(id)
+    );
     let (_, out) = f.jobs.output(f.session, id, Some(0), 3).await.unwrap();
     assert_eq!(
         (out.text.as_str(), out.next_offset, out.eof),
@@ -197,6 +201,7 @@ async fn timeout_and_stops_settle_exactly_once() {
     let f = Fixture::new().await;
     let timed = JobId(
         f.port("t")
+            .await
             .dispatch(task(Some(Duration::from_millis(30)), "x", None))
             .await
             .unwrap()
@@ -208,6 +213,7 @@ async fn timeout_and_stops_settle_exactly_once() {
 
     let by_model = JobId(
         f.port("m")
+            .await
             .dispatch(task(None, "", None))
             .await
             .unwrap()
@@ -228,6 +234,7 @@ async fn timeout_and_stops_settle_exactly_once() {
 
     let by_user = JobId(
         f.port("u")
+            .await
             .dispatch(task(None, "", None))
             .await
             .unwrap()
@@ -256,6 +263,7 @@ async fn shutdown_leaves_running_for_recovery() {
     let f = Fixture::new().await;
     let id = JobId(
         f.port("r")
+            .await
             .dispatch(task(None, "partial", None))
             .await
             .unwrap()
@@ -279,6 +287,7 @@ async fn notices_reach_owner_before_completion_and_stop_after_seal() {
     let mut f = Fixture::new().await;
     let exec_id = f
         .port("n")
+        .await
         .dispatch(BackgroundTask {
             description: "notice".into(),
             timeout: None,
@@ -334,5 +343,107 @@ async fn notices_reach_owner_before_completion_and_stop_after_seal() {
         .filter(|m| matches!(&m.body, MessageBody::JobNotice { text, .. } if text == "late"))
         .count();
     assert_eq!(late, 0);
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+async fn origin_call(
+    store: &Store,
+    session: SessionId,
+    run: RunId,
+    id: &str,
+    name: &str,
+) -> mic_message::ToolCallRef {
+    let (_, message) = store
+        .record_model_call(mic_store::NewModelCall {
+            session_id: session,
+            run_id: Some(run),
+            purpose: mic_store::ModelCallPurpose::Conversation,
+            model: "test".into(),
+            model_id: None,
+            reasoning_effort: None,
+            context: Default::default(),
+            context_at: now_ms(),
+            started_at: now_ms(),
+            first_output_at: None,
+            finished_at: now_ms(),
+            stop: Some(crate::StopReason::ToolUse),
+            usage: None,
+            outcome: mic_store::ModelCallOutcome::Replied {
+                blocks: vec![mic_message::ReplyBlock::ToolCall {
+                    id: id.into(),
+                    name: name.into(),
+                    args: serde_json::json!({}),
+                }],
+            },
+        })
+        .await
+        .unwrap();
+    mic_message::ToolCallRef {
+        reply: message.unwrap().id,
+        index: 0,
+    }
+}
+
+#[tokio::test]
+async fn reused_wire_ids_register_distinct_jobs_and_recover_only_the_open_call() {
+    let f = Fixture::new().await;
+    let first = f.port("same").await;
+    let first_id = first.dispatch(task(None, "first", exit0())).await.unwrap();
+    let first_job = JobId(first_id.parse().unwrap());
+    wait_finished(&f, first_job).await;
+    f.store
+        .append(
+            f.session,
+            Some(f.run),
+            MessageBody::ToolResult {
+                call: first.origin.call,
+                tool_name: "bash".into(),
+                tool_call_id: "same".into(),
+                outcome: mic_message::ToolResultOutcome::Dispatched { exec_id: first_id },
+                started_at: Some(now_ms()),
+            },
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let second = f.port("same").await;
+    let second_id = second
+        .dispatch(task(None, "second", exit0()))
+        .await
+        .unwrap();
+    let second_job = JobId(second_id.parse().unwrap());
+    wait_finished(&f, second_job).await;
+    assert_ne!(first_job, second_job);
+    assert_eq!(
+        f.store.job_by_origin(first.origin.call).await.unwrap(),
+        Some(first_job)
+    );
+    assert_eq!(
+        f.store.job_by_origin(second.origin.call).await.unwrap(),
+        Some(second_job)
+    );
+    crate::recovery::recover(&f.store, f.dir.clone())
+        .await
+        .unwrap();
+    let results: Vec<_> = f
+        .store
+        .run_messages(f.run)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|m| match m.body {
+            MessageBody::ToolResult { call, outcome, .. } => Some((call, outcome)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].0, first.origin.call);
+    assert_eq!(
+        results[1],
+        (
+            second.origin.call,
+            mic_message::ToolResultOutcome::Dispatched { exec_id: second_id }
+        )
+    );
     let _ = std::fs::remove_dir_all(&f.dir);
 }

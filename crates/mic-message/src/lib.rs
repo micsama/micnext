@@ -19,6 +19,13 @@ pub struct SessionId(pub i64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct MessageId(pub i64);
 
+/// 一条回复中的工具调用位置；index 为 Reply.blocks 的零起始位置。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ToolCallRef {
+    pub reply: MessageId,
+    pub index: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PersonId(pub i64);
 
@@ -194,6 +201,7 @@ pub enum MessageBody {
         blocks: Vec<ReplyBlock>,
     },
     ToolResult {
+        call: ToolCallRef,
         tool_name: String,
         tool_call_id: String,
         outcome: ToolResultOutcome,

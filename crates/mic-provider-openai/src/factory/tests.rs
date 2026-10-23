@@ -170,6 +170,10 @@ fn history() -> ModelRequest {
             msg(
                 4,
                 MessageBody::ToolResult {
+                    call: mic_message::ToolCallRef {
+                        reply: mic_message::MessageId(3),
+                        index: 1,
+                    },
                     tool_name: "ls".into(),
                     tool_call_id: "c1".into(),
                     outcome: mic_message::ToolResultOutcome::Terminal(

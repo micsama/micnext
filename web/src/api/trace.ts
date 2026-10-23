@@ -1,3 +1,4 @@
+import { toolCallRef, type ToolCallRef } from "./types";
 import { arr, nullable, num, obj, oneOf, record, str, type Decoder } from "./decode";
 import { runStats, type ContextKind, type ReasoningEffort, type RunStats } from "./types";
 
@@ -51,6 +52,7 @@ export type TraceCall = {
 };
 
 export type TraceTool = {
+  call: ToolCallRef;
   name: string;
   call_id: string;
   started_at: number | null;
@@ -150,6 +152,7 @@ const traceTool: Decoder<TraceTool> = obj({
   name: str,
   call_id: str,
   started_at: nullable(num),
+  call: toolCallRef,
   outcome: oneOf<ToolOutcome>("completed", "failed", "cancelled", "timed_out", "dispatched"),
   error: nullable(str),
 });

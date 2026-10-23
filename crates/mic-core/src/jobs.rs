@@ -145,7 +145,7 @@ pub enum JobAccessError {
 pub(crate) struct Origin {
     pub(crate) session: SessionId,
     pub(crate) run: RunId,
-    pub(crate) tool_call_id: String,
+    pub(crate) call: mic_message::ToolCallRef,
     pub(crate) tool_name: String,
 }
 
@@ -208,7 +208,7 @@ impl Jobs {
             .create_tool_job(NewToolJob {
                 owner_session_id: origin.session,
                 origin_run_id: origin.run,
-                origin_tool_call_id: origin.tool_call_id,
+                origin_call: origin.call,
                 tool_name: origin.tool_name,
                 description: task.description.clone(),
                 timeout_ms: task.timeout.map(|t| t.as_millis() as u64),
@@ -651,7 +651,7 @@ pub(crate) fn tree(root: &Session) -> Tree {
     let channel = match &root.kind {
         SessionKind::Root { channel, .. } => channel.clone(),
         SessionKind::Triggered { module, .. } => module.clone(),
-        SessionKind::Task { .. } => unreachable!("session_root 返回的必是树根"),
+        SessionKind::Task => unreachable!("session_root 返回的必是树根"),
     };
     Tree {
         root: root.id,

@@ -132,6 +132,10 @@ async fn run_stats_fixture() {
         }],
     };
     let tool = |started_at| MessageBody::ToolResult {
+        call: mic_message::ToolCallRef {
+            reply: mic_message::MessageId(2),
+            index: 0,
+        },
         tool_name: "shell".into(),
         tool_call_id: "t".into(),
         outcome: ToolResultOutcome::Terminal(ExecOutcome::Completed { output: vec![] }),

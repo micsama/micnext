@@ -261,19 +261,22 @@ fn token_prefix(chars: impl Iterator<Item = char>, budget: u64) -> usize {
 /// 未认领输入已由 store 排除。
 pub(crate) fn order(messages: Vec<Message>) -> Vec<Message> {
     let mut out = Vec::with_capacity(messages.len());
-    let mut open: HashSet<String> = HashSet::new();
+    let mut open: HashSet<mic_message::ToolCallRef> = HashSet::new();
     let mut held = Vec::new();
     for m in messages {
         match &m.body {
             MessageBody::Reply { blocks, .. } => {
-                open.extend(blocks.iter().filter_map(|b| match b {
-                    ReplyBlock::ToolCall { id, .. } => Some(id.clone()),
+                open.extend(blocks.iter().enumerate().filter_map(|(index, b)| match b {
+                    ReplyBlock::ToolCall { .. } => Some(mic_message::ToolCallRef {
+                        reply: m.id,
+                        index: index as u32,
+                    }),
                     _ => None,
                 }));
                 out.push(m);
             }
-            MessageBody::ToolResult { tool_call_id, .. } => {
-                open.remove(tool_call_id);
+            MessageBody::ToolResult { call, .. } => {
+                open.remove(call);
                 out.push(m);
                 if open.is_empty() {
                     out.append(&mut held);

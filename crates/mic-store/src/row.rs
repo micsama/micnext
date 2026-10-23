@@ -21,10 +21,12 @@ pub(crate) const MESSAGE_COLS: &str =
 /// 紧跟 `MESSAGE_COLS` 追加的列从这个序号开始。
 pub(crate) const MESSAGE_NEXT: usize = 11;
 
-pub(crate) const SESSION_COLS: &str =
-    "id, kind, channel, chat, parent_tool_call_id, trigger_module, \
+pub(crate) const SESSION_COLS: &str = "id, kind, channel, chat, trigger_module, \
      trigger_ref, parent_session_id, delivery_channel, delivery_payload, pwd, \
      tool_scope, created_at, persona_id, model_id, reasoning_effort, archived_at";
+
+/// 紧跟 SESSION_COLS 追加的列从这个序号开始。
+pub(crate) const SESSION_NEXT: usize = 16;
 
 pub(crate) const RUN_COLS: &str = "id, session_id, state, created_at, finished_at";
 
@@ -148,7 +150,6 @@ pub(crate) struct SessionKindCols<'a> {
     pub kind: &'static str,
     pub channel: Option<&'a str>,
     pub chat: Option<&'a str>,
-    pub parent_tool_call_id: Option<&'a str>,
     pub trigger_module: Option<&'a str>,
     pub trigger_ref: Option<&'a str>,
 }
@@ -158,7 +159,6 @@ pub(crate) fn session_kind_cols(kind: &SessionKind) -> SessionKindCols<'_> {
         kind: "",
         channel: None,
         chat: None,
-        parent_tool_call_id: None,
         trigger_module: None,
         trigger_ref: None,
     };
@@ -169,11 +169,8 @@ pub(crate) fn session_kind_cols(kind: &SessionKind) -> SessionKindCols<'_> {
             chat: Some(chat),
             ..none
         },
-        SessionKind::Task {
-            parent_tool_call_id,
-        } => SessionKindCols {
+        SessionKind::Task => SessionKindCols {
             kind: "task",
-            parent_tool_call_id: Some(parent_tool_call_id),
             ..none
         },
         SessionKind::Triggered { module, ref_id } => SessionKindCols {
@@ -257,27 +254,25 @@ pub(crate) fn session(row: &Row<'_>) -> rusqlite::Result<Session> {
             channel: row.get(2)?,
             chat: row.get(3)?,
         },
-        "task" => SessionKind::Task {
-            parent_tool_call_id: row.get(4)?,
-        },
+        "task" => SessionKind::Task,
         "triggered" => SessionKind::Triggered {
-            module: row.get(5)?,
-            ref_id: row.get(6)?,
+            module: row.get(4)?,
+            ref_id: row.get(5)?,
         },
         other => return Err(corrupt(1, format!("未知 session kind: {other}"))),
     };
     Ok(Session {
         id: SessionId(row.get(0)?),
         kind,
-        parent_session_id: row.get::<_, Option<i64>>(7)?.map(SessionId),
-        delivery_target: delivery_target(row, 8)?,
-        pwd: row.get(10)?,
-        tool_scope: json_col(row, 11)?,
-        created_at: row.get(12)?,
-        persona_id: PersonaId(row.get(13)?),
-        model_id: row.get::<_, Option<i64>>(14)?.map(ModelId),
-        reasoning_effort: row.get(15)?,
-        archived_at: row.get(16)?,
+        parent_session_id: row.get::<_, Option<i64>>(6)?.map(SessionId),
+        delivery_target: delivery_target(row, 7)?,
+        pwd: row.get(9)?,
+        tool_scope: json_col(row, 10)?,
+        created_at: row.get(11)?,
+        persona_id: PersonaId(row.get(12)?),
+        model_id: row.get::<_, Option<i64>>(13)?.map(ModelId),
+        reasoning_effort: row.get(14)?,
+        archived_at: row.get(15)?,
     })
 }
 

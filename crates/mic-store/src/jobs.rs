@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use mic_message::{ContentPart, Message, MessageBody, PersonId, SessionId};
+use mic_message::{ContentPart, Message, MessageBody, PersonId, SessionId, ToolCallRef};
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use serde::Serialize;
 
@@ -58,7 +58,7 @@ pub struct Job {
     pub owner_session_id: SessionId,
     pub person: PersonId,
     pub origin_run_id: RunId,
-    pub origin_tool_call_id: String,
+    pub origin_call: ToolCallRef,
     pub tool_name: String,
     pub description: String,
     pub created_at: i64,
@@ -100,7 +100,7 @@ pub struct AgentActivity {
 pub struct NewToolJob {
     pub owner_session_id: SessionId,
     pub origin_run_id: RunId,
-    pub origin_tool_call_id: String,
+    pub origin_call: ToolCallRef,
     pub tool_name: String,
     pub description: String,
     pub timeout_ms: Option<u64>,
@@ -111,7 +111,7 @@ pub struct NewToolJob {
 pub struct NewAgentJob {
     pub owner_session_id: SessionId,
     pub origin_run_id: RunId,
-    pub origin_tool_call_id: String,
+    pub origin_call: ToolCallRef,
     pub tool_name: String,
     pub description: String,
     pub task: String,
@@ -119,10 +119,9 @@ pub struct NewAgentJob {
     pub created_at: i64,
 }
 
-const JOB_COLS: &str =
-    "j.id, j.owner_session_id, j.person_id, j.origin_run_id, j.origin_tool_call_id,
+const JOB_COLS: &str = "j.id, j.owner_session_id, j.person_id, j.origin_run_id, j.origin_reply_id,
     j.tool_name, j.description, j.created_at, j.kind, j.timeout_ms, j.state, j.finished_at,
-    j.child_session_id";
+    j.child_session_id, j.origin_call_index";
 
 fn job(row: &Row<'_>) -> rusqlite::Result<Job> {
     let kind = match row.get::<_, String>(8)?.as_str() {
@@ -141,7 +140,10 @@ fn job(row: &Row<'_>) -> rusqlite::Result<Job> {
         owner_session_id: SessionId(row.get(1)?),
         person: PersonId(row.get(2)?),
         origin_run_id: RunId(row.get(3)?),
-        origin_tool_call_id: row.get(4)?,
+        origin_call: ToolCallRef {
+            reply: mic_message::MessageId(row.get(4)?),
+            index: row.get(13)?,
+        },
         tool_name: row.get(5)?,
         description: row.get(6)?,
         created_at: row.get(7)?,
@@ -199,7 +201,7 @@ fn message(
 }
 
 impl Store {
-    /// 登记即提交：返回后任务已存在，`(origin_run_id, origin_tool_call_id)` 唯一。
+    /// 登记即提交：返回后任务已存在，`origin_call` 唯一。
     pub async fn create_tool_job(&self, new: NewToolJob) -> Result<Job, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
@@ -207,17 +209,18 @@ impl Store {
             let person = run_person(&tx, new.origin_run_id)?;
             tx.execute(
                 "INSERT INTO core_jobs (kind, owner_session_id, person_id, origin_run_id,
-                   origin_tool_call_id, tool_name, description, created_at, timeout_ms, state)
-                 VALUES ('tool', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'running')",
+                   origin_reply_id, tool_name, description, created_at, timeout_ms, state, origin_call_index)
+                 VALUES ('tool', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'running', ?9)",
                 params![
                     new.owner_session_id.0,
                     person.0,
                     new.origin_run_id.0,
-                    new.origin_tool_call_id,
+                    new.origin_call.reply.0,
                     new.tool_name,
                     new.description,
                     new.created_at,
                     new.timeout_ms.map(|ms| ms as i64),
+                    new.origin_call.index,
                 ],
             )?;
             let job = read_job(&tx, tx.last_insert_rowid())?;
@@ -251,9 +254,7 @@ impl Store {
             let child = insert_session(
                 &tx,
                 NewSession {
-                    kind: SessionKind::Task {
-                        parent_tool_call_id: new.origin_tool_call_id.clone(),
-                    },
+                    kind: SessionKind::Task,
                     parent_session_id: Some(new.owner_session_id),
                     delivery_target: None,
                     pwd,
@@ -266,17 +267,18 @@ impl Store {
             )?;
             tx.execute(
                 "INSERT INTO core_jobs (kind, owner_session_id, person_id, origin_run_id,
-                   origin_tool_call_id, tool_name, description, created_at, child_session_id)
-                 VALUES ('agent', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                   origin_reply_id, tool_name, description, created_at, child_session_id, origin_call_index)
+                 VALUES ('agent', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     new.owner_session_id.0,
                     person.0,
                     new.origin_run_id.0,
-                    new.origin_tool_call_id,
+                    new.origin_call.reply.0,
                     new.tool_name,
                     new.description,
                     new.created_at,
                     child.id.0,
+                    new.origin_call.index,
                 ],
             )?;
             let job = read_job(&tx, tx.last_insert_rowid())?;
@@ -373,17 +375,12 @@ impl Store {
     }
 
     /// 某 run 中某工具调用登记的任务；恢复时据此把悬空调用闭合为 `Dispatched`。
-    pub async fn job_by_origin(
-        &self,
-        run: RunId,
-        tool_call_id: &str,
-    ) -> Result<Option<JobId>, StoreError> {
-        let tool_call_id = tool_call_id.to_owned();
+    pub async fn job_by_origin(&self, call: ToolCallRef) -> Result<Option<JobId>, StoreError> {
         self.call(move |conn| {
             Ok(conn
                 .query_row(
-                    "SELECT id FROM core_jobs WHERE origin_run_id = ?1 AND origin_tool_call_id = ?2",
-                    params![run.0, tool_call_id],
+                    "SELECT id FROM core_jobs WHERE origin_reply_id = ?1 AND origin_call_index = ?2",
+                    params![call.reply.0, call.index],
                     |r| Ok(JobId(r.get(0)?)),
                 )
                 .optional()?)

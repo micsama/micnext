@@ -1780,3 +1780,75 @@ async fn schedule_operations_publish_changes_and_delivery_updates() {
         KernelEventKind::ScheduleChanged { schedule } if schedule == task.id));
     assert!(f.kernel.session(task.session_id).await.unwrap().is_some());
 }
+
+#[tokio::test]
+async fn ask_user_ends_the_run_and_turns_back_its_batch() {
+    let ask = |options: usize| ReplyBlock::ToolCall {
+        id: "ask".into(),
+        name: crate::ask::ASK_USER.into(),
+        args: serde_json::json!({ "questions": [{
+            "question": "Which?",
+            "header": "Pick",
+            "options": (0..options).map(|i| serde_json::json!({ "label": i.to_string(), "description": "" })).collect::<Vec<_>>(),
+            "multi_select": false,
+        }] }),
+    };
+    let timed = ReplyBlock::ToolCall {
+        id: "timed".into(),
+        name: "timed".into(),
+        args: serde_json::json!({ "delay": 0 }),
+    };
+    let batch = |blocks| {
+        vec![Ok(ModelEvent::Finished(ModelResponse {
+            blocks,
+            stop: StopReason::ToolUse,
+        }))]
+    };
+    let outcomes = |f: &Fixture| {
+        let run = f.claimed.run.id;
+        let store = f.store.clone();
+        async move {
+            store
+                .run_messages(run)
+                .await
+                .unwrap()
+                .into_iter()
+                .filter_map(|m| match m.body {
+                    MessageBody::ToolResult {
+                        tool_call_id,
+                        outcome: ToolResultOutcome::Terminal(outcome),
+                        ..
+                    } => Some((tool_call_id, outcome)),
+                    _ => None,
+                })
+                .collect::<HashMap<_, _>>()
+        }
+    };
+
+    let f = Fixture::new().await;
+    let provider = scripted(vec![batch(vec![ask(2), timed.clone()])]);
+    let mut exec = f.exec();
+    exec.tools = vec![ToolHandle::new(TimedTool), crate::ask::handle()];
+    assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Completed);
+    assert_eq!(provider.requests.lock().unwrap().len(), 1);
+    let results = outcomes(&f).await;
+    assert!(matches!(results["ask"], ExecOutcome::Completed { .. }));
+    assert!(matches!(
+        &results["timed"],
+        ExecOutcome::Failed { message, .. } if message == crate::ask::NOT_ALONE
+    ));
+
+    let f = Fixture::new().await;
+    let provider = scripted(vec![batch(vec![ask(1)]), reply("fixed")]);
+    let mut exec = f.exec();
+    exec.tools = vec![crate::ask::handle()];
+    assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Completed);
+    assert_eq!(provider.requests.lock().unwrap().len(), 2);
+    assert!(matches!(
+        outcomes(&f).await["ask"],
+        ExecOutcome::Failed {
+            kind: ExecFailureKind::Input,
+            ..
+        }
+    ));
+}

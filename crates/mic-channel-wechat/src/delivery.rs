@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use mic_core::{BoxError, EventReceiver, Kernel, KernelEventKind};
+use mic_core::{AskArgs, BoxError, EventReceiver, Kernel, KernelEventKind, ASK_USER};
 use mic_message::{MessageBody, MessageId, ReplyBlock};
 use mic_store::rusqlite::{params, OptionalExtension};
 use mic_store::PendingDelivery;
@@ -109,13 +109,7 @@ async fn deliver(
         return Err(AccountError::Invalid("投递目标归属不一致").into());
     }
     let text = match pending.message.body {
-        MessageBody::Reply { blocks, .. } => blocks
-            .into_iter()
-            .filter_map(|block| match block {
-                ReplyBlock::Text { text, .. } => Some(text),
-                _ => None,
-            })
-            .collect::<String>(),
+        MessageBody::Reply { blocks, .. } => reply_text(blocks),
         MessageBody::Notification { text, .. } => text,
         _ => unreachable!("pending_deliveries 只返回 Reply/Notification"),
     };
@@ -177,6 +171,55 @@ async fn deliver(
     kernel.mark_delivered(id).await?;
     tracing::debug!(message_id = id.0, "wechat delivery accepted");
     Ok(DeliveryResult::Complete(Authentication::Current))
+}
+
+/// 正文块直接相连；`ask_user` 的入参排成编号文字接在后面，解析不了的不发。
+fn reply_text(blocks: Vec<ReplyBlock>) -> String {
+    let mut text = String::new();
+    for block in blocks {
+        match block {
+            ReplyBlock::Text { text: t, .. } => text.push_str(&t),
+            ReplyBlock::ToolCall { name, args, .. } if name == ASK_USER => {
+                let Ok(ask) = serde_json::from_value::<AskArgs>(args) else {
+                    continue;
+                };
+                if !text.is_empty() {
+                    text.push_str("\n\n");
+                }
+                text.push_str(&question_text(&ask));
+            }
+            _ => {}
+        }
+    }
+    text
+}
+
+fn question_text(ask: &AskArgs) -> String {
+    let single = ask.questions.len() == 1;
+    let mut out = String::new();
+    for (i, q) in ask.questions.iter().enumerate() {
+        if !single {
+            out.push_str(&format!("{}）", i + 1));
+        }
+        out.push_str(&q.question);
+        if q.multi_select {
+            out.push_str("（可多选）");
+        }
+        out.push('\n');
+        for (n, o) in q.options.iter().enumerate() {
+            out.push_str(&format!("  {}. {}", n + 1, o.label));
+            if !o.description.is_empty() {
+                out.push_str(&format!(" — {}", o.description));
+            }
+            out.push('\n');
+        }
+    }
+    out.push_str(if single {
+        "回编号即可，也可以直接打字。"
+    } else {
+        "按题序回编号，如「1 3」；也可以直接打字。"
+    });
+    out
 }
 
 fn plan(text: String) -> Plan {

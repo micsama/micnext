@@ -15,3 +15,4 @@
 | 实现完成，待验收 | 运行指示显示模型重试次数与等待 | [B2](docs/blueprints/model-retry-indicator.md) |
 | 实现完成，待验收 | 图片入库时统一规整（压缩、动图转静图） | [B2](docs/blueprints/image-normalize.md) |
 | 实现完成，待验收 | 侧栏状态点、后台更新提醒与置顶 | [B2](docs/blueprints/session-sidebar.md)；[B1](docs/brainstorm/session-sidebar.md) |
+| 实现完成，待验收 | 结构化询问用户工具 ask_user | [B2](docs/blueprints/ask-user-question.md)；[B1](docs/brainstorm/ask-user-question.md) |

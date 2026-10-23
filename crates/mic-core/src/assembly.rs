@@ -203,7 +203,7 @@ impl Assembly {
                 .chain(
                     CORE_TOOLS
                         .iter()
-                        .filter(|n| **n != "agent")
+                        .filter(|n| !matches!(**n, "agent" | crate::ask::ASK_USER))
                         .map(|n| (*n).to_owned()),
                 )
                 .collect(),

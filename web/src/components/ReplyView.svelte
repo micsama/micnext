@@ -4,15 +4,18 @@
   import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
   import GaugeIcon from "@lucide/svelte/icons/gauge";
   import TimerIcon from "@lucide/svelte/icons/timer";
-  import type { ReplyBlock, ReplyStats, ToolResultOutcome } from "../api/types";
+  import { parseAskArgs, type ReplyBlock, type ReplyStats, type ToolResultOutcome } from "../api/types";
   import { formatDuration, formatTokens } from "../lib/format";
   import CopyButton from "./CopyButton.svelte";
   import Markdown from "./Markdown.svelte";
   import ReasoningFold from "./ReasoningFold.svelte";
+  import QuestionCard from "./QuestionCard.svelte";
   import ToolRow from "./ToolRow.svelte";
   import Icon from "../lib/Icon.svelte";
+  import type { SessionView } from "../state/session.svelte";
 
   let {
+    view,
     replyId,
     blocks,
     results,
@@ -20,7 +23,7 @@
     time,
     model,
     stats,
-  }: { replyId: number; blocks: ReplyBlock[]; results: Map<string, ToolResultOutcome>; running: boolean; time: string; model: string; stats: ReplyStats } = $props();
+  }: { view: SessionView; replyId: number; blocks: ReplyBlock[]; results: Map<string, ToolResultOutcome>; running: boolean; time: string; model: string; stats: ReplyStats } = $props();
 
   const u = $derived(stats.usage);
   /** 出字速度按首字之后的生成时长算，排除排队与首字等待。 */
@@ -54,11 +57,12 @@
     {:else if "Text" in block}
       <Markdown source={block.Text.text} />
     {:else}
-      <ToolRow
-        name={block.ToolCall.name}
-        args={block.ToolCall.args}
-        result={results.get(toolKey({ reply: replyId, index: i }))}
-        {running} />
+      {@const result = results.get(toolKey({ reply: replyId, index: i }))}
+      {#if block.ToolCall.name === "ask_user" && result && "Terminal" in result && "Completed" in result.Terminal}
+        <QuestionCard {view} {replyId} questions={parseAskArgs(block.ToolCall.args)} />
+      {:else}
+        <ToolRow name={block.ToolCall.name} args={block.ToolCall.args} {result} {running} />
+      {/if}
     {/if}
   {/each}
   <div class="mt-1 flex h-6 items-center gap-3 overflow-x-auto whitespace-nowrap [scrollbar-width:none] text-xs text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/reply:opacity-100 focus-within:opacity-100">

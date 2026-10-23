@@ -22,7 +22,14 @@ mod tests;
 /// 子 agent 可用登记工具所在的模块。
 pub(crate) const AGENT_MODULES: [&str; 3] = ["fs", "shell", "web_fetch"];
 /// core 生成的工具名；登记工具不得重名。
-pub(crate) const CORE_TOOLS: [&str; 5] = ["jobs", "job_output", "job_stop", "agent", "push"];
+pub(crate) const CORE_TOOLS: [&str; 6] = [
+    "jobs",
+    "job_output",
+    "job_stop",
+    "agent",
+    "push",
+    crate::ask::ASK_USER,
+];
 pub(crate) const AGENT_INTERRUPTED: &str = "micnext stopped while the sub-agent was running.";
 
 pub(super) fn handle(jobs: &Arc<Jobs>, session: &Session) -> ToolHandle {

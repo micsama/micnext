@@ -1,6 +1,7 @@
 //! 模块装配框架、内核句柄、模型 port 与执行主路径（调度、Agent 循环、崩溃收尾、实时事件）。
 //! 不依赖具体 Channel。契约：docs/blueprints/mic-core-module.md。
 
+mod ask;
 mod assembly;
 mod attempt;
 mod channel_setup;
@@ -25,6 +26,7 @@ mod schedule;
 mod scheduler;
 mod title;
 
+pub use ask::{AskArgs, Question, QuestionOption, ASK_USER};
 pub use assembly::{Assembly, OnceOutcome, OneShot};
 pub use channel_setup::{
     ChannelConnection, ChannelRestore, ChannelSetup, ChannelSetupError, ChannelSetupView,

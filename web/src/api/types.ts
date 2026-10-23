@@ -493,3 +493,10 @@ export function parseStreamEvent(event: string, data: string): StreamEvent {
   const decode = streamData[event as StreamEvent["event"]] as Decoder<unknown>;
   return { event, data: decode(parsed, `事件 ${event}`) } as StreamEvent;
 }
+
+/** `ask_user` 调用入参；只解码已成功的调用，入参已由工具校验。 */
+export type AskQuestion = { question: string; header: string; options: { label: string; description: string }[]; multi_select: boolean };
+const askArgs = obj<{ questions: AskQuestion[] }>({
+  questions: arr(obj<AskQuestion>({ question: str, header: str, options: arr(obj({ label: str, description: str })), multi_select: bool })),
+});
+export const parseAskArgs = (v: unknown): AskQuestion[] => askArgs(v, "ask_user").questions;

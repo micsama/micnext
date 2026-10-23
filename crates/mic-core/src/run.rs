@@ -19,6 +19,7 @@ use mic_tool::{ToolContext, ToolHandle, ToolOutput};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::ask::{ASK_USER, NOT_ALONE};
 use crate::attempt::{stream_attempt, Caller, Facts};
 use crate::control::{RunControl, Slot};
 use crate::event::{Events, KernelEventKind};
@@ -64,6 +65,7 @@ impl Engine {
         let core = match &session.kind {
             SessionKind::Root { .. } => {
                 let mut tools = self.jobs.tools(session);
+                tools.push(crate::ask::handle());
                 if let Some(schedules) = &self.schedules {
                     tools.extend(schedules.tools(session.id));
                 }
@@ -392,11 +394,12 @@ impl Exec<'_> {
             };
             // 先闭合本步工具调用再压缩，压缩失败或停止也不留无结果的调用。
             let has_tools = !tool_calls.is_empty();
-            if has_tools {
-                self.run_tools(tool_calls).await?;
-            }
+            let asked = has_tools && self.run_tools(tool_calls).await?;
             if let Err(failed) = self.compact_if_full(provider).await? {
                 return Ok(failed);
+            }
+            if asked {
+                return Ok(RunState::Completed);
             }
             if has_tools {
                 continue;
@@ -635,10 +638,14 @@ impl Exec<'_> {
 
     /// 本批调用并行执行，结果按返回顺序由本 run 落盘，故消息 id 只表示落盘顺序。
     /// 停止时中止未返回的任务（shell 随之杀进程组）：已登记后台任务的记 `Dispatched`，其余补记已取消。
-    async fn run_tools(&self, calls: Vec<Call>) -> Result<(), StoreError> {
+    /// 同批有 `ask_user` 时其余调用不执行；返回提问是否成功。
+    async fn run_tools(&self, calls: Vec<Call>) -> Result<bool, StoreError> {
         let mut running = JoinSet::new();
         let mut started = HashMap::new();
+        let asking = calls.iter().any(|c| c.name == ASK_USER);
+        let mut asked = false;
         for call in calls {
+            let rejected = asking && call.name != ASK_USER;
             let handle = self.tools.iter().find(|t| t.name() == call.name).cloned();
             let port = Arc::new(JobPort::new(
                 self.engine.jobs.clone(),
@@ -655,6 +662,12 @@ impl Exec<'_> {
             let (name, args) = (call.name.clone(), call.args.clone());
             let started_at = now_ms();
             let task = running.spawn(async move {
+                if rejected {
+                    return ToolResultOutcome::Terminal(ExecOutcome::Failed {
+                        kind: ExecFailureKind::Business,
+                        message: NOT_ALONE.into(),
+                    });
+                }
                 match handle {
                     None => ToolResultOutcome::Terminal(ExecOutcome::Failed {
                         kind: ExecFailureKind::Input,
@@ -721,6 +734,11 @@ impl Exec<'_> {
                         "tool dependency failed"
                     );
                 }
+                asked |= call.name == ASK_USER
+                    && matches!(
+                        outcome,
+                        ToolResultOutcome::Terminal(ExecOutcome::Completed { .. })
+                    );
                 let publish = self.engine.events.publisher().await;
                 let message = self
                     .engine
@@ -759,7 +777,7 @@ impl Exec<'_> {
         if let Some(panic) = panic {
             std::panic::resume_unwind(panic);
         }
-        result
+        result.map(|()| asked)
     }
 
     /// 重试前的等待；被停止返回 true。

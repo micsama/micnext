@@ -241,7 +241,7 @@ pub(crate) struct SendBody {
     parts: Vec<PartBody>,
 }
 
-/// 入站消息片段；图片只收 base64 字节，格式由内核按魔数识别；文件原样落盘。
+/// 入站消息片段；图片只收 base64 字节，由内核识别并规整；文件原样落盘。
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum PartBody {

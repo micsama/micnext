@@ -13,8 +13,8 @@ pub(crate) const PROMPT_MAX_CHARS: usize = 8000;
 pub(crate) const MAX_TURNS_LIMIT: u32 = 500;
 /// 请求体上限。
 pub(crate) const MAX_BODY_BYTES: usize = 1024 * 1024;
-/// 带附件消息路由的请求体上限：4 张 4 MiB 图与 4 个 10 MiB 文件经 base64 膨胀后仍可容纳。
-pub(crate) const MAX_INPUT_BODY_BYTES: usize = 80 * 1024 * 1024;
+/// 带附件消息路由的请求体上限：4 张 10 MiB 图与 4 个 10 MiB 文件经 base64 膨胀后仍可容纳。
+pub(crate) const MAX_INPUT_BODY_BYTES: usize = 112 * 1024 * 1024;
 /// 会话列表每页条数：缺省与上限。
 pub(crate) const PAGE_DEFAULT: u32 = 30;
 pub(crate) const PAGE_MAX: u32 = 100;

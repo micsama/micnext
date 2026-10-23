@@ -93,7 +93,7 @@ pub(crate) fn attachment_placeholder(kind: &AttachmentKind, failure: AttachmentF
     }
 }
 
-/// 返回合规图片字节。
+/// 返回规整后的图片字节。
 pub(crate) async fn fetch(
     client: &Client,
     source: &CdnSource,

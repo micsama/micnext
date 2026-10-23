@@ -1,4 +1,4 @@
-//! 图片能力：格式识别、合规判定与规整。不理解渠道协议，不决定失败后的处理；
+//! 图片能力：格式识别、解码校验与规整。不理解渠道协议，不决定失败后的处理；
 //! 接口为同步 CPU 计算，异步调用方自行放进 `spawn_blocking`。
 
 mod limits;
@@ -12,74 +12,59 @@ use image::{DynamicImage, ImageReader, Limits};
 use mic_message::limits::MAX_IMAGE_BYTES;
 use mic_message::{ImageData, ImageFormat};
 
-use crate::limits::{DECODE_MAX_ALLOC, JPEG_QUALITY, NORMALIZE_EDGE};
+use crate::limits::{DECODE_MAX_ALLOC, JPEG_QUALITY, KEEP_BYTES, NORMALIZE_EDGE};
 
-pub use crate::limits::MAX_EDGE;
-
-/// 不合规原因；由调用方决定拒收还是规整。
+/// 无法规整的原因；由调用方决定拒收还是占位。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum MediaError {
-    #[error("不是可识别的 PNG、JPEG、WebP 图片")]
+    #[error("不是可识别的图片")]
     Unsupported,
     #[error("图片已损坏")]
     Corrupt,
     #[error("图片不能超过 {} MB", MAX_IMAGE_BYTES / 1024 / 1024)]
     TooManyBytes,
-    #[error("图片长边不能超过 {MAX_EDGE} 像素")]
+    #[error("图片尺寸过大")]
     TooLargeDimensions,
 }
 
-/// 合规 = 魔数为 PNG/JPEG/WebP ∧ 字节 ≤ `MAX_IMAGE_BYTES` ∧ 长边 ≤ `MAX_EDGE` ∧ 完整解码成功。
-/// 合规时原样保留字节。
-pub fn inspect(bytes: Vec<u8>) -> Result<ImageData, MediaError> {
-    let format = check(&bytes)?;
-    Ok(ImageData {
-        format,
-        bytes: bytes.into(),
-    })
-}
-
-/// 合规原样返回；否则解码首帧，长边超 `NORMALIZE_EDGE` 等比缩小，
-/// 有透明通道编码 PNG，否则 JPEG。
+/// 规整为入库并发给模型的图片：PNG/JPEG/WebP、长边 ≤ `NORMALIZE_EDGE` 且字节 ≤ `KEEP_BYTES`
+/// 的原样保留；否则解码首帧，长边超限等比缩小，有实际透明像素编码 PNG，否则 JPEG。
 pub fn normalize(bytes: Vec<u8>) -> Result<ImageData, MediaError> {
-    match check(&bytes) {
-        Ok(format) => {
-            return Ok(ImageData {
-                format,
-                bytes: bytes.into(),
-            })
-        }
-        Err(MediaError::Corrupt) => return Err(MediaError::Corrupt),
-        Err(_) => {}
-    }
-    let mut image = decode(&bytes)?;
-    if image.width().max(image.height()) > NORMALIZE_EDGE {
-        image = image.resize(NORMALIZE_EDGE, NORMALIZE_EDGE, FilterType::Lanczos3);
-    }
-    let mut out = Cursor::new(Vec::new());
-    let encoded = if image.color().has_alpha() {
-        image.write_to(&mut out, image::ImageFormat::Png)
-    } else {
-        DynamicImage::ImageRgb8(image.to_rgb8())
-            .write_with_encoder(JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY))
-    };
-    encoded.map_err(|error| corrupt("encode", error))?;
-    inspect(out.into_inner())
-}
-
-fn check(bytes: &[u8]) -> Result<ImageFormat, MediaError> {
-    let format = sniff(bytes).ok_or(MediaError::Unsupported)?;
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(MediaError::TooManyBytes);
     }
-    let (width, height) = reader(bytes)?
-        .into_dimensions()
-        .map_err(|error| corrupt("dimensions", error))?;
-    if width.max(height) > MAX_EDGE {
-        return Err(MediaError::TooLargeDimensions);
+    let mut image = decode(&bytes)?;
+    let edge = image.width().max(image.height());
+    if let Some(format) = sniff(&bytes) {
+        if edge <= NORMALIZE_EDGE && bytes.len() <= KEEP_BYTES {
+            return Ok(ImageData {
+                format,
+                bytes: bytes.into(),
+            });
+        }
     }
-    decode(bytes)?;
-    Ok(format)
+    if edge > NORMALIZE_EDGE {
+        image = image.resize(NORMALIZE_EDGE, NORMALIZE_EDGE, FilterType::Lanczos3);
+    }
+    let mut out = Cursor::new(Vec::new());
+    let (format, encoded) = if transparent(&image) {
+        let encoded = image.write_to(&mut out, image::ImageFormat::Png);
+        (ImageFormat::Png, encoded)
+    } else {
+        let encoded = DynamicImage::ImageRgb8(image.to_rgb8())
+            .write_with_encoder(JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY));
+        (ImageFormat::Jpeg, encoded)
+    };
+    encoded.map_err(|error| corrupt("encode", error))?;
+    Ok(ImageData {
+        format,
+        bytes: out.into_inner().into(),
+    })
+}
+
+/// 截图常带全不透明的 alpha 通道，按像素判断才不会把它们留成大 PNG。
+fn transparent(image: &DynamicImage) -> bool {
+    image.color().has_alpha() && image.to_rgba8().pixels().any(|pixel| pixel[3] < u8::MAX)
 }
 
 /// 按文件魔数识别；不信任文件名与外部给的 MIME。
@@ -135,3 +120,6 @@ fn corrupt(stage: &'static str, error: impl std::error::Error) -> MediaError {
     tracing::warn!(stage, error = %error_chain(&error), "image processing failed");
     MediaError::Corrupt
 }
+
+#[cfg(test)]
+mod tests;

@@ -44,7 +44,7 @@
     reply?: ComposerReply | null;
   } = $props();
 
-  const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+  const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
   /** 支持的图片带预览 `url`，按图片发送；其余按文件发送。 */
   type Attachment = { id: number; file: File; url: string | null };

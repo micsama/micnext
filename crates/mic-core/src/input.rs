@@ -42,7 +42,7 @@ pub(crate) struct Validated {
     pub(crate) files: SavedFiles,
 }
 
-/// 纯文本去空白后为空且无附件则拒；图片须经 `mic_media::inspect` 判定合规；
+/// 纯文本去空白后为空且无附件则拒；图片经 `mic_media::normalize` 规整；
 /// 文件存入 `<files>/<person>/<本机日期>/`。
 pub(crate) async fn validate(
     parts: Vec<IncomingPart>,
@@ -64,9 +64,9 @@ pub(crate) async fn validate(
                 if images > MAX_IMAGES_PER_INPUT {
                     return Err(InputError::ImageLimit);
                 }
-                let image = tokio::task::spawn_blocking(move || mic_media::inspect(bytes))
+                let image = tokio::task::spawn_blocking(move || mic_media::normalize(bytes))
                     .await
-                    .expect("图片检查不 panic")
+                    .expect("图片规整不 panic")
                     .map_err(InputError::Image)?;
                 has_content = true;
                 NewInputPart::Image(image)

@@ -38,19 +38,24 @@ async fn sealed_output_stops_changing() {
     fs::remove_dir_all(dir).unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn growth_inside_throttle_window_is_notified_later() {
     let dir = scratch();
     let events = Events::new();
     let mut rx = events.subscribe();
-    let (mut w, _seal) = writer(dir.clone(), &events);
-    w.write(b"starting\n").await.unwrap();
-    w.write(b"ready\n").await.unwrap();
-    w.write(b"listening\n").await.unwrap();
+    let (w, _seal) = writer(dir.clone(), &events);
+    w.notifier.grew();
+    w.notifier.grew();
+    w.notifier.grew();
     assert!(rx.try_recv().is_some());
     assert!(rx.try_recv().is_none());
-    let trailing = tokio::time::timeout(JOB_NOTIFY_INTERVAL * 2, rx.recv()).await;
-    assert!(matches!(trailing, Ok(Ok(e)) if matches!(e.kind, KernelEventKind::JobsChanged)));
+    tokio::task::yield_now().await;
+    tokio::time::advance(JOB_NOTIFY_INTERVAL - std::time::Duration::from_millis(1)).await;
+    tokio::task::yield_now().await;
+    assert!(rx.try_recv().is_none());
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    tokio::task::yield_now().await;
+    assert!(matches!(rx.try_recv(), Some(Ok(e)) if matches!(e.kind, KernelEventKind::JobsChanged)));
     assert!(rx.try_recv().is_none());
     fs::remove_dir_all(dir).unwrap();
 }

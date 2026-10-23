@@ -878,6 +878,15 @@ impl Kernel {
         Ok(self.store.settings().await?)
     }
 
+    /// 出站正则脱敏开关；关闭时仍精确遮住主密钥与模型 key。
+    pub async fn redact_rules(&self) -> Result<bool, KernelError> {
+        Ok(self.store.redact_rules().await?)
+    }
+
+    pub async fn set_redact_rules(&self, on: bool) -> Result<(), KernelError> {
+        Ok(self.store.set_redact_rules(on).await?)
+    }
+
     /// 默认工作目录展开为 UTF-8 绝对路径，并确保存在。
     pub async fn default_workdir(&self) -> Result<String, KernelError> {
         let raw = self.store.settings().await?.default_workdir;

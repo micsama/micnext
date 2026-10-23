@@ -7,6 +7,7 @@
   import { atLeast, formatCost, formatTokens } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import DeliveryChips from "./DeliveryChips.svelte";
+  import Switch from "./Switch.svelte";
 
   let { task, tasks, onedit }: { task: Schedule; tasks: ScheduleList; onedit: () => void } = $props();
   let saving = $state(false);
@@ -68,7 +69,7 @@
       {#if error}<p role="alert" class="mt-2 text-xs text-destructive">{error}</p>{/if}
     </div>
     <div class="flex shrink-0 items-center gap-1">
-      <button type="button" role="switch" aria-checked={task.enabled} title={task.enabled ? "停用" : "启用"} aria-label={`${task.enabled ? "停用" : "启用"} ${task.name}`} disabled={saving} onclick={toggle} class="relative mr-1 h-5 w-9 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50 {task.enabled ? 'bg-primary' : 'bg-muted-foreground/30'}"><span class="absolute top-0.5 left-0.5 size-4 rounded-full bg-background shadow transition-transform {task.enabled ? 'translate-x-4' : ''}"></span></button>
+      <Switch class="mr-1" checked={task.enabled} title={task.enabled ? "停用" : "启用"} label={`${task.enabled ? "停用" : "启用"} ${task.name}`} disabled={saving} onclick={toggle} />
       <button type="button" title="编辑" aria-label={`编辑 ${task.name}`} class="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onclick={onedit}><PencilIcon class="size-4" /></button>
     </div>
   </div>

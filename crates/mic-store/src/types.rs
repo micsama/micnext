@@ -127,19 +127,23 @@ pub enum ClaimedModel {
         id: ModelId,
         name: String,
     },
-    Selected {
-        context_window: Option<NonZeroU32>,
-        images: bool,
-        id: ModelId,
-        /// 「服务商 / 模型」。
-        name: String,
-        kind: String,
-        endpoint_json: String,
-        model_name: String,
-        model_json: String,
-        reasoning_effort: Option<ReasoningEffort>,
-        key: Option<SecretValue>,
-    },
+    Selected(SelectedModel),
+}
+
+pub struct SelectedModel {
+    pub context_window: Option<NonZeroU32>,
+    pub images: bool,
+    pub id: ModelId,
+    /// 「服务商 / 模型」。
+    pub name: String,
+    pub kind: String,
+    pub endpoint_json: String,
+    pub model_name: String,
+    pub model_json: String,
+    pub reasoning_effort: Option<ReasoningEffort>,
+    pub key: Option<SecretValue>,
+    /// 出站正则脱敏是否开启；全局设置，随认领读出。
+    pub redact_rules: bool,
 }
 
 pub struct ClaimedRun {

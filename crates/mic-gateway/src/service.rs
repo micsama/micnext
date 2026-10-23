@@ -138,6 +138,10 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
             get(settings::get_title_model).put(settings::put_title_model),
         )
         .route(
+            "/settings/redaction",
+            get(settings::get_redaction).put(settings::put_redaction),
+        )
+        .route(
             "/settings/push",
             get(pushes::get_settings).put(pushes::put_settings),
         )

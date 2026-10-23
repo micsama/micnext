@@ -97,6 +97,29 @@ pub(crate) async fn put_title_model(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// 出站正则脱敏开关；精确匹配的秘密始终遮蔽。
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Redaction {
+    rules: bool,
+}
+
+pub(crate) async fn get_redaction(
+    State(app): State<Arc<App>>,
+) -> Result<Json<Redaction>, ApiError> {
+    Ok(Json(Redaction {
+        rules: app.kernel.redact_rules().await?,
+    }))
+}
+
+pub(crate) async fn put_redaction(
+    State(app): State<Arc<App>>,
+    body: Result<Json<Redaction>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    app.kernel.set_redact_rules(json(body)?.rules).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub(crate) async fn get_settings(
     State(app): State<Arc<App>>,
 ) -> Result<Json<SettingsView>, ApiError> {

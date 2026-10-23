@@ -11,6 +11,7 @@
   import Group from "./Group.svelte";
   import SaveStatus, { type SaveState } from "./SaveStatus.svelte";
   import PushSection from "./PushSection.svelte";
+  import RedactionSection from "./RedactionSection.svelte";
   import TitleModelSection from "./TitleModelSection.svelte";
 
   type Field = keyof SettingsInput;
@@ -166,6 +167,8 @@
   <TitleModelSection />
 
   <PushSection />
+
+  <RedactionSection />
 
   <Collapsible.Root>
     <Collapsible.Trigger

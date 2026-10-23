@@ -7,7 +7,7 @@ use crate::endpoints;
 use crate::secrets::Cipher;
 use crate::{
     ClaimedModel, EndpointId, ModelId, ModelPrice, ModelSettingsError, ModelView, ModelWrite,
-    ReasoningEffort, Store, StoreError,
+    ReasoningEffort, SelectedModel, Store, StoreError,
 };
 
 const MODEL_COLS: &str = "id, endpoint_id, name, config_json, context_window, price_input, price_cache_read, price_cache_write, price_output, images";
@@ -294,9 +294,11 @@ pub(crate) fn read_model(
         deleted,
         context_window,
         images,
+        redact_rules,
     ) = conn.query_row(
         "SELECT e.name, e.kind, e.config_json, e.key_cipher, e.id, m.name, m.config_json,
-                m.deleted_at IS NOT NULL, m.context_window, m.images
+                m.deleted_at IS NOT NULL, m.context_window, m.images,
+                (SELECT redact_rules FROM core_settings)
          FROM core_models m JOIN core_endpoints e ON e.id = m.endpoint_id WHERE m.id = ?1",
         [id.0],
         |r| {
@@ -311,6 +313,7 @@ pub(crate) fn read_model(
                 r.get::<_, bool>(7)?,
                 r.get::<_, Option<std::num::NonZeroU32>>(8)?,
                 r.get::<_, bool>(9)?,
+                r.get::<_, bool>(10)?,
             ))
         },
     )?;
@@ -319,7 +322,7 @@ pub(crate) fn read_model(
         return Ok(ClaimedModel::Deleted { id, name });
     }
     let key = blob.map(|b| cipher.decrypt(endpoint_id, &b)).transpose()?;
-    Ok(ClaimedModel::Selected {
+    Ok(ClaimedModel::Selected(SelectedModel {
         context_window,
         images,
         id,
@@ -330,5 +333,6 @@ pub(crate) fn read_model(
         model_json,
         reasoning_effort,
         key,
-    })
+        redact_rules,
+    }))
 }

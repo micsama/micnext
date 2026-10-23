@@ -1,5 +1,5 @@
 import { auth } from "../state/auth.svelte";
-import { obj, str } from "./decode";
+import { bool, obj, str } from "./decode";
 import { parseStoredLogs, type StoredLogRecord } from "./developer";
 import {
   parseSessionUsage, type SessionUsageView,
@@ -364,6 +364,14 @@ export async function listPushes(before: number | null): Promise<PushPage> {
 
 export async function markPushesRead(through: number): Promise<void> {
   await request("POST", "/pushes/read", { through });
+}
+
+export async function getRedactRules(): Promise<boolean> {
+  return obj({ rules: bool })(await request("GET", "/settings/redaction"), "脱敏设置").rules;
+}
+
+export async function putRedactRules(rules: boolean): Promise<void> {
+  await request("PUT", "/settings/redaction", { rules });
 }
 
 export async function getPushSettings(): Promise<PushSettings> {

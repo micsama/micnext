@@ -1,7 +1,17 @@
 use super::*;
 
+fn scrub(known: &[&str], rules: bool, text: &str) -> String {
+    let mut s = text.to_owned();
+    Scrub {
+        known: known.to_vec(),
+        rules,
+    }
+    .text(&mut s);
+    s
+}
+
 fn r(text: &str) -> String {
-    redact(&[], text).into_owned()
+    scrub(&[], true, text)
 }
 
 #[test]
@@ -42,14 +52,25 @@ fn masks_credentials_and_keeps_ordinary_text() {
 }
 
 #[test]
-fn masks_master_key_forms_and_own_key() {
+fn exact_secrets_stay_masked_when_rules_off() {
     let redactor = Redactor::new(&[0xab; 32]);
-    let known: Vec<&str> = redactor.known.iter().map(SecretValue::expose).collect();
-    let hex = "ab".repeat(32);
+    let known: Vec<&str> = redactor
+        .master_key
+        .iter()
+        .map(SecretValue::expose)
+        .collect();
     let b64 = STANDARD.encode([0xab; 32]);
-    assert_eq!(redact(&known, &hex), "abab***abab");
-    assert_eq!(redact(&known, &format!("cat: {b64}")), "cat: q6ur***q6s=");
-    assert_eq!(redact(&["plainkey"], "use plainkey now"), "use *** now");
+    assert_eq!(scrub(&known, false, &"ab".repeat(32)), "abab***abab");
+    assert_eq!(
+        scrub(&known, false, &format!("cat: {b64}")),
+        "cat: q6ur***q6s="
+    );
+    assert_eq!(
+        scrub(&["plainkey"], false, "use plainkey now"),
+        "use *** now"
+    );
+    let token = "token = \"1234567890\"";
+    assert_eq!(scrub(&[], false, token), token);
 }
 
 #[test]
@@ -81,7 +102,11 @@ fn request_keeps_protocol_fields() {
         images: Default::default(),
         cache_key: "c".into(),
     };
-    redact_request(&[], &mut req);
+    Scrub {
+        known: Vec::new(),
+        rules: true,
+    }
+    .request(&mut req);
     assert_eq!(req.system, "env ghp_***KLMN");
     let MessageBody::Reply { blocks, .. } = &req.messages[0].body else {
         unreachable!()

@@ -92,6 +92,12 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: include_str!("schema/tool_call_identity.sql"),
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 24,
+        sql: "ALTER TABLE core_settings ADD COLUMN redact_rules INTEGER NOT NULL DEFAULT 1 CHECK(redact_rules IN (0, 1));",
+        secret_columns: &[],
+    },
 ];
 
 /// 压缩保留必读路径，不再冻结文件正文。

@@ -141,10 +141,10 @@ fn reasoning_is_per_session_and_fixed_when_claimed() {
             assert_eq!(claimed.settings.reasoning_effort, Some(E::High));
             assert!(matches!(
                 claimed.model,
-                ClaimedModel::Selected {
+                ClaimedModel::Selected(crate::SelectedModel {
                     reasoning_effort: Some(E::High),
                     ..
-                }
+                })
             ));
             let run_id = claimed.run.id;
             assert_eq!(

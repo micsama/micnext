@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use mic_message::{ImageData, ImageId, Message, ReplyBlock};
 pub use mic_store::StopReason;
-use mic_store::{ReasoningEffort, SecretValue, Usage};
+use mic_store::{ReasoningEffort, SecretValue, SelectedModel, Usage};
 use mic_tool::ToolSpec;
 
 use crate::redact::Redactor;
@@ -153,26 +153,18 @@ impl Factories {
     }
 
     /// 已认领模型的本轮实例：解析 key 回退与思考档位后交给工厂。
-    pub(crate) fn build(
-        &self,
-        kind: &str,
-        endpoint_json: &str,
-        model_name: &str,
-        model_json: &str,
-        reasoning_effort: Option<ReasoningEffort>,
-        key: Option<SecretValue>,
-    ) -> Result<BuiltProvider, ConfigError> {
-        let factory = self.get(kind)?;
+    pub(crate) fn build(&self, m: SelectedModel) -> Result<BuiltProvider, ConfigError> {
+        let factory = self.get(&m.kind)?;
         let effort = resolve_reasoning(
-            factory.reasoning_options(endpoint_json, model_name)?,
-            reasoning_effort,
+            factory.reasoning_options(&m.endpoint_json, &m.model_name)?,
+            m.reasoning_effort,
         )?;
-        let key = resolve_key(key, factory.key_env(endpoint_json));
+        let key = resolve_key(m.key, factory.key_env(&m.endpoint_json));
         let own_key = key
             .as_ref()
             .map(|k| SecretValue::new(k.expose().to_owned()));
-        let inner = factory.build(endpoint_json, key, model_name, model_json, effort)?;
-        let provider = self.redactor.wrap(inner, own_key);
+        let inner = factory.build(&m.endpoint_json, key, &m.model_name, &m.model_json, effort)?;
+        let provider = self.redactor.wrap(inner, own_key, m.redact_rules);
         Ok(BuiltProvider { provider, effort })
     }
 

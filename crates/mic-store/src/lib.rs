@@ -54,6 +54,6 @@ pub use types::{
     ModelCallContext, ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelPrice,
     ModelView, ModelWrite, NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery,
     Person, Persona, PersonaId, ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState,
-    SecretColumn, Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings,
-    StopReason, TitleCall, TitleModelSelection, ToolScope, Usage,
+    SecretColumn, SelectedModel, Session, SessionCursor, SessionKind, SessionPage, SessionSummary,
+    Settings, StopReason, TitleCall, TitleModelSelection, ToolScope, Usage,
 };

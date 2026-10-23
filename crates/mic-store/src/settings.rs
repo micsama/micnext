@@ -33,6 +33,21 @@ impl Store {
         .await
     }
 
+    pub async fn redact_rules(&self) -> Result<bool, StoreError> {
+        self.call(|conn| {
+            Ok(conn.query_row("SELECT redact_rules FROM core_settings", [], |r| r.get(0))?)
+        })
+        .await
+    }
+
+    pub async fn set_redact_rules(&self, on: bool) -> Result<(), StoreError> {
+        self.call(move |conn| {
+            conn.execute("UPDATE core_settings SET redact_rules = ?1", [on])?;
+            Ok(())
+        })
+        .await
+    }
+
     /// 未删除的人设，内置在前，其余按 id。
     pub async fn personas(&self) -> Result<Vec<Persona>, StoreError> {
         self.call(|conn| {

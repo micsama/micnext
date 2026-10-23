@@ -147,17 +147,12 @@ impl Engine {
         tracing::info!(session = session.id.0, run = run.id.0, "run started");
         let tools = self.scoped_tools(session);
         let (model_id, context_window, images) = match &model {
-            ClaimedModel::Selected {
-                id,
-                context_window,
-                images,
-                ..
-            } => (
-                Some(*id),
-                context_window
+            ClaimedModel::Selected(m) => (
+                Some(m.id),
+                m.context_window
                     .map(|v| v.get())
                     .unwrap_or(crate::limits::DEFAULT_CONTEXT_WINDOW),
-                *images,
+                m.images,
             ),
             _ => (None, crate::limits::DEFAULT_CONTEXT_WINDOW, true),
         };
@@ -325,28 +320,12 @@ impl Engine {
             ClaimedModel::Deleted { name, .. } => Err(format!(
                 "所选模型「{name}」已被删除。请在会话里重新选择模型后重新发送。"
             )),
-            ClaimedModel::Selected {
-                name,
-                kind,
-                endpoint_json,
-                model_name,
-                model_json,
-                reasoning_effort,
-                key,
-                ..
-            } => self
-                .factories
-                .build(
-                    &kind,
-                    &endpoint_json,
-                    &model_name,
-                    &model_json,
-                    reasoning_effort,
-                    key,
-                )
-                .map_err(|e| {
+            ClaimedModel::Selected(m) => {
+                let name = m.name.clone();
+                self.factories.build(m).map_err(|e| {
                     format!("模型「{name}」的调用配置有误（{e}）。请检查会话思考档位与模型设置后重新发送。")
-                }),
+                })
+            }
         }
     }
 }

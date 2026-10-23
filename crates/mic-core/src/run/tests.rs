@@ -437,7 +437,7 @@ impl Fixture {
                 _ => unreachable!(),
             },
             model_id: match self.claimed.model {
-                ClaimedModel::Selected { id, .. } => Some(id),
+                ClaimedModel::Selected(ref m) => Some(m.id),
                 _ => None,
             },
             effort: None,

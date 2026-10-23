@@ -262,7 +262,7 @@ pub(crate) fn title_messages(session: SessionId, sources: &[Message]) -> Vec<Mes
 async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(), StoreError> {
     let snapshot = store.title_model_snapshot().await?;
     let model_id = match &snapshot {
-        ClaimedModel::Selected { id, .. } => Some(*id),
+        ClaimedModel::Selected(m) => Some(m.id),
         _ => None,
     };
     let built = build_provider(factories, snapshot);
@@ -354,22 +354,7 @@ fn build_provider(
             field: "model_id".into(),
             message: format!("标题模型「{name}」已删除，请重新选择"),
         }),
-        ClaimedModel::Selected {
-            kind,
-            endpoint_json,
-            model_name,
-            model_json,
-            reasoning_effort,
-            key,
-            ..
-        } => factories.build(
-            &kind,
-            &endpoint_json,
-            &model_name,
-            &model_json,
-            reasoning_effort,
-            key,
-        ),
+        ClaimedModel::Selected(m) => factories.build(m),
     }
 }
 

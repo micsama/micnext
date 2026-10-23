@@ -98,6 +98,13 @@ const CORE_MIGRATIONS: &[Migration] = &[
         sql: "ALTER TABLE core_settings ADD COLUMN redact_rules INTEGER NOT NULL DEFAULT 1 CHECK(redact_rules IN (0, 1));",
         secret_columns: &[],
     },
+    Migration {
+        module: CORE,
+        version: 25,
+        sql: "ALTER TABLE core_settings DROP COLUMN redact_rules;
+              ALTER TABLE core_sessions ADD COLUMN plain_after INTEGER;",
+        secret_columns: &[],
+    },
 ];
 
 /// 压缩保留必读路径，不再冻结文件正文。

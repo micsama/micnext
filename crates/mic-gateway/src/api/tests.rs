@@ -14,6 +14,7 @@ fn summary(kind: SessionKind) -> SessionSummary {
             model_id: None,
             reasoning_effort: None,
             archived_at: None,
+            plain_after: None,
         },
         title: None,
         title_error: None,

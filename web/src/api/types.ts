@@ -114,6 +114,8 @@ export type SessionItem = {
   /** 下次执行用的模型；null = 下次取当时的默认模型。 */
   model_id: number | null;
   reasoning_effort: ReasoningEffort | null;
+  /** 临时明文：开启后的新消息发给模型时不按规则脱敏。 */
+  plaintext: boolean;
 };
 
 export type Preset = "generic" | "deepseek" | "ollama" | "openai" | "chatgpt";
@@ -360,6 +362,7 @@ const sessionFields = {
   persona_id: num,
   model_id: nullable(num),
   reasoning_effort: nullable(reasoningEffort),
+  plaintext: bool,
 };
 const sessionItem: Decoder<SessionItem> = obj(sessionFields);
 const sessionDetail: Decoder<SessionDetail> = obj({ ...sessionFields, title_generating: bool });

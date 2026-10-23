@@ -282,6 +282,7 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
         tools: Vec::new(),
         images: Default::default(),
         cache_key: format!("title-{}", job.session.id.0),
+        plain_after: None,
     };
     let mut facts = Facts::start();
     let response = tokio::select! {

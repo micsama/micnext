@@ -878,15 +878,6 @@ impl Kernel {
         Ok(self.store.settings().await?)
     }
 
-    /// 出站正则脱敏开关；关闭时仍精确遮住主密钥与模型 key。
-    pub async fn redact_rules(&self) -> Result<bool, KernelError> {
-        Ok(self.store.redact_rules().await?)
-    }
-
-    pub async fn set_redact_rules(&self, on: bool) -> Result<(), KernelError> {
-        Ok(self.store.set_redact_rules(on).await?)
-    }
-
     /// 默认工作目录展开为 UTF-8 绝对路径，并确保存在。
     pub async fn default_workdir(&self) -> Result<String, KernelError> {
         let raw = self.store.settings().await?.default_workdir;
@@ -956,6 +947,11 @@ impl Kernel {
         persona: PersonaId,
     ) -> Result<(), KernelError> {
         Ok(self.store.set_session_persona(session, persona).await?)
+    }
+
+    /// 临时明文：开启后新消息发给模型时不按规则脱敏，之前的仍脱敏；下一次模型调用生效。
+    pub async fn set_session_plain(&self, session: SessionId, on: bool) -> Result<(), KernelError> {
+        Ok(self.store.set_session_plain(session, on).await?)
     }
 
     /// 可创建的模型类型，来自各模型模块登记的工厂。

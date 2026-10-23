@@ -98,6 +98,22 @@ impl Store {
         .await
     }
 
+    /// 开启时把水位记在当前最新消息上，已开启则保持原水位；关闭清空。
+    pub async fn set_session_plain(&self, session: SessionId, on: bool) -> Result<(), StoreError> {
+        self.call(move |conn| {
+            let sql = if on {
+                "UPDATE core_sessions SET plain_after = COALESCE(plain_after,
+                     (SELECT COALESCE(MAX(id), 0) FROM core_messages WHERE session_id = ?1))
+                 WHERE id = ?1"
+            } else {
+                "UPDATE core_sessions SET plain_after = NULL WHERE id = ?1"
+            };
+            conn.execute(sql, [session.0])?;
+            Ok(())
+        })
+        .await
+    }
+
     /// 单个会话的摘要；没有消息时最近活跃取创建时间。
     pub async fn session_summary(
         &self,
@@ -207,6 +223,7 @@ pub(crate) fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Se
         model_id,
         reasoning_effort: new.reasoning_effort,
         archived_at: None,
+        plain_after: None,
     })
 }
 

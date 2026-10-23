@@ -11,6 +11,7 @@ fn reasoning_is_a_call_parameter_in_both_protocols() {
         tools: Vec::new(),
         images: Default::default(),
         cache_key: "test".into(),
+        plain_after: None,
     };
     for preset in ["deepseek", "openai", "chatgpt"] {
         let endpoint = EndpointConfig::parse(&format!(r#"{{"preset":"{preset}"}}"#))

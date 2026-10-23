@@ -18,6 +18,7 @@
     dock,
     readonly = null,
     blocked = false,
+    danger = false,
     onstop,
     stopping = false,
     reply = $bindable(null),
@@ -37,6 +38,8 @@
     readonly?: string | null;
     /** 暂不能发送（原因见 notice）。 */
     blocked?: boolean;
+    /** 红框提醒（如临时明文开启中）。 */
+    danger?: boolean;
     /** 有一轮在执行时传入：输入为空时发送键变为停止，Esc 同效。 */
     onstop?: () => Promise<void>;
     stopping?: boolean;
@@ -196,9 +199,11 @@
     }}
     ondragleave={() => (dragging = false)}
     {ondrop}
-    class="relative z-20 rounded-3xl border bg-card p-2 shadow-sm transition-colors focus-within:border-ring {dragging
+    class="relative z-20 rounded-3xl border bg-card p-2 shadow-sm transition-colors {dragging
       ? 'border-primary'
-      : 'border-border'}">
+      : danger
+        ? 'border-destructive'
+        : 'border-border focus-within:border-ring'}">
     {#if attachments.length > 0}
       <div class="flex flex-wrap gap-2 px-2 pt-2">
         {#each attachments as a, i (a.id)}

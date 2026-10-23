@@ -23,10 +23,10 @@ pub(crate) const MESSAGE_NEXT: usize = 11;
 
 pub(crate) const SESSION_COLS: &str = "id, kind, channel, chat, trigger_module, \
      trigger_ref, parent_session_id, delivery_channel, delivery_payload, pwd, \
-     tool_scope, created_at, persona_id, model_id, reasoning_effort, archived_at";
+     tool_scope, created_at, persona_id, model_id, reasoning_effort, archived_at, plain_after";
 
 /// 紧跟 SESSION_COLS 追加的列从这个序号开始。
-pub(crate) const SESSION_NEXT: usize = 16;
+pub(crate) const SESSION_NEXT: usize = 17;
 
 pub(crate) const RUN_COLS: &str = "id, session_id, state, created_at, finished_at";
 
@@ -273,6 +273,7 @@ pub(crate) fn session(row: &Row<'_>) -> rusqlite::Result<Session> {
         model_id: row.get::<_, Option<i64>>(13)?.map(ModelId),
         reasoning_effort: row.get(14)?,
         archived_at: row.get(15)?,
+        plain_after: row.get::<_, Option<i64>>(16)?.map(MessageId),
     })
 }
 

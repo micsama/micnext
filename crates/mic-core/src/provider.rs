@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use mic_message::{ImageData, ImageId, Message, ReplyBlock};
+use mic_message::{ImageData, ImageId, Message, MessageId, ReplyBlock};
 pub use mic_store::StopReason;
 use mic_store::{ReasoningEffort, SecretValue, SelectedModel, Usage};
 use mic_tool::ToolSpec;
@@ -164,7 +164,7 @@ impl Factories {
             .as_ref()
             .map(|k| SecretValue::new(k.expose().to_owned()));
         let inner = factory.build(&m.endpoint_json, key, &m.model_name, &m.model_json, effort)?;
-        let provider = self.redactor.wrap(inner, own_key, m.redact_rules);
+        let provider = self.redactor.wrap(inner, own_key);
         Ok(BuiltProvider { provider, effort })
     }
 
@@ -199,6 +199,8 @@ pub struct ModelRequest {
     pub images: HashMap<ImageId, ImageData>,
     /// 同一会话稳定、不同会话不同的不透明串，供上游做前缀缓存路由；不含用户内容。
     pub cache_key: String,
+    /// 出站脱敏层消费：id 大于它的消息不按规则脱敏，`None` = 全部脱敏。Provider 不用读。
+    pub plain_after: Option<MessageId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

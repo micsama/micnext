@@ -67,6 +67,11 @@ impl Store {
                 Some(c) => (Some(c.summary), c.files),
                 None => (None, Vec::new()),
             };
+            let plain_after = conn.query_row(
+                "SELECT plain_after FROM core_sessions WHERE id = ?1",
+                [session.0],
+                |r| r.get::<_, Option<i64>>(0),
+            )?;
             Ok(ContextWindow {
                 boundary_id,
                 summary,
@@ -74,6 +79,7 @@ impl Store {
                 messages,
                 filtered,
                 quoted,
+                plain_after: plain_after.map(MessageId),
             })
         })
         .await

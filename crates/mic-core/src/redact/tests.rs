@@ -2,11 +2,7 @@ use super::*;
 
 fn scrub(known: &[&str], rules: bool, text: &str) -> String {
     let mut s = text.to_owned();
-    Scrub {
-        known: known.to_vec(),
-        rules,
-    }
-    .text(&mut s);
+    Scrub { known, rules }.text(&mut s);
     s
 }
 
@@ -73,40 +69,57 @@ fn exact_secrets_stay_masked_when_rules_off() {
     assert_eq!(scrub(&[], false, token), token);
 }
 
+fn message(id: i64, body: MessageBody) -> mic_message::Message {
+    mic_message::Message {
+        id: mic_message::MessageId(id),
+        session_id: mic_message::SessionId(1),
+        body,
+        created_at: 0,
+        delivered_at: None,
+    }
+}
+
+fn user(id: i64, text: &str) -> mic_message::Message {
+    message(
+        id,
+        MessageBody::UserInput {
+            person: mic_message::PersonId(1),
+            parts: vec![ContentPart::Text { text: text.into() }],
+        },
+    )
+}
+
 #[test]
-fn request_keeps_protocol_fields() {
+fn request_keeps_protocol_fields_and_honors_plain_after() {
     let secret = "ghp_0123456789abcdefghijKLMN";
     let mut req = ModelRequest {
         tool_choice: crate::provider::ToolChoice::Auto,
         system: format!("env {secret}"),
-        messages: vec![mic_message::Message {
-            id: mic_message::MessageId(1),
-            session_id: mic_message::SessionId(1),
-            body: MessageBody::Reply {
-                stats: mic_message::ReplyStats {
-                    model_ms: 0,
-                    first_output_ms: None,
-                    usage: None,
+        messages: vec![
+            message(
+                1,
+                MessageBody::Reply {
+                    stats: mic_message::ReplyStats {
+                        model_ms: 0,
+                        first_output_ms: None,
+                        usage: None,
+                    },
+                    model: "m".into(),
+                    blocks: vec![ReplyBlock::ToolCall {
+                        id: "call_1".into(),
+                        name: "bash".into(),
+                        args: serde_json::json!({ "command": format!("curl -H 'x: {secret}'") }),
+                    }],
                 },
-                model: "m".into(),
-                blocks: vec![ReplyBlock::ToolCall {
-                    id: "call_1".into(),
-                    name: "bash".into(),
-                    args: serde_json::json!({ "command": format!("curl -H 'x: {secret}'") }),
-                }],
-            },
-            created_at: 0,
-            delivered_at: None,
-        }],
+            ),
+            user(2, &format!("new {secret} known")),
+        ],
         tools: Vec::new(),
         images: Default::default(),
         cache_key: "c".into(),
+        plain_after: Some(mic_message::MessageId(1)),
     };
-    Scrub {
-        known: Vec::new(),
-        rules: true,
-    }
-    .request(&mut req);
+    request(&["known"], &mut req);
     assert_eq!(req.system, "env ghp_***KLMN");
     let MessageBody::Reply { blocks, .. } = &req.messages[0].body else {
         unreachable!()
@@ -116,4 +129,13 @@ fn request_keeps_protocol_fields() {
     };
     assert_eq!(id, "call_1");
     assert_eq!(args["command"], "curl -H 'x: ghp_***KLMN'");
+    let MessageBody::UserInput { parts, .. } = &req.messages[1].body else {
+        unreachable!()
+    };
+    assert_eq!(
+        parts[0],
+        ContentPart::Text {
+            text: format!("new {secret} ***")
+        }
+    );
 }

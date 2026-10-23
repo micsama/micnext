@@ -199,6 +199,7 @@ fn history() -> ModelRequest {
         )]
         .into(),
         cache_key: "ck".into(),
+        plain_after: None,
     }
 }
 

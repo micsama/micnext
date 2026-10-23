@@ -98,28 +98,6 @@ pub(crate) async fn put_title_model(
 }
 
 /// 出站正则脱敏开关；精确匹配的秘密始终遮蔽。
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Redaction {
-    rules: bool,
-}
-
-pub(crate) async fn get_redaction(
-    State(app): State<Arc<App>>,
-) -> Result<Json<Redaction>, ApiError> {
-    Ok(Json(Redaction {
-        rules: app.kernel.redact_rules().await?,
-    }))
-}
-
-pub(crate) async fn put_redaction(
-    State(app): State<Arc<App>>,
-    body: Result<Json<Redaction>, JsonRejection>,
-) -> Result<StatusCode, ApiError> {
-    app.kernel.set_redact_rules(json(body)?.rules).await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
 pub(crate) async fn get_settings(
     State(app): State<Arc<App>>,
 ) -> Result<Json<SettingsView>, ApiError> {
@@ -231,6 +209,27 @@ pub(crate) async fn set_session_persona(
     let b = json(body)?;
     app.kernel
         .set_session_persona(session.id, b.persona_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SessionPlaintextBody {
+    on: bool,
+}
+
+pub(crate) async fn set_session_plaintext(
+    State(app): State<Arc<App>>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<SessionPlaintextBody>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let session = api::session(&app, id).await?;
+    if !api::writable(&session) {
+        return Err(ApiError::ReadOnly);
+    }
+    app.kernel
+        .set_session_plain(session.id, json(body)?.on)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }

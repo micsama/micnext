@@ -129,6 +129,10 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         )
         .route("/sessions/{id}/persona", put(settings::set_session_persona))
         .route(
+            "/sessions/{id}/plaintext",
+            put(settings::set_session_plaintext),
+        )
+        .route(
             "/settings",
             get(settings::get_settings).put(settings::put_settings),
         )
@@ -136,10 +140,6 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route(
             "/settings/title-model",
             get(settings::get_title_model).put(settings::put_title_model),
-        )
-        .route(
-            "/settings/redaction",
-            get(settings::get_redaction).put(settings::put_redaction),
         )
         .route(
             "/settings/push",

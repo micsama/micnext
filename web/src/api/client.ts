@@ -1,5 +1,5 @@
 import { auth } from "../state/auth.svelte";
-import { bool, obj, str } from "./decode";
+import { obj, str } from "./decode";
 import { parseStoredLogs, type StoredLogRecord } from "./developer";
 import {
   parseSessionUsage, type SessionUsageView,
@@ -154,6 +154,10 @@ export async function createSession(parts: InputPart[], personaId: number, model
 
 export async function setSessionPersona(sessionId: number, personaId: number): Promise<void> {
   await request("PUT", `/sessions/${sessionId}/persona`, { persona_id: personaId });
+}
+
+export async function setSessionPlaintext(sessionId: number, on: boolean): Promise<void> {
+  await request("PUT", `/sessions/${sessionId}/plaintext`, { on });
 }
 
 export async function setSessionModel(sessionId: number, modelId: number, reasoningEffort: ReasoningEffort | null): Promise<void> {
@@ -364,14 +368,6 @@ export async function listPushes(before: number | null): Promise<PushPage> {
 
 export async function markPushesRead(through: number): Promise<void> {
   await request("POST", "/pushes/read", { through });
-}
-
-export async function getRedactRules(): Promise<boolean> {
-  return obj({ rules: bool })(await request("GET", "/settings/redaction"), "脱敏设置").rules;
-}
-
-export async function putRedactRules(rules: boolean): Promise<void> {
-  await request("PUT", "/settings/redaction", { rules });
 }
 
 export async function getPushSettings(): Promise<PushSettings> {

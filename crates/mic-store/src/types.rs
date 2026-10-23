@@ -142,8 +142,6 @@ pub struct SelectedModel {
     pub model_json: String,
     pub reasoning_effort: Option<ReasoningEffort>,
     pub key: Option<SecretValue>,
-    /// 出站正则脱敏是否开启；全局设置，随认领读出。
-    pub redact_rules: bool,
 }
 
 pub struct ClaimedRun {
@@ -258,6 +256,8 @@ pub struct Session {
     pub model_id: Option<ModelId>,
     /// `None` = 使用模型默认档位；`Some(ReasoningEffort::None)` = 显式关闭思考。
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// 临时明文：id 大于它的消息发给模型时不按规则脱敏；`None` = 全部脱敏。
+    pub plain_after: Option<MessageId>,
 }
 
 /// 会话列表分页游标：上一页最后一项的排序键。
@@ -355,6 +355,8 @@ pub struct ContextWindow {
     pub messages: Vec<Message>,
     /// 当前有效压缩边界带回的用户原话，按 id。
     pub quoted: Vec<Message>,
+    /// 读窗口时会话的临时明文水位，见 `Session::plain_after`。
+    pub plain_after: Option<MessageId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

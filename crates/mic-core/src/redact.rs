@@ -1,5 +1,6 @@
 //! 模型出站脱敏：只改每次请求的副本，本地原文不动。精确匹配应用自己持有的秘密（始终开启），
-//! 正则遮有明显特征的凭据（可在设置里关）。编码、拆分、图片与工具直接外传不在范围内。
+//! 正则遮有明显特征的凭据（会话可对新消息临时关闭，见 `ModelRequest::plain_after`）。
+//! 编码、拆分、图片与工具直接外传不在范围内。
 
 use std::sync::{Arc, LazyLock};
 
@@ -54,13 +55,11 @@ impl Redactor {
         self: &Arc<Self>,
         inner: Arc<dyn Provider>,
         own_key: Option<SecretValue>,
-        rules: bool,
     ) -> Arc<dyn Provider> {
         Arc::new(Redacted {
             inner,
             redactor: self.clone(),
             own_key,
-            rules,
         })
     }
 }
@@ -69,7 +68,6 @@ struct Redacted {
     inner: Arc<dyn Provider>,
     redactor: Arc<Redactor>,
     own_key: Option<SecretValue>,
-    rules: bool,
 }
 
 impl Provider for Redacted {
@@ -79,68 +77,71 @@ impl Provider for Redacted {
 
     fn stream(&self, mut req: ModelRequest) -> BoxStream<Result<ModelEvent, ProviderError>> {
         let known = self.redactor.master_key.iter().chain(&self.own_key);
-        Scrub {
-            known: known
-                .map(SecretValue::expose)
-                .filter(|k| !k.is_empty())
-                .collect(),
-            rules: self.rules,
-        }
-        .request(&mut req);
+        let known: Vec<&str> = known
+            .map(SecretValue::expose)
+            .filter(|k| !k.is_empty())
+            .collect();
+        request(&known, &mut req);
         self.inner.stream(req)
     }
 }
 
 struct Scrub<'a> {
-    known: Vec<&'a str>,
+    known: &'a [&'a str],
     rules: bool,
 }
 
+/// 只改承载内容的字符串；协议 ID、角色、签名与上游密文推理原样保留。system 始终过正则：
+/// 其中的摘要和原话可能早于明文水位。
+fn request(known: &[&str], req: &mut ModelRequest) {
+    Scrub { known, rules: true }.text(&mut req.system);
+    for message in &mut req.messages {
+        let rules = req.plain_after.is_none_or(|after| message.id <= after);
+        Scrub { known, rules }.message(&mut message.body);
+    }
+}
+
 impl Scrub<'_> {
-    /// 只改承载内容的字符串；协议 ID、角色、签名与上游密文推理原样保留。
-    fn request(&self, req: &mut ModelRequest) {
-        self.text(&mut req.system);
-        for message in &mut req.messages {
-            match &mut message.body {
-                MessageBody::Command {
-                    command: SessionCommand::Compact { text: Some(text) },
-                    ..
-                }
-                | MessageBody::JobNotice { text, .. }
-                | MessageBody::Trigger { text, .. }
-                | MessageBody::HarnessNote { text }
-                | MessageBody::Notification { text, .. }
-                | MessageBody::SideOutput { text, .. }
-                | MessageBody::Boundary {
-                    boundary: ContextBoundary::Compaction(Compaction { summary: text, .. }),
-                } => self.text(text),
-                MessageBody::UserInput { parts, .. } => self.parts(parts),
-                MessageBody::Reply { blocks, .. } => {
-                    for block in blocks {
-                        match block {
-                            ReplyBlock::Reasoning(Reasoning::Visible { text, .. })
-                            | ReplyBlock::Text { text, .. } => self.text(text),
-                            ReplyBlock::ToolCall { args, .. } => self.json(args),
-                            ReplyBlock::Reasoning(Reasoning::Redacted { .. }) => {}
-                        }
-                    }
-                }
-                MessageBody::ToolResult {
-                    outcome: ToolResultOutcome::Terminal(outcome),
-                    ..
-                }
-                | MessageBody::Completion { outcome, .. } => match outcome {
-                    ExecOutcome::TimedOut { output } | ExecOutcome::Completed { output } => {
-                        self.parts(output)
-                    }
-                    ExecOutcome::Failed { message, .. } | ExecOutcome::Cancelled { message } => {
-                        self.text(message)
-                    }
-                },
-                MessageBody::Command { .. }
-                | MessageBody::ToolResult { .. }
-                | MessageBody::Boundary { .. } => {}
+    fn message(&self, body: &mut MessageBody) {
+        match body {
+            MessageBody::Command {
+                command: SessionCommand::Compact { text: Some(text) },
+                ..
             }
+            | MessageBody::JobNotice { text, .. }
+            | MessageBody::Trigger { text, .. }
+            | MessageBody::HarnessNote { text }
+            | MessageBody::Notification { text, .. }
+            | MessageBody::SideOutput { text, .. }
+            | MessageBody::Boundary {
+                boundary: ContextBoundary::Compaction(Compaction { summary: text, .. }),
+            } => self.text(text),
+            MessageBody::UserInput { parts, .. } => self.parts(parts),
+            MessageBody::Reply { blocks, .. } => {
+                for block in blocks {
+                    match block {
+                        ReplyBlock::Reasoning(Reasoning::Visible { text, .. })
+                        | ReplyBlock::Text { text, .. } => self.text(text),
+                        ReplyBlock::ToolCall { args, .. } => self.json(args),
+                        ReplyBlock::Reasoning(Reasoning::Redacted { .. }) => {}
+                    }
+                }
+            }
+            MessageBody::ToolResult {
+                outcome: ToolResultOutcome::Terminal(outcome),
+                ..
+            }
+            | MessageBody::Completion { outcome, .. } => match outcome {
+                ExecOutcome::TimedOut { output } | ExecOutcome::Completed { output } => {
+                    self.parts(output)
+                }
+                ExecOutcome::Failed { message, .. } | ExecOutcome::Cancelled { message } => {
+                    self.text(message)
+                }
+            },
+            MessageBody::Command { .. }
+            | MessageBody::ToolResult { .. }
+            | MessageBody::Boundary { .. } => {}
         }
     }
 
@@ -162,7 +163,7 @@ impl Scrub<'_> {
     }
 
     fn text(&self, s: &mut String) {
-        for secret in &self.known {
+        for secret in self.known {
             if s.contains(secret) {
                 *s = s.replace(secret, &mask(secret));
             }

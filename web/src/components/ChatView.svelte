@@ -1,7 +1,7 @@
 <script lang="ts">
   import { sessionSourceLabel } from "../lib/format";
   import type { InputPart, ReasoningEffort } from "../api/types";
-  import { sendMessage, setSessionModel, setSessionPersona } from "../api/client";
+  import { sendMessage, setSessionModel, setSessionPersona, setSessionPlaintext } from "../api/client";
   import { router } from "../state/route.svelte";
   import type { SessionView } from "../state/session.svelte";
   import { webSessions } from "../state/sessions.svelte";
@@ -12,6 +12,7 @@
   import ModelPicker from "./ModelPicker.svelte";
   import ContextMeter from "./ContextMeter.svelte";
   import PersonaPicker from "./PersonaPicker.svelte";
+  import Switch from "./Switch.svelte";
   import Icon from "../lib/Icon.svelte";
   import JobsDock from "./JobsDock.svelte";
   import { provideJobRefs } from "./JobRef.svelte";
@@ -53,6 +54,18 @@
       if (view.executingRun !== null) pickedDuringRun = true;
     } catch (e) {
       info.persona_id = before;
+      pickError = (e as Error).message;
+    }
+  }
+
+  async function togglePlaintext() {
+    const info = view.info!;
+    info.plaintext = !info.plaintext;
+    pickError = null;
+    try {
+      await setSessionPlaintext(view.id, info.plaintext);
+    } catch (e) {
+      info.plaintext = !info.plaintext;
       pickError = (e as Error).message;
     }
   }
@@ -131,9 +144,15 @@
   {/if}
   <MessageList {view} />
   {#if item?.writable && item.archived_at === null}
-    <Composer onsend={send} autofocus bind:reply={view.reply} {notice} dock={view.jobs.length > 0 ? jobsDock : undefined} blocked={modelSaving} onstop={view.executingRun === null ? undefined : () => view.stop()} stopping={view.stopping !== null} trailing={modelControls}>
+    <Composer onsend={send} autofocus bind:reply={view.reply} {notice} dock={view.jobs.length > 0 ? jobsDock : undefined} blocked={modelSaving} danger={item?.plaintext} onstop={view.executingRun === null ? undefined : () => view.stop()} stopping={view.stopping !== null} trailing={modelControls}>
       {#snippet leading()}
         {#if !scheduled}<PersonaPicker value={persona!.id} onpick={pick} />{/if}
+        <label
+          class="inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-2 text-sm {item?.plaintext ? 'text-destructive' : 'text-muted-foreground'}"
+          title="开启后，新消息里的凭据不再脱敏发给模型；之前的内容仍脱敏，关闭后全部恢复脱敏。主密钥与模型 key 始终遮住">
+          明文
+          <Switch checked={!!item?.plaintext} label="临时明文" class={item?.plaintext ? "bg-destructive" : ""} onclick={togglePlaintext} />
+        </label>
       {/snippet}
     </Composer>
   {:else if item}

@@ -294,11 +294,9 @@ pub(crate) fn read_model(
         deleted,
         context_window,
         images,
-        redact_rules,
     ) = conn.query_row(
         "SELECT e.name, e.kind, e.config_json, e.key_cipher, e.id, m.name, m.config_json,
-                m.deleted_at IS NOT NULL, m.context_window, m.images,
-                (SELECT redact_rules FROM core_settings)
+                m.deleted_at IS NOT NULL, m.context_window, m.images
          FROM core_models m JOIN core_endpoints e ON e.id = m.endpoint_id WHERE m.id = ?1",
         [id.0],
         |r| {
@@ -313,7 +311,6 @@ pub(crate) fn read_model(
                 r.get::<_, bool>(7)?,
                 r.get::<_, Option<std::num::NonZeroU32>>(8)?,
                 r.get::<_, bool>(9)?,
-                r.get::<_, bool>(10)?,
             ))
         },
     )?;
@@ -333,6 +330,5 @@ pub(crate) fn read_model(
         model_json,
         reasoning_effort,
         key,
-        redact_rules,
     }))
 }

@@ -87,6 +87,8 @@ pub(crate) struct SessionItem {
     /// 下一轮用的模型；`null` = 下次认领时取当时默认。
     model_id: Option<ModelId>,
     reasoning_effort: Option<ReasoningEffort>,
+    /// 临时明文开启中：新消息发给模型时不按规则脱敏。
+    plaintext: bool,
 }
 
 #[derive(Serialize)]
@@ -172,6 +174,7 @@ fn item(s: SessionSummary) -> Option<SessionItem> {
         persona_id: s.session.persona_id,
         model_id: s.session.model_id,
         reasoning_effort: s.session.reasoning_effort,
+        plaintext: s.session.plain_after.is_some(),
     })
 }
 

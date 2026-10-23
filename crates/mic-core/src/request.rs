@@ -144,6 +144,7 @@ pub(crate) fn build(
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
         cache_key: format!("micnext-s{}", session.id.0),
+        plain_after: window.plain_after,
     }
 }
 
@@ -172,6 +173,15 @@ pub(crate) fn system_prompt(
         format!("Working directory: {}", session.pwd),
     )];
     context.extend(channel_prompt.map(|p| part(Environment, p.to_owned())));
+    context.push(part(
+        Environment,
+        if window.plain_after.is_some() {
+            "Credential masking: the user has temporarily turned it off for new messages, so credentials in them reach you as-is. Earlier content stays masked (e.g. `sk-a***wxyz`), and everything will be masked again once the user turns it back on."
+        } else {
+            "Credential masking: credentials are masked before reaching you (e.g. `sk-a***wxyz`); the real values stay intact locally, so never write a masked value back as if it were real."
+        }
+        .to_owned(),
+    ));
     if let Some(summary) = &window.summary {
         context.push(part(
             Summary,

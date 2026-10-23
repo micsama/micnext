@@ -1,6 +1,6 @@
 # B2: mic-store（连带 mic-message 修订）
 
-2026-10-22 修订：删除无消费者方法及 job 回注关系副本，见 [公开面收缩](../unused-public-surface.md)。
+2026-10-22 修订：删除无消费者方法及 job 回注关系副本，见 [公开面收缩](unused-public-surface.md)。
 
 **现行扩展（2026-10-12）**：边界、指令认领、absorb 返回值与 schema core v6按已批准的 [context-compaction](context-compaction.md) 联合契约实施。
 

@@ -105,7 +105,7 @@ async fn run() -> Result<ExitCode> {
 
     let (restart_tx, mut restart_rx) = mpsc::channel::<RestartRequest>(1);
     let modules: Vec<Box<dyn Module>> = vec![
-        Box::new(mic_gateway::GatewayModule::new(logs.clone()).with_restart_requests(restart_tx)),
+        Box::new(mic_gateway::GatewayModule::new(logs.clone(), restart_tx)),
         Box::new(mic_provider_openai::OpenAiModule),
         Box::new(mic_tool_shell::ShellModule),
         Box::new(mic_tool_fs::FsModule),

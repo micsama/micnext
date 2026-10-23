@@ -1,5 +1,7 @@
 # B2：模型设置与 Web 图片输入
 
+2026-10-22 修订：删除无读者的默认模型 GET，Gateway 构造时必传重启通道，见 [公开面收缩](unused-public-surface.md)。
+
 **现行修订（2026-10-12）**：会话模型与人设一致，执行中也可切换，下一轮生效；取消 `SessionExecuting`/409，见 [wechat-session-model](wechat-session-model.md)。
 
 **现行扩展（2026-10-12）**：模型上下文窗口独立列与表单字段按已批准的 [context-compaction](context-compaction.md) 联合契约实施。

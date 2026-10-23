@@ -22,7 +22,7 @@ use crate::{
 pub(crate) struct Gateway {
     pub(crate) config: Config,
     pub(crate) logs: DeveloperLogs,
-    pub(crate) restart: Option<mpsc::Sender<RestartRequest>>,
+    pub(crate) restart: mpsc::Sender<RestartRequest>,
 }
 
 /// 各请求共享的只读状态。
@@ -54,12 +54,9 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         restart,
     } = gateway;
     web::ensure_built()?;
-    let updater = match (config.update_repo, restart) {
-        (None, _) => None,
-        (Some(_), None) => {
-            return Err("配置了 [gateway] update_repo，但装配根未接入重启通道".into())
-        }
-        (Some(repo), Some(restart)) => {
+    let updater = match config.update_repo {
+        None => None,
+        Some(repo) => {
             if !repo.join("build.sh").is_file() {
                 return Err(format!(
                     "[gateway] update_repo 指向的 {} 下没有 build.sh，请改成部署仓库根目录",
@@ -158,10 +155,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
             "/models",
             get(models::list_models).post(models::create_model),
         )
-        .route(
-            "/models/default",
-            get(models::get_default).put(models::put_default),
-        )
+        .route("/models/default", put(models::put_default))
         .route(
             "/models/{id}",
             put(models::update_model).delete(models::delete_model),

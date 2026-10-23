@@ -148,11 +148,6 @@ pub(crate) struct SessionModelBody {
     reasoning_effort: Option<ReasoningEffort>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct DefaultView {
-    model_id: Option<ModelId>,
-}
-
 pub(crate) async fn list_kinds(State(app): State<Arc<App>>) -> Json<KindList> {
     let items = app
         .kernel
@@ -270,14 +265,6 @@ pub(crate) async fn delete_model(
 ) -> Result<StatusCode, ApiError> {
     app.kernel.delete_model(model_id(id)?).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-pub(crate) async fn get_default(
-    State(app): State<Arc<App>>,
-) -> Result<Json<DefaultView>, ApiError> {
-    Ok(Json(DefaultView {
-        model_id: app.kernel.default_model().await?,
-    }))
 }
 
 pub(crate) async fn put_default(

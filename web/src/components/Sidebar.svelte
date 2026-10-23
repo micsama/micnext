@@ -341,7 +341,7 @@
 
 <style>
   .session-entry.striped:not(.bg-accent):not(:hover) {
-    background-color: color-mix(in srgb, var(--foreground) 3%, transparent);
+    background-color: color-mix(in srgb, var(--foreground) 2%, transparent);
   }
   .session-entry[data-selected="true"] {
     outline: 2px solid var(--primary);

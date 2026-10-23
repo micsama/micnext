@@ -22,6 +22,7 @@ use crate::jobs::{Jobs, AGENT_MODULES, CORE_TOOLS};
 use crate::limits::WAKE_CHANNEL_CAPACITY;
 use crate::provider::Factories;
 use crate::push::Pushes;
+use crate::redact::Redactor;
 use crate::run::{now_ms, Engine};
 use crate::schedule::Schedules;
 use crate::scheduler::panic_message;
@@ -40,7 +41,8 @@ pub struct Assembly {
     services: Vec<(&'static str, Box<dyn Service>)>,
     owner: String,
     key_file: SecretKeyFile,
-    factories: Arc<Factories>,
+    /// 启动打开 Store 后装上主密钥脱敏，移入 `Started`。
+    factories: Factories,
     tools: Vec<ToolHandle>,
     /// 子 agent 可用的工具名上限。
     agent_tools: BTreeSet<String>,
@@ -77,6 +79,7 @@ struct CoreConfig {
 struct Started {
     store: Store,
     owner: PersonId,
+    factories: Arc<Factories>,
     /// 崩溃收尾开始的时刻；此后结束的触发即被本次收尾中断。
     boot: i64,
     _lock: File,
@@ -191,7 +194,7 @@ impl Assembly {
             services: reg.services,
             owner,
             key_file: SecretKeyFile(key_file),
-            factories: Arc::new(factories),
+            factories,
             agent_tools: reg
                 .tools
                 .iter()
@@ -223,11 +226,12 @@ impl Assembly {
         let (wake_tx, wake_rx) = mpsc::channel(WAKE_CHANNEL_CAPACITY);
         let (title_handle, titles) = crate::title::TitleRuntime::new(
             started.store.clone(),
-            self.factories.clone(),
+            started.factories.clone(),
             events.clone(),
         );
         let engine = Arc::new(self.engine(
             started.store.clone(),
+            started.factories.clone(),
             events.clone(),
             Some(wake_tx.clone()),
             started.owner,
@@ -354,7 +358,7 @@ impl Assembly {
             .await?
             .expect("刚写入的输入必然可认领");
 
-        let engine = Arc::new(self.engine(store, events, None, started.owner));
+        let engine = Arc::new(self.engine(store, started.factories, events, None, started.owner));
         let jobs = engine.jobs.clone();
         let outcome = tokio::select! {
             outcome = Self::drive_once(engine, session, claimed, rx, on_event, stop) => outcome,
@@ -445,6 +449,12 @@ impl Assembly {
             }
             opened => opened?,
         };
+        let master_key = std::fs::read(&self.key_file.0).map_err(|source| RunError::KeyFile {
+            path: self.key_file.0.clone(),
+            source,
+        })?;
+        let mut factories = std::mem::take(&mut self.factories);
+        factories.set_redactor(Redactor::new(&master_key));
         let boot = now_ms();
         let interrupted = recovery::recover(&store, data_dir.clone()).await?;
         let held_sessions = store.hold_unclaimed_inputs(now_ms()).await?.len();
@@ -453,6 +463,7 @@ impl Assembly {
         Ok(Started {
             store,
             owner,
+            factories: Arc::new(factories),
             boot,
             _lock: lock,
         })
@@ -461,6 +472,7 @@ impl Assembly {
     fn engine(
         &self,
         store: Store,
+        factories: Arc<Factories>,
         events: Events,
         wake: Option<mpsc::Sender<SessionId>>,
         owner: PersonId,
@@ -494,7 +506,7 @@ impl Assembly {
             )),
             store,
             events,
-            factories: self.factories.clone(),
+            factories,
             tools,
             channel_prompts: self.channel_prompts.clone(),
             control,

@@ -40,6 +40,11 @@ pub enum RunError {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("无法读取主密钥文件 {path}")]
+    KeyFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("数据目录 {path} 已被另一个 micnext 进程占用")]
     DataDirLocked { path: PathBuf },
     #[error(transparent)]

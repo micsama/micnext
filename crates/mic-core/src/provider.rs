@@ -10,6 +10,8 @@ pub use mic_store::StopReason;
 use mic_store::{ReasoningEffort, SecretValue, Usage};
 use mic_tool::ToolSpec;
 
+use crate::redact::Redactor;
+
 pub type BoxStream<T> = Pin<Box<dyn futures_core::Stream<Item = T> + Send>>;
 
 pub trait Provider: Send + Sync + 'static {
@@ -119,28 +121,35 @@ pub(crate) struct BuiltProvider {
     pub(crate) effort: Option<ReasoningEffort>,
 }
 
-/// 启动时装配好的工厂表，按 `kind` 查找。
+/// 启动时装配好的工厂表，按 `kind` 查找；造出的实例都经出站脱敏。
 #[derive(Default)]
-pub(crate) struct Factories(BTreeMap<&'static str, Box<dyn ProviderFactory>>);
+pub(crate) struct Factories {
+    kinds: BTreeMap<&'static str, Box<dyn ProviderFactory>>,
+    redactor: Arc<Redactor>,
+}
 
 impl Factories {
     /// 重复 kind 返回 `Err(kind)`。
     pub(crate) fn insert(&mut self, f: Box<dyn ProviderFactory>) -> Result<(), &'static str> {
         let kind = f.kind();
-        match self.0.insert(kind, f) {
+        match self.kinds.insert(kind, f) {
             None => Ok(()),
             Some(_) => Err(kind),
         }
     }
 
     pub(crate) fn get(&self, kind: &str) -> Result<&dyn ProviderFactory, ConfigError> {
-        self.0
+        self.kinds
             .get(kind)
             .map(|f| f.as_ref())
             .ok_or_else(|| ConfigError {
                 field: "kind".into(),
                 message: format!("未知的模型类型 `{kind}`"),
             })
+    }
+
+    pub(crate) fn set_redactor(&mut self, redactor: Redactor) {
+        self.redactor = Arc::new(redactor);
     }
 
     /// 已认领模型的本轮实例：解析 key 回退与思考档位后交给工厂。
@@ -158,18 +167,17 @@ impl Factories {
             factory.reasoning_options(endpoint_json, model_name)?,
             reasoning_effort,
         )?;
-        let provider = factory.build(
-            endpoint_json,
-            resolve_key(key, factory.key_env(endpoint_json)),
-            model_name,
-            model_json,
-            effort,
-        )?;
+        let key = resolve_key(key, factory.key_env(endpoint_json));
+        let own_key = key
+            .as_ref()
+            .map(|k| SecretValue::new(k.expose().to_owned()));
+        let inner = factory.build(endpoint_json, key, model_name, model_json, effort)?;
+        let provider = self.redactor.wrap(inner, own_key);
         Ok(BuiltProvider { provider, effort })
     }
 
     pub(crate) fn kinds(&self) -> Vec<ProviderKindView> {
-        self.0
+        self.kinds
             .values()
             .map(|f| ProviderKindView {
                 kind: f.kind().to_owned(),

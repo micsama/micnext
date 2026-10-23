@@ -1484,6 +1484,7 @@ dependencies = [
 name = "mic-core"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "croner",
  "futures-core",
@@ -1491,6 +1492,7 @@ dependencies = [
  "mic-message",
  "mic-store",
  "mic-tool",
+ "regex",
  "schemars",
  "serde",
  "serde_json",

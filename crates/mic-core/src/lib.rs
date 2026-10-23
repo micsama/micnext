@@ -18,6 +18,7 @@ mod module;
 mod provider;
 mod push;
 mod recovery;
+mod redact;
 mod request;
 mod run;
 mod schedule;

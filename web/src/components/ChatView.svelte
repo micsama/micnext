@@ -148,10 +148,12 @@
       {#snippet leading()}
         {#if !scheduled}<PersonaPicker value={persona!.id} onpick={pick} />{/if}
         <label
-          class="inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-2 text-sm {item?.plaintext ? 'text-destructive' : 'text-muted-foreground'}"
-          title="开启后，新消息里的凭据不再脱敏发给模型；之前的内容仍脱敏，关闭后全部恢复脱敏。主密钥与模型 key 始终遮住">
-          明文
-          <Switch checked={!!item?.plaintext} label="临时明文" class={item?.plaintext ? "bg-destructive" : ""} onclick={togglePlaintext} />
+          class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2 {item?.plaintext ? 'text-destructive' : 'text-success'}"
+          title={item?.plaintext
+            ? "凭据脱敏已临时关闭：开启后的新消息里的凭据原样发给模型，之前的内容仍脱敏；关掉恢复全部脱敏。主密钥与模型 key 始终遮住"
+            : "凭据脱敏中：发给模型前遮住消息里的 key、token、密码等；打开开关可临时让新消息不脱敏"}>
+          <Icon name={item?.plaintext ? "lock-open" : "lock"} class="size-4" />
+          <Switch checked={!!item?.plaintext} label="临时关闭凭据脱敏" class={item?.plaintext ? "bg-destructive" : "bg-success"} onclick={togglePlaintext} />
         </label>
       {/snippet}
     </Composer>

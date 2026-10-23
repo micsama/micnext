@@ -41,30 +41,18 @@ fn page(shape: &str, rounds: u32, cap: u32) -> (Vec<i64>, bool) {
 }
 
 #[test]
-fn starts_at_round_head() {
-    assert_eq!(page("u..u.u..", 2, 10), (vec![4, 5, 6, 7, 8], true));
-}
-
-#[test]
-fn cap_cuts_inside_round() {
-    assert_eq!(page("u.......", 2, 3), (vec![6, 7, 8], true));
-}
-
-#[test]
-fn whole_session_when_short() {
-    assert_eq!(page(".u.u.", 5, 10), (vec![1, 2, 3, 4, 5], false));
-    assert_eq!(page("u..", 1, 3), (vec![1, 2, 3], false));
-    assert_eq!(page("..u", 2, 3), (vec![1, 2, 3], false));
-}
-
-#[test]
-fn earliest_round_exact() {
-    assert_eq!(page("u.u.", 2, 10), (vec![1, 2, 3, 4], false));
-}
-
-#[test]
-fn empty() {
-    assert_eq!(page("", 2, 3), (vec![], false));
+fn pagination_keeps_round_boundaries_within_the_cap() {
+    for (shape, rounds, cap, ids, has_earlier) in [
+        ("u..u.u..", 2, 10, vec![4, 5, 6, 7, 8], true),
+        ("u.......", 2, 3, vec![6, 7, 8], true),
+        (".u.u.", 5, 10, vec![1, 2, 3, 4, 5], false),
+        ("u..", 1, 3, vec![1, 2, 3], false),
+        ("..u", 2, 3, vec![1, 2, 3], false),
+        ("u.u.", 2, 10, vec![1, 2, 3, 4], false),
+        ("", 2, 3, vec![], false),
+    ] {
+        assert_eq!(page(shape, rounds, cap), (ids, has_earlier), "{shape:?}");
+    }
 }
 
 #[test]

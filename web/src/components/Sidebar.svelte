@@ -23,6 +23,12 @@
   let { activeSession, executingRun }: { activeSession: SessionItem | null; executingRun: number | null } = $props();
 
   const groups = $derived(groupSessions(webSessions.items));
+  // 分组标题不参与交替，所有已展示的会话共用一个顺序。
+  const stripeIndex = $derived(new Map([
+    ...pinnedSessions.items,
+    ...groups.flatMap((group) => group.items),
+    ...otherSessions.flatMap((list) => list.items),
+  ].map((session, index) => [session.id, index])));
   const activeId = $derived(router.current.kind === "session" ? router.current.id : null);
   // 同一侧栏两种展示：聊天按日期列会话；Trace 按渠道列有运行的会话，带异常角标。
   const tracing = $derived(router.current.kind === "trace");
@@ -172,12 +178,12 @@
   {/if}
 {/snippet}
 
-{#snippet entry(s: SessionItem, index: number)}
+{#snippet entry(s: SessionItem)}
   {@const id = s.id}
   {@const current = activeSession?.id === id ? activeSession : s}
   {@const running = s.running || (activeId === id && executingRun !== null)}
   {@const unread = s.unread && !running}
-  <div class="session-entry group flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={index % 2 === 1} data-state={running ? "running" : unread ? "unread" : undefined}>
+  <div class="session-entry group flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={(stripeIndex.get(id) ?? 0) % 2 === 1} data-selected={activeId === id} data-state={running ? "running" : unread ? "unread" : undefined}>
     <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && "md:opacity-0"]}>
       <PinIcon class="size-3" />
     </button>
@@ -267,14 +273,14 @@
     {#if pinnedSessions.error}<p class="px-3 py-1 text-xs text-destructive">{pinnedSessions.error}</p>{/if}
     {#if pinnedSessions.items.length > 0}
       <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">置顶</p>
-      {#each pinnedSessions.items as s, index (s.id)}
-        {@render entry(s, index)}
+      {#each pinnedSessions.items as s (s.id)}
+        {@render entry(s)}
       {/each}
     {/if}
     {#each groups as group (group.label)}
       <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">{group.label}</p>
-      {#each group.items as s, index (s.id)}
-        {@render entry(s, index)}
+      {#each group.items as s (s.id)}
+        {@render entry(s)}
       {/each}
     {/each}
     {#if webSessions.loaded && webSessions.items.length === 0 && pinnedSessions.items.length === 0}
@@ -284,8 +290,8 @@
 
     {#each otherSessions.filter((o) => o.items.length > 0 || o.error) as other (other.channel)}
       <p class="mt-3 border-t border-border px-3 pt-3 pb-1 text-xs text-muted-foreground">{channelName(other.channel)}</p>
-      {#each other.items as s, index (s.id)}
-        {@render entry(s, index)}
+      {#each other.items as s (s.id)}
+        {@render entry(s)}
       {/each}
       {@render list(other)}
     {/each}
@@ -337,15 +343,20 @@
   .session-entry.striped:not(.bg-accent):not(:hover) {
     background-color: color-mix(in srgb, var(--foreground) 3%, transparent);
   }
+  .session-entry[data-selected="true"] {
+    outline: 2px solid var(--primary);
+    outline-offset: -1px;
+    background-color: color-mix(in srgb, var(--primary) 10%, var(--muted));
+  }
   .session-entry[data-state="unread"] {
     border-color: color-mix(in srgb, var(--primary) 32%, transparent);
   }
   .session-entry[data-state="running"] {
-    border-color: color-mix(in srgb, var(--primary) 24%, transparent);
+    border-color: color-mix(in srgb, var(--primary) 30%, transparent);
     animation: running-border 2.4s ease-in-out infinite;
   }
   @keyframes running-border {
-    50% { border-color: color-mix(in srgb, var(--primary) 55%, transparent); }
+    50% { border-color: color-mix(in srgb, var(--primary) 75%, transparent); }
   }
   @media (prefers-reduced-motion: reduce) {
     .session-entry[data-state="running"] { animation: none; }

@@ -111,3 +111,30 @@ async fn check() {
         Err(StoreError::SessionArchived)
     ));
 }
+
+#[test]
+fn running_summary_covers_the_whole_run() {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let store = Store::open_in_memory(&[]).await.unwrap();
+            let id = root(&store, "web", "running").await;
+            let run = store.claim_next(id, 3).await.unwrap().unwrap().run;
+            notify(&store, id).await;
+            let page = store
+                .list_root_sessions("web", None, NonZeroU32::new(50).unwrap())
+                .await
+                .unwrap();
+            assert!(page.items[0].running);
+            store.set_session_pinned(id, Some(4)).await.unwrap();
+            assert!(store.list_pinned_sessions().await.unwrap()[0].running);
+            store
+                .finish_run(run.id, crate::RunState::Completed, None, 5)
+                .await
+                .unwrap();
+            let summary = store.session_summary(id).await.unwrap().unwrap();
+            assert!(!summary.running);
+            assert!(summary.unread);
+        });
+}

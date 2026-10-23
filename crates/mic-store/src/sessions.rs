@@ -297,7 +297,7 @@ fn summaries(filter: &str) -> String {
                 SELECT 1 FROM core_messages m
                  WHERE m.session_id = s.id AND m.kind IN ('Reply', 'Notification')
                    AND m.id > COALESCE(s.seen_message_id, 0))) AS unread,
-             EXISTS (SELECT 1 FROM core_runs r WHERE r.session_id = s.id AND r.state = 'Executing') AS running,
+             EXISTS (SELECT 1 FROM core_runs r WHERE r.session_id = s.id AND r.state = 'executing') AS running,
              COALESCE((SELECT m.created_at FROM core_messages m
                         WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1),
                       s.created_at) AS act,

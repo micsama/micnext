@@ -1,8 +1,8 @@
 # B2：工具调用身份限定到回复中的一次发生
 
-状态：2026-10-22 human 授权，2026-10-23 实现完成，待页面验收。采用已有 Reply 身份与块位置，不新增全局执行 id。
+状态：CLOSED（2026-10-23 human 页面与生产验收通过；2026-10-22 human 授权，2026-10-23 实现完成）。采用已有 Reply 身份与块位置，不新增全局执行 id。
 
-来源：[Gateway G2](../reviews/design-review-2026-10-22/gateway-web.md)、[执行 R4](../reviews/design-review-2026-10-22/execution.md)。
+来源：[Gateway G2](../../reviews/design-review-2026-10-22/gateway-web.md)、[执行 R4](../../reviews/design-review-2026-10-22/execution.md)。
 
 ## 选择
 

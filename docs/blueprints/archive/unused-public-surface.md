@@ -11,7 +11,7 @@
 - 删除公开方法 `bind_identity`、`set_pwd`、`sessions_with_unclaimed_input`。保留当前 `resolve_identity`、创建会话时设置/继承 pwd、wake + claim_next 调度主路径；没有兼容转发，也不新增全库补跑扫描器。
 - 删除 `core_jobs.report_message_id` 和 finish_job 中只为此列执行的 UPDATE；Completion 的消息插入、任务终态条件更新仍在同一事务，返回值与提交后事件不变。`core_runs.report_message_id` 有 agent 交付读者，必须保留。
 - core schema v22 增加 DROP COLUMN 迁移。该列没有索引或现行读取方，删列不删除任何消息、任务、输出文件或其他关联。迁移失败回滚，不改变“running 才能收尾一次”的保护。
-- `core_sessions.parent_tool_call_id` 和 `SessionKind::Task` 本次保留；其去留与[工具身份 B2](../tool-call-identity.md)一并决定，避免先移除身份事实再做关联迁移。2026-10-23 已在该 B2 中用唯一 job 来源替代并删除此副本。
+- `core_sessions.parent_tool_call_id` 和 `SessionKind::Task` 本次保留；其去留与[工具身份 B2](tool-call-identity.md)一并决定，避免先移除身份事实再做关联迁移。2026-10-23 已在该 B2 中用唯一 job 来源替代并删除此副本。
 
 ### 模块装配
 

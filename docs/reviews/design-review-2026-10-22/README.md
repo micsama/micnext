@@ -18,9 +18,9 @@ human 已授权剩余项一并实施、按模块提交推送；慢测试评估�
 | I3 | `6a33264`，[微信收尾](../../blueprints/wechat-wrap-up.md) | 实现完成，待真实环境验收 |
 | E2 | `cd67817`，[文件取消](../../blueprints/archive/file-write-cancellation.md) | CLOSED，排队取消与实际收尾验收完成 |
 | E3 | `79ae235`，后台落盘错误上报拥有者 | 自动验收完成 |
-| S1 / S2 | `7fc9a75`，[统一统计](../../blueprints/usage-stats.md) | 两项均实现，待页面验收 |
+| S1 / S2 | `7fc9a75`，[统一统计](../../blueprints/archive/usage-stats.md) | CLOSED，页面验收通过 |
 | G1 | `79ae235`，区分运行版本与源码版本 | 自动验收完成 |
-| G2 | `532b614`，[工具身份](../../blueprints/tool-call-identity.md)，回复 + 块位置贯通执行、恢复与展示 | 自动关联与恢复验收完成，待页面验收 |
+| G2 | `532b614`，[工具身份](../../blueprints/archive/tool-call-identity.md)，回复 + 块位置贯通执行、恢复与展示 | CLOSED，页面与生产数据核对通过 |
 | I4 | `6a33264`，删除原文调试 | 自动验收完成 |
 | I5 | `6a33264`，批次只保留进度事实 | 自动验收完成 |
 
@@ -28,19 +28,19 @@ human 已授权剩余项一并实施、按模块提交推送；慢测试评估�
 
 | 报告 / 编号 | 处置 | 验收状态 |
 |---|---|---|
-| 执行 R1 | `c5b016c`，[压缩路径](../../blueprints/compaction-file-paths.md)；旧快照一次迁移 | 实现完成，待页面验收 |
-| 执行 R2 | `7992009`，[超时终态](../../blueprints/tool-timeout-outcome.md) | 实现完成，待页面验收 |
+| 执行 R1 | `c5b016c`，[压缩路径](../../blueprints/archive/compaction-file-paths.md)；旧快照一次迁移 | CLOSED，页面验收通过 |
+| 执行 R2 | `7992009`，[超时终态](../../blueprints/archive/tool-timeout-outcome.md) | CLOSED，页面验收通过 |
 | 执行 R3 | `cd67817`，文件变更由调用上下文拥有并等待 | CLOSED，自动验收完成 |
-| 执行 R4 | `532b614`，[工具身份](../../blueprints/tool-call-identity.md)；移除 wire id 的内部唯一性假设 | 自动验收完成，待页面验收 |
+| 执行 R4 | `532b614`，[工具身份](../../blueprints/archive/tool-call-identity.md)；移除 wire id 的内部唯一性假设 | CLOSED，页面与生产数据核对通过 |
 | 集成 R1 | `a687717`，从正规内容事实推导引用 | 自动验收完成 |
 | 集成 R2 | `6a33264`，投递终态归 core | 实现完成，待真实环境验收 |
 | 集成 R3 | `6a33264`，删除快照与恢复重新解析 | 自动验收完成 |
 | 集成 R4 | `3466003`，[业务上下文与网络根因合并](wechat-error-context.md) | 自动验收完成，真实网络效果随日志蓝图验收 |
 | 集成 R5 | `6a33264`，删除投递排除的全计划解码 | 自动验收完成 |
-| Gateway R1 | `e09ae3d`，[明确会话来源](../../blueprints/session-source.md) | 实现完成，待页面验收 |
+| Gateway R1 | `e09ae3d`，[明确会话来源](../../blueprints/archive/session-source.md) | CLOSED，页面验收通过 |
 | Gateway R2 | `6d97067`，Gateway 构造必传 restart sender | CLOSED，自动验收完成 |
 | Gateway R3 | `6d97067`，删除默认模型独立 GET，保留 PUT | CLOSED，自动验收完成 |
-| 存储 R1 | `7fc9a75`，UsageTotal 统一聚合 | 实现完成，待页面验收 |
+| 存储 R1 | `7fc9a75`，UsageTotal 统一聚合 | CLOSED，页面验收通过 |
 | 存储 R2 | `93c369a` 删 job report 指针；`532b614` 删冗余来源副本 | 自动验收完成 |
 | 存储 E1 | `93c369a`，删除三个无调用 Store 方法 | CLOSED，自动验收完成 |
 | 存储 E2 | 保留 File，Web 上传和微信附件已有生产路径，见[文件蓝图](../../blueprints/web-file-upload.md) | Web 已验收，微信文件待验收 |
@@ -53,6 +53,7 @@ human 已授权剩余项一并实施、按模块提交推送；慢测试评估�
 - 最终 cargo fmt、工作区 Clippy、全仓库 95 项测试、Web check 与 3 项工具关联测试通过。Provider 测试需要本地回环监听，在沙箱外运行；没有调用真实服务商。
 - core v21 转换快照，v22 删除 job 回注关系副本，v23 建立调用发生位置并删除旧来源副本；迁移测试覆盖数据保留、旧工具/agent 来源与歧义回滚。
 - 服务器验收关注：实际数据库升级和启动、会话列表/标题、工具结果与任务恢复、统计与超时展示、压缩路径清单、微信收发/引用/文件。真实环境结果由 human 回填；慢测试审查随后再做。
+- 2026-10-23 human 回填：生产 v23 升级启动正常，只读核对 1881 条工具结果、25 个 job 关联全部正确；统计、压缩路径、超时、会话来源与工具关联页面验收通过。
 
 以下为原始首轮审查结论与依据；后续状态以上面的进度表为准。
 

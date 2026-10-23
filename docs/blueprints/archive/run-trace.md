@@ -1,10 +1,10 @@
 # B2：轻量 trace 与存储整理
 
-2026-10-23 修订：工具调用与后台起源以 Reply + 块位置关联，见 [工具调用身份](../tool-call-identity.md)。
+2026-10-23 修订：工具调用与后台起源以 Reply + 块位置关联，见 [工具调用身份](tool-call-identity.md)。
 
-2026-10-23 修订：前台、后台和子 agent 超时统一为 TimedOut，见 [工具超时终态](../tool-timeout-outcome.md)。
+2026-10-23 修订：前台、后台和子 agent 超时统一为 TimedOut，见 [工具超时终态](tool-timeout-outcome.md)。
 
-**修订（2026-10-22）：[调用统计统一口径 B2](../usage-stats.md) 取代本文关于用量、费用合计与完整性的条目：已知用量和费用一律计入，不论成败；未知另计次数，合计显示为下限；`RunStats` 只留耗时与计数，`SessionUsage` 由 `UsageTotal` 取代；合计不再显示缓存命中率。**
+**修订（2026-10-22）：[调用统计统一口径 B2](usage-stats.md) 取代本文关于用量、费用合计与完整性的条目：已知用量和费用一律计入，不论成败；未知另计次数，合计显示为下限；`RunStats` 只留耗时与计数，`SessionUsage` 由 `UsageTotal` 取代；合计不再显示缓存命中率。**
 
 **现行扩展（2026-10-16，P3）**：会话汇总新增 `session_usage(session) -> { own, tree }` 和 `GET /trace/sessions/{id}/usage`（`tree` 为本会话加全部后代，无后代为 null；见 [trace-session-tree](trace-session-tree.md)），包括对话、重试、压缩、标题的全部已记录调用，不受分页限制；整树递归包含归档/隐藏后代。费用按已知部分合计并另报未知次数，单次计价不变。字段见 [async-jobs](async-jobs.md) P3.2；子任务仅开放 Trace 执行过程。
 

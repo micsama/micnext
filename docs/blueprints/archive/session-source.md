@@ -1,8 +1,8 @@
 # B2：会话来源不再借用渠道字符串
 
-状态：2026-10-22 human 授权，2026-10-23 实现完成，待页面验收。
+状态：CLOSED（2026-10-23 human 页面与生产验收通过；2026-10-22 human 授权，2026-10-23 实现完成）。
 
-来源：[Gateway R1](../reviews/design-review-2026-10-22/gateway-web.md#r1-会话来源字符串同时承担业务种类和能力判断)。
+来源：[Gateway R1](../../reviews/design-review-2026-10-22/gateway-web.md#r1-会话来源字符串同时承担业务种类和能力判断)。
 
 ## 选择与契约
 

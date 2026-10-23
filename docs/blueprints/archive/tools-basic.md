@@ -2,7 +2,7 @@
 
 2026-10-23 修订：文件变更取消由调用上下文拥有并等待收尾，见 [文件写入取消](file-write-cancellation.md)。
 
-2026-10-23 修订：前台、后台和子 agent 超时统一为 TimedOut，见 [工具超时终态](../tool-timeout-outcome.md)。
+2026-10-23 修订：前台、后台和子 agent 超时统一为 TimedOut，见 [工具超时终态](tool-timeout-outcome.md)。
 
 **状态**: CLOSED（2026-09-23；`crates/mic-tool-{fs,shell,web-fetch}`、`mic-core` `Activation`，§八验收通过）
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M8；[`product-roadmap.md`](../../brainstorm/product-roadmap.md) §2.3（模型侧契约）；

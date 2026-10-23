@@ -63,3 +63,8 @@
 | 实现完成（CLOSED，2026-10-20） | Web 推送站内提醒 | [B2](docs/blueprints/archive/web-native-notification.md) |
 | 实现完成（CLOSED，2026-10-22） | 删除无读者 Store 入口、job 关系副本、可选装配和 Gateway 入口 | [B2](docs/blueprints/archive/unused-public-surface.md) |
 | 实现完成（CLOSED，2026-10-23） | 文件写入取消与实际收尾（执行 E2/R3） | [B2](docs/blueprints/archive/file-write-cancellation.md) |
+| 实现完成（CLOSED，2026-10-23） | 调用统计统一口径（已知一律计入，未知显示下限） | [B2](docs/blueprints/archive/usage-stats.md) |
+| 实现完成（CLOSED，2026-10-23） | 压缩只保留必读文件路径 | [B2](docs/blueprints/archive/compaction-file-paths.md) |
+| 实现完成（CLOSED，2026-10-23） | 前台、后台与子 agent 超时统一终态 | [B2](docs/blueprints/archive/tool-timeout-outcome.md) |
+| 实现完成（CLOSED，2026-10-23） | 会话来源改为明确的 HTTP 类型 | [B2](docs/blueprints/archive/session-source.md) |
+| 实现完成（CLOSED，2026-10-23） | 工具调用以回复与块位置关联执行、恢复和展示 | [B2](docs/blueprints/archive/tool-call-identity.md) |

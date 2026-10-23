@@ -1,8 +1,8 @@
 # B2：工具超时统一为超时终态
 
-状态：2026-10-22 human 批准，2026-10-23 实现完成，待页面验收。
+状态：CLOSED（2026-10-23 human 页面与生产验收通过；2026-10-22 human 批准，2026-10-23 实现完成）。
 
-来源：[执行审查 R2](../reviews/design-review-2026-10-22/execution.md#r2执行结束原因在不同路径里被重新翻译成文案)、[human 决定 6](../reviews/design-review-2026-10-22/README.md#human-决定2026-10-22)。
+来源：[执行审查 R2](../../reviews/design-review-2026-10-22/execution.md#r2执行结束原因在不同路径里被重新翻译成文案)、[human 决定 6](../../reviews/design-review-2026-10-22/README.md#human-决定2026-10-22)。
 
 ## 行为与公开契约
 

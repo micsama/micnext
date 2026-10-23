@@ -1,8 +1,8 @@
 # B2：压缩只保留必读文件路径
 
-状态：2026-10-22 human 批准，实现完成，待页面验收。
+状态：CLOSED（2026-10-23 human 页面与生产验收通过；2026-10-22 human 批准）。
 
-来源：[执行审查 R1](../reviews/design-review-2026-10-22/execution.md#r1文件快照建立在已格式化工具文本上增加了跨层约定和重复数据)、[human 决定 1](../reviews/design-review-2026-10-22/README.md#human-决定2026-10-22)。
+来源：[执行审查 R1](../../reviews/design-review-2026-10-22/execution.md#r1文件快照建立在已格式化工具文本上增加了跨层约定和重复数据)、[human 决定 1](../../reviews/design-review-2026-10-22/README.md#human-决定2026-10-22)。
 
 ## 行为与契约
 

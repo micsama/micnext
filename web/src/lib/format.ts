@@ -1,4 +1,4 @@
-import type { SessionItem } from "../api/types";
+import type { SessionItem, SessionSource } from "../api/types";
 
 const DAY = 86_400_000;
 
@@ -90,4 +90,8 @@ export function atLeast(text: string, unknown: number, calls: number): string {
 
 export function formatBytes(n: number): string {
   return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export function sessionSourceLabel(source: SessionSource): string {
+  return source.kind === "schedule" ? "定时任务" : source.channel === "wechat" ? "微信" : source.channel;
 }

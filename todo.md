@@ -15,3 +15,4 @@
 | 实现完成，待页面验收 | 调用统计统一口径（已知一律计入，未知显示下限） | [B2](docs/blueprints/usage-stats.md) |
 | 实现完成，待页面验收 | 压缩只保留必读文件路径 | [B2](docs/blueprints/compaction-file-paths.md) |
 | 实现完成，待页面验收 | 前台、后台与子 agent 超时统一终态 | [B2](docs/blueprints/tool-timeout-outcome.md) |
+| 实现完成，待页面验收 | 会话来源改为明确的 HTTP 类型 | [B2](docs/blueprints/session-source.md) |

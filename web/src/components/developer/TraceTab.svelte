@@ -5,7 +5,7 @@
   import type { StoredLogRecord } from "../../api/developer";
   import type { SessionUsageView, Peers, SystemPromptView, TraceCall, TraceMessage, TraceRun } from "../../api/trace";
   import { cn } from "$lib/utils";
-  import { atLeast, formatDuration, formatTokens } from "../../lib/format";
+  import { sessionSourceLabel, atLeast, formatDuration, formatTokens } from "../../lib/format";
   import Icon from "../../lib/Icon.svelte";
   import type { Message, SessionDetail } from "../../api/types";
   import { settingsStore } from "../../state/settings.svelte";
@@ -594,7 +594,7 @@
             <ul class="kv">
               <li><Icon name="user" class="size-3.5" /><span>人设</span><b>{persona?.name ?? "已删除，下轮用默认人设"}</b></li>
               <li title="下一轮使用的模型"><Icon name="sparkles" class="size-3.5" /><span>模型</span><b>{info.model_id === null ? "跟随默认模型" : model?.name ?? "已删除"}{info.reasoning_effort ? ` · ${info.reasoning_effort} 档` : ""}</b></li>
-              <li><Icon name="monitor" class="size-3.5" /><span>渠道</span><b>{info.channel}{info.writable ? "" : " · Web 只读"}</b></li>
+              <li><Icon name="monitor" class="size-3.5" /><span>渠道</span><b>{sessionSourceLabel(info.source)}{info.writable ? "" : " · Web 只读"}</b></li>
               <li><Icon name="folder" class="size-3.5" /><span>工作目录</span><b class="mono">{info.workdir}</b></li>
               <li><Icon name="clock" class="size-3.5" /><span>创建</span><b>{new Date(info.created_at).toLocaleString("zh-CN", { hour12: false })}</b></li>
               <li><Icon name="clock" class="size-3.5" /><span>最近活动</span><b>{new Date(info.last_activity_at).toLocaleString("zh-CN", { hour12: false })}</b></li>

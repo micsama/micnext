@@ -91,7 +91,7 @@ export class SessionView {
   #jobsDirty = false;
 
   refreshJobs(): void {
-    if (this.info?.channel === "schedule") return;
+    if (this.info?.source.kind === "schedule") return;
     this.#jobsDirty = true;
     if (this.#jobsRefresh) return;
     this.#jobsRefresh = (async () => {

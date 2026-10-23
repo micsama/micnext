@@ -1,5 +1,7 @@
 # B2: 网关（mic-gateway，M9）
 
+2026-10-23 修订：会话 channel 改为明确的 source 类型，见 [会话来源](../session-source.md)。
+
 **现行扩展（2026-10-16，P3）**：归档停止整树并拒绝继续执行，执行入口归档错误返回 409，列表/详情新增 `archived_at`；新增 `GET /api/trace/sessions/{id}/usage`，返回 `{ own, tree }`；`GET /api/trace/sessions` 改为返回会话树（见 [trace-session-tree](trace-session-tree.md)）。以 [async-jobs](async-jobs.md) P3 和 [session-archive](session-archive.md) 为准。
 
 **现行扩展（2026-10-12）**：命令清单、上下文结果与撤回接口按已批准的 [context-compaction](context-compaction.md) 联合契约实施；上下文响应的 `occupancy` 与每轮统计见 [chat-run-stats](chat-run-stats.md)。

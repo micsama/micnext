@@ -91,10 +91,12 @@ export type Message = {
   delivered_at: number | null;
 };
 
+export type SessionSource = { kind: "channel"; channel: string } | { kind: "schedule" };
+
 export type SessionItem = {
   schedule: { id: number; name: string } | null;
   id: number;
-  channel: string;
+  source: SessionSource;
   created_at: number;
   last_activity_at: number;
   preview: string | null;
@@ -341,7 +343,7 @@ const reasoningEffort = oneOf("none", "minimal", "low", "medium", "high", "xhigh
 const sessionFields = {
   schedule: nullable(obj({ id: num, name: str })),
   id: num,
-  channel: str,
+  source: kinded<{ channel: { channel: string }; schedule: Record<never, never> }>({ channel: { channel: str }, schedule: {} }),
   created_at: num,
   last_activity_at: num,
   preview: nullable(str),

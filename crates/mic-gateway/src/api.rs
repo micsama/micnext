@@ -62,12 +62,19 @@ struct SessionSchedule {
 }
 
 #[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum SessionSource {
+    Channel { channel: String },
+    Schedule,
+}
+
+#[derive(Serialize)]
 pub(crate) struct SessionItem {
     schedule: Option<SessionSchedule>,
     title: Option<String>,
     title_error: Option<String>,
     id: SessionId,
-    channel: String,
+    source: SessionSource,
     created_at: i64,
     last_activity_at: i64,
     preview: Option<String>,
@@ -141,10 +148,12 @@ pub(crate) async fn list_sessions(
 /// Web 浏览 Root 与定时任务会话。
 fn item(s: SessionSummary) -> Option<SessionItem> {
     let writable = writable(&s.session);
-    let channel = match &s.session.kind {
-        SessionKind::Root { channel, .. } => channel.clone(),
+    let source = match &s.session.kind {
+        SessionKind::Root { channel, .. } => SessionSource::Channel {
+            channel: channel.clone(),
+        },
         SessionKind::Triggered { module, .. } if module == mic_store::SCHEDULE_MODULE => {
-            module.clone()
+            SessionSource::Schedule
         }
         _ => return None,
     };
@@ -153,7 +162,7 @@ fn item(s: SessionSummary) -> Option<SessionItem> {
         title: s.title,
         title_error: s.title_error,
         id: s.session.id,
-        channel,
+        source,
         created_at: s.session.created_at,
         last_activity_at: s.last_activity_at,
         preview: s.preview,
@@ -183,7 +192,7 @@ pub(crate) async fn get_session(
         .await?
         .and_then(item)
         .ok_or(ApiError::NotFound(SESSION_NOT_FOUND))?;
-    if item.channel == mic_store::SCHEDULE_MODULE {
+    if matches!(item.source, SessionSource::Schedule) {
         item.schedule = app
             .kernel
             .schedules()
@@ -446,3 +455,6 @@ fn now_ms() -> i64 {
         .expect("系统时间早于 1970")
         .as_millis() as i64
 }
+
+#[cfg(test)]
+mod tests;

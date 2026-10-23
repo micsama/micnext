@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { sessionSourceLabel } from "../lib/format";
   import type { InputPart, ReasoningEffort } from "../api/types";
   import { sendMessage, setSessionModel, setSessionPersona } from "../api/client";
   import { router } from "../state/route.svelte";
@@ -20,11 +21,11 @@
 
   const item = $derived(view.info);
 
-  const scheduled = $derived(item?.channel === "schedule");
+  const scheduled = $derived(item?.source.kind === "schedule");
   const title = $derived(scheduled ? `定时任务 · ${item?.schedule?.name ?? item?.title ?? "已删除任务"}` : item?.title ?? item?.preview ?? `会话 ${view.id}`);
   const titleBusy = $derived(view.requestingTitle || !!item?.title_generating);
   const titleError = $derived(view.titleActionError ?? view.titleSyncError ?? (titleBusy ? null : item?.title_error));
-  const detail = $derived(item ? `${item.workdir} · ${item.channel}` : undefined);
+  const detail = $derived(item ? `${item.workdir} · ${sessionSourceLabel(item.source)}` : undefined);
   $effect(() => {
     document.title = `${title} · micnext`;
   });
@@ -87,7 +88,6 @@
   }
 
 
-  const channelName = (c: string) => (c === "wechat" ? "微信" : c);
 
   const modelNotice = $derived(pickError ?? (modelDeleted ? "原模型已删除，请重新选择" : null));
   const pickedNotice = $derived(pickedDuringRun ? "已切换，下一轮生效" : null);
@@ -140,7 +140,7 @@
     {@const archived = item.archived_at !== null}
     <Composer
       onsend={send}
-      readonly={archived ? "会话已归档，历史记录仍可查看" : `消息请在${channelName(item.channel)}发送，这里可切换模型与思考强度`}
+      readonly={archived ? "会话已归档，历史记录仍可查看" : `消息请在${sessionSourceLabel(item.source)}发送，这里可切换模型与思考强度`}
       notice={archived ? null : readonlyNotice}
       dock={view.jobs.length > 0 ? jobsDock : undefined}
       trailing={archived ? undefined : modelControls} />

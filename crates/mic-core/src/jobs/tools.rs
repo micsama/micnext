@@ -46,7 +46,7 @@ fn access(e: JobAccessError) -> ToolError {
 }
 
 fn text(text: String) -> ToolOutput {
-    ToolOutput::Completed(vec![ContentPart::Text { text }])
+    ToolOutput::completed(vec![ContentPart::Text { text }])
 }
 
 struct List(Bound);

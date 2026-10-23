@@ -50,7 +50,7 @@
   const tokens = (c: TraceCall) => c.usage ? formatTokens(c.usage.input_tokens + c.usage.output_tokens) : "—";
   const toggle = (id: number) => { const next = new Set(folded); next.has(id) ? next.delete(id) : next.add(id); folded = next; };
   const callPreview = (r: TraceRun | null, c: TraceCall) => c.error ?? r?.messages.find((m) => m.id === (c.reply_id ?? c.boundary_id))?.preview ?? c.model;
-  const badRun = (r: TraceRun) => runBad(r) || r.calls.some((c) => c.error) || r.messages.some((m) => m.tool?.outcome === "failed");
+  const badRun = (r: TraceRun) => runBad(r) || r.calls.some((c) => c.error) || r.messages.some((m) => (m.tool?.outcome === "failed" || m.tool?.outcome === "timed_out"));
 
   type Pick = { run: TraceRun | null; call: TraceCall } | { run: TraceRun; message: TraceMessage };
   type DetailTab = "overview" | "input" | "logs";
@@ -241,7 +241,7 @@
   const tokensOf = (calls: TraceCall[]) => { const u = usageOf(calls); return atLeast(formatTokens(u.input_tokens + u.output_tokens), u.unknown_usage, u.calls); };
   const stopName = (c: TraceCall) => c.stop === null ? "—" : { end_turn: "正常结束", tool_use: "发起工具调用", max_tokens: "达到输出上限", content_filter: "被内容过滤", stopped: "用户停止" }[c.stop];
   const speed = (c: TraceCall) => c.usage && c.first_output_at !== null && c.finished_at > c.first_output_at ? c.usage.output_tokens / ((c.finished_at - c.first_output_at) / 1000) : null;
-  const runToolErrors = (r: TraceRun) => r.messages.filter((m) => m.tool?.outcome === "failed").length;
+  const runToolErrors = (r: TraceRun) => r.messages.filter((m) => (m.tool?.outcome === "failed" || m.tool?.outcome === "timed_out")).length;
 
   const pickKey = (p: Pick) => ("call" in p ? `call${p.call.id}` : `msg${p.message.id}`);
   const isPicked = (call?: TraceCall, message?: TraceMessage) =>
@@ -434,10 +434,10 @@
 {#snippet toolRow(r: TraceRun, m: TraceMessage)}
   {@const t = m.tool!}
   {@const ms = toolMs(m)}
-  {@const err = t.outcome === "failed"}
+  {@const err = (t.outcome === "failed" || t.outcome === "timed_out")}
   <button type="button" class={cn("row cols tool", err && "err", isPicked(undefined, m) && selected)} onclick={() => choose({ run: r, message: m })}>
     <span class="sum" title={m.preview}><span class="mono">{t.name}</span>{err ? t.error ?? m.preview : m.preview || "（无文本内容）"}</span>
-    <span class="tags">{#if err}<span class="signal c-bad" title={t.error ?? "执行报错"}><Icon name="error" class="size-[13px]" /></span>{:else if ms === null}<span class="signal c-warn" title={t.outcome === "dispatched" ? "已派发，等待执行结果" : "结果未知，恢复未重跑此工具"}><Icon name="unknown" class="size-[13px]" /></span>{/if}</span>
+    <span class="tags">{#if t.outcome === "timed_out"}<span class="cap c-warn">超时</span>{/if}{#if err}<span class="signal c-bad" title={t.error ?? "执行报错"}><Icon name="error" class="size-[13px]" /></span>{:else if ms === null}<span class="signal c-warn" title={t.outcome === "dispatched" ? "已派发，等待执行结果" : "结果未知，恢复未重跑此工具"}><Icon name="unknown" class="size-[13px]" /></span>{/if}</span>
     <span class="track" class:track-empty={ms === null}>{#if ms !== null}<span class="tool-bar" class:bad-bar={err} style={bar(r, t.started_at!, m.created_at, owner(r, m))}></span>{/if}</span>
     <span class="tk"></span>
     {#if ms !== null}{@render durCap(ms, "tool", toolPeer(t.name))}{:else}<span class="du"></span>{/if}
@@ -570,7 +570,7 @@
             </div>
             <div class="m-row"><i class="dot s-bad"></i><span>失败</span><b>{s?.failed_runs ?? runs.filter((r) => r.state === "provider_failed").length}</b></div>
             <div class="m-row"><i class="dot s-warn"></i><span>中断</span><b>{s?.interrupted_runs ?? runs.filter((r) => r.state === "interrupted").length}</b></div>
-            <div class="m-row"><i class="dot s-bad"></i><span>工具报错</span><b>{s?.tool_errors ?? runs.reduce((n, r) => n + r.messages.filter((m) => m.tool?.outcome === "failed").length, 0)}</b></div>
+            <div class="m-row"><i class="dot s-bad"></i><span>工具报错</span><b>{s?.tool_errors ?? runs.reduce((n, r) => n + r.messages.filter((m) => (m.tool?.outcome === "failed" || m.tool?.outcome === "timed_out")).length, 0)}</b></div>
             {#if nextAfter !== null}<p class="m-note">轮次图表只含已加载的 {runs.length} 轮</p>{/if}
           </div>
           <div>
@@ -727,7 +727,7 @@
               <TraceCard icon="layers" title="关联" fold="open"><div class="rels">
                 {#each related(pick) as it}
                   {#if it.call}{@render callRel(r, it.call)}
-                  {:else}{@const m = it.message!}{@const ms = toolMs(m)}<button type="button" class="rel" onclick={() => choose({ run: r, message: m })}><span class={cn("role", m.tool ? "r-tool" : "r-user")}>{role(m)}</span><span class="sum">{#if m.tool}<span class="mono">{m.tool.name}</span>&nbsp;{/if}{m.preview}</span><span class="tags">{#if m.tool?.outcome === "failed"}<span class="signal c-bad" title={m.tool.error ?? ""}><Icon name="error" class="size-[13px]" /></span>{/if}{#if m.tool}{#if ms === null}<span class="signal c-warn" title="结果未知"><Icon name="unknown" class="size-[13px]" /></span>{:else}{@render durCap(ms, "tool", toolPeer(m.tool.name))}{/if}{:else}<time>{hm(m.created_at)}</time>{/if}</span></button>{/if}
+                  {:else}{@const m = it.message!}{@const ms = toolMs(m)}<button type="button" class="rel" onclick={() => choose({ run: r, message: m })}><span class={cn("role", m.tool ? "r-tool" : "r-user")}>{role(m)}</span><span class="sum">{#if m.tool}<span class="mono">{m.tool.name}</span>&nbsp;{/if}{m.preview}</span><span class="tags">{#if (m.tool?.outcome === "failed" || m.tool?.outcome === "timed_out")}<span class="signal c-bad" title={m.tool.error ?? ""}><Icon name="error" class="size-[13px]" /></span>{/if}{#if m.tool}{#if ms === null}<span class="signal c-warn" title="结果未知"><Icon name="unknown" class="size-[13px]" /></span>{:else}{@render durCap(ms, "tool", toolPeer(m.tool.name))}{/if}{:else}<time>{hm(m.created_at)}</time>{/if}</span></button>{/if}
                 {/each}
                 <button type="button" class="rel" onclick={() => chooseRun(r)}><span class="role r-turn">轮次</span><span class="sum">#{runNumber(r)}</span><span class="tags">{@render durCap(runMs(r), "run")}</span></button>
               </div></TraceCard>

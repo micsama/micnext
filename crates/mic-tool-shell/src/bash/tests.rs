@@ -103,6 +103,34 @@ fn background_timeout_defaults_and_unlimited() {
     );
 }
 
+struct NoBackground;
+
+impl mic_tool::Background for NoBackground {
+    fn dispatch(&self, _: BackgroundTask) -> BoxFuture<'_, Result<String, ToolError>> {
+        panic!("foreground must not dispatch")
+    }
+}
+
+#[tokio::test]
+async fn foreground_timeout_has_a_terminal_timeout_with_partial_output() {
+    let ctx = ToolContext::new(std::env::temp_dir(), std::sync::Arc::new(NoBackground));
+    let args = Args {
+        command: "echo before; sleep 30".into(),
+        description: "timeout".into(),
+        timeout_ms: Some(100),
+        workdir: None,
+        background: false,
+        notify_pattern: None,
+    };
+    let result = Bash.execute(args, &ctx).await.unwrap();
+    let ToolOutput::Terminal(ExecOutcome::TimedOut { output }) = result else {
+        panic!("timeout expected")
+    };
+    assert!(
+        matches!(&output[..], [ContentPart::Text { text }] if text.contains("before") && text.contains("timed out after 100ms"))
+    );
+}
+
 #[tokio::test]
 async fn background_notifies_matching_lines_before_exit() {
     let sink = Captured::default();

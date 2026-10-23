@@ -313,6 +313,14 @@ impl Jobs {
                     None,
                 )
             }
+            End::Exited(ExecOutcome::TimedOut { mut output }) => {
+                output.push(text(tail));
+                (
+                    JobState::TimedOut,
+                    Some(ExecOutcome::TimedOut { output }),
+                    None,
+                )
+            }
             End::Exited(ExecOutcome::Failed { kind, message }) => (
                 JobState::Failed,
                 Some(ExecOutcome::Failed {
@@ -330,7 +338,7 @@ impl Jobs {
             ),
             End::TimedOut(after) => (
                 JobState::TimedOut,
-                Some(ExecOutcome::Completed {
+                Some(ExecOutcome::TimedOut {
                     output: vec![
                         text(format!("[timed out after {}ms]", after.as_millis())),
                         text(tail),

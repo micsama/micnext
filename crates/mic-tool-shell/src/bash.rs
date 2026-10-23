@@ -72,9 +72,14 @@ impl Tool for Bash {
         if !args.background {
             let timeout_ms = timeout.expect("前台必有超时");
             let run = run(&args.command, workdir, timeout_ms).await?;
-            return Ok(ToolOutput::Completed(vec![ContentPart::Text {
+            let output = vec![ContentPart::Text {
                 text: run.render(timeout_ms),
-            }]));
+            }];
+            return Ok(ToolOutput::Terminal(if run.timed_out {
+                ExecOutcome::TimedOut { output }
+            } else {
+                ExecOutcome::Completed { output }
+            }));
         }
         let command = args.command;
         let exec_id = ctx

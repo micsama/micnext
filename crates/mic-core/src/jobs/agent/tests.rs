@@ -363,7 +363,7 @@ async fn wait<T, F: std::future::Future<Output = Option<T>>>(mut probe: impl FnM
 
 fn text(outcome: &ExecOutcome) -> &str {
     match outcome {
-        ExecOutcome::Completed { output } => match &output[..] {
+        ExecOutcome::Completed { output } | ExecOutcome::TimedOut { output } => match &output[..] {
             [ContentPart::Text { text }] => text,
             _ => panic!("交付应为单段文字"),
         },
@@ -636,6 +636,7 @@ fn delivery_maps_terminal_states() {
     );
 
     let timed = delivery(RunState::TimedOut, &[], None, owner, child).unwrap();
+    assert!(matches!(timed, ExecOutcome::TimedOut { .. }));
     assert!(text(&timed).contains("30-minute limit"));
 
     let by = |manager, by_user| Some(StopBy { manager, by_user });

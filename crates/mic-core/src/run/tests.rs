@@ -670,7 +670,7 @@ impl mic_tool::Tool for TimedTool {
     ) -> Result<mic_tool::ToolOutput, mic_tool::ToolError> {
         let delay = args["delay"];
         tokio::time::sleep(Duration::from_millis(delay)).await;
-        Ok(mic_tool::ToolOutput::Completed(vec![
+        Ok(mic_tool::ToolOutput::completed(vec![
             mic_message::ContentPart::Text {
                 text: delay.to_string(),
             },
@@ -1340,7 +1340,7 @@ impl mic_tool::Tool for BigTool {
         args: Self::Args,
         _: &ToolContext,
     ) -> Result<mic_tool::ToolOutput, mic_tool::ToolError> {
-        Ok(mic_tool::ToolOutput::Completed(vec![
+        Ok(mic_tool::ToolOutput::completed(vec![
             mic_message::ContentPart::Text {
                 text: "x".repeat(args["n"]),
             },

@@ -47,6 +47,6 @@ impl Tool for Write {
             ))
         })
         .await?;
-        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
+        Ok(ToolOutput::completed(vec![ContentPart::Text { text }]))
     }
 }

@@ -49,7 +49,7 @@ impl Tool for Glob {
             Ok::<_, ToolError>(render(&paths, &cwd))
         })
         .await?;
-        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
+        Ok(ToolOutput::completed(vec![ContentPart::Text { text }]))
     }
 }
 

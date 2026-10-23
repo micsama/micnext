@@ -44,7 +44,7 @@ impl Tool for Read {
         }
         let display = display_path(ctx.cwd(), &path);
         let text = blocking(move |_| read_window(path, &display, offset, limit)).await?;
-        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
+        Ok(ToolOutput::completed(vec![ContentPart::Text { text }]))
     }
 }
 

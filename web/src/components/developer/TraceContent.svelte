@@ -41,11 +41,11 @@
 {/snippet}
 
 {#snippet result(title: string, outcome: ExecOutcome)}
-  {#if "Completed" in outcome}
-    {@const t = plain(outcome.Completed.output)}
-    <TraceCard icon="terminal" {title} tone="tool" meta={chars(t)} long={isLong(t)} copy={t || undefined}>
-      {#if t}<pre class="hl">{@html jsonHtml(t)}</pre>{:else if outcome.Completed.output.length === 0}<p class="muted">（无输出）</p>{/if}
-      {@render media(outcome.Completed.output)}
+  {#if "Completed" in outcome || "TimedOut" in outcome}
+    {@const t = plain(("Completed" in outcome ? outcome.Completed.output : outcome.TimedOut.output))}
+    <TraceCard icon="terminal" {title} tone={"TimedOut" in outcome ? "bad" : "tool"} meta={"TimedOut" in outcome ? `超时 · ${chars(t)}` : chars(t)} long={isLong(t)} copy={t || undefined}>
+      {#if t}<pre class="hl">{@html jsonHtml(t)}</pre>{:else if ("Completed" in outcome ? outcome.Completed.output : outcome.TimedOut.output).length === 0}<p class="muted">（无输出）</p>{/if}
+      {@render media(("Completed" in outcome ? outcome.Completed.output : outcome.TimedOut.output))}
     </TraceCard>
   {:else}
     {@const msg = "Failed" in outcome ? outcome.Failed.message : outcome.Cancelled.message}

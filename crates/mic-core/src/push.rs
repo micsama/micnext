@@ -327,6 +327,6 @@ impl Tool for PushTool {
                 via.join(", ")
             )
         };
-        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
+        Ok(ToolOutput::completed(vec![ContentPart::Text { text }]))
     }
 }

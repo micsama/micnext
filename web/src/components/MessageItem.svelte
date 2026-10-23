@@ -26,8 +26,8 @@
   const body = $derived(message.body);
   const time = $derived(formatTime(message.created_at));
   const basename = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
-  const VERDICT = { Completed: "完成", Failed: "失败", Cancelled: "取消" } as const;
-  const outcomeKind = (o: ExecOutcome) => ("Completed" in o ? "Completed" : "Failed" in o ? "Failed" : "Cancelled");
+  const VERDICT = { Completed: "完成", Failed: "失败", Cancelled: "取消", TimedOut: "超时" } as const;
+  const outcomeKind = (o: ExecOutcome) => ("Completed" in o ? "Completed" : "TimedOut" in o ? "TimedOut" : "Failed" in o ? "Failed" : "Cancelled");
 </script>
 
 {#if body.kind === "UserInput"}

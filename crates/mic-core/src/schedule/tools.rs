@@ -28,7 +28,7 @@ fn store_error(e: StoreError) -> ToolError {
 }
 
 fn text(text: String) -> ToolOutput {
-    ToolOutput::Completed(vec![ContentPart::Text { text }])
+    ToolOutput::completed(vec![ContentPart::Text { text }])
 }
 
 fn operation_error(e: ScheduleError) -> ToolError {

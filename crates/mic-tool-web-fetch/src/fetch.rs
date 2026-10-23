@@ -91,7 +91,7 @@ impl Tool for WebFetch {
             Body::Html => html_to_markdown(&text),
             Body::Text => text.into_owned(),
         };
-        Ok(ToolOutput::Completed(vec![ContentPart::Text {
+        Ok(ToolOutput::completed(vec![ContentPart::Text {
             text: render(&final_url, status, &body, truncated),
         }]))
     }

@@ -147,7 +147,7 @@ fn exit0() -> Option<ExecOutcome> {
 
 fn texts(outcome: &ExecOutcome) -> String {
     match outcome {
-        ExecOutcome::Completed { output } => output
+        ExecOutcome::Completed { output } | ExecOutcome::TimedOut { output } => output
             .iter()
             .map(|p| match p {
                 ContentPart::Text { text } => text.as_str(),
@@ -241,6 +241,7 @@ async fn timeout_and_stops_settle_exactly_once() {
     let reports = f.completions().await;
     // 超时与用户终止各一条，模型终止不回注。
     assert_eq!(reports.len(), 2);
+    assert!(matches!(reports[0], ExecOutcome::TimedOut { .. }));
     assert!(texts(&reports[0]).contains("[timed out after 30ms]"));
     assert!(texts(&reports[1]).starts_with("Stopped by the user."));
     assert!(matches!(

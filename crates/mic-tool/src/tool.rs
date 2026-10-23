@@ -37,11 +37,17 @@ pub trait Tool: Send + Sync + 'static {
 }
 
 pub enum ToolOutput {
-    Completed(Vec<ContentPart>),
+    Terminal(ExecOutcome),
     /// 已交给后台执行，结果日后以 `Completion` 回注。
     Dispatched {
         exec_id: String,
     },
+}
+
+impl ToolOutput {
+    pub fn completed(output: Vec<ContentPart>) -> Self {
+        Self::Terminal(ExecOutcome::Completed { output })
+    }
 }
 
 /// 后台任务的输出去处；core 只保留最近一段。

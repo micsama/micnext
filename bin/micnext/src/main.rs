@@ -272,6 +272,7 @@ impl Render {
                 tool_name, outcome, ..
             } => {
                 let status = match outcome {
+                    ToolResultOutcome::Terminal(ExecOutcome::TimedOut { .. }) => "timed out".into(),
                     ToolResultOutcome::Terminal(ExecOutcome::Completed { output }) => {
                         let first = match output.first() {
                             Some(ContentPart::Text { text }) => text.lines().next().unwrap_or(""),

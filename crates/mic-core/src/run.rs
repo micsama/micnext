@@ -668,9 +668,7 @@ impl Exec<'_> {
                         message: format!("unknown tool `{name}`"),
                     }),
                     Some(tool) => match tool.invoke(&args, &ctx).await {
-                        Ok(ToolOutput::Completed(output)) => {
-                            ToolResultOutcome::Terminal(ExecOutcome::Completed { output })
-                        }
+                        Ok(ToolOutput::Terminal(outcome)) => ToolResultOutcome::Terminal(outcome),
                         Ok(ToolOutput::Dispatched { exec_id }) => {
                             ToolResultOutcome::Dispatched { exec_id }
                         }

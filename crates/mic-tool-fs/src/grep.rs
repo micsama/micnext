@@ -49,7 +49,7 @@ impl Tool for Grep {
             Ok::<_, ToolError>(render(&found))
         })
         .await?;
-        Ok(ToolOutput::Completed(vec![ContentPart::Text { text }]))
+        Ok(ToolOutput::completed(vec![ContentPart::Text { text }]))
     }
 }
 

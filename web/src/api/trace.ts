@@ -5,7 +5,7 @@ import { runStats, type ContextKind, type ReasoningEffort, type RunStats } from 
 
 export type Purpose = "conversation" | "compaction" | "title";
 export type StopReason = "end_turn" | "tool_use" | "max_tokens" | "content_filter" | "stopped";
-export type ToolOutcome = "completed" | "failed" | "cancelled" | "dispatched";
+export type ToolOutcome = "completed" | "failed" | "cancelled" | "timed_out" | "dispatched";
 
 export type Usage = {
   input_tokens: number;
@@ -150,7 +150,7 @@ const traceTool: Decoder<TraceTool> = obj({
   name: str,
   call_id: str,
   started_at: nullable(num),
-  outcome: oneOf<ToolOutcome>("completed", "failed", "cancelled", "dispatched"),
+  outcome: oneOf<ToolOutcome>("completed", "failed", "cancelled", "timed_out", "dispatched"),
   error: nullable(str),
 });
 

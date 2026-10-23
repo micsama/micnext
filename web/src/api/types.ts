@@ -21,7 +21,8 @@ export type ExecFailureKind = "Input" | "Business" | "Dependency";
 export type ExecOutcome =
   | { Completed: { output: ContentPart[] } }
   | { Failed: { kind: ExecFailureKind; message: string } }
-  | { Cancelled: { message: string } };
+  | { Cancelled: { message: string } }
+  | { TimedOut: { output: ContentPart[] } };
 
 export type ToolResultOutcome = { Terminal: ExecOutcome } | { Dispatched: { exec_id: string } };
 
@@ -262,6 +263,7 @@ const execOutcome: Decoder<ExecOutcome> = tagged({
   Completed: obj({ output: arr(contentPart) }),
   Failed: obj({ kind: oneOf("Input", "Business", "Dependency"), message: str }),
   Cancelled: obj({ message: str }),
+  TimedOut: obj({ output: arr(contentPart) }),
 });
 
 const reasoning: Decoder<Reasoning> = tagged({

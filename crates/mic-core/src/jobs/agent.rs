@@ -258,10 +258,15 @@ pub(crate) fn delivery(
                 last_notice(messages).unwrap_or("no details")
             ),
         }),
-        RunState::TimedOut => cancelled(format!(
-            "The sub-agent run hit the {}-minute limit and was stopped. Follow up to continue.",
-            AGENT_RUN_TIMEOUT.as_secs() / 60
-        )),
+        RunState::TimedOut => Some(ExecOutcome::TimedOut {
+            output: vec![ContentPart::Text {
+                text: format!(
+                    "The sub-agent run hit the {}-minute limit. Follow up to continue.\n{}",
+                    AGENT_RUN_TIMEOUT.as_secs() / 60,
+                    clip(reply, child)
+                ),
+            }],
+        }),
         RunState::Stopped => match stopped_by {
             Some(by) if by.by_user => cancelled("Stopped by the user.".to_owned()),
             Some(by) if by.manager == owner => None,
@@ -331,7 +336,7 @@ pub(super) fn report_text(body: &MessageBody) -> String {
         unreachable!("交付必是 Completion");
     };
     match outcome {
-        ExecOutcome::Completed { output } => output
+        ExecOutcome::Completed { output } | ExecOutcome::TimedOut { output } => output
             .iter()
             .filter_map(|p| match p {
                 ContentPart::Text { text } => Some(text.as_str()),

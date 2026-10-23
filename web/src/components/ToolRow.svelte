@@ -36,7 +36,7 @@
   const status = $derived.by(() => {
     if (!result) return running ? "running" : "none";
     if (!terminal) return "dispatched";
-    return "Completed" in terminal ? "ok" : "fail";
+    return "Completed" in terminal ? "ok" : "TimedOut" in terminal ? "timeout" : "fail";
   });
   const preview = $derived(argsPreview(args));
 </script>
@@ -51,6 +51,8 @@
       <Icon name="loader" class="size-3.5 shrink-0 animate-spin text-muted-foreground" />
     {:else if status === "ok"}
       <Icon name="check" class="size-3.5 shrink-0 text-success" />
+    {:else if status === "timeout"}
+      <span class="shrink-0 text-warning">超时</span>
     {:else if status === "fail"}
       <Icon name="x" class="size-3.5 shrink-0 text-destructive" />
     {:else if result && "Dispatched" in result}

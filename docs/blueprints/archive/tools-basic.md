@@ -1,5 +1,7 @@
 # B2: 基础工具（mic-tool-fs、mic-tool-shell、mic-tool-web-fetch）
 
+2026-10-23 修订：前台、后台和子 agent 超时统一为 TimedOut，见 [工具超时终态](../tool-timeout-outcome.md)。
+
 **状态**: CLOSED（2026-09-23；`crates/mic-tool-{fs,shell,web-fetch}`、`mic-core` `Activation`，§八验收通过）
 **来源**: [`v0a-module-map.md`](v0a-module-map.md) M8；[`product-roadmap.md`](../../brainstorm/product-roadmap.md) §2.3（模型侧契约）；
 [`mic-tool.md`](mic-tool.md)（实现的 port）；底稿为已安装的 DSH 包 `@deepseek-ai/dsh-tool-{fs,fs-search,bash,web}`

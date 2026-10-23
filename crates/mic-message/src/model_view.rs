@@ -142,6 +142,11 @@ fn outcome_parts(outcome: &ExecOutcome) -> Vec<ContentPart> {
             .render();
             vec![text(format!("{header}\n{message}"))]
         }
+        ExecOutcome::TimedOut { output } => {
+            let mut parts = vec![text(Header::TimedOut.render())];
+            parts.extend(output.clone());
+            parts
+        }
         ExecOutcome::Cancelled { message } => {
             vec![text(format!("{}\n{message}", Header::Cancelled.render()))]
         }
@@ -160,10 +165,11 @@ enum Header<'a> {
     Dispatched { exec_id: &'a str },
     Failed { kind: &'a str },
     Cancelled,
+    TimedOut,
 }
 
 /// 说明清单；新增 `Header` 变体须同步此处。
-const ALL: [Header<'static>; 9] = [
+const ALL: [Header<'static>; 10] = [
     Header::User {
         id: "…", at: "…"
     },
@@ -179,6 +185,7 @@ const ALL: [Header<'static>; 9] = [
     Header::JobNotice { exec_id: "…" },
     Header::Failed { kind: "…" },
     Header::Cancelled,
+    Header::TimedOut,
 ];
 
 impl<'a> Header<'a> {
@@ -193,6 +200,7 @@ impl<'a> Header<'a> {
             Self::Dispatched { .. } => "dispatched",
             Self::Failed { .. } => "failed",
             Self::Cancelled => "cancelled",
+            Self::TimedOut => "timed_out",
         }
     }
 
@@ -208,7 +216,7 @@ impl<'a> Header<'a> {
                 vec![("job_id", exec_id)]
             }
             Self::Failed { kind } => vec![("kind", kind)],
-            Self::RuntimeNote | Self::Cancelled => vec![],
+            Self::RuntimeNote | Self::Cancelled | Self::TimedOut => vec![],
         }
     }
 
@@ -233,6 +241,7 @@ impl<'a> Header<'a> {
             Self::Failed { .. } => {
                 "the tool call failed (input: fix the arguments; business: rejected by tool rules; dependency: environment error)."
             }
+            Self::TimedOut => "the operation reached its time limit; partial output is preserved. Check its effects before retrying.",
             Self::Cancelled => {
                 "the call was cancelled or interrupted; its effect may be unknown, so check before retrying."
             }

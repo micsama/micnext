@@ -6,6 +6,7 @@ export function partsText(parts: ContentPart[]): string {
 
 export function outcomeText(o: ExecOutcome): string {
   if ("Completed" in o) return partsText(o.Completed.output) || "（无输出）";
+  if ("TimedOut" in o) return `超时\n${partsText(o.TimedOut.output)}`;
   if ("Failed" in o) return o.Failed.message;
   return "已取消";
 }

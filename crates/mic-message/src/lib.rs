@@ -70,6 +70,9 @@ impl ExecFailureKind {
 /// 工具执行终态。`wait=true` 回填原 tool call 与 `wait=false` 的 completion 共用。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExecOutcome {
+    TimedOut {
+        output: Vec<ContentPart>,
+    },
     Completed {
         output: Vec<ContentPart>,
     },

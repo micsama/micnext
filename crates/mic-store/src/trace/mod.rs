@@ -67,6 +67,7 @@ pub enum ToolTraceOutcome {
     Completed,
     Failed,
     Cancelled,
+    TimedOut,
     Dispatched,
 }
 
@@ -500,6 +501,9 @@ fn trace_message(m: Message) -> TraceMessage {
                 ToolResultOutcome::Terminal(ExecOutcome::Completed { output }) => {
                     (ToolTraceOutcome::Completed, parts_text(output))
                 }
+                ToolResultOutcome::Terminal(ExecOutcome::TimedOut { output }) => {
+                    (ToolTraceOutcome::TimedOut, parts_text(output))
+                }
                 ToolResultOutcome::Terminal(ExecOutcome::Failed { message, .. }) => {
                     (ToolTraceOutcome::Failed, message.clone())
                 }
@@ -510,8 +514,11 @@ fn trace_message(m: Message) -> TraceMessage {
                     (ToolTraceOutcome::Dispatched, String::new())
                 }
             };
-            let error = matches!(kind, ToolTraceOutcome::Failed | ToolTraceOutcome::Cancelled)
-                .then(|| clip(&text));
+            let error = matches!(
+                kind,
+                ToolTraceOutcome::Failed | ToolTraceOutcome::Cancelled | ToolTraceOutcome::TimedOut
+            )
+            .then(|| clip(&text));
             (
                 "ToolResult",
                 text,
@@ -627,7 +634,7 @@ impl Store {
                        st.last_run_at, coalesce(st.failed, 0), coalesce(st.interrupted, 0),
                        (SELECT count(*) FROM core_messages m
                          WHERE m.session_id = s.id AND m.kind = 'ToolResult'
-                           AND json_extract(m.payload, '$.outcome.Terminal.Failed') IS NOT NULL)
+                           AND (json_extract(m.payload, '$.outcome.Terminal.Failed') IS NOT NULL OR json_extract(m.payload, '$.outcome.Terminal.TimedOut') IS NOT NULL))
                      FROM shown JOIN core_sessions s ON s.id = shown.id
                      JOIN top ON top.id = s.id
                        AND NOT EXISTS (SELECT 1 FROM core_sessions p WHERE p.id = top.top AND p.parent_session_id IS NOT NULL)
@@ -867,7 +874,7 @@ impl Store {
             let mut by_tool: BTreeMap<String, (u32, u32, Vec<i64>)> = BTreeMap::new();
             let mut stmt = conn.prepare(&format!(
                 "SELECT json_extract(payload, '$.tool_name'),
-                        json_extract(payload, '$.outcome.Terminal.Failed') IS NOT NULL,
+                        (json_extract(payload, '$.outcome.Terminal.Failed') IS NOT NULL OR json_extract(payload, '$.outcome.Terminal.TimedOut') IS NOT NULL),
                         CASE WHEN json_extract(payload, '$.outcome.Terminal.Completed') IS NOT NULL
                              THEN created_at - json_extract(payload, '$.started_at') END
                  FROM core_messages WHERE kind = 'ToolResult' AND {d} >= {floor}",

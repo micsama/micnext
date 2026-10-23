@@ -20,6 +20,9 @@ fn summary(kind: SessionKind) -> SessionSummary {
         title_error: None,
         last_activity_at: 0,
         preview: None,
+        pinned_at: None,
+        unread: false,
+        running: false,
     }
 }
 

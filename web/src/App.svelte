@@ -12,7 +12,6 @@
   import { router } from "./state/route.svelte";
   import { SessionView } from "./state/session.svelte";
   import { pushCenter } from "./state/pushes.svelte";
-  import { otherSessions, webSessions } from "./state/sessions.svelte";
   import { settingsStore } from "./state/settings.svelte";
 
   let view = $state<SessionView | null>(null);
@@ -24,8 +23,6 @@
     const v = new SessionView(route.id);
     v.reply = pushCenter.takeReply(route.id);
     view = v;
-    void webSessions.refresh();
-    for (const list of otherSessions) if (list.loaded) void list.refresh();
     return () => {
       v.close();
       view = null;
@@ -39,13 +36,8 @@
 
   $effect(() => {
     if (!auth.token) return;
-    void webSessions.refresh();
     void settingsStore.refresh();
-    const onfocus = () => {
-      void webSessions.refresh();
-      void settingsStore.refresh();
-      for (const list of otherSessions) if (list.loaded) void list.refresh();
-    };
+    const onfocus = () => void settingsStore.refresh();
     addEventListener("focus", onfocus);
     return () => removeEventListener("focus", onfocus);
   });

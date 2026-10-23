@@ -104,7 +104,7 @@ impl TitleHandle {
             return Err(TitleError::Stopped);
         }
         self.events
-            .emit(id, &channel, KernelEventKind::SessionTitleChanged);
+            .emit(id, &channel, KernelEventKind::SessionChanged);
         Ok(())
     }
 }
@@ -166,7 +166,7 @@ impl TitleRuntime {
                         }
                         let mut active = active.lock().expect("title state poisoned");
                         active.remove(&id);
-                        events.emit(id, root_channel(&job.session), KernelEventKind::SessionTitleChanged);
+                        events.emit(id, root_channel(&job.session), KernelEventKind::SessionChanged);
                         Ok(())
                     });
                     self.owners.insert(task.id(), id);

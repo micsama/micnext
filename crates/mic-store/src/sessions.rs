@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use mic_message::SessionId;
+use mic_message::{MessageId, SessionId};
 use rusqlite::{params, OptionalExtension, Transaction};
 
 use crate::limits::PREVIEW_CHARS;
@@ -90,7 +90,8 @@ impl Store {
     pub async fn archive_session(&self, session: SessionId, at: i64) -> Result<(), StoreError> {
         self.call(move |conn| {
             conn.execute(
-                "UPDATE core_sessions SET archived_at = COALESCE(archived_at, ?2) WHERE id = ?1",
+                "UPDATE core_sessions SET archived_at = COALESCE(archived_at, ?2), pinned_at = NULL
+                 WHERE id = ?1",
                 params![session.0, at],
             )?;
             Ok(())
@@ -110,6 +111,64 @@ impl Store {
             };
             conn.execute(sql, [session.0])?;
             Ok(())
+        })
+        .await
+    }
+
+    /// `at` 为空取消置顶；已置顶时保留原时间。
+    pub async fn set_session_pinned(
+        &self,
+        session: SessionId,
+        at: Option<i64>,
+    ) -> Result<(), StoreError> {
+        self.call(move |conn| {
+            ensure_active(conn, session)?;
+            conn.execute(
+                "UPDATE core_sessions SET pinned_at = CASE WHEN ?2 IS NULL THEN NULL
+                   ELSE COALESCE(pinned_at, ?2) END WHERE id = ?1",
+                params![session.0, at],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// 已读水位只前移；返回是否前移。`message` 不属于该会话返回 `MessageNotInSession`。
+    pub async fn mark_session_seen(
+        &self,
+        session: SessionId,
+        message: MessageId,
+    ) -> Result<bool, StoreError> {
+        self.call(move |conn| {
+            let owned: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM core_messages WHERE id = ?1 AND session_id = ?2)",
+                params![message.0, session.0],
+                |r| r.get(0),
+            )?;
+            if !owned {
+                return Err(StoreError::MessageNotInSession);
+            }
+            Ok(conn.execute(
+                "UPDATE core_sessions SET seen_message_id = ?2
+                 WHERE id = ?1 AND COALESCE(seen_message_id, 0) < ?2",
+                params![session.0, message.0],
+            )? > 0)
+        })
+        .await
+    }
+
+    /// 全部置顶的未归档 Root，跨渠道，新置顶在前。
+    pub async fn list_pinned_sessions(&self) -> Result<Vec<SessionSummary>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn
+                .prepare(&format!(
+                    "{} ORDER BY pinned_at DESC, id DESC",
+                    summaries(
+                        "s.kind = 'root' AND s.archived_at IS NULL AND s.pinned_at IS NOT NULL"
+                    )
+                ))?
+                .query_map([], row_summary)?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
         })
         .await
     }
@@ -144,6 +203,7 @@ impl Store {
                      LIMIT ?4",
                     summaries(
                         "s.kind = 'root' AND s.channel = ?1 AND s.archived_at IS NULL
+                         AND s.pinned_at IS NULL
                          AND EXISTS (SELECT 1 FROM core_messages m
                                       WHERE m.session_id = s.id AND m.kind IN ('UserInput', 'Command'))"
                     )
@@ -231,8 +291,13 @@ pub(crate) fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Se
 fn summaries(filter: &str) -> String {
     // NOTE: 预览依赖 ContentPart 的 serde 外部标签形状 {"Text":{"text":..}}；无文字时以首个附件占位。
     format!(
-        "SELECT {SESSION_COLS}, act, preview, title, title_error FROM (
+        "SELECT {SESSION_COLS}, act, preview, title, title_error, pinned_at, unread, running FROM (
            SELECT s.*,
+             (s.kind = 'root' AND s.channel = 'web' AND EXISTS (
+                SELECT 1 FROM core_messages m
+                 WHERE m.session_id = s.id AND m.kind IN ('Reply', 'Notification')
+                   AND m.id > COALESCE(s.seen_message_id, 0))) AS unread,
+             EXISTS (SELECT 1 FROM core_runs r WHERE r.session_id = s.id AND r.state = 'Executing') AS running,
              COALESCE((SELECT m.created_at FROM core_messages m
                         WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1),
                       s.created_at) AS act,
@@ -259,6 +324,9 @@ fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
         session: row::session(r)?,
         last_activity_at: r.get(row::SESSION_NEXT)?,
         preview: r.get(row::SESSION_NEXT + 1)?,
+        pinned_at: r.get(row::SESSION_NEXT + 4)?,
+        unread: r.get(row::SESSION_NEXT + 5)?,
+        running: r.get(row::SESSION_NEXT + 6)?,
     })
 }
 
@@ -300,3 +368,6 @@ impl Store {
         }).await
     }
 }
+
+#[cfg(test)]
+mod tests;

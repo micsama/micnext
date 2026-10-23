@@ -103,7 +103,10 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
             get(api::list_sessions)
                 .post(api::create_session.layer(DefaultBodyLimit::max(MAX_INPUT_BODY_BYTES))),
         )
+        .route("/sessions/pinned", get(api::list_pinned_sessions))
         .route("/sessions/{id}", get(api::get_session))
+        .route("/sessions/{id}/pin", put(api::pin_session))
+        .route("/sessions/{id}/seen", post(api::mark_seen))
         .route("/sessions/{id}/title", post(api::generate_title))
         .route("/sessions/{id}/archive", post(api::archive_session))
         .route(

@@ -3,7 +3,9 @@
   import { Popover } from "bits-ui";
   import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
   import ArchiveIcon from "@lucide/svelte/icons/archive";
-  import { listJobs, archiveSession } from "../api/client";
+  import PinIcon from "@lucide/svelte/icons/pin";
+  import PinOffIcon from "@lucide/svelte/icons/pin-off";
+  import { listJobs, archiveSession, pinSession } from "../api/client";
   import { jobActive } from "../api/types";
   import { confirm } from "../state/confirm.svelte";
   import type { SessionItem } from "../api/types";
@@ -11,7 +13,7 @@
   import { groupSessions } from "../lib/format";
   import Icon, { type IconName } from "../lib/Icon.svelte";
   import { router } from "../state/route.svelte";
-  import { otherSessions, webSessions, type SessionList } from "../state/sessions.svelte";
+  import { otherSessions, pinnedSessions, sessionsSync, webSessions, type SessionList } from "../state/sessions.svelte";
   import { SvelteMap } from "svelte/reactivity";
   import type { TraceSession } from "../api/trace";
   import { issues, traceSessions } from "../state/trace-sessions.svelte";
@@ -64,7 +66,6 @@
       ? d.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" })
       : `${d.getMonth() + 1}/${d.getDate()}`;
   };
-  let othersOpen = $state(false);
   let archiving = $state<number | null>(null);
   let archiveError = $state<string | null>(null);
 
@@ -89,6 +90,18 @@
     }
   }
 
+  let pinError = $state<string | null>(null);
+
+  async function togglePin(s: SessionItem) {
+    pinError = null;
+    try {
+      await pinSession(s.id, s.pinned_at === null);
+      sessionsSync.request();
+    } catch (error) {
+      pinError = (error as Error).message;
+    }
+  }
+
   const THEME: Record<ThemeChoice, { icon: IconName; label: string }> = {
     system: { icon: "monitor", label: "跟随系统" },
     light: { icon: "sun", label: "浅色" },
@@ -106,11 +119,6 @@
   function go(path: string) {
     router.go(path);
     sidebar.drawer = false;
-  }
-
-  function toggleOthers() {
-    othersOpen = !othersOpen;
-    if (othersOpen) for (const list of otherSessions) void list.refresh();
   }
 
   const loadMoreWhenSeen =
@@ -172,14 +180,23 @@
     <a
       href="/s/{id}"
       onclick={(e) => (e.preventDefault(), go(`/s/${id}`))}
-      class="min-w-0 flex-1 truncate px-3 py-1.5 text-sm"
-      class:font-medium={activeId === id}>{current.title ?? current.preview ?? `会话 ${id}`}</a>
+      class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-3 pl-1.5 text-sm">
+      <!-- 状态槽：未读优先于运行中。 -->
+      <span class="flex size-2 shrink-0 items-center justify-center">
+        {#if s.unread}<span class="size-2 rounded-full bg-primary" title="有新回复"></span>
+        {:else if s.running}<Icon name="loader" class="size-2.5 animate-spin text-muted-foreground" />{/if}
+      </span>
+      <span class={["min-w-0 flex-1 truncate", activeId === id && "font-medium", s.unread && "font-semibold"]}>{current.title ?? current.preview ?? `会话 ${id}`}</span>
+    </a>
     <Popover.Root>
       <Popover.Trigger aria-label="会话操作" title="会话操作" class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100 data-[state=open]:opacity-100">
         <EllipsisIcon class="size-4" />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content side="bottom" align="end" sideOffset={4} collisionPadding={8} class="z-50 w-36 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none">
+          <button type="button" onclick={() => togglePin(s)} class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent">
+            {#if s.pinned_at === null}<PinIcon class="size-4" />置顶{:else}<PinOffIcon class="size-4" />取消置顶{/if}
+          </button>
           <button type="button" disabled={archiving !== null} onclick={() => archive(id)} class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50">
             <ArchiveIcon class="size-4" />{archiving === id ? "正在归档…" : "归档会话"}
           </button>
@@ -248,35 +265,32 @@
       <p class="px-3 pt-4 text-xs text-muted-foreground">仅列出有已结束运行的会话</p>
     {:else}
     {#if archiveError}<p role="alert" class="px-3 py-2 text-xs text-destructive">归档失败：{archiveError}</p>{/if}
+    {#if pinError}<p role="alert" class="px-3 py-2 text-xs text-destructive">置顶失败：{pinError}</p>{/if}
+    {#if pinnedSessions.error}<p class="px-3 py-1 text-xs text-destructive">{pinnedSessions.error}</p>{/if}
+    {#if pinnedSessions.items.length > 0}
+      <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">置顶</p>
+      {#each pinnedSessions.items as s (s.id)}
+        {@render entry(s)}
+      {/each}
+    {/if}
     {#each groups as group (group.label)}
       <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">{group.label}</p>
       {#each group.items as s (s.id)}
         {@render entry(s)}
       {/each}
     {/each}
-    {#if webSessions.loaded && webSessions.items.length === 0}
+    {#if webSessions.loaded && webSessions.items.length === 0 && pinnedSessions.items.length === 0}
       <p class="px-3 pt-3 text-xs text-muted-foreground">还没有会话</p>
     {/if}
     {@render list(webSessions)}
 
-    <button
-      type="button"
-      onclick={toggleOthers}
-      class="mt-4 flex w-full items-center gap-1 px-3 py-1 text-xs text-muted-foreground hover:text-foreground">
-      <Icon name="chevron" class="size-3 transition-transform {othersOpen ? 'rotate-90' : ''}" />其它渠道
-    </button>
-    {#if othersOpen}
-      {#each otherSessions as other (other.channel)}
-        <p class="px-3 pt-2 pb-1 text-xs text-muted-foreground">{other.channel === "wechat" ? "微信" : other.channel}</p>
-        {#each other.items as s (s.id)}
-          {@render entry(s)}
-        {/each}
-        {#if other.loaded && other.items.length === 0}
-          <p class="px-3 text-xs text-muted-foreground">无</p>
-        {/if}
-        {@render list(other)}
+    {#each otherSessions.filter((o) => o.items.length > 0 || o.error) as other (other.channel)}
+      <p class="mt-3 border-t border-border px-3 pt-3 pb-1 text-xs text-muted-foreground">{channelName(other.channel)}</p>
+      {#each other.items as s (s.id)}
+        {@render entry(s)}
       {/each}
-    {/if}
+      {@render list(other)}
+    {/each}
     {/if}
   </nav>
   <button type="button" onclick={() => go("/schedules")} class="mx-2 mb-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent" class:bg-accent={router.current.kind === "schedules"}>

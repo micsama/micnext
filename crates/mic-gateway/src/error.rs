@@ -77,6 +77,9 @@ impl From<KernelError> for ApiError {
             KernelError::Store(mic_store::StoreError::SessionArchived) => {
                 Self::Conflict(e.to_string())
             }
+            KernelError::Store(mic_store::StoreError::MessageNotInSession) => {
+                Self::BadRequest(e.to_string())
+            }
             KernelError::BackupInvalid(reason) => Self::BadRequest(reason),
             KernelError::SessionNotFound => Self::NotFound(SESSION_NOT_FOUND),
             KernelError::SessionNotRoot | KernelError::TaskSessionInput => {

@@ -136,7 +136,7 @@ async fn feed(
             continue;
         }
         let out = match event.kind {
-            KernelEventKind::SessionTitleChanged => json_event("session_title_changed", &Empty {}),
+            KernelEventKind::SessionChanged => json_event("session_changed", &Empty {}),
             KernelEventKind::JobsChanged => json_event("jobs_changed", &Empty {}),
             KernelEventKind::PushCreated { .. }
             | KernelEventKind::PushDeliveryChanged { .. }

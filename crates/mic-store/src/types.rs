@@ -276,6 +276,11 @@ pub struct SessionSummary {
     pub last_activity_at: i64,
     /// 首条用户输入的首个文本片段开头；没有则 `None`。
     pub preview: Option<String>,
+    pub pinned_at: Option<i64>,
+    /// Web Root 有晚于已读水位的 `Reply`/`Notification`；其它会话恒为 false。
+    pub unread: bool,
+    /// 自身有 `Executing` 的 run。
+    pub running: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

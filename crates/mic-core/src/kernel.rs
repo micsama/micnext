@@ -491,6 +491,41 @@ impl Kernel {
     }
 
     pub async fn archive_session(&self, id: SessionId) -> Result<(), KernelError> {
+        let session = self.root_session(id).await?;
+        self.store.archive_session(id, now_ms()).await?;
+        self.emit_session_changed(&session);
+        self.titles.stop(id).await;
+        self.engine.jobs.archive(id).await?;
+        Ok(())
+    }
+
+    pub async fn set_session_pinned(&self, id: SessionId, pinned: bool) -> Result<(), KernelError> {
+        let session = self.root_session(id).await?;
+        self.store
+            .set_session_pinned(id, pinned.then(now_ms))
+            .await?;
+        self.emit_session_changed(&session);
+        Ok(())
+    }
+
+    /// 已读水位前移时才发布变化。
+    pub async fn mark_session_seen(
+        &self,
+        id: SessionId,
+        message: MessageId,
+    ) -> Result<(), KernelError> {
+        let session = self.root_session(id).await?;
+        if self.store.mark_session_seen(id, message).await? {
+            self.emit_session_changed(&session);
+        }
+        Ok(())
+    }
+
+    pub async fn list_pinned_sessions(&self) -> Result<Vec<SessionSummary>, KernelError> {
+        Ok(self.store.list_pinned_sessions().await?)
+    }
+
+    async fn root_session(&self, id: SessionId) -> Result<Session, KernelError> {
         let session = self
             .store
             .session(id)
@@ -499,10 +534,15 @@ impl Kernel {
         if !matches!(session.kind, SessionKind::Root { .. }) {
             return Err(KernelError::SessionNotRoot);
         }
-        self.store.archive_session(id, now_ms()).await?;
-        self.titles.stop(id).await;
-        self.engine.jobs.archive(id).await?;
-        Ok(())
+        Ok(session)
+    }
+
+    fn emit_session_changed(&self, session: &Session) {
+        let SessionKind::Root { channel, .. } = &session.kind else {
+            unreachable!("只对 Root 发布会话行变化")
+        };
+        self.events
+            .emit(session.id, channel, crate::KernelEventKind::SessionChanged);
     }
 
     /// id 可能来自外部，不存在返回 `None`。
@@ -646,7 +686,7 @@ impl Kernel {
                 self.events.emit(
                     input.session_id,
                     &channel,
-                    crate::KernelEventKind::SessionTitleChanged,
+                    crate::KernelEventKind::SessionChanged,
                 );
             }
         }

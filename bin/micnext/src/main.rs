@@ -250,7 +250,7 @@ impl Render {
             KernelEventKind::MessageAppended(m) => self.message(m),
             KernelEventKind::RunFinished { .. }
             | KernelEventKind::ModelRetrying { .. }
-            | KernelEventKind::SessionTitleChanged
+            | KernelEventKind::SessionChanged
             | KernelEventKind::JobsChanged
             | KernelEventKind::PushCreated { .. }
             | KernelEventKind::PushDeliveryChanged { .. }

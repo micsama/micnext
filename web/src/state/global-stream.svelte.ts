@@ -3,8 +3,9 @@ import { obj, num, ProtocolError } from "../api/decode";
 import { readSse } from "../api/sse";
 import { sleep } from "../lib/sleep";
 import { pushCenter } from "./pushes.svelte";
+import { sessionsSync } from "./sessions.svelte";
 
-/** 通知中心与任务页共用一条全局流。 */
+/** 通知中心、任务页与侧栏共用一条全局流。 */
 class GlobalStream {
   schedules = $state(0);
   deliveries = $state(0);
@@ -21,9 +22,10 @@ class GlobalStream {
     let delay = 1000;
     while (!signal.aborted) {
       try {
-        await readSse("/stream", new URLSearchParams(), ["push_created", "push_delivery_changed", "schedule_changed"], signal, (event, data) => {
+        await readSse("/stream", new URLSearchParams(), ["push_created", "push_delivery_changed", "schedule_changed", "session_activity"], signal, (event, data) => {
           obj({ id: num })(JSON.parse(data), "全局事件");
           if (event === "schedule_changed") this.schedules++;
+          if (event === "session_activity") sessionsSync.request();
           if (event === "push_created") void pushCenter.refresh();
           if (event === "push_delivery_changed") {
             this.deliveries++;
@@ -34,6 +36,7 @@ class GlobalStream {
           this.error = null;
           this.connected++;
           void pushCenter.refresh();
+          sessionsSync.request();
         });
       } catch (e) {
         if (signal.aborted || (e instanceof ApiError && e.status === 401)) return;

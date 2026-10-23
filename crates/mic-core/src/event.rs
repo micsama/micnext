@@ -24,7 +24,8 @@ pub enum KernelEventKind {
     PushDeliveryChanged {
         push_id: PushId,
     },
-    SessionTitleChanged,
+    /// 会话行的列表投影变了（标题、置顶、归档、已读）；订阅方重新拉取。
+    SessionChanged,
     /// 一次执行开始（已认领）。
     RunStarted {
         run_id: RunId,

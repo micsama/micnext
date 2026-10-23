@@ -40,6 +40,7 @@ import {
   parseSessionDetail,
   parseTitleModel,
   parseSessionPage,
+  parsePinnedSessions,
   parseMessagePage,
   parseSettings,
   parseSetupAttempt,
@@ -57,6 +58,7 @@ import {
   type Persona,
   type SessionDetail,
   type TitleModelSelection,
+  type SessionItem,
   type SessionPage,
   type MessagePage,
   type Settings,
@@ -134,6 +136,18 @@ export async function generateTitle(id: number): Promise<void> {
 
 export async function archiveSession(id: number): Promise<void> {
   await request("POST", `/sessions/${id}/archive`);
+}
+
+export async function listPinnedSessions(): Promise<SessionItem[]> {
+  return parsePinnedSessions(await request("GET", "/sessions/pinned"));
+}
+
+export async function pinSession(id: number, pinned: boolean): Promise<void> {
+  await request("PUT", `/sessions/${id}/pin`, { pinned });
+}
+
+export async function markSessionSeen(id: number, messageId: number): Promise<void> {
+  await request("POST", `/sessions/${id}/seen`, { message_id: messageId });
 }
 
 export async function getTitleModel(): Promise<TitleModelSelection> {

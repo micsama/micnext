@@ -1,9 +1,9 @@
-import { ApiError, generateTitle, getContext, listJobs, getMessages, revokeCompaction, getSession, stopRun } from "../api/client";
+import { ApiError, generateTitle, getContext, listJobs, getMessages, markSessionSeen, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
 import { ProtocolError, jobActive, type ContextView, type JobView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
-import { otherSessions, webSessions } from "./sessions.svelte";
+import { sessionsSync } from "./sessions.svelte";
 
 export type Draft = { reasoning: string; text: string; afterId: number };
 /** 输入框的回复引用：`label` 显示在输入框内，发送时 `quote` 以引用块前置到正文。 */
@@ -48,8 +48,7 @@ export class SessionView {
         try {
           const info = await getSession(this.id);
           if (this.#abort.signal.aborted) return;
-          if (this.info) Object.assign(this.info, { schedule: info.schedule, title: info.title, title_error: info.title_error, title_generating: info.title_generating });
-          for (const list of [webSessions, ...otherSessions]) list.patchTitle(info);
+          if (this.info) Object.assign(this.info, { schedule: info.schedule, title: info.title, title_error: info.title_error, title_generating: info.title_generating, pinned_at: info.pinned_at, archived_at: info.archived_at });
           this.titleSyncError = null;
         } catch (error) {
           if (!this.#abort.signal.aborted) this.titleSyncError = (error as Error).message;
@@ -160,13 +159,39 @@ export class SessionView {
   lastLoaded = $state<{ count: number; reachedStart: boolean } | null>(null);
 
   #abort = new AbortController();
+  #onVisible = () => this.#reportSeen();
 
   constructor(readonly id: number) {
     void this.#run();
+    document.addEventListener("visibilitychange", this.#onVisible);
   }
 
   close(): void {
     this.#abort.abort();
+    document.removeEventListener("visibilitychange", this.#onVisible);
+  }
+
+  /** 已成功上报的已读水位；失败不记，下次时机到了重报同一条。 */
+  #seen = 0;
+  #seenReport: Promise<void> | null = null;
+
+  /** 页面可见时把已加载的最新消息报为已读；只有 Web 会话计未读。 */
+  #reportSeen(): void {
+    const source = this.info?.source;
+    if (this.#seenReport || source?.kind !== "channel" || source.channel !== "web") return;
+    this.#seenReport = (async () => {
+      let last = this.lastId;
+      while (document.visibilityState === "visible" && last !== null && last > this.#seen && !this.#abort.signal.aborted) {
+        try {
+          await markSessionSeen(this.id, last);
+        } catch {
+          return;
+        }
+        this.#seen = last;
+        sessionsSync.markRead(this.id);
+        last = this.lastId;
+      }
+    })().finally(() => { this.#seenReport = null; });
   }
 
   get lastId(): number | null {
@@ -242,7 +267,7 @@ export class SessionView {
   }
 
   #apply(e: StreamEvent): void {
-    if (e.event === "ready" || e.event === "session_title_changed") this.#refreshTitle();
+    if (e.event === "ready" || e.event === "session_changed") this.#refreshTitle();
     if (e.event === "ready" || e.event === "jobs_changed") this.refreshJobs();
     if (e.event === "ready" || e.event === "run_finished" || (e.event === "message" && ["Reply", "Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
     switch (e.event) {
@@ -279,8 +304,8 @@ export class SessionView {
         this.executingRun = null;
         this.stopping = null;
         this.notice = FINISH_NOTICE[e.data.state] ?? null;
-        void webSessions.refresh();
         break;
     }
+    if (e.event === "ready" || e.event === "message") this.#reportSeen();
   }
 }

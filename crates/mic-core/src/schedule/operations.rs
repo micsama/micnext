@@ -171,7 +171,7 @@ impl Schedules {
             self.events.emit(
                 schedule.session_id,
                 mic_store::SCHEDULE_MODULE,
-                KernelEventKind::SessionTitleChanged,
+                KernelEventKind::SessionChanged,
             );
         }
         Ok(schedule)

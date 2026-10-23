@@ -13,7 +13,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use mic_core::{IncomingPart, ParsedCommand, StopOutcome};
 use mic_message::limits::{MAX_FILES_PER_INPUT, MAX_FILE_BYTES};
-use mic_message::{ImageId, SessionId};
+use mic_message::{ImageId, MessageId, SessionId};
 use mic_store::{
     ModelId, NewSession, PersonaId, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
     SessionSummary, ToolScope,
@@ -89,6 +89,9 @@ pub(crate) struct SessionItem {
     reasoning_effort: Option<ReasoningEffort>,
     /// 临时明文开启中：新消息发给模型时不按规则脱敏。
     plaintext: bool,
+    pinned_at: Option<i64>,
+    unread: bool,
+    running: bool,
 }
 
 #[derive(Serialize)]
@@ -147,6 +150,23 @@ pub(crate) async fn list_sessions(
     }))
 }
 
+#[derive(Serialize)]
+pub(crate) struct PinnedSessions {
+    items: Vec<SessionItem>,
+}
+
+pub(crate) async fn list_pinned_sessions(
+    State(app): State<Arc<App>>,
+) -> Result<Json<PinnedSessions>, ApiError> {
+    let items = app.kernel.list_pinned_sessions().await?;
+    Ok(Json(PinnedSessions {
+        items: items
+            .into_iter()
+            .map(|s| item(s).expect("list_pinned_sessions 只返回 Root 会话"))
+            .collect(),
+    }))
+}
+
 /// Web 浏览 Root 与定时任务会话。
 fn item(s: SessionSummary) -> Option<SessionItem> {
     let writable = writable(&s.session);
@@ -175,6 +195,9 @@ fn item(s: SessionSummary) -> Option<SessionItem> {
         model_id: s.session.model_id,
         reasoning_effort: s.session.reasoning_effort,
         plaintext: s.session.plain_after.is_some(),
+        pinned_at: s.pinned_at,
+        unread: s.unread,
+        running: s.running,
     })
 }
 
@@ -235,6 +258,44 @@ pub(crate) async fn archive_session(
 ) -> Result<StatusCode, ApiError> {
     let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
     app.kernel.archive_session(SessionId(id)).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PinBody {
+    pinned: bool,
+}
+
+pub(crate) async fn pin_session(
+    State(app): State<Arc<App>>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<PinBody>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
+    let body = json(body)?;
+    app.kernel
+        .set_session_pinned(SessionId(id), body.pinned)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SeenBody {
+    message_id: MessageId,
+}
+
+pub(crate) async fn mark_seen(
+    State(app): State<Arc<App>>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<SeenBody>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
+    let body = json(body)?;
+    app.kernel
+        .mark_session_seen(SessionId(id), body.message_id)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -2,7 +2,6 @@
   import { createSession } from "../api/client";
   import type { InputPart, ReasoningEffort } from "../api/types";
   import { router } from "../state/route.svelte";
-  import { webSessions } from "../state/sessions.svelte";
   import { settingsStore } from "../state/settings.svelte";
   import Composer from "./Composer.svelte";
   import Header from "./Header.svelte";
@@ -33,7 +32,6 @@
 
   async function send(parts: InputPart[]) {
     const created = await createSession(parts, persona!.id, modelId!, reasoningEffort);
-    void webSessions.refresh();
     router.go(`/s/${created.session_id}`);
   }
 </script>

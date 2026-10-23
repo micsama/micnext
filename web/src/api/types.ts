@@ -116,6 +116,10 @@ export type SessionItem = {
   reasoning_effort: ReasoningEffort | null;
   /** 临时明文：开启后的新消息发给模型时不按规则脱敏。 */
   plaintext: boolean;
+  pinned_at: number | null;
+  /** Web 会话有未看过的回复或通知。 */
+  unread: boolean;
+  running: boolean;
 };
 
 export type Preset = "generic" | "deepseek" | "ollama" | "openai" | "chatgpt";
@@ -248,7 +252,7 @@ export const parseWechatView = (v: unknown): WechatView => {
 };
 
 export type StreamEvent =
-  | { event: "session_title_changed"; data: Record<string, never> }
+  | { event: "session_changed"; data: Record<string, never> }
   | { event: "jobs_changed"; data: Record<string, never> }
   | { event: "message"; data: Message }
   | { event: "text_delta"; data: { text: string } }
@@ -363,6 +367,9 @@ const sessionFields = {
   model_id: nullable(num),
   reasoning_effort: nullable(reasoningEffort),
   plaintext: bool,
+  pinned_at: nullable(num),
+  unread: bool,
+  running: bool,
 };
 const sessionItem: Decoder<SessionItem> = obj(sessionFields);
 const sessionDetail: Decoder<SessionDetail> = obj({ ...sessionFields, title_generating: bool });
@@ -426,6 +433,8 @@ const sessionPage: Decoder<SessionPage> = obj({
   next: nullable(obj({ before_at: num, before_id: num })),
 });
 
+const pinnedSessions = obj({ items: arr(sessionItem) });
+
 const created: Decoder<Created> = obj({ session_id: num });
 
 const delta = obj({ text: str });
@@ -436,7 +445,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   reasoning_delta: delta,
   model_retry: obj({ attempt: num, delay_ms: num }),
   draft_discarded: obj({}),
-  session_title_changed: obj({}),
+  session_changed: obj({}),
   jobs_changed: obj({}),
   run_started: obj({ run_id: num }),
   run_finished: obj({
@@ -453,6 +462,7 @@ export const parseSessionDetail = (v: unknown): SessionDetail => sessionDetail(v
 export const parseTitleModel = (v: unknown): TitleModelSelection => titleModel(v, "标题模型");
 
 export const parseSessionPage = (v: unknown): SessionPage => sessionPage(v, "会话列表");
+export const parsePinnedSessions = (v: unknown): SessionItem[] => pinnedSessions(v, "置顶会话").items;
 
 export const parseMessage = (v: unknown): Message => message(v, "消息");
 export const parseMessages = (v: unknown): Message[] => arr(message)(v, "消息列表");

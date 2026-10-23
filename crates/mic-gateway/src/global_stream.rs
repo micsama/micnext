@@ -1,4 +1,4 @@
-//! 通知中心与任务页共用的全局事件流。
+//! 通知中心、任务页与侧栏共用的全局事件流。
 use crate::error::ApiError;
 use crate::limits::STREAM_BUFFER;
 use crate::service::App;
@@ -9,6 +9,7 @@ use axum::extract::{Query, State};
 use axum::http::header;
 use axum::response::{sse::Event, IntoResponse};
 use mic_core::KernelEventKind;
+use mic_message::MessageBody;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -50,6 +51,17 @@ pub(crate) async fn stream(
                     ("push_delivery_changed", push_id.0)
                 }
                 KernelEventKind::ScheduleChanged { schedule } => ("schedule_changed", schedule.0),
+                KernelEventKind::MessageAppended(ref m)
+                    if matches!(
+                        m.body,
+                        MessageBody::Reply { .. } | MessageBody::Notification { .. }
+                    ) =>
+                {
+                    ("session_activity", event.session_id.0)
+                }
+                KernelEventKind::RunStarted { .. }
+                | KernelEventKind::RunFinished { .. }
+                | KernelEventKind::SessionChanged => ("session_activity", event.session_id.0),
                 _ => continue,
             };
             let event = Event::default()

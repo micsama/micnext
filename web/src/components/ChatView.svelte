@@ -4,7 +4,6 @@
   import { sendMessage, setSessionModel, setSessionPersona, setSessionPlaintext } from "../api/client";
   import { router } from "../state/route.svelte";
   import type { SessionView } from "../state/session.svelte";
-  import { webSessions } from "../state/sessions.svelte";
   import { settingsStore } from "../state/settings.svelte";
   import Composer from "./Composer.svelte";
   import Header from "./Header.svelte";
@@ -33,7 +32,6 @@
 
   async function send(parts: InputPart[]) {
     await sendMessage(view.id, parts);
-    void webSessions.refresh();
   }
 
   const persona = $derived(item ? settingsStore.resolve(item.persona_id) : null);

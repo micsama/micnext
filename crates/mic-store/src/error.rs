@@ -4,6 +4,8 @@ pub enum StoreError {
     JobStopFailed { job: i64 },
     #[error("会话已归档，不能执行新任务")]
     SessionArchived,
+    #[error("消息不属于该会话")]
+    MessageNotInSession,
     #[error("无法解密设置备份：格式无效、主密钥不匹配或内容被改动")]
     ExportUndecryptable,
     #[error("sqlite: {0}")]

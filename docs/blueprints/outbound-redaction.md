@@ -1,14 +1,17 @@
 # B2：模型出站脱敏
 
-**状态：已实现，待 human 验收（2026-10-23）。** 来源：[B1 隐私与权限](../brainstorm/privacy-permissions.md) 2026-10-23 节；human 定为默认开启、只做模型出口一层，正则可按会话临时关闭。
+**状态：已实现，待 human 验收（2026-10-23，同日按 human 定稿收紧规则与遮法）。** 来源：[B1 隐私与权限](../brainstorm/privacy-permissions.md) 2026-10-23 节；human 定为默认开启、只做模型出口一层，正则可按会话临时关闭。
 
 ## 契约
 
 - 位置：`Factories::build` 造出的每个模型实例都包一层 `redact::Redacted`，主循环、压缩、标题以及以后新增的调用都经过它。只改每次请求的副本，本地消息、trace、日志保留原文。
 - 处理字段：system、各类消息正文、工具结果与失败信息、历史工具参数（JSON 字符串值）、压缩摘要；协议 ID、工具名、推理签名与上游密文推理不动。工具定义是本进程产出，不处理。
-- 精确匹配（始终开启）：主密钥（`~/.config/micnext/master.key`，32 字节原始值）的 hex 与标准 base64；当前模型实例自己的 API key。
-- 正则（默认对所有内容生效）：服务商 token 前缀（`sk-`、`ghp_`、`github_pat_`、`xox?-`、`AKIA`、`AIza` 等）、JWT、`Bearer …`、凭据字段赋值（`api_key=`、`"password": …`、`TOKEN: …`，值须含数字，避开 `config.api_key` 这类代码）、连接串密码、PEM 私钥。
-- 遮蔽：≥20 字符保留首尾各 4 位，中间换成 `***`；更短的整段 `***`；私钥正文整段 `***`。
+- 精确名单（始终开启）：没有固定格式、正则认不出的秘密，命中换成名字。目前是主密钥（`~/.config/micnext/master.key`，32 字节原始值）的 hex 与标准 base64 → `<MASTER_KEY>`，当前模型实例自己的 API key → `<API_KEY>`；长的先换。
+- 正则（默认对所有内容生效），只在明确是密钥的上下文里遮，裸 hex、裸 base64、自然语言里的密码不管：
+  - 整段 `***`：PEM 私钥正文；`Cookie`、`Set-Cookie`、`Authorization`、`Proxy-Authorization` 头的整条值（含 JSON、`curl -H` 写法）。
+  - 留前 2 后 4（`sk-pr…XyZw`，厂商前缀原样保留）：服务商 token 前缀（`sk-`、`ghp_`、`github_pat_`、`xox?-`、`AKIA`、`AIza` 等）、JWT（`eyJ…` 三段）、`Bearer …`、B 站 SESSDATA（`%2C` 与 `,` 两种写法）、凭据字段赋值、连接串密码。
+  - 凭据字段：key 名含 `api_key`、`access_key`、`secret`、`token`、`passw`、`pwd`、`sess`、`jct`、`auth`，key 两侧可带引号，值 ≥16 字符、遇空白或 `"'`,;&` 截止，且须含数字（避开 `config.api_key` 这类代码）。
+  - 不足 16 字符的值整段 `***`。
 - 临时明文（按会话）：`core_sessions.plain_after`（迁移 25，同时删掉迁移 24 的全局开关）。开启时记下会话当前最新消息 id 作水位，已开启再开不动；关闭清空。id 大于水位的消息不过正则，更早的消息与整个 system（含压缩摘要、原话）始终过正则；精确匹配不受影响。窗口读出水位经 `ModelRequest::plain_after` 交给脱敏层，下一次模型调用生效；标题生成不带水位。system 的 context 块按开关状态告诉模型当前脱敏情况。
 - Web：输入框工具栏人设右侧「明文」开关，开启时开关与输入框边框变红；接口 `PUT /api/sessions/{id}/plaintext {on}`（只读会话拒绝），会话条目带 `plaintext`。
 - 依赖：`mic-core` 新增 `regex`、`base64`（工作区已有）。启动时主密钥读不到直接报错（`RunError::KeyFile`）。

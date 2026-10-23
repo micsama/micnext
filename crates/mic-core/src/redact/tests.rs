@@ -1,6 +1,6 @@
 use super::*;
 
-fn scrub(known: &[&str], rules: bool, text: &str) -> String {
+fn scrub(known: &[(&str, &str)], rules: bool, text: &str) -> String {
     let mut s = text.to_owned();
     Scrub { known, rules }.text(&mut s);
     s
@@ -15,17 +15,36 @@ fn masks_credentials_and_keeps_ordinary_text() {
     let cases = [
         (
             "key sk-proj-AbCdEfGh1234567890XyZw done",
-            "key sk-p***XyZw done",
+            "key sk-pr…XyZw done",
         ),
         (
-            "Authorization: Bearer abc123def456",
-            "Authorization: Bearer ***",
+            "jwt eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlX3h4eA end",
+            "jwt eyJhb…h4eA end",
         ),
-        (r#"token = "1234567890""#, r#"token = "***""#),
+        ("auth Bearer abc123def456ghi789jk", "auth Bearer ab…89jk"),
+        ("Authorization: Bearer abc123def456", "Authorization: ***"),
+        (
+            "curl -H 'Cookie: SESSDATA=abc; bili_jct=def' https://x",
+            "curl -H 'Cookie: ***' https://x",
+        ),
+        (
+            r#"{"Set-Cookie": "sid=1; Path=/"}"#,
+            r#"{"Set-Cookie": "***"}"#,
+        ),
+        (
+            "SESSDATA=1a2b3c4d%2C1712345678%2Cabcde%2A51CjBxyz&b=1",
+            "SESSDATA=1a…Bxyz&b=1",
+        ),
+        ("raw 1a2b3c4d,1712345678,abcde*51CjBxyz", "raw 1a…Bxyz"),
+        (
+            "?access_key=0123456789abcdef0123&ts=1",
+            "?access_key=01…0123&ts=1",
+        ),
         (
             r#"{"OPENAI_API_KEY": "x9y8z7w6v5u4t3s2r1q0p"}"#,
-            r#"{"OPENAI_API_KEY": "x9y8***1q0p"}"#,
+            r#"{"OPENAI_API_KEY": "x9…1q0p"}"#,
         ),
+        (r#"token = "1234567890""#, r#"token = "1234567890""#),
         (
             "postgres://app:hunter2@db:5432/x",
             "postgres://app:***@db:5432/x",
@@ -34,13 +53,18 @@ fn masks_credentials_and_keeps_ordinary_text() {
             "-----BEGIN PRIVATE KEY-----\nMIIEv\n-----END PRIVATE KEY-----",
             "-----BEGIN PRIVATE KEY-----***-----END PRIVATE KEY-----",
         ),
-        // 不误伤：代码表达式、用量字段、哈希、普通 ID
+        // 不误伤：代码表达式、用量字段、哈希、普通 ID、图片 base64、作者名
         ("api_key = config.api_key", "api_key = config.api_key"),
         ("max_tokens: 40960000", "max_tokens: 40960000"),
         (
             "commit 19eb43a0c2f1e6d7b8a9c0d1e2f3a4b5c6d7e8f9",
             "commit 19eb43a0c2f1e6d7b8a9c0d1e2f3a4b5c6d7e8f9",
         ),
+        (
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ",
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ",
+        ),
+        (r#"author: "Jane Doe""#, r#"author: "Jane Doe""#),
     ];
     for (input, want) in cases {
         assert_eq!(r(input), want, "{input}");
@@ -48,24 +72,24 @@ fn masks_credentials_and_keeps_ordinary_text() {
 }
 
 #[test]
-fn exact_secrets_stay_masked_when_rules_off() {
+fn exact_secrets_become_names_even_when_rules_off() {
     let redactor = Redactor::new(&[0xab; 32]);
-    let known: Vec<&str> = redactor
+    let known: Vec<(&str, &str)> = redactor
         .master_key
         .iter()
-        .map(SecretValue::expose)
+        .map(|k| (k.expose(), MASTER_KEY))
         .collect();
     let b64 = STANDARD.encode([0xab; 32]);
-    assert_eq!(scrub(&known, false, &"ab".repeat(32)), "abab***abab");
+    assert_eq!(scrub(&known, false, &"ab".repeat(32)), MASTER_KEY);
     assert_eq!(
         scrub(&known, false, &format!("cat: {b64}")),
-        "cat: q6ur***q6s="
+        "cat: <MASTER_KEY>"
     );
     assert_eq!(
-        scrub(&["plainkey"], false, "use plainkey now"),
-        "use *** now"
+        scrub(&[("plainkey", API_KEY)], false, "use plainkey now"),
+        "use <API_KEY> now"
     );
-    let token = "token = \"1234567890\"";
+    let token = "api_key = \"a1b2c3d4e5f6g7h8i9\"";
     assert_eq!(scrub(&[], false, token), token);
 }
 
@@ -119,8 +143,8 @@ fn request_keeps_protocol_fields_and_honors_plain_after() {
         cache_key: "c".into(),
         plain_after: Some(mic_message::MessageId(1)),
     };
-    request(&["known"], &mut req);
-    assert_eq!(req.system, "env ghp_***KLMN");
+    request(&[("known", API_KEY)], &mut req);
+    assert_eq!(req.system, "env ghp_01…KLMN");
     let MessageBody::Reply { blocks, .. } = &req.messages[0].body else {
         unreachable!()
     };
@@ -128,14 +152,14 @@ fn request_keeps_protocol_fields_and_honors_plain_after() {
         unreachable!()
     };
     assert_eq!(id, "call_1");
-    assert_eq!(args["command"], "curl -H 'x: ghp_***KLMN'");
+    assert_eq!(args["command"], "curl -H 'x: ghp_01…KLMN'");
     let MessageBody::UserInput { parts, .. } = &req.messages[1].body else {
         unreachable!()
     };
     assert_eq!(
         parts[0],
         ContentPart::Text {
-            text: format!("new {secret} ***")
+            text: format!("new {secret} <API_KEY>")
         }
     );
 }

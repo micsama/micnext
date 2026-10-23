@@ -3,7 +3,7 @@ use mic_tool::{Tool, ToolContext, ToolError, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::common::{atomic_write, blocking, display_path, io_error, resolve};
+use crate::common::{atomic_write, display_path, io_error, resolve};
 
 pub(crate) struct Write;
 
@@ -13,6 +13,9 @@ pub(crate) struct Args {
     file_path: String,
     content: String,
 }
+
+#[cfg(test)]
+mod tests;
 
 impl Tool for Write {
     type Args = Args;
@@ -28,25 +31,32 @@ impl Tool for Write {
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let path = resolve(ctx, &args.file_path)?;
         let display = display_path(ctx.cwd(), &path);
-        let text = blocking(move |_| {
-            let existed = match std::fs::metadata(&path) {
-                Ok(meta) if meta.is_dir() => {
-                    return Err(ToolError::business(format!(
-                        "cannot write \"{display}\": is a directory"
-                    )))
-                }
-                Ok(_) => true,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-                Err(error) => return Err(io_error("stat before write", &display, error)),
-            };
-            atomic_write(&path, args.content.as_bytes())
-                .map_err(|e| io_error("write", &display, e))?;
-            let outcome = if existed { "Updated" } else { "Created" };
-            Ok(format!(
+        let text = ctx
+            .commit(move || {
+                let existed = match std::fs::metadata(&path) {
+                    Ok(meta) if meta.is_dir() => {
+                        return Err(ToolError::business(format!(
+                            "cannot write \"{display}\": is a directory"
+                        )))
+                    }
+                    Ok(_) => true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                    Err(error) => return Err(io_error("stat before write", &display, error)),
+                };
+                atomic_write(&path, args.content.as_bytes())
+                    .map_err(|e| io_error("write", &display, e))?;
+                let outcome = if existed { "Updated" } else { "Created" };
+                Ok(format!(
                 "<path>{display}</path>\n<type>file</type>\n<content>\n{outcome} file\n</content>"
             ))
-        })
-        .await?;
+            })
+            .await;
+        let Some(text) = text else {
+            return Ok(ToolOutput::Terminal(mic_message::ExecOutcome::Cancelled {
+                message: "Stopped before file changes began.".into(),
+            }));
+        };
+        let text = text?;
         Ok(ToolOutput::completed(vec![ContentPart::Text { text }]))
     }
 }

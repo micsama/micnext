@@ -62,3 +62,4 @@
 | 实现完成（CLOSED，2026-10-20） | Trace 展示工具清单，删除工具提示 | [B2](docs/blueprints/archive/trace-tools.md) |
 | 实现完成（CLOSED，2026-10-20） | Web 推送站内提醒 | [B2](docs/blueprints/archive/web-native-notification.md) |
 | 实现完成（CLOSED，2026-10-22） | 删除无读者 Store 入口、job 关系副本、可选装配和 Gateway 入口 | [B2](docs/blueprints/archive/unused-public-surface.md) |
+| 实现完成（CLOSED，2026-10-23） | 文件写入取消与实际收尾（执行 E2/R3） | [B2](docs/blueprints/archive/file-write-cancellation.md) |

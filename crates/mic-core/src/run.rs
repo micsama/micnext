@@ -659,6 +659,7 @@ impl Exec<'_> {
                 },
             ));
             let ctx = ToolContext::new(PathBuf::from(&self.session.pwd), port.clone());
+            let running_ctx = ctx.clone();
             let (name, args) = (call.name.clone(), call.args.clone());
             let started_at = now_ms();
             let task = running.spawn(async move {
@@ -667,7 +668,7 @@ impl Exec<'_> {
                         kind: ExecFailureKind::Input,
                         message: format!("unknown tool `{name}`"),
                     }),
-                    Some(tool) => match tool.invoke(&args, &ctx).await {
+                    Some(tool) => match tool.invoke(&args, &running_ctx).await {
                         Ok(ToolOutput::Terminal(outcome)) => ToolResultOutcome::Terminal(outcome),
                         Ok(ToolOutput::Dispatched { exec_id }) => {
                             ToolResultOutcome::Dispatched { exec_id }
@@ -679,70 +680,93 @@ impl Exec<'_> {
                     },
                 }
             });
-            started.insert(task.id(), (call, started_at, port));
+            started.insert(task.id(), (call, started_at, port, ctx));
         }
         let mut stopping = false;
-        loop {
-            let joined = tokio::select! {
-                joined = running.join_next_with_id() => match joined {
-                    Some(joined) => joined,
-                    None => return Ok(()),
-                },
-                () = self.stop.cancelled(), if !stopping => {
-                    stopping = true;
-                    running.abort_all();
-                    continue;
-                }
-            };
-            let (id, outcome) = match joined {
-                Ok(done) => done,
-                Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
-                Err(e) => {
-                    let (_, _, port) = &started[&e.id()];
-                    let outcome = match port.registered().await {
-                        Some(job) => ToolResultOutcome::Dispatched {
-                            exec_id: job.0.to_string(),
-                        },
-                        None => ToolResultOutcome::Terminal(ExecOutcome::Cancelled {
-                            message: STOPPED_TOOL.into(),
-                        }),
-                    };
-                    (e.id(), outcome)
-                }
-            };
-            let returned_at = now_ms();
-            let (call, started_at, _) = started.remove(&id).expect("任务登记过");
-            if let ToolResultOutcome::Terminal(ExecOutcome::Failed {
-                kind: ExecFailureKind::Dependency,
-                message,
-            }) = &outcome
-            {
-                tracing::warn!(
-                    session = self.session.id.0,
-                    run = self.run.id.0,
-                    tool = call.name,
-                    error = message,
-                    "tool dependency failed"
-                );
-            }
-            let publish = self.engine.events.publisher().await;
-            let message = self
-                .engine
-                .store
-                .append(
-                    self.session.id,
-                    Some(self.run.id),
-                    MessageBody::ToolResult {
-                        tool_name: call.name,
-                        tool_call_id: call.id,
-                        outcome,
-                        started_at: Some(started_at),
+        let result = async {
+            loop {
+                let joined = tokio::select! {
+                    joined = running.join_next_with_id() => match joined {
+                        Some(joined) => joined,
+                        None => return Ok(()),
                     },
-                    returned_at,
-                )
-                .await?;
-            publish.appended(self.session.id, self.channel, message);
+                    () = self.stop.cancelled(), if !stopping => {
+                        stopping = true;
+                        for (_, _, _, ctx) in started.values() { ctx.cancel(); }
+                        running.abort_all();
+                        continue;
+                    }
+                };
+                let (id, outcome) = match joined {
+                    Ok(done) => done,
+                    Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
+                    Err(e) => {
+                        let (_, _, port, ctx) = &started[&e.id()];
+                        ctx.wait_commits().await;
+                        let outcome = match port.registered().await {
+                            Some(job) => ToolResultOutcome::Dispatched {
+                                exec_id: job.0.to_string(),
+                            },
+                            None => ToolResultOutcome::Terminal(ExecOutcome::Cancelled {
+                                message: STOPPED_TOOL.into(),
+                            }),
+                        };
+                        (e.id(), outcome)
+                    }
+                };
+                let returned_at = now_ms();
+                let (call, started_at, _, _) = started.remove(&id).expect("任务登记过");
+                if let ToolResultOutcome::Terminal(ExecOutcome::Failed {
+                    kind: ExecFailureKind::Dependency,
+                    message,
+                }) = &outcome
+                {
+                    tracing::warn!(
+                        session = self.session.id.0,
+                        run = self.run.id.0,
+                        tool = call.name,
+                        error = message,
+                        "tool dependency failed"
+                    );
+                }
+                let publish = self.engine.events.publisher().await;
+                let message = self
+                    .engine
+                    .store
+                    .append(
+                        self.session.id,
+                        Some(self.run.id),
+                        MessageBody::ToolResult {
+                            tool_name: call.name,
+                            tool_call_id: call.id,
+                            outcome,
+                            started_at: Some(started_at),
+                        },
+                        returned_at,
+                    )
+                    .await?;
+                publish.appended(self.session.id, self.channel, message);
+            }
         }
+        .await;
+        for (_, _, _, ctx) in started.values() {
+            ctx.cancel();
+        }
+        running.abort_all();
+        let mut panic = None;
+        while let Some(joined) = running.join_next().await {
+            match joined {
+                Err(error) if error.is_panic() => panic = Some(error.into_panic()),
+                _ => {}
+            }
+        }
+        for (_, _, _, ctx) in started.values() {
+            ctx.wait_commits().await;
+        }
+        if let Some(panic) = panic {
+            std::panic::resume_unwind(panic);
+        }
+        result
     }
 
     /// 重试前的等待；被停止返回 true。

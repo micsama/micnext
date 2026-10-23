@@ -655,6 +655,90 @@ async fn compaction_can_trim_every_message_and_rebuild_instruction_only() {
 }
 
 struct TimedTool;
+
+struct CommittingTool {
+    entered: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    changed: Arc<AtomicBool>,
+}
+
+impl mic_tool::Tool for CommittingTool {
+    type Args = HashMap<String, String>;
+    fn name(&self) -> &str {
+        "commit"
+    }
+    fn description(&self) -> &str {
+        "test a blocking file commit"
+    }
+    async fn execute(
+        &self,
+        _: Self::Args,
+        ctx: &ToolContext,
+    ) -> Result<ToolOutput, mic_tool::ToolError> {
+        let entered = self.entered.lock().unwrap().take().unwrap();
+        let release = self.release.lock().unwrap().take().unwrap();
+        let changed = self.changed.clone();
+        ctx.commit(move || {
+            entered.send(()).unwrap();
+            release.recv().unwrap();
+            changed.store(true, Ordering::SeqCst);
+        })
+        .await;
+        Ok(ToolOutput::completed(vec![]))
+    }
+}
+
+#[tokio::test]
+async fn stopping_tools_waits_for_started_file_commits() {
+    let f = Fixture::new().await;
+    let (entered, ready) = tokio::sync::oneshot::channel();
+    let (release, blocked) = std::sync::mpsc::channel();
+    let changed = Arc::new(AtomicBool::new(false));
+    let mut exec = f.exec();
+    exec.tools = vec![ToolHandle::new(CommittingTool {
+        entered: std::sync::Mutex::new(Some(entered)),
+        release: std::sync::Mutex::new(Some(blocked)),
+        changed: changed.clone(),
+    })];
+    let stop = exec.stop.clone();
+    let mut running = Box::pin(exec.run_tools(vec![Call {
+        id: "c".into(),
+        name: "commit".into(),
+        args: serde_json::json!({}),
+    }]));
+    tokio::select! { result = &mut running => panic!("ended early: {result:?}"), result = ready => result.unwrap() }
+    stop.cancel();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), &mut running)
+            .await
+            .is_err()
+    );
+    assert!(!changed.load(Ordering::SeqCst));
+    assert!(f
+        .store
+        .run_messages(f.claimed.run.id)
+        .await
+        .unwrap()
+        .iter()
+        .all(|m| !matches!(m.body, MessageBody::ToolResult { .. })));
+    release.send(()).unwrap();
+    running.await.unwrap();
+    assert!(changed.load(Ordering::SeqCst));
+    assert!(f
+        .store
+        .run_messages(f.claimed.run.id)
+        .await
+        .unwrap()
+        .iter()
+        .any(|m| matches!(
+            m.body,
+            MessageBody::ToolResult {
+                outcome: ToolResultOutcome::Terminal(ExecOutcome::Cancelled { .. }),
+                ..
+            }
+        )));
+}
+
 impl mic_tool::Tool for TimedTool {
     type Args = HashMap<String, u64>;
     fn name(&self) -> &str {

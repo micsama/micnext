@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mic_message::{ContentPart, ExecFailureKind, ExecOutcome};
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::{AbortOnDropHandle, TaskTracker};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -27,7 +29,7 @@ pub trait Tool: Send + Sync + 'static {
     /// 工具定义里的一句话简介。
     fn description(&self) -> &str;
 
-    /// 丢弃返回的 future = 取消：实现须随之释放资源（如杀掉子进程组），不得留下后台副作用。
+    /// 丢弃 future 时释放资源（如杀进程组）；经 ctx.commit 开始的文件工作由调用方 cancel 后等待实际收尾。
     /// 已经 `dispatch` 提交的后台任务归 core 所有，不受此约束。
     fn execute(
         &self,
@@ -78,12 +80,19 @@ pub trait Background: std::any::Any + Send + Sync {
 pub struct ToolContext {
     cwd: PathBuf,
     background: Arc<dyn Background>,
+    stop: CancellationToken,
+    commits: TaskTracker,
 }
 
 impl ToolContext {
     /// `cwd` 为绝对路径（会话 `pwd`），由 core 保证。
     pub fn new(cwd: PathBuf, background: Arc<dyn Background>) -> Self {
-        Self { cwd, background }
+        Self {
+            cwd,
+            background,
+            stop: CancellationToken::new(),
+            commits: TaskTracker::new(),
+        }
     }
 
     /// 相对路径的解析基准、`bash` 的默认工作目录。
@@ -93,6 +102,30 @@ impl ToolContext {
 
     pub fn background(&self) -> &dyn Background {
         &*self.background
+    }
+
+    /// 文件变更由调用拥有；排队时可取消，已开始则由 core 等待实际收尾。
+    pub async fn commit<T: Send + 'static>(
+        &self,
+        f: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<T> {
+        let stop = self.stop.clone();
+        let work = self
+            .commits
+            .spawn_blocking(move || if stop.is_cancelled() { None } else { Some(f()) });
+        AbortOnDropHandle::new(work)
+            .await
+            .unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()))
+    }
+
+    pub fn cancel(&self) {
+        self.stop.cancel();
+    }
+
+    /// 调用 future 已结束后等待，保证此后没有新的提交工作。
+    pub async fn wait_commits(&self) {
+        self.commits.close();
+        self.commits.wait().await;
     }
 }
 

@@ -3,7 +3,7 @@ use mic_tool::{Tool, ToolContext, ToolError, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::common::{atomic_write, blocking, decode, display_path, io_error, resolve};
+use crate::common::{atomic_write, decode, display_path, io_error, resolve};
 
 pub(crate) struct Edit;
 
@@ -49,7 +49,7 @@ impl Tool for Edit {
             Replace::Once
         };
         let display = display_path(ctx.cwd(), &path);
-        let text = blocking(move |_| {
+        let text = ctx.commit(move || {
             let io = |e| io_error("edit", &display, e);
             if std::fs::metadata(&path).map_err(io)?.is_dir() {
                 return Err(ToolError::business(format!(
@@ -87,7 +87,13 @@ impl Tool for Edit {
                 ),
             })
         })
-        .await?;
+        .await;
+        let Some(text) = text else {
+            return Ok(ToolOutput::Terminal(mic_message::ExecOutcome::Cancelled {
+                message: "Stopped before file changes began.".into(),
+            }));
+        };
+        let text = text?;
         Ok(ToolOutput::completed(vec![ContentPart::Text { text }]))
     }
 }

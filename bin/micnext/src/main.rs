@@ -249,6 +249,7 @@ impl Render {
             KernelEventKind::DraftDiscarded => self.end_line(),
             KernelEventKind::MessageAppended(m) => self.message(m),
             KernelEventKind::RunFinished { .. }
+            | KernelEventKind::ModelRetrying { .. }
             | KernelEventKind::SessionTitleChanged
             | KernelEventKind::JobsChanged
             | KernelEventKind::PushCreated { .. }

@@ -131,6 +131,7 @@ export class SessionView {
   }
   draft = $state<Draft | null>(null);
   executingRun = $state<number | null>(null);
+  modelRetry = $state<{ attempt: number; until: number } | null>(null);
   /** 已对本次执行发出停止，等它收尾。 */
   stopping = $state<number | null>(null);
 
@@ -224,6 +225,8 @@ export class SessionView {
           this.fatal = e.message;
           return;
         }
+      } finally {
+        this.modelRetry = null;
       }
       if (signal.aborted) return;
       this.reconnecting = true;
@@ -245,6 +248,7 @@ export class SessionView {
     switch (e.event) {
       case "message":
         this.#merge([e.data]);
+        if (["Reply", "Boundary", "Notification"].includes(e.data.body.kind)) this.modelRetry = null;
         if (e.data.body.kind === "Reply") this.draft = null;
         if (e.data.body.kind === "UserInput") this.notice = null;
         break;
@@ -253,6 +257,9 @@ export class SessionView {
         break;
       case "reasoning_delta":
         (this.draft ??= { reasoning: "", text: "", afterId: this.lastId ?? 0 }).reasoning += e.data.text;
+        break;
+      case "model_retry":
+        this.modelRetry = { attempt: e.data.attempt, until: Date.now() + e.data.delay_ms };
         break;
       case "draft_discarded":
         this.draft = null;
@@ -268,6 +275,7 @@ export class SessionView {
         this.notice = null;
         break;
       case "run_finished":
+        this.modelRetry = null;
         this.executingRun = null;
         this.stopping = null;
         this.notice = FINISH_NOTICE[e.data.state] ?? null;

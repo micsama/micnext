@@ -29,6 +29,11 @@ pub enum KernelEventKind {
     RunStarted {
         run_id: RunId,
     },
+    /// 即将进行第 `attempt` 次重试，等待 `delay_ms` 毫秒。
+    ModelRetrying {
+        attempt: u32,
+        delay_ms: u64,
+    },
     /// 当前草稿的正文增量。
     TextDelta(String),
     /// 当前草稿的可见推理增量。

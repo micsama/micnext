@@ -560,11 +560,19 @@ async fn trace_rebuild_survives_later_holds_absorption_and_retries() {
 #[tokio::test]
 async fn all_failed_attempts_keep_usage_without_reply() {
     let f = Fixture::new().await;
+    let mut events = f.kernel.subscribe();
     let provider = scripted(vec![failed(), failed(), failed()]);
     assert!(matches!(
         f.exec().call_model(&provider, &[]).await.unwrap(),
         Err(RunState::ProviderFailed)
     ));
+    let mut retries = Vec::new();
+    while let Some(event) = events.try_recv() {
+        if let KernelEventKind::ModelRetrying { attempt, delay_ms } = event.unwrap().kind {
+            retries.push((attempt, delay_ms));
+        }
+    }
+    assert_eq!(retries, vec![(1, 0), (2, 0)]);
     let calls = f.verify(&provider).await;
     assert_eq!(calls.len(), 3);
     assert!(calls
@@ -575,6 +583,7 @@ async fn all_failed_attempts_keep_usage_without_reply() {
 #[tokio::test]
 async fn stalled_call_fails_without_retry() {
     let f = Fixture::new().await;
+    let mut events = f.kernel.subscribe();
     let provider = scripted(vec![vec![Err(ProviderError::Stalled {
         message: "300 秒没有收到数据".into(),
     })]]);
@@ -582,6 +591,12 @@ async fn stalled_call_fails_without_retry() {
         f.exec().call_model(&provider, &[]).await.unwrap(),
         Err(RunState::ProviderFailed)
     ));
+    while let Some(event) = events.try_recv() {
+        assert!(!matches!(
+            event.unwrap().kind,
+            KernelEventKind::ModelRetrying { .. }
+        ));
+    }
     assert_eq!(f.verify(&provider).await.len(), 1);
     let messages = f.store.run_messages(f.claimed.run.id).await.unwrap();
     assert!(messages.iter().any(|m| matches!(&m.body,

@@ -817,6 +817,12 @@ impl Exec<'_> {
             %error,
             "model call failed"
         );
+        if let Some(wait) = wait {
+            self.emit(KernelEventKind::ModelRetrying {
+                attempt,
+                delay_ms: wait.as_millis() as u64,
+            });
+        }
         wait
     }
 

@@ -27,17 +27,22 @@
 
   let now = $state(Date.now());
   $effect(() => {
+    if (view.modelRetry) now = Date.now();
     const timer = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(timer);
   });
   const seconds = $derived(phase.since === null ? 0 : Math.floor((now - phase.since) / 1000));
+  const retrySeconds = $derived(view.modelRetry === null ? 0 : Math.max(0, Math.ceil((view.modelRetry.until - now) / 1000)));
   const label = $derived(phase.label ?? pick(seconds >= 20 ? SLOW : THINKING, phase.since));
 </script>
 
 <div class="flex items-center gap-2.5 text-sm" role="status">
   <span class="dots flex gap-1" aria-hidden="true"><i></i><i></i><i></i></span>
   <span class="shimmer font-medium">{label}</span>
-  {#if seconds >= 2}<span class="text-xs text-muted-foreground tabular-nums">{seconds}s</span>{/if}
+  {#if view.modelRetry}<span class="text-xs text-muted-foreground">第 {view.modelRetry.attempt} 次重试</span>{/if}
+  {#if retrySeconds > 0}
+    <span class="text-xs text-muted-foreground tabular-nums">{retrySeconds}s 后重试</span>
+  {:else if seconds >= 2}<span class="text-xs text-muted-foreground tabular-nums">{seconds}s</span>{/if}
 </div>
 
 <style>

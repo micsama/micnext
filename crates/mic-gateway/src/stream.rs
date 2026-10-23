@@ -157,6 +157,9 @@ async fn feed(
                     message_event(&message)
                 }
             }
+            KernelEventKind::ModelRetrying { attempt, delay_ms } => {
+                json_event("model_retry", &ModelRetry { attempt, delay_ms })
+            }
             KernelEventKind::TextDelta(text) => {
                 draft_open = true;
                 json_event("text_delta", &Delta { text })
@@ -199,6 +202,12 @@ struct Ready {
     executing_run: Option<i64>,
     /// 首次回放之前是否还有消息；重连续传时为 null。
     has_earlier: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct ModelRetry {
+    attempt: u32,
+    delay_ms: u64,
 }
 
 #[derive(Serialize)]

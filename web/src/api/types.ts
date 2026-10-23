@@ -251,6 +251,7 @@ export type StreamEvent =
   | { event: "message"; data: Message }
   | { event: "text_delta"; data: { text: string } }
   | { event: "reasoning_delta"; data: { text: string } }
+  | { event: "model_retry"; data: { attempt: number; delay_ms: number } }
   | { event: "draft_discarded"; data: Record<string, never> }
   | { event: "run_started"; data: { run_id: number } }
   | { event: "run_finished"; data: { run_id: number; state: RunState } }
@@ -430,6 +431,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   message,
   text_delta: delta,
   reasoning_delta: delta,
+  model_retry: obj({ attempt: num, delay_ms: num }),
   draft_discarded: obj({}),
   session_title_changed: obj({}),
   jobs_changed: obj({}),

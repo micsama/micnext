@@ -49,7 +49,7 @@ wechat_delivery_chunk(message_id, chunk_index, client_id, started_at,
 wechat_inbound_batch(id PK, user_id, total, imported, phase, created_at, finished_at)  -- 删掉 snapshot
 ```
 
-迁移：
+迁移（已随[数据库转换移出二进制](database-conversion.md)删除；v5 现为当前 schema，新库直接建表，以下仅记录当时的旧数据处理）：
 - `wechat_delivery_attempt` 每段保留结果那一行：有外部消息 ID 的优先，否则取最后一次尝试。
 - `wechat_delivery` 删列前，把 `outcome='sending'` 且 core 仍待投递的消息补记为失败（同 v4 的做法），不留给运行时。
 - `wechat_inbound_batch` 旧行：`total` 从快照里的消息条数算出；`imported` 无从得知。旧行直接删除（human 同意）：它们只是诊断现场，没有业务消费者。
@@ -81,7 +81,7 @@ core、Store、Gateway、Web 的公开接口不变。
 ## 验收
 
 - 自动测试：
-  - v5 迁移在含旧数据的库上执行通过（`schema/tests.rs`）：发送中的消息补记失败、已送达保持、每段保留有结果的那次尝试、旧批次删除。
+  - ~~v5 迁移在含旧数据的库上执行通过~~：迁移代码已随数据库转换移出二进制删除，该测试不再存在；`schema/tests.rs` 现只校验当前 v5 schema 能与 core 一起建库。
   - 恢复只遍历 core 待投递消息：已送达的不在其中，不会撞 CHECK；已标失败的也不在其中，跑两遍结果一样。构造真实 kernel 成本高，靠代码结构保证，不单独写测试。
 - 真实环境（human）：微信收发、引用 bot 的分段回复、断网时发送失败在 Web 显示为失败。
 - 收尾：`cargo fmt`、`cargo clippy -- -D warnings`、`cargo test --workspace`。

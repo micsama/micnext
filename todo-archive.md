@@ -68,3 +68,4 @@
 | 实现完成（CLOSED，2026-10-23） | 前台、后台与子 agent 超时统一终态 | [B2](docs/blueprints/archive/tool-timeout-outcome.md) |
 | 实现完成（CLOSED，2026-10-23） | 会话来源改为明确的 HTTP 类型 | [B2](docs/blueprints/archive/session-source.md) |
 | 实现完成（CLOSED，2026-10-23） | 工具调用以回复与块位置关联执行、恢复和展示 | [B2](docs/blueprints/archive/tool-call-identity.md) |
+| 实现完成（CLOSED，2026-10-24），规则后续再优化 | 模型出站脱敏（精确名单 + 上下文正则，按会话可关） | [B2](docs/blueprints/archive/outbound-redaction.md) |

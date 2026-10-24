@@ -59,8 +59,8 @@
 | 想法，以后做（2026-10-15） | trace「复制为 curl / 重新推理」：消息按记录还原，系统提示与工具清单用当前配置；工具清单视为固定，与历史工具调用对不上则拒绝重放 | [trace B1](run-trace.md#未来重放与复制为-curl) |
 | human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](../blueprints/archive/web-ui.md#43-设置页与人设选择) |
 | 历史审查，余项须按现状重新核对；不作为实现前置 | 最小正交审查余项 | [`docs/brainstorm/orthogonality-review-2026-09-24.md`](orthogonality-review-2026-09-24.md) |
-| B2 已批准，P1 已验收，P2 未开始（2026-10-20） | 定时任务、运行记录与按需推送 | [B1](scheduled-tasks.md)、[B2](../blueprints/scheduled-tasks.md) |
-| B1 已记录；脱敏明确延期（2026-10-10） | 模型出站脱敏、工具隔离与授权：脱敏只求减少部分意外披露，当前不实施；工具隔离既有缺口仍待定。专用用户部署 human 进行中，服务器 bwrap 已验证可运行；访问与披露各自控制，候选未批准 | [B1](privacy-permissions.md)；合并「工具授权」缺口（cross-check §四-8～9） |
+| 已进入 `todo.md`，P1 已验收，P2/P3 待验收（2026-10-24） | 定时任务、运行记录与按需推送 | [B1](scheduled-tasks.md)、[B2](../blueprints/scheduled-tasks.md) |
+| 脱敏首版已完成（2026-10-24），规则待按实际漏遮、误遮优化；工具隔离仍待定 | 模型出站脱敏、工具隔离与授权：脱敏只求减少部分意外披露；工具隔离既有缺口仍待定。专用用户部署 human 进行中，服务器 bwrap 已验证可运行；访问与披露各自控制，候选未批准 | [B1](privacy-permissions.md)、[脱敏 B2](../blueprints/archive/outbound-redaction.md)；合并「工具授权」缺口（cross-check §四-8～9） |
 | 已知 bug，低优先级；human 明确延期（2026-10-10） | 微信 Markdown/表格部分引用无法精确定位时提供完整被引消息并注明；显示文字的精确还原后续再处理，不阻塞本轮引用验收 | [引用 B2](../blueprints/archive/wechat-quotes.md)；[样本事实](wechat-v2.md) §三 |
 | 想法，未定；现状够用（2026-10-12） | 日志页开关「落盘包含 DEBUG」：存 SQLite，跨重启有效，仅项目 crate，开启时页面提示。场景：新功能临时调试时复现与查看之间有重启；现状 DEBUG 只在内存实时可看，重启即丢 | [B2](../blueprints/archive/developer-log-history.md) |
 | 想法，待起 B1（2026-10-16） | 会话回收站：侧栏下方列出 7 天内归档的会话，可恢复；超过 7 天是否真删待定 | [归档 B1](session-archive.md) |

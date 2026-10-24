@@ -208,7 +208,7 @@ core 内一个 tokio 任务，状态只在库里：
 验收中发现：下次触发时刻由内存游标现推，游标的毫秒残留曾跳过整点；运行中长时间卡顿只跑一次、中间次数既不执行也不记录；启动补记与运行是两条流程，任务页还得另算「下次运行」。改为 `next_run_at` 一处真相（P2.2、P2.3、P2.5 已改入正文）：
 
 - 删 `enabled`（启用即 `next_run_at` 非空）、`active_since`、内存游标与启动补记；`schedule`/`schedules` 工具显示的下次运行直接读列。
-- 迁移 v19：重建两张表，以 `next_run_at` 取代 `enabled` 与 `active_since`；加 `enabled_at`，重新启用后连续失败从零数（human 2026-10-21）。现有任务是验收期测试数据，迁移清空 `core_schedules` 与 `core_schedule_fires`（任务会话、run、trace 保留），升级后在对话里重建。
+- 迁移 v19：重建两张表，以 `next_run_at` 取代 `enabled` 与 `active_since`；加 `enabled_at`，重新启用后连续失败从零数（human 2026-10-21）。现有任务是验收期测试数据，迁移清空 `core_schedules` 与 `core_schedule_fires`（任务会话、run、trace 保留），升级后在对话里重建。（2026-10-24 注：v19 迁移已随[数据库转换移出二进制](database-conversion.md)删除，core 当前为 v26，结构以 `core.sql` 为准。）
 - 补测试：store 测试覆盖 `next_run_at` 被改动后不触发、触发与错过都前移下次时刻。
 
 本地冒烟（临时库，无模型）：准点任务在整分 +3ms 触发；迟到超过 30 秒合并为一条错过并推送；一次性任务错过后停用；停机 2 分多钟重启立即补记「错过 2 次」；连续 3 次失败自动暂停并清空下次时刻。

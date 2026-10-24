@@ -40,9 +40,9 @@
     <div class="h-px flex-1 bg-border group-open/compact:hidden"></div>
     <span class:summary-flash={flash} onanimationend={() => (flash = false)} class="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-0.5 group-open/compact:py-1 group-open/compact:pr-1 group-open/compact:pl-3 group-open/compact:shadow-lg">
       {#if revoked}<Undo2Icon class="size-3.5" />已撤回压缩{:else}<CheckIcon class="size-3.5 text-emerald-600 dark:text-emerald-400" />已压缩{/if}{#if retained} · {retained}{/if}<span class="group-open/compact:hidden"> · 查看摘要</span>
-      <span class="ml-2 hidden items-center gap-0.5 border-l border-border pl-1 group-open/compact:inline-flex">
+      <span class="ml-2 hidden items-center gap-1 group-open/compact:inline-flex">
         <span role="presentation" onclick={(e) => e.preventDefault()}><CopyButton text={result.summary} prominent /></span>
-        <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium text-foreground hover:bg-muted"><ChevronUpIcon class="size-3.5" />收起</span>
+        <span class="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 font-medium text-foreground hover:bg-accent"><ChevronUpIcon class="size-3.5" />收起</span>
       </span>
     </span>
     <div class="h-px flex-1 bg-border group-open/compact:hidden"></div>
@@ -57,7 +57,7 @@
     {/if}
     {#if error}<p class="text-xs text-destructive">{error}</p>{/if}
     {#if canRevoke}
-      <button type="button" class="rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50" disabled={view.revoking !== null} onclick={revoke}>{view.revoking === id ? "撤回排队中…" : "撤回压缩"}</button>
+      <button type="button" class="inline-flex items-center gap-1 rounded-lg border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50" disabled={view.revoking !== null} onclick={revoke}><Undo2Icon class="size-3.5" />{view.revoking === id ? "撤回排队中…" : "撤回压缩"}</button>
     {/if}
   </div>
 </details>

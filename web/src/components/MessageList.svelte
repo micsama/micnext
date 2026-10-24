@@ -33,9 +33,13 @@
     const items: [Message, ...Message[]][] = [];
     const loaded = new Map<number, number>();
     let pending: number | undefined;
+    let previousBody: MessageBody | undefined;
     for (const message of view.messages) {
       pending = view.loadedAt.get(message.id) ?? pending;
-      if (hidden(message.body)) continue;
+      // 边界后紧跟的通知与边界同事务写入，是给渠道和模型的文字版，Web 由分隔条呈现。
+      const echo = message.body.kind === "Notification" && previousBody?.kind === "Boundary";
+      previousBody = message.body;
+      if (echo || hidden(message.body)) continue;
       const previous = items.at(-1);
       if (message.body.kind === "Notification" && previous?.[0].body.kind === "Notification" &&
           (!view.draft || (message.id > view.draft.afterId) === (previous[0].id > view.draft.afterId))) {

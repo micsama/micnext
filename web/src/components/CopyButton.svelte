@@ -14,7 +14,7 @@
 
 <button
   type="button"
-  class={["inline-flex items-center gap-1 text-xs", prominent ? "rounded-full px-2 py-0.5 font-medium text-foreground hover:bg-muted" : "rounded-md border border-border bg-background px-1.5 py-0.5 text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground"]}
+  class={["inline-flex items-center gap-1 text-xs", prominent ? "rounded-full bg-muted px-2.5 py-1 font-medium text-foreground hover:bg-accent" : "rounded-md border border-border bg-background px-1.5 py-0.5 text-muted-foreground shadow-xs hover:bg-accent hover:text-foreground"]}
   onclick={copy}>
   <Icon name={copied ? "check" : "copy"} class="size-3.5" />{copied ? "已复制" : "复制"}
 </button>

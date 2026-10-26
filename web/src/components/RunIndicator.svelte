@@ -23,7 +23,8 @@
       if (pending.length)
         return { label: `正在执行 ${pending.map((c) => c.name).join("、")}`, since: reply.created_at };
     }
-    return { label: null, since: last?.created_at ?? null };
+    const since = Math.max(last?.created_at ?? 0, view.claimedAt ?? 0);
+    return { label: null, since: since || null };
   });
 
   let now = $state(Date.now());

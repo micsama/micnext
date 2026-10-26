@@ -18,6 +18,7 @@ const FINISH_NOTICE: Partial<Record<RunState, string>> = {
   provider_failed: "模型调用失败，详情见服务日志",
   max_turns: "本次执行已达到模型调用上限，任务可能没有完成",
   interrupted: "本次执行因服务停止而中断",
+  timed_out: "本次执行超时",
 };
 
 /** 一个打开的会话：稳定消息 + 正在生成的草稿，按 web-ui §五 归约流事件并断线重连。 */
@@ -138,6 +139,8 @@ export class SessionView {
     return !this.info?.archived_at && this.#queued.has(id);
   }
   modelRetry = $state<{ attempt: number; until: number } | null>(null);
+  /** 本页看到最近一次认领的时刻；原地接续不新增消息，等待计时从这里起。 */
+  claimedAt = $state<number | null>(null);
   /** 已对本次执行发出停止，等它收尾。 */
   stopping = $state<number | null>(null);
 
@@ -320,11 +323,13 @@ export class SessionView {
         if (e.data.has_earlier !== null) this.earlier = e.data.has_earlier ? "idle" : "none";
         this.executingRun = e.data.executing_run;
         this.resume = e.data.resume;
+        if (e.data.resume) this.notice = FINISH_NOTICE[e.data.resume.state] ?? null;
         this.#queued.clear();
         for (const id of e.data.queued) this.#queued.add(id);
         break;
       case "inputs_claimed":
         this.executingRun = e.data.run_id;
+        this.claimedAt = Date.now();
         this.notice = null;
         this.resume = null;
         this.resumeError = null;

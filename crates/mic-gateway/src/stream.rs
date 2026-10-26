@@ -224,12 +224,11 @@ struct Ready {
     resume: Option<ResumeView>,
 }
 
-/// 可原地接续的 run，按钮挂在 `message_id` 下。
+/// 可原地接续的 run。
 #[derive(Serialize)]
 struct ResumeView {
     run_id: i64,
     state: &'static str,
-    message_id: i64,
 }
 
 impl From<Resumable> for ResumeView {
@@ -237,7 +236,6 @@ impl From<Resumable> for ResumeView {
         Self {
             run_id: r.run_id.0,
             state: r.state.as_str(),
-            message_id: r.message_id.0,
         }
     }
 }

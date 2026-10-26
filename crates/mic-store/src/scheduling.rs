@@ -499,19 +499,7 @@ fn resumable(
     if queued {
         return Ok(None);
     }
-    Ok(conn
-        .query_row(
-            "SELECT id FROM core_messages WHERE run_id = ?1 AND kind IN ('Reply', 'Notification')
-             ORDER BY id DESC LIMIT 1",
-            [run_id.0],
-            |r| r.get(0),
-        )
-        .optional()?
-        .map(|id| Resumable {
-            run_id,
-            state,
-            message_id: MessageId(id),
-        }))
+    Ok(Some(Resumable { run_id, state }))
 }
 
 fn assign_run(tx: &Transaction<'_>, run: RunId, ids: &[i64]) -> rusqlite::Result<()> {

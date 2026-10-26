@@ -19,12 +19,12 @@
   - 失败的调用记录和原来的通知都保留，trace 里能看到同一个 run 前后的调用。
   - 再次意外结束时，按现有规则收尾，按钮出现在新的末条消息旁。
   - 定时任务的执行记录跟着变成新的结局，之前已推出去的失败推送不撤回；再次失败时照常再推一次。
-- **入口**：只在 Web 上提供，按钮挂在该 run 的最后一条回复或通知下方。微信这次不做，用户照旧重新发送。
+- **入口**：只在 Web 上提供，按钮在消息列表末尾的结束提示行里（如「模型调用失败，详情见服务日志 · 重试」），刷新后仍在。微信这次不做，用户照旧重新发送。
 
 ## 契约
 
 - **store**：
-  - `resumable_run(session) -> Option<Resumable { run_id, state, message_id }>`：按上面的条件判断，`message_id` 是该 run 最后一条 `Reply` 或 `Notification`。这是唯一的判断来源。
+  - `resumable_run(session) -> Option<Resumable { run_id, state }>`：按上面的条件判断。这是唯一的判断来源。
   - `resume_run(session, run) -> Option<ClaimedRun>`：在同一事务里重新做同样的判断，把 run 置回 `executing`、清空 `finished_at`。设置和模型的确定方式与 `claim_next` 共用同一段代码。输入的还原规则：
     - 压缩指令还没留下边界时，还原为原 `Command`。
     - 其他情况还原为 `Conversation`，`message_ids` 是本 run 最后一条 `Reply` 之后的输入。
@@ -34,8 +34,8 @@
   - `KernelEventKind::RunFinished` 增加 `resume: Option<Resumable>`，在 run 收尾后读取。
 - **Gateway**：
   - 新增 `POST /sessions/{id}/runs/{run_id}/resume`。成功返回 202；不可接续返回 409「这次执行已无法继续」；会话只读时按现有规则拒绝。
-  - SSE 的 `ready` 和 `run_finished` 增加 `resume: { run_id, state, message_id } | null`。
-- **Web**：消息 id 等于 `resume.message_id` 时，在这条消息下方显示按钮。`state` 为 `provider_failed` 时叫「重试」，其余叫「继续」。点击后调用接口；收到 `inputs_claimed`，或本会话出现新的用户输入或指令时，隐藏按钮。
+  - SSE 的 `ready` 和 `run_finished` 增加 `resume: { run_id, state } | null`。
+- **Web**：有 `resume` 时，在结束提示行末显示按钮，提示文案按 `state` 给出。`state` 为 `provider_failed` 时叫「重试」，其余叫「继续」。点击后调用接口；收到 `inputs_claimed`，或本会话出现新的用户输入或指令时，隐藏按钮。等待计时从认领时刻算起，因为接续不新增消息。
 
 无 schema 变更。
 

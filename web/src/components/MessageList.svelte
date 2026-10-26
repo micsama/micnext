@@ -224,7 +224,15 @@
       {/if}
       {#if view.contextError}<p class="text-sm text-destructive">上下文状态加载失败：{view.contextError}</p>{/if}
       {#if view.notice}
-        <p class="flex items-center gap-2 text-sm text-warning"><Icon name="alert" class="size-4" />{view.notice}</p>
+        <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-warning">
+          <Icon name="alert" class="size-4" />{view.notice}
+          {#if view.resume}
+            <button type="button" class="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-60 disabled:no-underline" disabled={view.resuming} onclick={() => view.resumeRun()}>
+              <Icon name={view.resuming ? "loader" : "refresh"} class={view.resuming ? "size-3.5 animate-spin" : "size-3.5"} />{view.resume.state === "provider_failed" ? "重试" : "继续"}
+            </button>
+          {/if}
+          {#if view.resumeError}<span class="text-destructive">{view.resumeError}</span>{/if}
+        </p>
       {/if}
       {#if !view.ready && view.messages.length === 0 && !view.reconnecting}
         <p class="text-center text-sm text-muted-foreground">加载中…</p>

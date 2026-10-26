@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 use mic_message::{ReplyBlock, SessionCommand};
 use mic_store::{
     CredentialWrite, EndpointWrite, InputDisposition, ModelWrite, NewInputPart, NewSession,
-    ReasoningEffort as E, ToolScope,
+    ReasoningEffort as E, Resumable, ToolScope,
 };
 use tokio::sync::Notify;
 
@@ -1923,10 +1923,12 @@ async fn failed_run_resumes_in_place_with_its_unanswered_input() {
         .await
         .unwrap();
     let before = f.store.run_messages(run).await.unwrap();
-    let resumable = f.kernel.resumable_run(f.session.id).await.unwrap().unwrap();
     assert_eq!(
-        (resumable.run_id, resumable.state, resumable.message_id),
-        (run, RunState::ProviderFailed, before.last().unwrap().id)
+        f.kernel.resumable_run(f.session.id).await.unwrap(),
+        Some(Resumable {
+            run_id: run,
+            state: RunState::ProviderFailed
+        })
     );
 
     f.kernel.resume_run(f.session.id, run).await.unwrap();

@@ -269,8 +269,8 @@ export type StreamEvent =
   | { event: "run_finished"; data: { run_id: number; state: RunState; resume: Resumable | null } }
   | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null; resume: Resumable | null } };
 
-/** 可原地接续的意外结束 run；按钮挂在 `message_id` 下。 */
-export type Resumable = { run_id: number; state: RunState; message_id: number };
+/** 可原地接续的意外结束 run。 */
+export type Resumable = { run_id: number; state: RunState };
 
 export const fileRef: Decoder<FileRef> = obj({ path: str, size_bytes: num });
 
@@ -450,7 +450,7 @@ const created: Decoder<Created> = obj({ session_id: num });
 
 const delta = obj({ text: str });
 
-const resumable: Decoder<Resumable> = obj({ run_id: num, state: runState, message_id: num });
+const resumable: Decoder<Resumable> = obj({ run_id: num, state: runState });
 const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { event: E }>["data"]> } = {
   message,
   text_delta: delta,

@@ -136,11 +136,3 @@
     <ContextBoundaryView id={message.id} result={body.boundary.Compaction} {view} />
   {/if}
 {/if}
-{#if view.resume?.message_id === message.id}
-  <div class={["mt-1.5 flex items-center gap-2 text-xs", body.kind === "Notification" && "justify-center"]}>
-    <button type="button" class="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60" disabled={view.resuming} onclick={() => view.resumeRun()}>
-      <Icon name={view.resuming ? "loader" : "refresh"} class={view.resuming ? "size-3.5 animate-spin" : "size-3.5"} />{view.resume.state === "provider_failed" ? "重试" : "继续"}
-    </button>
-    {#if view.resumeError}<span class="text-destructive">{view.resumeError}</span>{/if}
-  </div>
-{/if}

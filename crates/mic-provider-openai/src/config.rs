@@ -161,6 +161,11 @@ impl EndpointConfig {
         }
     }
 
+    /// 只有 DeepSeek 提供联网搜索。
+    pub(crate) fn searchable(&self) -> bool {
+        matches!(self.preset, Preset::Deepseek)
+    }
+
     pub(crate) fn protocol(&self) -> Protocol {
         match self.preset {
             Preset::Generic => Protocol::Chat(Dialect::Generic),

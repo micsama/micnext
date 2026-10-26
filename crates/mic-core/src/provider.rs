@@ -67,6 +67,22 @@ pub enum ProbeError {
     Unexpected(String),
 }
 
+/// 联网搜索的一条结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub title: String,
+    pub url: String,
+    pub site_name: Option<String>,
+    /// UTC RFC 3339。
+    pub date: Option<String>,
+    pub summary: String,
+}
+
+/// 联网搜索失败；含 HTTP 状态或完整原因链，不含秘密。
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct SearchError(pub String);
+
 /// 一类 Provider 的工厂；配置 JSON 只由实现自己解析。契约：docs/blueprints/model-settings.md §十。
 pub trait ProviderFactory: Send + Sync + 'static {
     fn kind(&self) -> &'static str;
@@ -102,6 +118,15 @@ pub trait ProviderFactory: Send + Sync + 'static {
         endpoint_json: &str,
         key: Option<SecretValue>,
     ) -> BoxFuture<Result<Vec<String>, ProbeError>>;
+    /// 联网搜索；`None` = 该服务商不提供。契约：docs/blueprints/web-search.md。
+    fn search(
+        &self,
+        _endpoint_json: &str,
+        _key: Option<SecretValue>,
+        _query: String,
+    ) -> Option<BoxFuture<Result<Vec<SearchHit>, SearchError>>> {
+        None
+    }
 }
 
 /// 已存 key 优先，否则读环境变量（非空）。

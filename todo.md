@@ -17,3 +17,4 @@
 | 实现完成，待验收 | 侧栏状态点、后台更新提醒与置顶 | [B2](docs/blueprints/session-sidebar.md)；[B1](docs/brainstorm/session-sidebar.md) |
 | 实现完成，待验收 | 结构化询问用户工具 ask_user | [B2](docs/blueprints/ask-user-question.md)；[B1](docs/brainstorm/ask-user-question.md) |
 | 实现完成，待真实网页更新验收 | 数据库转换移出 Rust 二进制 | [B2](docs/blueprints/database-conversion.md) |
+| 实现完成，待验收 | 联网搜索工具 web_search（DeepSeek Search） | [B2](docs/blueprints/web-search.md) |

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures_util::stream;
 use mic_core::{
     BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ProbeError, Provider,
-    ProviderError, ProviderFactory, ReasoningOptions, SecretValue,
+    ProviderError, ProviderFactory, ReasoningOptions, SearchError, SearchHit, SecretValue,
 };
 use mic_store::ReasoningEffort;
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -12,7 +12,7 @@ use crate::client::Client;
 use crate::config::{self, Backend, EndpointConfig, ModelConfig, Protocol, Resolved};
 use crate::error::{self, protocol};
 use crate::stream::{drive, Open};
-use crate::{chat, probe, responses};
+use crate::{chat, probe, responses, search};
 
 pub(crate) struct OpenAiFactory;
 
@@ -81,6 +81,23 @@ impl ProviderFactory for OpenAiFactory {
             let (client, catalog) = client.map_err(|e| ProbeError::Unexpected(e.message))?;
             probe::list_models(client, catalog).await
         })
+    }
+
+    fn search(
+        &self,
+        endpoint_json: &str,
+        key: Option<SecretValue>,
+        query: String,
+    ) -> Option<BoxFuture<Result<Vec<SearchHit>, SearchError>>> {
+        let endpoint = EndpointConfig::parse(endpoint_json).ok()?;
+        if !endpoint.searchable() {
+            return None;
+        }
+        let client = connect(&endpoint, key);
+        Some(Box::pin(async move {
+            let client = client.map_err(|e| SearchError(e.message))?;
+            search::search(client, query).await
+        }))
     }
 }
 

@@ -10,6 +10,7 @@ mod factory;
 mod limits;
 mod probe;
 mod responses;
+mod search;
 mod stream;
 mod token;
 

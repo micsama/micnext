@@ -24,6 +24,7 @@ mod request;
 mod run;
 mod schedule;
 mod scheduler;
+mod search;
 mod title;
 
 pub use ask::{AskArgs, Question, QuestionOption, ASK_USER};
@@ -49,8 +50,8 @@ pub use mic_tool::ToolSpec;
 pub use module::{BoxError, Module, ModuleConfig, Registry, Service};
 pub use provider::{
     BoxFuture, BoxStream, ConfigError, ModelEvent, ModelRequest, ModelResponse, ProbeError,
-    Provider, ProviderError, ProviderFactory, ProviderKindView, ReasoningOptions, StopReason,
-    ToolChoice,
+    Provider, ProviderError, ProviderFactory, ProviderKindView, ReasoningOptions, SearchError,
+    SearchHit, StopReason, ToolChoice,
 };
 pub use push::PushError;
 pub use request::{PromptBlock, PromptBlockKind, PromptPart, PromptPartKind, SystemPrompt};

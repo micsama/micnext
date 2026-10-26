@@ -200,7 +200,12 @@ impl Assembly {
                 .chain(
                     CORE_TOOLS
                         .iter()
-                        .filter(|n| !matches!(**n, "agent" | crate::ask::ASK_USER))
+                        .filter(|n| {
+                            !matches!(
+                                **n,
+                                "agent" | crate::ask::ASK_USER | crate::search::WEB_SEARCH
+                            )
+                        })
                         .map(|n| (*n).to_owned()),
                 )
                 .collect(),
@@ -470,6 +475,7 @@ impl Assembly {
         ));
         let mut tools = self.tools.clone();
         tools.push(crate::push::handle(&pushes));
+        tools.push(crate::search::handle(store.clone(), factories.clone()));
         let schedules = wake.clone().map(|wake| {
             Arc::new(Schedules::new(
                 store.clone(),

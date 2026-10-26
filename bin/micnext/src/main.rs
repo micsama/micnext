@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
 use mic_core::{Assembly, KernelEvent, KernelEventKind, Module, OnceOutcome, OneShot};
-use mic_gateway::{DeveloperLogs, RestartRequest};
+use mic_gateway::{BuildVersion, DeveloperLogs, RestartRequest};
 use mic_message::{ContentPart, ExecOutcome, Message, MessageBody, ReplyBlock, ToolResultOutcome};
 use mic_store::RunState;
 use tokio::signal::unix::{signal, SignalKind};
@@ -26,7 +26,19 @@ use tracing_subscriber::Layer;
 const DEFAULT_CONFIG: &str = include_str!("default-config.toml");
 /// 模型 API key 的主密钥文件名，缺省放在配置文件旁。
 const KEY_FILE_NAME: &str = "master.key";
-const USAGE: &str = "用法：micnext [--config <配置文件路径>] [-p <提示词>]";
+const USAGE: &str = "用法：micnext [--config <配置文件路径>] [-p <提示词>] | -V";
+
+/// 版本与构建时所在的提交，由 build.rs 从 git 读出；不在 git 仓库里构建为 `None`。
+fn version() -> Option<BuildVersion> {
+    let version = option_env!("MICNEXT_VERSION")?;
+    let commit = option_env!("MICNEXT_COMMIT")?;
+    let time = option_env!("MICNEXT_COMMIT_TIME")?;
+    Some(BuildVersion {
+        version,
+        commit,
+        committed_at: time.parse::<i64>().expect("build.rs 注入 unix 秒") * 1000,
+    })
+}
 /// `-p` 呈现工具参数与结果时的截断长度（字符）。
 const PREVIEW_CHARS: usize = 200;
 
@@ -63,7 +75,38 @@ async fn main() -> ExitCode {
     }
 }
 
+fn print_version() {
+    match version() {
+        Some(v) => {
+            let at = chrono::DateTime::from_timestamp_millis(v.committed_at)
+                .expect("提交时间在合法范围内")
+                .with_timezone(&chrono::Local);
+            println!(
+                "micnext {} ({}, {})",
+                v.version,
+                &v.commit[..7],
+                at.format("%Y-%m-%d")
+            );
+        }
+        None => println!(
+            "micnext {}.x (构建时不在 git 仓库中)",
+            env!("CARGO_PKG_VERSION")
+                .rsplit_once('.')
+                .expect("版本为 x.y.z")
+                .0
+        ),
+    }
+}
+
 async fn run() -> Result<ExitCode> {
+    // `-V` / `--version` 单独使用：打印版本后退出，不读配置。
+    let flags: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if let [flag] = flags.as_slice() {
+        if flag == "-V" || flag == "--version" {
+            print_version();
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
     let args = parse_args()?;
     // `-p` 调低默认级别，免得日志混进过程输出。
     let level = match args.mode {
@@ -105,7 +148,11 @@ async fn run() -> Result<ExitCode> {
 
     let (restart_tx, mut restart_rx) = mpsc::channel::<RestartRequest>(1);
     let modules: Vec<Box<dyn Module>> = vec![
-        Box::new(mic_gateway::GatewayModule::new(logs.clone(), restart_tx)),
+        Box::new(mic_gateway::GatewayModule::new(
+            logs.clone(),
+            restart_tx,
+            version(),
+        )),
         Box::new(mic_provider_openai::OpenAiModule),
         Box::new(mic_tool_shell::ShellModule),
         Box::new(mic_tool_fs::FsModule),

@@ -29,7 +29,7 @@ mod web;
 use mic_core::{BoxError, Module, ModuleConfig, Registry};
 
 pub use crate::logs::DeveloperLogs;
-pub use crate::update::RestartRequest;
+pub use crate::update::{BuildVersion, RestartRequest};
 
 use tokio::sync::mpsc;
 
@@ -42,12 +42,21 @@ pub(crate) const WEB_CHANNEL: &str = "web";
 pub struct GatewayModule {
     logs: DeveloperLogs,
     restart: mpsc::Sender<RestartRequest>,
+    version: Option<BuildVersion>,
 }
 
 impl GatewayModule {
-    /// `logs` 由装配根创建并接入 tracing；本模块只读取。
-    pub fn new(logs: DeveloperLogs, restart: mpsc::Sender<RestartRequest>) -> Self {
-        Self { logs, restart }
+    /// `logs` 由装配根创建并接入 tracing；本模块只读取。`version` 为本程序构建时的提交，未知为 `None`。
+    pub fn new(
+        logs: DeveloperLogs,
+        restart: mpsc::Sender<RestartRequest>,
+        version: Option<BuildVersion>,
+    ) -> Self {
+        Self {
+            logs,
+            restart,
+            version,
+        }
     }
 }
 
@@ -66,6 +75,7 @@ impl Module for GatewayModule {
             config,
             logs: self.logs.clone(),
             restart: self.restart.clone(),
+            version: self.version,
         });
         Ok(())
     }

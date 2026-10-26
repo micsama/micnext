@@ -18,10 +18,15 @@ use crate::error::ApiError;
 use crate::limits::{PULL_TIMEOUTS, UPDATE_OUTPUT_BYTES};
 use crate::service::App;
 
-/// 本程序构建时的提交；由 build.sh 注入，直接 cargo build 时为 `None`。
-pub(crate) const COMMIT: Option<&str> = option_env!("MICNEXT_COMMIT");
-/// 该提交的提交时间（unix 秒），与 `COMMIT` 一同注入。
-const COMMIT_TIME: Option<&str> = option_env!("MICNEXT_COMMIT_TIME");
+/// 本程序的版本与构建时所在的提交，由装配根提供。
+#[derive(Clone, Copy)]
+pub struct BuildVersion {
+    /// `主.次.修订`。
+    pub version: &'static str,
+    pub commit: &'static str,
+    /// 提交时间（unix 毫秒）。
+    pub committed_at: i64,
+}
 
 /// 构建成功后请装配根停止并 exec 的目标。
 pub struct RestartRequest {
@@ -34,8 +39,7 @@ pub(crate) struct Updater {
     restart: mpsc::Sender<RestartRequest>,
     /// 本进程二进制的字节数，启动时读定（构建会原地替换同一路径）。
     running_size: Option<u64>,
-    /// 运行版本的提交时间（unix 毫秒）。
-    committed_at: Option<i64>,
+    version: Option<BuildVersion>,
     /// 本进程启动时间（unix 毫秒）。
     started_at: i64,
     state: Mutex<Task>,
@@ -87,6 +91,7 @@ enum Stage {
 enum StatusView<'a> {
     Unavailable,
     Idle {
+        version: Option<&'static str>,
         running: Option<&'static str>,
         committed_at: Option<i64>,
         started_at: i64,
@@ -136,7 +141,11 @@ impl Phase {
 }
 
 impl Updater {
-    pub(crate) fn new(repo: PathBuf, restart: mpsc::Sender<RestartRequest>) -> Self {
+    pub(crate) fn new(
+        repo: PathBuf,
+        restart: mpsc::Sender<RestartRequest>,
+        version: Option<BuildVersion>,
+    ) -> Self {
         Self {
             repo,
             restart,
@@ -144,8 +153,7 @@ impl Updater {
                 .and_then(std::fs::metadata)
                 .map(|m| m.len())
                 .ok(),
-            committed_at: COMMIT_TIME
-                .map(|s| s.parse::<i64>().expect("MICNEXT_COMMIT_TIME 为 unix 秒") * 1000),
+            version,
             started_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("系统时钟早于 1970")
@@ -162,8 +170,9 @@ impl Updater {
         let output = state.output.as_str();
         f(match &state.phase {
             Phase::Idle => StatusView::Idle {
-                running: COMMIT,
-                committed_at: self.committed_at,
+                version: self.version.map(|v| v.version),
+                running: self.version.map(|v| v.commit),
+                committed_at: self.version.map(|v| v.committed_at),
                 started_at: self.started_at,
                 size: self.running_size,
             },
@@ -227,8 +236,8 @@ impl Updater {
             .await
             .map_err(|e| format!("当前分支没有 upstream：{e}"))?;
         // 以运行版本为准：上次构建失败时源码已前进，进程仍是旧版。
-        let from = match COMMIT {
-            Some(commit) => commit.to_owned(),
+        let from = match self.version {
+            Some(v) => v.commit.to_owned(),
             None => self.capture(&["rev-parse", "HEAD"]).await?,
         };
         tracing::info!(%from, "update pulling");

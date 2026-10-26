@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
-use crate::update::{RestartRequest, Updater};
+use crate::update::{BuildVersion, RestartRequest, Updater};
 use crate::{
     api, backup, channels, context, global_stream, jobs, log_stream, models, pushes, schedules,
     settings, sql, stream, ticket, trace, update, web, DeveloperLogs,
@@ -23,6 +23,7 @@ pub(crate) struct Gateway {
     pub(crate) config: Config,
     pub(crate) logs: DeveloperLogs,
     pub(crate) restart: mpsc::Sender<RestartRequest>,
+    pub(crate) version: Option<BuildVersion>,
 }
 
 /// 各请求共享的只读状态。
@@ -52,6 +53,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         config,
         logs,
         restart,
+        version,
     } = gateway;
     web::ensure_built()?;
     let updater = match config.update_repo {
@@ -64,7 +66,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
                 )
                 .into());
             }
-            Some(Arc::new(Updater::new(repo, restart)))
+            Some(Arc::new(Updater::new(repo, restart, version)))
         }
     };
     let token = match config.token {
@@ -212,7 +214,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
 
     // NOTE: 面向用户的提示，含 token，故不走 tracing。
     eprintln!("Web 已启动：http://{}/#token={}", config.listen, app.token);
-    tracing::info!(listen = %config.listen, commit = update::COMMIT, "gateway listening");
+    tracing::info!(listen = %config.listen, version = version.map(|v| v.version), commit = version.map(|v| v.commit), "gateway listening");
     let server = axum::serve(listener, router)
         .with_graceful_shutdown(stop.clone().cancelled_owned())
         .into_future();

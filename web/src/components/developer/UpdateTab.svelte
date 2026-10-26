@@ -91,13 +91,13 @@
         {:else if status.state === "idle" && !verdict}
           <span class="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
             {#if status.running}
-              <span>当前运行</span>
-              <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground" title={status.running}>{short(status.running)}</code>
+              <span>当前运行 <span class="font-medium text-foreground">v{status.version}</span></span>
+              <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs" title={status.running}>{short(status.running)}</code>
               {#if status.committed_at !== null}
                 <span title={formatTime(status.committed_at)}>提交于 {ago(status.committed_at)}</span>
               {/if}
             {:else}
-              <span>未知版本（非 build.sh 构建）</span>
+              <span>未知版本（构建时不在 git 仓库中）</span>
             {/if}
             <span class="text-muted-foreground/50">·</span>
             <span title="启动于 {formatTime(status.started_at)}">已运行 {duration(now - status.started_at)}</span>
@@ -112,7 +112,7 @@
     {#if verdict && status.state === "idle" && !reconnecting}
       {#if verdict.running === verdict.target}
         <p class="text-emerald-600 dark:text-emerald-400">
-          已更新并重启，当前运行 {short(verdict.target)}{sizeText(verdict.size, verdict.fromSize)}。
+          已更新并重启，当前运行 {status.version ? `v${status.version}（${short(verdict.target)}）` : short(verdict.target)}{sizeText(verdict.size, verdict.fromSize)}。
         </p>
       {:else}
         <p class="text-destructive">

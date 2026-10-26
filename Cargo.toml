@@ -16,4 +16,6 @@ members = [
 ]
 
 [workspace.package]
+# 主次版本手动维护；修订号由 bin/micnext/build.rs 按改动本行以来的提交数算出。
+version = "0.2.0"
 edition = "2021"

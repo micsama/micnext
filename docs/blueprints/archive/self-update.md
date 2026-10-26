@@ -27,7 +27,7 @@
 
 1. **检查**（不重试）：
    - `git rev-parse --abbrev-ref --symbolic-full-name @{u}` 失败 → 失败「当前分支没有 upstream」（同时覆盖 detached HEAD/rebase 中）。
-   - 当前进程构建时的提交（`MICNEXT_COMMIT`）记为 `from`；直接 cargo build 没有该值时退回 `git rev-parse HEAD`。写入状态与终端日志。上次构建失败后源码已是新版、进程仍是旧版，再次点击按运行版本比较，会重新构建（2026-10-22 修订，原为源码 HEAD）。
+   - 当前进程构建时的提交（`MICNEXT_COMMIT`）记为 `from`；版本未知（构建时不在 git 仓库中）时退回 `git rev-parse HEAD`。写入状态与终端日志。上次构建失败后源码已是新版、进程仍是旧版，再次点击按运行版本比较，会重新构建（2026-10-22 修订，原为源码 HEAD）。
 2. **拉取**：`git fetch`，总共最多 5 次，各次超时依次为 20s、30s、40s、50s、60s，超时杀掉 git；失败或超时立即重试，不等待；不解析 stderr。全部失败 → 失败（最坏约 3 分 20 秒）。成功后 `git reset --hard @{u}`：服务器上不手改代码，已跟踪文件的本地改动和未推送提交一律以 upstream 覆盖，覆盖前先列入输出；未跟踪文件不动（human 2026-10-19，取代原「工作区不干净即失败、不 reset」）。
 3. `git rev-parse HEAD` 记为 `to`；`to == from` → 「已是最新」结束。
 4. **构建**：`./build.sh` 一次（无参数 = release）。非零 → 失败，不重试。源码已是新版、旧进程仍在跑，属预期。
@@ -79,7 +79,7 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 
 ```jsonc
 {"state":"unavailable"}
-{"state":"idle","running":"<sha>|null","committed_at":<ms>|null,"started_at":<ms>,"size":<bytes>|null}
+{"state":"idle","version":"<x.y.z>|null","running":"<sha>|null","committed_at":<ms>|null,"started_at":<ms>,"size":<bytes>|null}
 {"state":"checking","output":"..."}
 {"state":"pulling","from":"<sha>","attempt":2,"output":"..."}
 {"state":"building","from":"<sha>","to":"<sha>","from_size":<bytes>|null,"output":"..."}
@@ -88,7 +88,7 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 {"state":"failed","stage":"checking|pulling|building|restarting","from":"<sha>|null","error":"中文原因","output":"..."}
 ```
 
-`running` 为当前进程构建时的提交（build.sh 注入 `MICNEXT_COMMIT`，直接 cargo build 为 null），启动日志 `gateway listening` 同样打印；`committed_at` 为该提交的提交时间（build.sh 注入 `MICNEXT_COMMIT_TIME`），`started_at` 为本进程启动时间，页面据此显示「提交于…」「已运行…」（2026-10-26 增补）。`size`/`from_size` 为当前进程二进制字节数，启动时读定，读不到为 null；`to_size` 为构建产物字节数，读不到按构建失败。页面显示新版大小及相对旧版的百分比变化，旧版大小随目标提交存浏览器（building 起即下发 `from_size`，因重启阶段轮询常撞不上），重启后的核对行也展示（2026-10-13 增补）。`output` 为合并输出末尾，最多 64 KiB（按字符边界截断）。状态只在内存，新进程为 idle；`failed` / `up_to_date` 保留到下次 POST。
+`running` 为当前进程构建时的提交（`bin/micnext/build.rs` 从 git 读出 `MICNEXT_COMMIT`，经装配根传给 Gateway；构建时不在 git 仓库中为 null），启动日志 `gateway listening` 同样打印；`committed_at` 为该提交的提交时间（同由 build.rs 注入 `MICNEXT_COMMIT_TIME`），`started_at` 为本进程启动时间，页面据此显示「提交于…」「已运行…」（2026-10-26 增补）。`size`/`from_size` 为当前进程二进制字节数，启动时读定，读不到为 null；`to_size` 为构建产物字节数，读不到按构建失败。页面显示新版大小及相对旧版的百分比变化，旧版大小随目标提交存浏览器（building 起即下发 `from_size`，因重启阶段轮询常撞不上），重启后的核对行也展示（2026-10-13 增补）。`output` 为合并输出末尾，最多 64 KiB（按字符边界截断）。状态只在内存，新进程为 idle；`failed` / `up_to_date` 保留到下次 POST。
 
 ### 4.3 前端
 
@@ -123,7 +123,7 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 | bin/micnext `default-config.toml` | 注释示例 `# update_repo = ...` | — |
 | web | decoder、页签 | 新增 |
 
-core / store / tool / Channel 不改；不新增 crate、依赖或 run 终态。`build.sh` 只在构建前导出 `MICNEXT_COMMIT`，参数契约不变。
+core / store / tool / Channel 不改；不新增 crate、依赖或 run 终态。版本由 `bin/micnext/build.rs` 在任何构建方式下注入（2026-10-26 修订，原由 `build.sh` 导出），版本号为 `主.次.修订`：主次版本写在 workspace `Cargo.toml`，修订号为改动该版本行以来、改到程序内容（`crates/`、`bin/`、`web/`、`Cargo.toml`、`Cargo.lock`，不含测试）的提交数，只改文档、脚本或测试不升修订号；`micnext -V` 打印「版本 (短提交, 提交日期)」，页面显示版本号并另列提交，更新核对仍按提交；`build.sh` 参数契约不变。
 
 ## 七、相对 r2 的删减（human 已确认）
 

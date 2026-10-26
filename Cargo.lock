@@ -1458,7 +1458,7 @@ dependencies = [
 
 [[package]]
 name = "mic-channel-wechat"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "aes 0.8.4",
  "base64 0.22.1",
@@ -1482,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "mic-core"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1505,7 +1505,7 @@ dependencies = [
 
 [[package]]
 name = "mic-gateway"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1529,7 +1529,7 @@ dependencies = [
 
 [[package]]
 name = "mic-media"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "image",
  "mic-message",
@@ -1539,7 +1539,7 @@ dependencies = [
 
 [[package]]
 name = "mic-message"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
@@ -1548,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "mic-provider-openai"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "eventsource-stream",
@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "mic-store"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -1582,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "mic-tool"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "mic-message",
  "schemars",
@@ -1595,7 +1595,7 @@ dependencies = [
 
 [[package]]
 name = "mic-tool-fs"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "grep-regex",
  "grep-searcher",
@@ -1612,7 +1612,7 @@ dependencies = [
 
 [[package]]
 name = "mic-tool-shell"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "mic-core",
  "mic-message",
@@ -1627,7 +1627,7 @@ dependencies = [
 
 [[package]]
 name = "mic-tool-web-fetch"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "encoding_rs",
  "htmd",
@@ -1641,9 +1641,10 @@ dependencies = [
 
 [[package]]
 name = "micnext"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "mic-channel-wechat",
  "mic-core",
  "mic-gateway",

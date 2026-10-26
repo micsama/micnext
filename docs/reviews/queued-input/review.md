@@ -1,6 +1,6 @@
 # queued-input 蓝图复审
 
-**已被后续决策替代**：现方案由后端用 `InputsClaimed` 事件和 `ready.queued` 提供认领事实，见 [蓝图](../../blueprints/queued-input.md)。下文关于旧后端快照方案的建议不再适用。
+**已被后续决策替代**：现方案由后端用 `InputsClaimed` 事件和 `ready.queued` 提供认领事实，见 [蓝图](../../blueprints/archive/queued-input.md)。下文关于旧后端快照方案的建议不再适用。
 
 日期：2026-10-23。范围：按 human 明确的“只做轻量 UI 区分，不增加复杂或防御性机制”重新审查当前草案；不修改蓝图与实现。
 

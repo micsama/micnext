@@ -300,7 +300,7 @@ fn tagged(param: &str) -> String {
 }
 
 /// `filter` 筛出的会话连同 `act`（最近活跃）与 `preview`，供外层再筛选排序。
-fn summaries(filter: &str) -> String {
+pub(crate) fn summaries(filter: &str) -> String {
     // NOTE: 预览依赖 ContentPart 的 serde 外部标签形状 {"Text":{"text":..}}；无文字时以首个附件占位。
     format!(
         "SELECT {SESSION_COLS}, act, preview, title, title_error, pinned_at, unread, running, tag_ids FROM (
@@ -331,7 +331,7 @@ fn summaries(filter: &str) -> String {
     )
 }
 
-fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
+pub(crate) fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
     Ok(SessionSummary {
         title: r.get(row::SESSION_NEXT + 2)?,
         title_error: r.get(row::SESSION_NEXT + 3)?,

@@ -16,7 +16,7 @@ use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_
 use crate::update::{BuildVersion, RestartRequest, Updater};
 use crate::{
     api, backup, channels, context, global_stream, jobs, log_stream, models, pushes, schedules,
-    settings, sql, stream, tags, ticket, trace, update, web, DeveloperLogs,
+    search, settings, sql, stream, tags, ticket, trace, update, web, DeveloperLogs,
 };
 
 pub(crate) struct Gateway {
@@ -106,6 +106,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
                 .post(api::create_session.layer(DefaultBodyLimit::max(MAX_INPUT_BODY_BYTES))),
         )
         .route("/sessions/pinned", get(api::list_pinned_sessions))
+        .route("/sessions/search", get(search::search))
         .route("/sessions/{id}", get(api::get_session))
         .route("/sessions/{id}/pin", put(api::pin_session))
         .route("/sessions/{id}/tags", put(tags::set_session))

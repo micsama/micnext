@@ -200,6 +200,11 @@ export type Persona = { id: number; name: string; prompt: string; builtin: boole
 export type Cursor = { before_at: number; before_id: number };
 
 export type SessionPage = { items: SessionItem[]; next: Cursor | null };
+
+/** 搜索命中的一条消息：`snippet` 已截在命中词附近。 */
+export type SearchHit = { message_id: number; created_at: number; from_user: boolean; snippet: string };
+export type SessionHit = { session: SessionItem; title_hit: boolean; hits: SearchHit[]; hit_count: number };
+export type SearchPage = { items: SessionHit[]; next: Cursor | null };
 export type MessagePage = { messages: Message[]; has_earlier: boolean };
 
 export type Created = { session_id: number };
@@ -446,6 +451,16 @@ const sessionPage: Decoder<SessionPage> = obj({
 
 const pinnedSessions = obj({ items: arr(sessionItem) });
 
+const searchPage: Decoder<SearchPage> = obj({
+  items: arr(obj({
+    session: sessionItem,
+    title_hit: bool,
+    hits: arr(obj({ message_id: num, created_at: num, from_user: bool, snippet: str })),
+    hit_count: num,
+  })),
+  next: nullable(obj({ before_at: num, before_id: num })),
+});
+
 const created: Decoder<Created> = obj({ session_id: num });
 
 const delta = obj({ text: str });
@@ -475,6 +490,7 @@ export const parseSessionDetail = (v: unknown): SessionDetail => sessionDetail(v
 export const parseTitleModel = (v: unknown): TitleModelSelection => titleModel(v, "标题模型");
 
 export const parseSessionPage = (v: unknown): SessionPage => sessionPage(v, "会话列表");
+export const parseSearchPage = (v: unknown): SearchPage => searchPage(v, "搜索结果");
 export const parseTags = (v: unknown): Tag[] => arr(obj({ id: num, name: str, sessions: num }))(v, "标签");
 export const parseCreatedTag = (v: unknown): number => obj({ id: num })(v, "新建标签").id;
 export const parsePinnedSessions = (v: unknown): SessionItem[] => pinnedSessions(v, "置顶会话").items;

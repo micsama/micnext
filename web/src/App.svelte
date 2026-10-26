@@ -5,6 +5,9 @@
   import ChatView from "./components/ChatView.svelte";
   import NewChat from "./components/NewChat.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
+  import SearchPalette from "./components/SearchPalette.svelte";
+  import { searchPalette } from "./state/search.svelte";
+  import { untrack } from "svelte";
   import DeveloperView from "./components/developer/DeveloperView.svelte";
   import SettingsView from "./components/settings/SettingsView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -16,17 +19,41 @@
 
   let view = $state<SessionView | null>(null);
 
-  // 路由决定当前打开的会话；切换时中止旧流。
+  // 路由决定当前打开的会话；切换时中止旧流。只换定位消息时沿用同一个会话视图。
+  const sessionId = $derived(router.current.kind === "session" ? router.current.id : null);
   $effect(() => {
-    const route = router.current;
-    if (!auth.token || route.kind !== "session") return;
-    const v = new SessionView(route.id);
-    v.reply = pushCenter.takeReply(route.id);
+    const id = sessionId;
+    if (!auth.token || id === null) return;
+    const v = new SessionView(id);
+    v.reply = untrack(() => pushCenter.takeReply(id));
     view = v;
     return () => {
       v.close();
       view = null;
     };
+  });
+
+  // `?m=` 定位：就绪后取到那条消息，再从地址里去掉，重连时不会重复跳转。
+  $effect(() => {
+    const route = router.current;
+    if (!view?.ready || route.kind !== "session" || route.message === null || route.id !== view.id) return;
+    const target = route.message;
+    untrack(() => {
+      router.replace(`/s/${route.id}`);
+      void view!.reveal(target);
+    });
+  });
+
+  $effect(() => {
+    if (!auth.token) return;
+    const onkey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        searchPalette.toggle();
+      }
+    };
+    addEventListener("keydown", onkey);
+    return () => removeEventListener("keydown", onkey);
   });
 
   $effect(() => {
@@ -74,4 +101,5 @@
     </main>
   </div>
   <ConfirmDialog />
+  <SearchPalette />
 {/if}

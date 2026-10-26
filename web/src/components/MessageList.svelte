@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Message, MessageBody } from "../api/types";
   import { toolKey, toolResults } from "./tool-results";
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
@@ -98,6 +98,23 @@
     return () => ro.disconnect();
   });
 
+  // 定位：滚到视口中间并闪一下；离开贴底，后续实时消息不把它推走。
+  $effect(() => {
+    const id = view.focus;
+    if (id === null) return;
+    void tick().then(() => {
+      view.focus = null;
+      const el = content.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
+      if (!el) return;
+      stuck = false;
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.classList.remove("focus-flash");
+      void el.offsetWidth;
+      el.classList.add("focus-flash");
+      el.addEventListener("animationend", () => el.classList.remove("focus-flash"), { once: true });
+    });
+  });
+
   // 预取通常发生在视口外：列表顶部不可见时才浮出提示，可见时由列表内提示负责，避免两处重复。
   const TOAST_MS = 2500;
   const pill =
@@ -156,6 +173,17 @@
   .loaded-divider {
     animation: loaded-divider 4s ease forwards;
   }
+  :global(.focus-flash) {
+    border-radius: 0.75rem;
+    animation: focus-flash 2s ease-out;
+  }
+  @keyframes focus-flash {
+    0%, 35% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 18%, transparent); background-color: color-mix(in srgb, var(--primary) 8%, transparent); }
+    100% { box-shadow: 0 0 0 6px transparent; background-color: transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global(.focus-flash) { animation-duration: 0.01s; }
+  }
   @keyframes loaded-divider {
     0% { opacity: 0; transform: translateY(4px); }
     8%, 70% { opacity: 1; transform: none; }
@@ -211,7 +239,7 @@
           </aside>
         {:else}
           <!-- 负外边距与上一条的 space-y 合并，实际间距收为 2。 -->
-          <div class={loaded === undefined && prev !== undefined && AGENT_SIDE.has(prev) && AGENT_SIDE.has(messages[0].body.kind) ? "-mt-2" : ""}>
+          <div data-message-id={messages[0].id} class={loaded === undefined && prev !== undefined && AGENT_SIDE.has(prev) && AGENT_SIDE.has(messages[0].body.kind) ? "-mt-2" : ""}>
             <MessageItem {view} message={messages[0]} {results} {running} />
           </div>
         {/if}

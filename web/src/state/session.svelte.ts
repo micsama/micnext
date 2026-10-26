@@ -225,14 +225,14 @@ export class SessionView {
     return this.messages.reduce<number | null>((id, m) => Math.max(id ?? 0, m.id), null);
   }
 
-  /** 按写入游标取更早一页，按位置合入；同一时刻只跑一个。 */
-  async loadEarlier(): Promise<void> {
+  /** 按写入游标取更早一页，按位置合入；同一时刻只跑一个。给出 `until` 时一并取到这条消息。 */
+  async loadEarlier(until?: number): Promise<void> {
     const first = this.messages[0];
     const before = this.messages.reduce((id, m) => Math.min(id, m.id), Infinity);
     if (!this.ready || !first || this.earlier === "loading" || this.earlier === "none") return;
     this.earlier = "loading";
     try {
-      const page = await getMessages(this.id, before);
+      const page = await getMessages(this.id, before, until);
       if (this.#abort.signal.aborted) return;
       this.#merge(page.messages);
       const shown = page.messages.filter((m) => m.body.kind !== "HarnessNote").length;
@@ -242,6 +242,20 @@ export class SessionView {
     } catch (error) {
       if (!this.#abort.signal.aborted) this.earlier = { error: (error as Error).message };
     }
+  }
+
+  /** 要滚到并高亮的消息；列表处理完即清空。 */
+  focus = $state<number | null>(null);
+
+  /** 就绪后取到这条消息为止，再交给列表定位。 */
+  async reveal(id: number): Promise<void> {
+    const signal = this.#abort.signal;
+    while (!signal.aborted && !this.messages.some((m) => m.id === id)) {
+      if (this.earlier === "none" || typeof this.earlier === "object") return;
+      if (this.earlier === "loading") await sleep(50, signal);
+      else await this.loadEarlier(id);
+    }
+    if (!signal.aborted) this.focus = id;
   }
 
   async #run(): Promise<void> {

@@ -40,6 +40,7 @@ import {
   parseSessionDetail,
   parseTitleModel,
   parseSessionPage,
+  parseSearchPage,
   parsePinnedSessions,
   parseTags,
   parseCreatedTag,
@@ -63,6 +64,7 @@ import {
   type TitleModelSelection,
   type SessionItem,
   type SessionPage,
+  type SearchPage,
   type MessagePage,
   type Settings,
   type SettingsInput,
@@ -182,8 +184,20 @@ export async function putTitleModel(selection: TitleModelSelection): Promise<voi
   await request("PUT", "/settings/title-model", selection);
 }
 
-export async function getMessages(sessionId: number, before: number): Promise<MessagePage> {
-  return parseMessagePage(await request("GET", `/sessions/${sessionId}/messages?before=${before}`));
+/** `until`：一并取回 `[until, before)` 的全部消息，用于定位。 */
+export async function getMessages(sessionId: number, before: number, until?: number): Promise<MessagePage> {
+  const q = new URLSearchParams({ before: String(before) });
+  if (until !== undefined) q.set("until", String(until));
+  return parseMessagePage(await request("GET", `/sessions/${sessionId}/messages?${q}`));
+}
+
+export async function searchSessions(query: string, before: Cursor | null): Promise<SearchPage> {
+  const q = new URLSearchParams({ q: query });
+  if (before) {
+    q.set("before_at", String(before.before_at));
+    q.set("before_id", String(before.before_id));
+  }
+  return parseSearchPage(await request("GET", `/sessions/search?${q}`));
 }
 
 export async function createSession(parts: InputPart[], personaId: number, modelId: number, reasoningEffort: ReasoningEffort | null): Promise<Created> {

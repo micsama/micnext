@@ -158,6 +158,40 @@ impl Store {
         .await
     }
 
+    /// 定位用：`[until, before)` 的全部消息，再接 `until` 之前正常的一页，一次取到目标消息。
+    pub async fn messages_page_until(
+        &self,
+        session_id: SessionId,
+        until: MessageId,
+        before: MessageId,
+        rounds: NonZeroU32,
+        cap: NonZeroU32,
+    ) -> Result<MessagePage, StoreError> {
+        self.call(move |conn| {
+            let range = conn
+                .prepare(&format!(
+                    "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM}
+                     WHERE m.session_id = ?1 AND m.id >= ?2 AND m.id < ?3 AND m.kind <> 'SideOutput' ORDER BY m.id"
+                ))?
+                .query_map(params![session_id.0, until.0, before.0], row::message)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let newest_first = conn
+                .prepare(&format!(
+                    "SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM}
+                     WHERE m.session_id = ?1 AND m.id < ?2 AND m.kind <> 'SideOutput' ORDER BY m.id DESC LIMIT ?3"
+                ))?
+                .query_map(
+                    params![session_id.0, until.0, i64::from(cap.get()) + 1],
+                    row::message,
+                )?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut page = cut_page(newest_first, rounds, cap);
+            page.messages.extend(range);
+            Ok(page)
+        })
+        .await
+    }
+
     // ---- 投递 ----
 
     pub async fn pending_deliveries(

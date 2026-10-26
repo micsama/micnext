@@ -104,6 +104,32 @@ pub(crate) struct Cursor {
     before_id: SessionId,
 }
 
+impl From<SessionCursor> for Cursor {
+    fn from(c: SessionCursor) -> Self {
+        Self {
+            before_at: c.last_activity_at,
+            before_id: c.session_id,
+        }
+    }
+}
+
+/// 列表游标的两个查询参数须同时给出或同时缺省。
+pub(crate) fn cursor(
+    before_at: Option<i64>,
+    before_id: Option<i64>,
+) -> Result<Option<SessionCursor>, ApiError> {
+    match (before_at, before_id) {
+        (Some(at), Some(id)) => Ok(Some(SessionCursor {
+            last_activity_at: at,
+            session_id: SessionId(id),
+        })),
+        (None, None) => Ok(None),
+        _ => Err(ApiError::BadRequest(
+            "before_at 与 before_id 须同时给出".into(),
+        )),
+    }
+}
+
 #[derive(Serialize)]
 pub(crate) struct SessionPage {
     items: Vec<SessionItem>,
@@ -115,18 +141,7 @@ pub(crate) async fn list_sessions(
     query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Result<Json<SessionPage>, ApiError> {
     let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
-    let before = match (q.before_at, q.before_id) {
-        (Some(at), Some(id)) => Some(SessionCursor {
-            last_activity_at: at,
-            session_id: SessionId(id),
-        }),
-        (None, None) => None,
-        _ => {
-            return Err(ApiError::BadRequest(
-                "before_at 与 before_id 须同时给出".into(),
-            ))
-        }
-    };
+    let before = cursor(q.before_at, q.before_id)?;
     let limit = match q.limit {
         None => PAGE_DEFAULT,
         Some(n @ 1..=PAGE_MAX) => n,
@@ -147,10 +162,7 @@ pub(crate) async fn list_sessions(
             .into_iter()
             .map(|s| item(s).expect("list_root_sessions 只返回 Root 会话"))
             .collect(),
-        next: page.next.map(|c| Cursor {
-            before_at: c.last_activity_at,
-            before_id: c.session_id,
-        }),
+        next: page.next.map(Cursor::from),
     }))
 }
 
@@ -180,7 +192,7 @@ pub(crate) async fn list_pinned_sessions(
 }
 
 /// Web 浏览 Root 与定时任务会话。
-fn item(s: SessionSummary) -> Option<SessionItem> {
+pub(crate) fn item(s: SessionSummary) -> Option<SessionItem> {
     let writable = writable(&s.session);
     let source = match &s.session.kind {
         SessionKind::Root { channel, .. } => SessionSource::Channel {

@@ -20,6 +20,7 @@
   import { theme, type ThemeChoice } from "../state/theme.svelte";
   import { updater } from "../state/update.svelte";
   import { sidebar } from "../state/sidebar.svelte";
+  import { searchPalette } from "../state/search.svelte";
 
   let { activeSession, executingRun }: { activeSession: SessionItem | null; executingRun: number | null } = $props();
 
@@ -39,6 +40,7 @@
     { tracing: false, icon: "message", label: "聊天", href: traceId === null ? "/" : `/s/${traceId}` },
     { tracing: true, icon: "sparkles", label: "Trace", href: activeId === null ? "/trace" : `/s/${activeId}/trace` },
   ] satisfies { tracing: boolean; icon: IconName; label: string; href: string }[]);
+  const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K";
   let search = $state("");
   let channel = $state("");
   const channelName = (c: string) => (c === "wechat" ? "微信" : c);
@@ -259,12 +261,23 @@
         </select>
       </div>
     {:else}
-      <button
-        type="button"
-        onclick={() => go("/")}
-        class="flex w-full items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm hover:bg-accent">
-        <Icon name="plus" />新会话
-      </button>
+      <div class="flex gap-1.5">
+        <button
+          type="button"
+          onclick={() => go("/")}
+          class="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm hover:bg-accent">
+          <Icon name="plus" />新会话
+        </button>
+        <button
+          type="button"
+          title="搜索会话（{shortcut}）"
+          aria-label="搜索会话"
+          onclick={() => (searchPalette.open = true)}
+          class="flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-muted-foreground hover:bg-accent hover:text-foreground">
+          <Icon name="search" />
+          <kbd class="hidden font-sans text-[10px] tracking-wide md:inline">{shortcut}</kbd>
+        </button>
+      </div>
       {#if tags.items.length > 0}
         <div role="group" aria-label="按标签筛选" class="mt-2 flex [scrollbar-width:none] items-center gap-1 overflow-x-auto">
           <button type="button" aria-pressed={tags.filter === null} onclick={() => tags.select(null)} class={["shrink-0 rounded-full px-1.5 text-[11px] leading-[18px] text-muted-foreground hover:bg-accent", tags.filter === null && "bg-background text-foreground ring-1 ring-border"]}>全部</button>

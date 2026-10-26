@@ -18,6 +18,12 @@ pub(crate) const MAX_INPUT_BODY_BYTES: usize = 112 * 1024 * 1024;
 /// 会话列表每页条数：缺省与上限。
 pub(crate) const PAGE_DEFAULT: u32 = 30;
 pub(crate) const PAGE_MAX: u32 = 100;
+/// 会话搜索：每页会话数、检索词数与字数上限、片段字数与命中词前保留的字数。
+pub(crate) const SEARCH_PAGE: NonZeroU32 = NonZeroU32::new(20).unwrap();
+pub(crate) const SEARCH_TERMS: usize = 5;
+pub(crate) const SEARCH_QUERY_CHARS: usize = 100;
+pub(crate) const SNIPPET_CHARS: usize = 80;
+pub(crate) const SNIPPET_LEAD_CHARS: usize = 20;
 /// trace 页默认一次取的完整 run 数。
 pub(crate) const TRACE_RUNS_DEFAULT: u32 = 20;
 /// 会话消息一页：最近轮数与条数上限。

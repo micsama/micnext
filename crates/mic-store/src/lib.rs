@@ -18,6 +18,7 @@ mod row;
 mod schedules;
 mod scheduling;
 mod schema;
+mod search;
 mod secrets;
 mod sessions;
 mod settings;
@@ -41,6 +42,7 @@ pub use schedules::{
     Fire, FireId, FireOutcome, FireResult, NewSchedule, Schedule, ScheduleEdit, ScheduleId,
     SCHEDULE_MODULE,
 };
+pub use search::{MessageHit, SearchPage, SearchTerms, SessionHit};
 pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
 pub use tags::{is_tag_separator, TagError, TagName};

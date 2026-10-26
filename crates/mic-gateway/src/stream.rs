@@ -47,6 +47,8 @@ pub(crate) async fn stream(
 #[serde(deny_unknown_fields)]
 pub(crate) struct PageQuery {
     before: i64,
+    /// 定位：一并取回 `[until, before)` 的全部消息。
+    until: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -63,15 +65,25 @@ pub(crate) async fn page(
 ) -> Result<Json<Page>, ApiError> {
     let session = session(&app, id).await?;
     let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
-    let page = app
-        .kernel
-        .messages_page(
-            session.id,
-            Some(MessageId(q.before)),
-            PAGE_ROUNDS,
-            PAGE_MESSAGES,
-        )
-        .await?;
+    let before = MessageId(q.before);
+    let page = match q.until {
+        Some(until) => {
+            app.kernel
+                .messages_page_until(
+                    session.id,
+                    MessageId(until),
+                    before,
+                    PAGE_ROUNDS,
+                    PAGE_MESSAGES,
+                )
+                .await?
+        }
+        None => {
+            app.kernel
+                .messages_page(session.id, Some(before), PAGE_ROUNDS, PAGE_MESSAGES)
+                .await?
+        }
+    };
     Ok(Json(Page {
         messages: page.messages,
         has_earlier: page.has_earlier,

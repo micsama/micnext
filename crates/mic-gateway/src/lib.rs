@@ -16,6 +16,7 @@ mod logs;
 mod models;
 mod pushes;
 mod schedules;
+mod search;
 mod service;
 mod settings;
 mod sql;

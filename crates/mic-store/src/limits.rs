@@ -2,6 +2,8 @@
 
 /// 会话列表预览截取的字符数。
 pub(crate) const PREVIEW_CHARS: u32 = 80;
+/// 搜索结果里每个会话列出的命中条数。
+pub(crate) const SEARCH_HITS_SHOWN: usize = 3;
 /// 诊断查询：执行时间、返回行数与结果文本字节上限。
 pub(crate) const DIAGNOSTIC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 pub(crate) const DIAGNOSTIC_ROWS: usize = 200;

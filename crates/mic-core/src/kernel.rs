@@ -12,9 +12,9 @@ use mic_store::{
     CallRecord, CredentialWrite, Dashboard, EndpointId, EndpointView, EndpointWrite, Identity,
     InputDisposition, JobId, MessagePage, ModelCallId, ModelCallPurpose, ModelId, ModelView,
     ModelWrite, NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId,
-    PushId, PushPage, QueryResult, ReasoningEffort, Resumable, RunId, Session, SessionCursor,
-    SessionKind, SessionPage, SessionSummary, Settings, Store, StoreError, TableSchema, Tag, TagId,
-    TagName, TraceRunPage, TraceSession,
+    PushId, PushPage, QueryResult, ReasoningEffort, Resumable, RunId, SearchPage, SearchTerms,
+    Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, Store, StoreError,
+    TableSchema, Tag, TagId, TagName, TraceRunPage, TraceSession,
 };
 use mic_tool::ToolSpec;
 use tokio::sync::mpsc;
@@ -817,6 +817,31 @@ impl Kernel {
             .store
             .messages_page(session_id, before, rounds, cap)
             .await?)
+    }
+
+    /// 定位到 `until` 的一页，见 `Store::messages_page_until`。
+    pub async fn messages_page_until(
+        &self,
+        session_id: SessionId,
+        until: MessageId,
+        before: MessageId,
+        rounds: NonZeroU32,
+        cap: NonZeroU32,
+    ) -> Result<MessagePage, KernelError> {
+        Ok(self
+            .store
+            .messages_page_until(session_id, until, before, rounds, cap)
+            .await?)
+    }
+
+    /// 在 Root 会话里搜标题与对话正文，见 `Store::search_sessions`。
+    pub async fn search_sessions(
+        &self,
+        terms: SearchTerms,
+        before: Option<SessionCursor>,
+        limit: NonZeroU32,
+    ) -> Result<SearchPage, KernelError> {
+        Ok(self.store.search_sessions(terms, before, limit).await?)
     }
 
     /// 该会话正在执行的 run。

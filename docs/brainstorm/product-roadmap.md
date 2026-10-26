@@ -1,10 +1,10 @@
 # micnext：产品方向与后续工作
 
-**状态：现状索引（2026-10-20 整理）。已实现能力以对应 B2 为准；本页记录剩余方向，不授权实现。**
+**状态：现状索引（2026-10-26 更新）。已实现能力与验收记录以对应 B2 为准；本页记录剩余方向，不授权实现。**
 
 ## 一、项目定位
 
-单人自用、单进程的 Rust agent：常驻 Gateway（Web）与微信 Channel，`-p` 一次性调试。支持在服务器上调用文件、shell 与网络工具。定时巡检、日报、提醒及长期记忆属于后续能力。
+单人自用、单进程的 Rust agent：常驻 Gateway（Web）与微信 Channel，`-p` 一次性调试。支持在服务器上调用文件、shell 与网络工具。定时任务与推送已实现，可用于巡检、日报与提醒，仍在验收；长期记忆属于后续能力。
 
 按独立变化轴建模，边界解析成强类型，失败可见；不做分布式、多租户 SaaS、通用工作流编排。配置、存储与分层遵循仓库 AGENTS.md。
 
@@ -25,10 +25,14 @@
 
 ## 三、当前收尾
 
-[未关闭 B2](../../todo.md) 目前只有：
+[todo](../../todo.md) 是未关闭主题的状态索引；当前已实现项主要剩页面与真实环境验收：
 
-- [定时任务与推送](../blueprints/scheduled-tasks.md)：P1 推送已验收，P2 内核未开始。
-- [分时计价](../blueprints/offpeak-pricing.md)：human 明确搁置，继续按高峰价计。
+- [定时任务与推送](../blueprints/scheduled-tasks.md)：P1 已验收；P2 内核及调度修订、P3 页面已实现，待完成停机合并补记、恢复触发、页面操作及真实投递终态等剩余验收。
+- 微信与外部交互：[错误链日志](../blueprints/external-error-observability.md)待真实环境验收；[统一文件消息](../blueprints/web-file-upload.md)的 Web 已验收、微信文件待验收；[微信收尾](../blueprints/wechat-wrap-up.md)已实现，待验收。
+- Web 与对话交互：[模型重试提示](../blueprints/model-retry-indicator.md)、[图片规整](../blueprints/image-normalize.md)、[侧栏状态与置顶](../blueprints/session-sidebar.md)、[ask_user](../blueprints/ask-user-question.md)均已实现，待验收。
+- [数据库转换移出二进制](../blueprints/database-conversion.md)：已实现，待真实网页更新验收。
+
+继续延期或暂缓：[分时计价](../blueprints/offpeak-pricing.md)由 human 明确搁置，继续按高峰价计；[推送降级](push-fallback.md)暂缓。
 
 已关闭项见 [归档索引](../../todo-archive.md)。归档 B2 中明确延期的个别验收场景仍保留原记录，不因本次整理补记通过。
 
@@ -36,11 +40,9 @@
 
 ### 定时任务
 
-独立 B1 见 [scheduled-tasks](scheduled-tasks.md)（2026-10-20 方向已定，已被其取代：每任务一个共享上下文的会话、推送发给人），B2 见 [scheduled-tasks](../blueprints/scheduled-tasks.md)。以下为早期输入，仅供追溯。早期已确认的方向：每次运行创建来源会话下的 Triggered 子会话，使用干净上下文，带上次成功运行的最终回复作为交接笔记；普通产出留运行历史，模型按需请求推送，框架记录失败并通知来源会话；Web 看板读取任务、运行和推送事实，不调用模型。
+方向已于 2026-10-20 收敛，见 [B1](scheduled-tasks.md)；现行契约、实现与剩余验收见 [B2](../blueprints/scheduled-tasks.md)。每个任务拥有一个共享上下文的任务会话，到点追加触发输入；任务属于 person，不属于创建它的会话。模型通过 `push` 按需推送给人，框架记录并通知系统级失败；Web 任务页读取任务、触发、运行与推送事实，不调用模型。
 
-这些是后续 B1 的输入，需结合已落地的后台任务、子 agent 与渠道能力复核，不把它们当成已实现的工具契约。`send_message(to?, via?, text)` 是早期拟定接口，尚未实现为模型工具。
-
-独立 B1 需要收敛：一次性/周期规则与时区、停机漏触发和重叠运行、上下文与交接笔记、推送目标与失败处理，以及任务管理/运行记录的最小页面。必须区分“未请求推送”与“请求后投递失败”。Triggered 方案已有早期方向，改为向 Root 追加输入只是复核候选，尚未批准替换。
+早期的「每次运行新建子会话、干净上下文加交接笔记」及 `send_message(to?, via?, text)` 设想已被上述方案取代。一次性/周期规则、时区、停机漏触发、忙时跳过、上下文压缩与管理页面均已在 B2 定义并实现，不再列为待定方向；“未请求推送”与“请求后投递失败”仍按不同事实展示。
 
 ### 其它后续能力
 

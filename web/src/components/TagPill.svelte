@@ -14,8 +14,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  let { id, name, active = false, onclick, children }: { id: number; name: string; active?: boolean; onclick?: () => void; children?: Snippet } = $props();
-  const look = $derived(["inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 text-[11px] leading-[18px] whitespace-nowrap", tone(id), active && "ring-1 ring-current"]);
+  let { id, name, active = false, small = false, onclick, children }: { id: number; name: string; active?: boolean; small?: boolean; onclick?: () => void; children?: Snippet } = $props();
+  const look = $derived(["inline-flex shrink-0 items-center gap-0.5 rounded-full whitespace-nowrap", small ? "px-1 text-[10px] leading-[13px]" : "px-1.5 text-[11px] leading-[18px]", tone(id), active && "ring-1 ring-current"]);
 </script>
 
 {#if onclick}

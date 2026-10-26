@@ -184,6 +184,7 @@
   {@const current = activeSession?.id === id ? activeSession : s}
   {@const running = s.running || (activeId === id && executingRun !== null)}
   {@const unread = s.unread && !running}
+  {@const shown = s.tag_ids.filter((t) => t !== tags.filter).flatMap((t) => tags.byId(t) ?? [])}
   <div class="session-entry group relative flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={(stripeIndex.get(id) ?? 0) % 2 === 1} data-selected={activeId === id} data-state={running ? "running" : unread ? "unread" : undefined}>
     <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && "md:opacity-0"]}>
       <PinIcon class="size-3" />
@@ -193,15 +194,18 @@
       onclick={(e) => (e.preventDefault(), go(`/s/${id}`))}
       class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-sm">
       <span class={["min-w-0 flex-1 truncate", activeId === id && "font-medium", unread && "font-semibold"]}>{current.title ?? current.preview ?? `会话 ${id}`}</span>
-      {#each s.tag_ids.filter((t) => t !== tags.filter) as t (t)}
-        {@const tag = tags.byId(t)}
-        {#if tag}<TagPill id={t} name={tag.name} />{/if}
-      {/each}
+      {#if shown.length > 0}
+        <!-- 两个标签上下叠放，只占一个标签宽。 -->
+        <span class="-my-1 flex shrink-0 flex-col items-end gap-px">
+          {#each shown as t (t.id)}<TagPill id={t.id} name={t.name} small />{/each}
+        </span>
+      {/if}
       {#if running}<span role="status" class="sr-only">运行中</span>
       {:else if unread}<span class="sr-only">有新回复</span>{/if}
     </a>
     <Popover.Root>
-      <Popover.Trigger aria-label="会话操作" title="会话操作" class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100 data-[state=open]:opacity-100">
+      <!-- 宽屏悬停时浮在行尾标签上，平时不占宽。 -->
+      <Popover.Trigger aria-label="会话操作" title="会话操作" class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:opacity-100 md:absolute md:top-1/2 md:right-0 md:-translate-y-1/2 md:bg-background md:opacity-0 md:shadow-sm md:group-hover:opacity-100 data-[state=open]:opacity-100">
         <EllipsisIcon class="size-4" />
       </Popover.Trigger>
       <Popover.Portal>

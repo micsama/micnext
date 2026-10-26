@@ -46,7 +46,7 @@ export const listFires = async (id: number, before: number | null): Promise<Fire
 export function outcomeLabel(o: FireOutcome): string {
   switch (o.kind) {
     case "pending": return "等待 / 运行中";
-    case "completed": return o.pushed ? "完成 · 已推送" : "完成 · 未推送";
+    case "completed": return o.pushed ? "完成 · 已通知" : "完成 · 未通知";
     case "failed": return "失败";
     case "timed_out": return "超时";
     case "stopped": return "已停止";
@@ -56,9 +56,15 @@ export function outcomeLabel(o: FireOutcome): string {
   }
 }
 
+const ONCE = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2})$/;
+
+/** 单次任务已触发过（启用以来有记录），不会再跑；与手动停用区分。 */
+export const finished = (s: Schedule): boolean =>
+  ONCE.test(s.rule) && !s.enabled && s.paused_reason === null && (s.recent[0]?.due_at ?? -Infinity) >= s.enabled_at;
+
 /** 只翻译明确匹配的常见形态，其余保留原文。 */
 export function ruleLabel(rule: string): string {
-  const once = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2})$/.exec(rule);
+  const once = ONCE.exec(rule);
   if (once) return `${once[1]} 年 ${Number(once[2])} 月 ${Number(once[3])} 日 ${once[4]} 一次`;
   const every = /^\*\/(\d+) \* \* \* \*$/.exec(rule);
   if (every && 60 % Number(every[1]) === 0) return `每 ${every[1]} 分钟`;

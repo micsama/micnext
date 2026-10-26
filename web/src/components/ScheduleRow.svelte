@@ -1,7 +1,7 @@
 <script lang="ts">
   import PencilIcon from "@lucide/svelte/icons/pencil";
   import type { Schedule, FireOutcome } from "../api/schedules";
-  import { outcomeLabel, ruleLabel } from "../api/schedules";
+  import { finished, outcomeLabel, ruleLabel } from "../api/schedules";
   import type { ScheduleList } from "../state/schedules.svelte";
   import { router } from "../state/route.svelte";
   import { atLeast, formatCost, formatTokens } from "../lib/format";
@@ -12,7 +12,7 @@
   let { task, tasks, onedit }: { task: Schedule; tasks: ScheduleList; onedit: () => void } = $props();
   let saving = $state(false);
   let error = $state<string | null>(null);
-  /** 展开过全文的回复。 */
+  /** 展开过的回复摘要。 */
   let opened = $state<number[]>([]);
   const fires = $derived(tasks.expanded.get(task.id));
 
@@ -33,10 +33,11 @@
   const DOT: Record<Tone, string> = { ok: "bg-emerald-500", bad: "bg-destructive", run: "bg-blue-500", idle: "bg-muted-foreground/40" };
   const TEXT: Record<Tone, string> = { ok: "text-emerald-600 dark:text-emerald-400", bad: "text-destructive", run: "text-blue-600 dark:text-blue-400", idle: "text-muted-foreground" };
 
+  const done = $derived(finished(task));
   const badge = $derived(
     task.paused_reason ? { label: "已暂停", cls: "bg-amber-500/10 text-amber-700 dark:text-amber-400" }
+    : done ? { label: "已结束", cls: "bg-muted text-muted-foreground" }
     : !task.enabled ? { label: "已停用", cls: "bg-muted text-muted-foreground" }
-    : task.next_run_at === null ? { label: "已结束", cls: "bg-muted text-muted-foreground" }
     : null,
   );
   const tokens = $derived(task.usage.input_tokens + task.usage.output_tokens);
@@ -69,7 +70,7 @@
       {#if error}<p role="alert" class="mt-2 text-xs text-destructive">{error}</p>{/if}
     </div>
     <div class="flex shrink-0 items-center gap-1">
-      <Switch class="mr-1" checked={task.enabled} title={task.enabled ? "停用" : "启用"} label={`${task.enabled ? "停用" : "启用"} ${task.name}`} disabled={saving} onclick={toggle} />
+      {#if !done}<Switch class="mr-1" checked={task.enabled} title={task.enabled ? "停用" : "启用"} label={`${task.enabled ? "停用" : "启用"} ${task.name}`} disabled={saving} onclick={toggle} />{/if}
       <button type="button" title="编辑" aria-label={`编辑 ${task.name}`} class="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onclick={onedit}><PencilIcon class="size-4" /></button>
     </div>
   </div>
@@ -100,16 +101,17 @@
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <time class="text-muted-foreground tabular-nums">{when(fire.due_at)}</time>
-                <span class="font-medium {TEXT[t]}">{fire.outcome.kind === "completed" ? "完成" : outcomeLabel(fire.outcome)}</span>
+                <span class="font-medium {TEXT[t]}">{outcomeLabel(fire.outcome)}</span>
                 <span class="inline-flex items-center gap-2 text-muted-foreground">
                   {#each fire.pushes as push (push.id)}<DeliveryChips deliveries={push.deliveries} />{/each}
                 </span>
                 {#if fire.run_id !== null}<button type="button" class="ml-auto inline-flex items-center gap-1 text-muted-foreground hover:text-foreground" onclick={() => router.go(`/s/${task.session_id}/trace?run=${fire.run_id}`)}><Icon name="sparkles" class="size-3" />Trace</button>{/if}
               </div>
               {#if fire.reply}
-                <button type="button" class="mt-1.5 block w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-sm break-words whitespace-pre-wrap text-foreground/80 hover:border-foreground/20" title={full ? "收起" : "展开全文"} onclick={() => (opened = full ? opened.filter((id) => id !== fire.id) : [...opened, fire.id])}>
+                <button type="button" class="mt-1.5 block w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-sm break-words whitespace-pre-wrap text-foreground/80 hover:border-foreground/20" title={full ? "收起摘要" : "展开摘要"} onclick={() => (opened = full ? opened.filter((id) => id !== fire.id) : [...opened, fire.id])}>
                   <span class={full ? "" : "line-clamp-3"}>{fire.reply}</span>
                 </button>
+                {#if full}<p class="mt-1 text-xs text-muted-foreground">摘要只含最终回复首段，<button type="button" class="text-primary hover:underline" onclick={() => router.go(`/s/${task.session_id}`)}>到会话里看完整回复</button></p>{/if}
               {/if}
             </div>
           </li>

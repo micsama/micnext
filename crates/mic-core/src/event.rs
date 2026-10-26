@@ -1,5 +1,5 @@
 use mic_message::{Message, MessageId, SessionId};
-use mic_store::{PushId, RunId, RunState, ScheduleId};
+use mic_store::{PushId, Resumable, RunId, RunState, ScheduleId};
 use std::sync::Arc;
 
 use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
@@ -44,10 +44,11 @@ pub enum KernelEventKind {
     DraftDiscarded,
     /// 任一消息落盘，带 id；同一订阅内按 id 升序到达。成功调用的 `Reply` 即当前草稿的终点。
     MessageAppended(Message),
-    /// 一次执行结束，`state` 为落盘的终态。
+    /// 一次执行结束，`state` 为落盘的终态；`resume` 为收尾后会话可接续的 run。
     RunFinished {
         run_id: RunId,
         state: RunState,
+        resume: Option<Resumable>,
     },
     /// 会话树的后台任务有变化（登记、输出增长、结束），`session_id` 为树根；订阅方重新拉取。
     JobsChanged,

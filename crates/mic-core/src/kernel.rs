@@ -12,9 +12,9 @@ use mic_store::{
     CallRecord, CredentialWrite, Dashboard, EndpointId, EndpointView, EndpointWrite, Identity,
     InputDisposition, JobId, MessagePage, ModelCallId, ModelCallPurpose, ModelId, ModelView,
     ModelWrite, NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId,
-    PushId, PushPage, QueryResult, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
-    SessionPage, SessionSummary, Settings, Store, StoreError, TableSchema, Tag, TagId, TagName,
-    TraceRunPage, TraceSession,
+    PushId, PushPage, QueryResult, ReasoningEffort, Resumable, RunId, Session, SessionCursor,
+    SessionKind, SessionPage, SessionSummary, Settings, Store, StoreError, TableSchema, Tag, TagId,
+    TagName, TraceRunPage, TraceSession,
 };
 use mic_tool::ToolSpec;
 use tokio::sync::mpsc;
@@ -178,6 +178,24 @@ impl Kernel {
         } else {
             StopOutcome::NotRunning
         })
+    }
+
+    pub async fn resumable_run(
+        &self,
+        session: SessionId,
+    ) -> Result<Option<Resumable>, KernelError> {
+        Ok(self.store.resumable_run(session).await?)
+    }
+
+    /// 原地接续意外结束的 `run`：登记后唤醒会话，worker 认领时再原子确认。
+    pub async fn resume_run(&self, session: SessionId, run: RunId) -> Result<(), KernelError> {
+        self.existing(session).await?;
+        if self.store.resumable_run(session).await?.map(|r| r.run_id) != Some(run) {
+            return Err(KernelError::NotResumable);
+        }
+        self.engine.control.request_resume(session, run);
+        let _ = self.wake.send(session).await;
+        Ok(())
     }
 
     /// `session` 及其后代名下的后台任务；`include_old` 含 14 天前结束的。

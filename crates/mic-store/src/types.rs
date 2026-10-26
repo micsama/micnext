@@ -352,6 +352,14 @@ impl RunState {
     }
 }
 
+/// 可原地接续的 run：会话最近一个 run 意外结束、之后没有待认领输入；`message_id` 为它末条 `Reply`/`Notification`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Resumable {
+    pub run_id: RunId,
+    pub state: RunState,
+    pub message_id: MessageId,
+}
+
 /// 启动收尾的一个遗留 run；`report` 为子 run 给父 session 的交付。
 pub struct InterruptedRun {
     pub run: Run,

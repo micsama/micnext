@@ -8,6 +8,7 @@ use axum::Json;
 use futures_util::stream::Stream;
 use mic_core::{EventReceiver, KernelEventKind};
 use mic_message::{Message, MessageBody, MessageId, SessionId};
+use mic_store::Resumable;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
@@ -111,9 +112,10 @@ async fn feed(
     }
     let state = tokio::try_join!(
         app.kernel.executing_run(session_id),
-        app.kernel.queued_inputs(session_id)
+        app.kernel.queued_inputs(session_id),
+        app.kernel.resumable_run(session_id)
     );
-    let (executing_run, queued) = match state {
+    let (executing_run, queued, resume) = match state {
         Ok(state) => state,
         Err(e) => return tracing::error!(error = %crate::error::chain(&e), "gateway replay failed"),
     };
@@ -121,6 +123,7 @@ async fn feed(
         executing_run: executing_run.map(|r| r.0),
         queued: queued.into_iter().map(|id| id.0).collect(),
         has_earlier,
+        resume: resume.map(ResumeView::from),
     };
     if !send(&app, &tx, json_event("ready", &ready)).await {
         return;
@@ -184,11 +187,16 @@ async fn feed(
                     inputs: inputs.into_iter().map(|id| id.0).collect(),
                 },
             ),
-            KernelEventKind::RunFinished { run_id, state } => json_event(
+            KernelEventKind::RunFinished {
+                run_id,
+                state,
+                resume,
+            } => json_event(
                 "run_finished",
                 &RunFinished {
                     run_id: run_id.0,
                     state: state.as_str(),
+                    resume: resume.map(ResumeView::from),
                 },
             ),
         };
@@ -213,6 +221,25 @@ struct Ready {
     queued: Vec<i64>,
     /// 首次回放之前是否还有消息；重连续传时为 null。
     has_earlier: Option<bool>,
+    resume: Option<ResumeView>,
+}
+
+/// 可原地接续的 run，按钮挂在 `message_id` 下。
+#[derive(Serialize)]
+struct ResumeView {
+    run_id: i64,
+    state: &'static str,
+    message_id: i64,
+}
+
+impl From<Resumable> for ResumeView {
+    fn from(r: Resumable) -> Self {
+        Self {
+            run_id: r.run_id.0,
+            state: r.state.as_str(),
+            message_id: r.message_id.0,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -239,6 +266,7 @@ struct InputsClaimed {
 struct RunFinished {
     run_id: i64,
     state: &'static str,
+    resume: Option<ResumeView>,
 }
 
 fn message_event(message: &Message) -> Event {

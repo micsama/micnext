@@ -69,7 +69,7 @@ impl Workers {
     }
 }
 
-/// 逐个执行该会话可认领的 run，直到没有或会话进入停止。
+/// 逐个执行该会话可认领的 run（先接续用户请求的 run），直到没有或会话进入停止。
 async fn worker(engine: Arc<Engine>, session_id: SessionId) -> Result<(), StoreError> {
     let session = engine
         .store
@@ -84,8 +84,16 @@ async fn worker(engine: Arc<Engine>, session_id: SessionId) -> Result<(), StoreE
         if slot.token().is_cancelled() {
             return Ok(());
         }
-        let Some(claimed) = engine.store.claim_next(session_id, now_ms()).await? else {
-            return Ok(());
+        let resumed = match engine.control.take_resume(session_id) {
+            Some(run) => engine.store.resume_run(session_id, run).await?,
+            None => None,
+        };
+        let claimed = match resumed {
+            Some(claimed) => claimed,
+            None => match engine.store.claim_next(session_id, now_ms()).await? {
+                Some(claimed) => claimed,
+                None => return Ok(()),
+            },
         };
         engine.run(&session, &channel, claimed, &slot).await?;
     }

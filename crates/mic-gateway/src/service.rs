@@ -125,6 +125,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
             get(api::get_message_file),
         )
         .route("/sessions/{id}/runs/{run_id}/stop", post(api::stop_run))
+        .route("/sessions/{id}/runs/{run_id}/resume", post(api::resume_run))
         .route("/sessions/{id}/jobs", get(jobs::list))
         .route("/sessions/{id}/jobs/{job}/output", get(jobs::output))
         .route("/sessions/{id}/jobs/{job}/stop", post(jobs::stop))

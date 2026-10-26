@@ -86,6 +86,7 @@ impl From<KernelError> for ApiError {
             KernelError::BackupInvalid(reason) => Self::BadRequest(reason),
             KernelError::SessionNotFound => Self::NotFound(SESSION_NOT_FOUND),
             KernelError::FileCleaned => Self::NotFound(FILE_CLEANED),
+            KernelError::NotResumable => Self::Conflict(KernelError::NotResumable.to_string()),
             KernelError::SessionNotRoot | KernelError::TaskSessionInput => {
                 Self::Forbidden(e.to_string())
             }

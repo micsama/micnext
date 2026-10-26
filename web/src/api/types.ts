@@ -266,8 +266,11 @@ export type StreamEvent =
   | { event: "model_retry"; data: { attempt: number; delay_ms: number } }
   | { event: "draft_discarded"; data: Record<string, never> }
   | { event: "inputs_claimed"; data: { run_id: number; inputs: number[] } }
-  | { event: "run_finished"; data: { run_id: number; state: RunState } }
-  | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null } };
+  | { event: "run_finished"; data: { run_id: number; state: RunState; resume: Resumable | null } }
+  | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null; resume: Resumable | null } };
+
+/** 可原地接续的意外结束 run；按钮挂在 `message_id` 下。 */
+export type Resumable = { run_id: number; state: RunState; message_id: number };
 
 export const fileRef: Decoder<FileRef> = obj({ path: str, size_bytes: num });
 
@@ -447,6 +450,7 @@ const created: Decoder<Created> = obj({ session_id: num });
 
 const delta = obj({ text: str });
 
+const resumable: Decoder<Resumable> = obj({ run_id: num, state: runState, message_id: num });
 const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { event: E }>["data"]> } = {
   message,
   text_delta: delta,
@@ -459,8 +463,9 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   run_finished: obj({
     run_id: num,
     state: runState,
+    resume: nullable(resumable),
   }),
-  ready: obj({ executing_run: nullable(num), queued: arr(num), has_earlier: nullable(bool) }),
+  ready: obj({ executing_run: nullable(num), queued: arr(num), has_earlier: nullable(bool), resume: nullable(resumable) }),
 };
 
 export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入限额").input_limits;

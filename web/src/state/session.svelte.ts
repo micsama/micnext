@@ -1,6 +1,6 @@
-import { ApiError, generateTitle, getContext, listJobs, getMessages, markSessionSeen, revokeCompaction, getSession, stopRun } from "../api/client";
+import { ApiError, generateTitle, getContext, listJobs, getMessages, markSessionSeen, resumeRun, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, jobActive, type ContextView, type JobView, type Message, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
+import { ProtocolError, jobActive, type ContextView, type JobView, type Message, type Resumable, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
 import { sessionsSync } from "./sessions.svelte";
@@ -151,6 +151,23 @@ export class SessionView {
       if (!(error instanceof ApiError && error.status === 409)) throw error;
     }
   }
+  /** 可原地接续的 run；认领或有新输入即失效。 */
+  resume = $state<Resumable | null>(null);
+  resuming = $state(false);
+  resumeError = $state<string | null>(null);
+
+  async resumeRun(): Promise<void> {
+    const target = this.resume;
+    if (target === null || this.resuming) return;
+    this.resuming = true;
+    this.resumeError = null;
+    try { await resumeRun(this.id, target.run_id); }
+    catch (error) {
+      if (error instanceof ApiError && error.status === 409) this.resume = null;
+      this.resumeError = (error as Error).message;
+    }
+    finally { this.resuming = false; }
+  }
   ready = $state(false);
   /** 连接断开、正在重连。 */
   reconnecting = $state(false);
@@ -283,7 +300,7 @@ export class SessionView {
         if (["Reply", "Boundary", "Notification"].includes(e.data.body.kind)) this.modelRetry = null;
         if (e.data.body.kind === "Reply") this.draft = null;
         if (e.data.body.kind === "UserInput") this.notice = null;
-        if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") this.#queued.add(e.data.id);
+        if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") { this.#queued.add(e.data.id); this.resume = null; }
         break;
       case "text_delta":
         (this.draft ??= { reasoning: "", text: "", afterId: this.lastId ?? 0 }).text += e.data.text;
@@ -302,12 +319,15 @@ export class SessionView {
         this.reconnecting = false;
         if (e.data.has_earlier !== null) this.earlier = e.data.has_earlier ? "idle" : "none";
         this.executingRun = e.data.executing_run;
+        this.resume = e.data.resume;
         this.#queued.clear();
         for (const id of e.data.queued) this.#queued.add(id);
         break;
       case "inputs_claimed":
         this.executingRun = e.data.run_id;
         this.notice = null;
+        this.resume = null;
+        this.resumeError = null;
         for (const id of e.data.inputs) this.#queued.delete(id);
         break;
       case "run_finished":
@@ -315,6 +335,7 @@ export class SessionView {
         this.executingRun = null;
         this.stopping = null;
         this.notice = FINISH_NOTICE[e.data.state] ?? null;
+        this.resume = e.data.resume;
         break;
     }
     if (e.event === "ready" || e.event === "message") this.#reportSeen();

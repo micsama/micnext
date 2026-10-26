@@ -107,6 +107,8 @@ pub enum KernelError {
     Push(#[from] crate::PushError),
     #[error("文件已清理")]
     FileCleaned,
+    #[error("这次执行已无法继续")]
+    NotResumable,
     #[error("无法读取文件 {}", path.display())]
     FileRead {
         path: PathBuf,

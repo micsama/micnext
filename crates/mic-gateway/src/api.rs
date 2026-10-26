@@ -419,6 +419,23 @@ pub(crate) async fn stop_run(
     }
 }
 
+pub(crate) async fn resume_run(
+    State(app): State<Arc<App>>,
+    path: Result<Path<(i64, i64)>, PathRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Path((session, run)) = path.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
+    let session = app
+        .kernel
+        .session(SessionId(session))
+        .await?
+        .ok_or(ApiError::NotFound(SESSION_NOT_FOUND))?;
+    if !writable(&session) {
+        return Err(ApiError::ReadOnly);
+    }
+    app.kernel.resume_run(session.id, RunId(run)).await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
 /// 路径里的会话 id 解析并确认存在。
 pub(crate) async fn session(
     app: &App,

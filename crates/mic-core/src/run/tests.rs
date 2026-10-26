@@ -1904,3 +1904,151 @@ async fn message_file_serves_only_what_the_message_references() {
         Err(crate::KernelError::FileCleaned)
     ));
 }
+
+#[tokio::test]
+async fn failed_run_resumes_in_place_with_its_unanswered_input() {
+    let f = Fixture::new().await;
+    let run = f.claimed.run.id;
+    let first = match &f.claimed.input {
+        RunInput::Conversation { message_ids } => message_ids.clone(),
+        _ => unreachable!(),
+    };
+    let provider = scripted(vec![failed(), failed(), failed(), reply("done")]);
+    assert_eq!(
+        f.exec().execute(&provider).await.unwrap(),
+        RunState::ProviderFailed
+    );
+    f.store
+        .finish_run(run, RunState::ProviderFailed, None, now_ms())
+        .await
+        .unwrap();
+    let before = f.store.run_messages(run).await.unwrap();
+    let resumable = f.kernel.resumable_run(f.session.id).await.unwrap().unwrap();
+    assert_eq!(
+        (resumable.run_id, resumable.state, resumable.message_id),
+        (run, RunState::ProviderFailed, before.last().unwrap().id)
+    );
+
+    f.kernel.resume_run(f.session.id, run).await.unwrap();
+    assert_eq!(f.engine.control.take_resume(f.session.id), Some(run));
+    let resumed = f
+        .store
+        .resume_run(f.session.id, run)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(resumed.run.id, run);
+    assert!(
+        matches!(&resumed.input, RunInput::Conversation { message_ids } if *message_ids == first)
+    );
+    assert!(f
+        .kernel
+        .resumable_run(f.session.id)
+        .await
+        .unwrap()
+        .is_none());
+    let mut exec = f.exec();
+    exec.run = &resumed.run;
+    assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Completed);
+    let after = f.store.run_messages(run).await.unwrap();
+    assert_eq!(after.len(), before.len() + 1);
+    assert!(matches!(
+        after.last().unwrap().body,
+        MessageBody::Reply { .. }
+    ));
+
+    // 答复过的 run 接续时没有未答复输入；有排队输入则不可接续。
+    f.store
+        .finish_run(run, RunState::MaxTurns, None, now_ms())
+        .await
+        .unwrap();
+    let again = f
+        .store
+        .resume_run(f.session.id, run)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(again.input, RunInput::Conversation { message_ids } if message_ids.is_empty())
+    );
+    f.store
+        .finish_run(run, RunState::Interrupted, None, now_ms())
+        .await
+        .unwrap();
+    f.store
+        .append_input(
+            f.session.id,
+            f.owner,
+            vec![NewInputPart::Text("next".into())],
+            InputDisposition::Pending,
+            None,
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    assert!(f
+        .kernel
+        .resumable_run(f.session.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(matches!(
+        f.kernel.resume_run(f.session.id, run).await,
+        Err(crate::KernelError::NotResumable)
+    ));
+    assert!(f
+        .store
+        .resume_run(f.session.id, run)
+        .await
+        .unwrap()
+        .is_none());
+
+    // 压缩没压完的指令 run 接续时重做指令；用户停止的不可接续。
+    let next = f
+        .store
+        .claim_next(f.session.id, now_ms())
+        .await
+        .unwrap()
+        .unwrap();
+    f.store
+        .finish_run(next.run.id, RunState::Completed, None, now_ms())
+        .await
+        .unwrap();
+    let command = SessionCommand::Compact {
+        text: Some("then".into()),
+    };
+    f.store
+        .append_command(f.session.id, f.owner, command.clone(), now_ms())
+        .await
+        .unwrap();
+    let compact = f
+        .store
+        .claim_next(f.session.id, now_ms())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut exec = f.exec();
+    exec.run = &compact.run;
+    exec.notify("上下文压缩失败".into()).await.unwrap();
+    f.store
+        .finish_run(compact.run.id, RunState::Stopped, None, now_ms())
+        .await
+        .unwrap();
+    assert!(f
+        .kernel
+        .resumable_run(f.session.id)
+        .await
+        .unwrap()
+        .is_none());
+    f.store
+        .finish_run(compact.run.id, RunState::ProviderFailed, None, now_ms())
+        .await
+        .unwrap();
+    let redo = f
+        .store
+        .resume_run(f.session.id, compact.run.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(redo.input, RunInput::Command { command: c, .. } if c == command));
+}

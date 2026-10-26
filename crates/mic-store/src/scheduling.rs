@@ -1,4 +1,4 @@
-use mic_message::{ExecOutcome, Message, MessageBody, MessageId, SessionId};
+use mic_message::{ExecOutcome, Message, MessageBody, MessageId, SessionCommand, SessionId};
 use rusqlite::{params, OptionalExtension, Transaction};
 
 use crate::jobs::run_person;
@@ -9,7 +9,10 @@ use crate::row::{
 };
 use crate::settings::read_settings;
 use crate::store::Store;
-use crate::{ClaimedRun, InterruptedRun, Run, RunId, RunInput, RunSettings, RunState, StoreError};
+use crate::{
+    ClaimedModel, ClaimedRun, InterruptedRun, Resumable, Run, RunId, RunInput, RunSettings,
+    RunState, StoreError,
+};
 
 impl Store {
     /// 启动时原子登记遗留未认领输入为 held；有用户消息或命令被搁置的会话落一条通知（回注与中途通知由中断通知说明）。不重复处置。
@@ -78,23 +81,7 @@ impl Store {
             let Some(Head { ids, .. }) = unclaimed_head(&tx, session_id.0)? else {
                 return Ok(None);
             };
-            let (persona, replaced) = resolve_persona(&tx, session_id)?;
-            if replaced {
-                tx.execute(
-                    "UPDATE core_sessions SET persona_id = ?1 WHERE id = ?2",
-                    params![persona.id.0, session_id.0],
-                )?;
-            }
-            let current = read_settings(&tx)?;
-            let general_prompt = current.general_prompt;
-            let max_turns = current.max_turns;
-            let compaction = current.compaction;
-            let model = models::claim_model(&tx, &cipher, session_id)?;
-            let reasoning_effort = tx.query_row(
-                "SELECT reasoning_effort FROM core_sessions WHERE id = ?1",
-                [session_id.0],
-                |row| row.get::<_, Option<crate::ReasoningEffort>>(0),
-            )?;
+            let (settings, model) = claim_settings(&tx, &cipher, session_id)?;
             tx.execute(
                 "INSERT INTO core_runs (session_id, state, created_at) VALUES (?1, ?2, ?3)",
                 params![session_id.0, RunState::Executing.as_str(), now],
@@ -123,16 +110,89 @@ impl Store {
                 created_at: now,
                 finished_at: None,
             };
-            let settings = RunSettings {
-                reasoning_effort,
-                compaction,
-                persona,
-                general_prompt,
-                max_turns,
-            };
             Ok(Some(ClaimedRun {
                 input,
                 run,
+                settings,
+                model,
+            }))
+        })
+        .await
+    }
+
+    pub async fn resumable_run(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<Resumable>, StoreError> {
+        self.call(move |conn| resumable(conn, session_id)).await
+    }
+
+    /// 仍可接续时把 `run` 置回 `executing`，按当前会话定下设置与模型（同 `claim_next`）并还原输入：
+    /// 压缩指令未留下边界则重做该指令，否则继续对话，未答复的输入为本 run 末条 `Reply` 之后的输入。
+    pub async fn resume_run(
+        &self,
+        session_id: SessionId,
+        run: RunId,
+    ) -> Result<Option<ClaimedRun>, StoreError> {
+        let cipher = self.cipher();
+        self.call(move |conn| {
+            let tx = conn.transaction()?;
+            if resumable(&tx, session_id)?.map(|r| r.run_id) != Some(run) {
+                return Ok(None);
+            }
+            let created_at = tx.query_row(
+                "UPDATE core_runs SET state = ?2, finished_at = NULL WHERE id = ?1
+                 RETURNING created_at",
+                params![run.0, RunState::Executing.as_str()],
+                |r| r.get(0),
+            )?;
+            let inputs = tx
+                .prepare(concat!(
+                    "SELECT id FROM core_messages WHERE run_id = ?1 AND kind IN ",
+                    input_kinds!(),
+                    " ORDER BY id"
+                ))?
+                .query_map([run.0], |r| r.get::<_, i64>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let first = tx.query_row(
+                &format!("SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.id = ?1"),
+                [inputs[0]],
+                row::message,
+            )?;
+            let (last_reply, compacted): (Option<i64>, bool) = tx.query_row(
+                "SELECT MAX(CASE WHEN kind = 'Reply' THEN id END),
+                        COUNT(CASE WHEN kind = 'Boundary' THEN 1 END) > 0
+                 FROM core_messages WHERE run_id = ?1",
+                [run.0],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            let input = match first.body {
+                MessageBody::Command {
+                    command: command @ SessionCommand::Compact { .. },
+                    ..
+                } if !compacted => RunInput::Command {
+                    message_id: first.id,
+                    command,
+                },
+                _ => RunInput::Conversation {
+                    message_ids: inputs
+                        .into_iter()
+                        .filter(|id| last_reply.is_none_or(|r| *id > r))
+                        .map(MessageId)
+                        .collect(),
+                },
+            };
+            let (settings, model) = claim_settings(&tx, &cipher, session_id)?;
+            tx.commit()?;
+            Ok(Some(ClaimedRun {
+                input,
+                run: Run {
+                    id: run,
+                    session_id,
+                    state: RunState::Executing,
+                    created_at,
+                    finished_at: None,
+                },
                 settings,
                 model,
             }))
@@ -372,6 +432,86 @@ fn unclaimed_head(tx: &Transaction<'_>, session_id: i64) -> rusqlite::Result<Opt
         }
     }
     Ok(head)
+}
+
+/// 本轮设置与模型：会话所选人设（已删除则改用默认人设并写回会话）与当前偏好。
+fn claim_settings(
+    tx: &Transaction<'_>,
+    cipher: &crate::secrets::Cipher,
+    session_id: SessionId,
+) -> Result<(RunSettings, ClaimedModel), StoreError> {
+    let (persona, replaced) = resolve_persona(tx, session_id)?;
+    if replaced {
+        tx.execute(
+            "UPDATE core_sessions SET persona_id = ?1 WHERE id = ?2",
+            params![persona.id.0, session_id.0],
+        )?;
+    }
+    let current = read_settings(tx)?;
+    let model = models::claim_model(tx, cipher, session_id)?;
+    let reasoning_effort = tx.query_row(
+        "SELECT reasoning_effort FROM core_sessions WHERE id = ?1",
+        [session_id.0],
+        |row| row.get::<_, Option<crate::ReasoningEffort>>(0),
+    )?;
+    let settings = RunSettings {
+        reasoning_effort,
+        compaction: current.compaction,
+        persona,
+        general_prompt: current.general_prompt,
+        max_turns: current.max_turns,
+    };
+    Ok((settings, model))
+}
+
+/// 见 [`Resumable`]；任务会话与已归档会话不可接续。
+fn resumable(
+    conn: &rusqlite::Connection,
+    session_id: SessionId,
+) -> Result<Option<Resumable>, StoreError> {
+    let latest = conn
+        .query_row(
+            "SELECT r.id, r.state FROM core_runs r JOIN core_sessions s ON s.id = r.session_id
+             WHERE r.session_id = ?1 AND s.kind <> 'task'
+             ORDER BY r.id DESC LIMIT 1",
+            [session_id.0],
+            |r| Ok((RunId(r.get(0)?), row::run_state(r, 1)?)),
+        )
+        .optional()?;
+    let Some((run_id, state)) = latest else {
+        return Ok(None);
+    };
+    if !matches!(
+        state,
+        RunState::ProviderFailed | RunState::MaxTurns | RunState::Interrupted | RunState::TimedOut
+    ) || crate::sessions::archived(conn, session_id)?
+    {
+        return Ok(None);
+    }
+    let queued: bool = conn.query_row(
+        &format!(
+            "SELECT EXISTS(SELECT 1 FROM core_messages m
+             WHERE m.session_id = ?1 AND {UNCLAIMED} AND NOT ({HELD_INPUT}))"
+        ),
+        [session_id.0],
+        |r| r.get(0),
+    )?;
+    if queued {
+        return Ok(None);
+    }
+    Ok(conn
+        .query_row(
+            "SELECT id FROM core_messages WHERE run_id = ?1 AND kind IN ('Reply', 'Notification')
+             ORDER BY id DESC LIMIT 1",
+            [run_id.0],
+            |r| r.get(0),
+        )
+        .optional()?
+        .map(|id| Resumable {
+            run_id,
+            state,
+            message_id: MessageId(id),
+        }))
 }
 
 fn assign_run(tx: &Transaction<'_>, run: RunId, ids: &[i64]) -> rusqlite::Result<()> {

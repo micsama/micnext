@@ -18,6 +18,8 @@ struct Inner {
     active: HashMap<SessionId, Active>,
     /// 停止中的会话：不认领、不唤醒、不追问。
     closing: HashMap<SessionId, StopBy>,
+    /// 用户请求接续的 run；worker 下次认领时先取。
+    resume: HashMap<SessionId, RunId>,
 }
 
 struct Active {
@@ -124,6 +126,14 @@ impl RunControl {
 
     pub(crate) fn closing(&self, session: SessionId) -> Option<StopBy> {
         self.lock().closing.get(&session).copied()
+    }
+
+    pub(crate) fn request_resume(&self, session: SessionId, run: RunId) {
+        self.lock().resume.insert(session, run);
+    }
+
+    pub(crate) fn take_resume(&self, session: SessionId) -> Option<RunId> {
+        self.lock().resume.remove(&session)
     }
 }
 

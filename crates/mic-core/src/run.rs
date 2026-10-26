@@ -297,12 +297,14 @@ impl Engine {
             ?state,
             "run finished"
         );
+        let resume = self.store.resumable_run(session.id).await?;
         self.events.emit(
             session.id,
             channel,
             KernelEventKind::RunFinished {
                 run_id: run.id,
                 state,
+                resume,
             },
         );
         if let Some(tree) = &tree {

@@ -348,6 +348,9 @@ export async function listCommands(): Promise<CommandSpec[]> {
 export async function stopRun(sessionId: number, runId: number): Promise<void> {
   await request("POST", `/sessions/${sessionId}/runs/${runId}/stop`);
 }
+export async function resumeRun(sessionId: number, runId: number): Promise<void> {
+  await request("POST", `/sessions/${sessionId}/runs/${runId}/resume`);
+}
 export async function listJobs(sessionId: number, includeOld = false): Promise<JobView[]> {
   return parseJobs(await request("GET", `/sessions/${sessionId}/jobs?include_old=${includeOld}`));
 }

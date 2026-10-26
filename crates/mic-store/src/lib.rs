@@ -56,7 +56,7 @@ pub use types::{
     EndpointWrite, Identity, InputDisposition, InterruptedRun, MessagePage, ModelCallContext,
     ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelPrice, ModelView, ModelWrite,
     NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId,
-    ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState, Schema, SecretColumn,
+    ReasoningEffort, Resumable, Run, RunId, RunInput, RunSettings, RunState, Schema, SecretColumn,
     SelectedModel, Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings,
     StopReason, Tag, TagId, TitleCall, TitleModelSelection, TitleOutput, ToolScope, Usage,
 };

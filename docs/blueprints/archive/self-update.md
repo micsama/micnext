@@ -79,7 +79,7 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 
 ```jsonc
 {"state":"unavailable"}
-{"state":"idle","running":"<sha>|null","size":<bytes>|null}
+{"state":"idle","running":"<sha>|null","committed_at":<ms>|null,"started_at":<ms>,"size":<bytes>|null}
 {"state":"checking","output":"..."}
 {"state":"pulling","from":"<sha>","attempt":2,"output":"..."}
 {"state":"building","from":"<sha>","to":"<sha>","from_size":<bytes>|null,"output":"..."}
@@ -88,7 +88,7 @@ main（私有）：创建容量 1 的通道；信号任务 `select!` SIGINT / SI
 {"state":"failed","stage":"checking|pulling|building|restarting","from":"<sha>|null","error":"中文原因","output":"..."}
 ```
 
-`running` 为当前进程构建时的提交（build.sh 注入 `MICNEXT_COMMIT`，直接 cargo build 为 null），启动日志 `gateway listening` 同样打印。`size`/`from_size` 为当前进程二进制字节数，启动时读定，读不到为 null；`to_size` 为构建产物字节数，读不到按构建失败。页面显示新版大小及相对旧版的百分比变化，旧版大小随目标提交存浏览器（building 起即下发 `from_size`，因重启阶段轮询常撞不上），重启后的核对行也展示（2026-10-13 增补）。`output` 为合并输出末尾，最多 64 KiB（按字符边界截断）。状态只在内存，新进程为 idle；`failed` / `up_to_date` 保留到下次 POST。
+`running` 为当前进程构建时的提交（build.sh 注入 `MICNEXT_COMMIT`，直接 cargo build 为 null），启动日志 `gateway listening` 同样打印；`committed_at` 为该提交的提交时间（build.sh 注入 `MICNEXT_COMMIT_TIME`），`started_at` 为本进程启动时间，页面据此显示「提交于…」「已运行…」（2026-10-26 增补）。`size`/`from_size` 为当前进程二进制字节数，启动时读定，读不到为 null；`to_size` 为构建产物字节数，读不到按构建失败。页面显示新版大小及相对旧版的百分比变化，旧版大小随目标提交存浏览器（building 起即下发 `from_size`，因重启阶段轮询常撞不上），重启后的核对行也展示（2026-10-13 增补）。`output` 为合并输出末尾，最多 64 KiB（按字符边界截断）。状态只在内存，新进程为 idle；`failed` / `up_to_date` 保留到下次 POST。
 
 ### 4.3 前端
 

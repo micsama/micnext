@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import type { UpdateStage } from "../../api/developer";
   import Icon from "../../lib/Icon.svelte";
+  import { formatTime } from "../../lib/format";
   import { updater } from "../../state/update.svelte";
 
   const STAGES: Record<UpdateStage, string> = {
@@ -29,7 +30,29 @@
     return ` · ${mb(size)}（${delta}）`;
   }
 
-  onMount(() => void updater.refresh());
+  /** 「已运行」随时间走，每分钟刷新。 */
+  let now = $state(Date.now());
+  const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
+  /** 时长取最大的两级单位。 */
+  function duration(ms: number): string {
+    if (ms < MINUTE) return "不到 1 分钟";
+    if (ms < HOUR) return `${Math.floor(ms / MINUTE)} 分钟`;
+    if (ms < DAY) return `${Math.floor(ms / HOUR)} 小时 ${Math.floor((ms % HOUR) / MINUTE)} 分`;
+    return `${Math.floor(ms / DAY)} 天 ${Math.floor((ms % DAY) / HOUR)} 小时`;
+  }
+  function ago(at: number): string {
+    const ms = now - at;
+    if (ms < MINUTE) return "刚刚";
+    if (ms < HOUR) return `${Math.floor(ms / MINUTE)} 分钟前`;
+    if (ms < DAY) return `${Math.floor(ms / HOUR)} 小时前`;
+    return `${Math.floor(ms / DAY)} 天前`;
+  }
+
+  onMount(() => {
+    void updater.refresh();
+    const timer = setInterval(() => (now = Date.now()), MINUTE);
+    return () => clearInterval(timer);
+  });
 
   $effect(() => {
     void output;
@@ -66,7 +89,23 @@
         {:else if status.state === "up_to_date"}
           已是最新（{short(status.commit)}），未重启。
         {:else if status.state === "idle" && !verdict}
-          当前运行 {status.running ? short(status.running) : "未知版本（非 build.sh 构建）"}{sizeText(status.size, null)}
+          <span class="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+            {#if status.running}
+              <span>当前运行</span>
+              <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground" title={status.running}>{short(status.running)}</code>
+              {#if status.committed_at !== null}
+                <span title={formatTime(status.committed_at)}>提交于 {ago(status.committed_at)}</span>
+              {/if}
+            {:else}
+              <span>未知版本（非 build.sh 构建）</span>
+            {/if}
+            <span class="text-muted-foreground/50">·</span>
+            <span title="启动于 {formatTime(status.started_at)}">已运行 {duration(now - status.started_at)}</span>
+            {#if status.size !== null}
+              <span class="text-muted-foreground/50">·</span>
+              <span>{mb(status.size)}</span>
+            {/if}
+          </span>
         {/if}
       </span>
     </div>

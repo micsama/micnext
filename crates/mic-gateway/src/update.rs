@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::State;
 use axum::http::{header, StatusCode};
@@ -19,6 +20,8 @@ use crate::service::App;
 
 /// 本程序构建时的提交；由 build.sh 注入，直接 cargo build 时为 `None`。
 pub(crate) const COMMIT: Option<&str> = option_env!("MICNEXT_COMMIT");
+/// 该提交的提交时间（unix 秒），与 `COMMIT` 一同注入。
+const COMMIT_TIME: Option<&str> = option_env!("MICNEXT_COMMIT_TIME");
 
 /// 构建成功后请装配根停止并 exec 的目标。
 pub struct RestartRequest {
@@ -31,6 +34,10 @@ pub(crate) struct Updater {
     restart: mpsc::Sender<RestartRequest>,
     /// 本进程二进制的字节数，启动时读定（构建会原地替换同一路径）。
     running_size: Option<u64>,
+    /// 运行版本的提交时间（unix 毫秒）。
+    committed_at: Option<i64>,
+    /// 本进程启动时间（unix 毫秒）。
+    started_at: i64,
     state: Mutex<Task>,
 }
 
@@ -81,6 +88,8 @@ enum StatusView<'a> {
     Unavailable,
     Idle {
         running: Option<&'static str>,
+        committed_at: Option<i64>,
+        started_at: i64,
         size: Option<u64>,
     },
     Checking {
@@ -135,6 +144,12 @@ impl Updater {
                 .and_then(std::fs::metadata)
                 .map(|m| m.len())
                 .ok(),
+            committed_at: COMMIT_TIME
+                .map(|s| s.parse::<i64>().expect("MICNEXT_COMMIT_TIME 为 unix 秒") * 1000),
+            started_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("系统时钟早于 1970")
+                .as_millis() as i64,
             state: Mutex::new(Task {
                 phase: Phase::Idle,
                 output: String::new(),
@@ -148,6 +163,8 @@ impl Updater {
         f(match &state.phase {
             Phase::Idle => StatusView::Idle {
                 running: COMMIT,
+                committed_at: self.committed_at,
+                started_at: self.started_at,
                 size: self.running_size,
             },
             Phase::Checking => StatusView::Checking { output },

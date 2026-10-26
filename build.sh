@@ -16,7 +16,8 @@ build() {
 
     # 运行中的程序据此报告自身版本，供网页更新核对。
     MICNEXT_COMMIT="$(git rev-parse HEAD)"
-    export MICNEXT_COMMIT
+    MICNEXT_COMMIT_TIME="$(git log -1 --format=%ct)"
+    export MICNEXT_COMMIT MICNEXT_COMMIT_TIME
 
     bun install --cwd web --frozen-lockfile
     bun run --cwd web --bun build

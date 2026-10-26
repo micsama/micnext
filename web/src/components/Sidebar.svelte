@@ -378,6 +378,14 @@
     animation: sweep 2.4s linear infinite;
     pointer-events: none;
   }
+  /* 选中且运行：选择框本身绕行，底圈调淡。 */
+  .session-entry[data-selected="true"][data-state="running"] {
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary) 30%, transparent);
+  }
+  .session-entry[data-selected="true"][data-state="running"]::before {
+    inset: 0;
+    padding: 2px;
+  }
   @property --sweep {
     syntax: "<angle>";
     initial-value: 0deg;

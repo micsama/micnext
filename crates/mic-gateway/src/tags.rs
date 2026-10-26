@@ -1,4 +1,4 @@
-//! 标签词表与会话标签。契约：docs/blueprints/session-tags.md。
+//! 标签词表与会话标签。契约：docs/blueprints/archive/session-tags.md。
 
 use std::sync::Arc;
 

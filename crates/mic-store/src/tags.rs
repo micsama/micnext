@@ -1,4 +1,4 @@
-//! 会话标签：受控词表与会话的对应。契约：docs/blueprints/session-tags.md。
+//! 会话标签：受控词表与会话的对应。契约：docs/blueprints/archive/session-tags.md。
 
 use mic_message::SessionId;
 use rusqlite::{params, Connection};

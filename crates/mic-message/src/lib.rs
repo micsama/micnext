@@ -29,7 +29,7 @@ pub struct ToolCallRef {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PersonId(pub i64);
 
-/// 用户随输入附带、已由内核存入 `<data_dir>/files/<person>/` 的文件。
+/// 内核存入 `<data_dir>/files/<person>/` 的文件：用户入站附件或交给用户的快照。库里只存路径。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileRef {
     /// 绝对路径。
@@ -224,8 +224,14 @@ pub enum MessageBody {
     Trigger { source: String, text: String },
     /// 给模型看的框架备注，不投递。
     HarnessNote { text: String },
-    /// 投递给用户的框架通知。
-    Notification { source: String, text: String },
+    /// 投递给用户的通知；`files` 为推送附带的文件快照。
+    Notification {
+        source: String,
+        text: String,
+        files: Vec<FileRef>,
+    },
+    /// `send_file` 交给用户的文件快照；投递，不进模型上下文（工具结果已告知模型）。
+    Attachment { files: Vec<FileRef> },
     /// 上下文截断，不进模型上下文。
     Boundary { boundary: ContextBoundary },
     /// 旁路调用的模型原文，只供 trace；不进上下文与聊天。

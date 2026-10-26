@@ -163,6 +163,7 @@ impl Scrub<'_> {
             },
             MessageBody::Command { .. }
             | MessageBody::ToolResult { .. }
+            | MessageBody::Attachment { .. }
             | MessageBody::Boundary { .. } => {}
         }
     }

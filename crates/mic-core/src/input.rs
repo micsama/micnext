@@ -72,10 +72,8 @@ pub(crate) async fn validate(
                 NewInputPart::Image(image)
             }
             IncomingPart::File { name, bytes } => {
-                let dir = files
-                    .join(person.0.to_string())
-                    .join(chrono::Local::now().format("%Y-%m-%d").to_string());
-                let path = save(&dir, file_name(&name), &bytes).await.map_err(|error| {
+                let dir = person_dir(files, person);
+                let path = save(&dir, file_name(&name), Source::Bytes(&bytes)).await.map_err(|error| {
                     tracing::warn!(error = %crate::error::chain(&error), dir = %dir.display(), "input file save failed");
                     InputError::FileSave
                 })?;
@@ -98,10 +96,18 @@ pub(crate) async fn validate(
     })
 }
 
-/// 本次输入落盘的文件；未 `keep` 即删除。
+/// 本次落盘的文件；未 `keep` 即删除。
 pub(crate) struct SavedFiles(Vec<PathBuf>);
 
 impl SavedFiles {
+    pub(crate) fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub(crate) fn push(&mut self, path: PathBuf) {
+        self.0.push(path);
+    }
+
     pub(crate) fn keep(mut self) {
         self.0.clear();
     }
@@ -116,7 +122,7 @@ impl Drop for SavedFiles {
 }
 
 /// 取最后一段，去掉控制字符；空、`.`、`..` 用 `文件`。
-fn file_name(raw: &str) -> &str {
+pub(crate) fn file_name(raw: &str) -> &str {
     match raw.rsplit(['/', '\\']).next().unwrap_or("").trim() {
         "" | "." | ".." => "文件",
         name if name.chars().any(char::is_control) => "文件",
@@ -124,8 +130,21 @@ fn file_name(raw: &str) -> &str {
     }
 }
 
+/// 某人的文件按本机日期分目录：`<files>/<person>/<日期>/`。
+pub(crate) fn person_dir(files: &Path, person: PersonId) -> PathBuf {
+    files
+        .join(person.0.to_string())
+        .join(chrono::Local::now().format("%Y-%m-%d").to_string())
+}
+
+/// 写入内容：入站字节，或交付时复制的本地文件。
+pub(crate) enum Source<'a> {
+    Bytes(&'a [u8]),
+    Path(&'a Path),
+}
+
 /// 独占创建最终名（同名改 `名字 (n).扩展名`）后直接写入；失败或取消删掉本次创建的文件。
-async fn save(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+pub(crate) async fn save(dir: &Path, name: &str, source: Source<'_>) -> std::io::Result<PathBuf> {
     tokio::fs::create_dir_all(dir).await?;
     let dir = tokio::fs::canonicalize(dir).await?;
     let (stem, ext) = split_name(name);
@@ -148,7 +167,12 @@ async fn save(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> 
         }
     };
     let guard = SavedFiles(vec![path.clone()]);
-    file.write_all(bytes).await?;
+    match source {
+        Source::Bytes(bytes) => file.write_all(bytes).await?,
+        Source::Path(from) => {
+            tokio::io::copy(&mut tokio::fs::File::open(from).await?, &mut file).await?;
+        }
+    }
     file.sync_all().await?;
     guard.keep();
     Ok(path)
@@ -165,7 +189,7 @@ fn split_name(name: &str) -> (&str, Option<&str>) {
 fn remove(path: &Path) {
     if let Err(error) = std::fs::remove_file(path) {
         if error.kind() != ErrorKind::NotFound {
-            tracing::warn!(%error, path = %path.display(), "input file cleanup failed");
+            tracing::warn!(%error, path = %path.display(), "saved file cleanup failed");
         }
     }
 }

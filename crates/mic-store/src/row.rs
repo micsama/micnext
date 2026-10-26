@@ -186,7 +186,7 @@ pub(crate) fn corrupt(idx: usize, msg: String) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, msg.into())
 }
 
-fn json_col<T: DeserializeOwned>(row: &Row<'_>, idx: usize) -> rusqlite::Result<T> {
+pub(crate) fn json_col<T: DeserializeOwned>(row: &Row<'_>, idx: usize) -> rusqlite::Result<T> {
     let text: String = row.get(idx)?;
     serde_json::from_str(&text)
         .map_err(|e| rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, Box::new(e)))

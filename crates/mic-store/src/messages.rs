@@ -174,7 +174,7 @@ impl Store {
                      WHERE s.delivery_channel = ?1
                        AND m.delivered_at IS NULL
                        AND m.delivery_failure IS NULL
-                       AND m.kind IN ('Reply', 'Notification')
+                       AND m.kind IN ('Reply', 'Notification', 'Attachment')
                      ORDER BY m.id"
                 ))?
                 .query_map([channel], |r| {

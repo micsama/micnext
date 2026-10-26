@@ -850,6 +850,7 @@ impl Exec<'_> {
         self.append(MessageBody::Notification {
             source: NOTIFICATION_SOURCE.into(),
             text,
+            files: Vec::new(),
         })
         .await
     }

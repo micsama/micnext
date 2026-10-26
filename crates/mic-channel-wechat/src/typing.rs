@@ -70,7 +70,9 @@ pub(crate) async fn run(
                     KernelEventKind::MessageAppended(message)
                         if matches!(
                             message.body,
-                            MessageBody::Reply { .. } | MessageBody::Notification { .. }
+                            MessageBody::Reply { .. }
+                                | MessageBody::Notification { .. }
+                                | MessageBody::Attachment { .. }
                         ) =>
                     {
                         outbound = Some(message.id);

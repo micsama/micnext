@@ -2,9 +2,10 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use mic_message::{ContentPart, PersonId, SessionId};
+use mic_message::{ContentPart, FileRef, PersonId, SessionId};
 use mic_store::{
     NewPush, PushId, PushPage, PushRoute, RunId, SessionKind, Store, StoreError, SCHEDULE_MODULE,
 };
@@ -16,6 +17,7 @@ use crate::event::{Events, KernelEventKind};
 use crate::jobs::JobPort;
 use crate::kernel::session_channel;
 use crate::run::now_ms;
+use crate::send_file::snapshot;
 use crate::{ChannelConnection, ChannelSetup, ChannelSetupError};
 
 pub(crate) struct Pushes {
@@ -104,6 +106,7 @@ impl Pushes {
         &self,
         source: PushSource,
         text: String,
+        files: Vec<FileRef>,
         via: Option<Vec<String>>,
     ) -> Result<Vec<String>, PushError> {
         if text.trim().is_empty() {
@@ -129,7 +132,7 @@ impl Pushes {
         if !down.is_empty() {
             return Err(PushError::Unavailable(down));
         }
-        self.create(source, text, routes).await?;
+        self.create(source, text, files, routes).await?;
         Ok(via)
     }
 
@@ -161,7 +164,7 @@ impl Pushes {
             }
         }
         let source = PushSource { session, run: None };
-        match self.create(source, text, routes).await {
+        match self.create(source, text, Vec::new(), routes).await {
             Ok(id) => Ok(id),
             Err(PushError::Store(e)) => Err(e),
             Err(e) => unreachable!("建推送只会有存储错误：{e}"),
@@ -206,6 +209,7 @@ impl Pushes {
         &self,
         source: PushSource,
         text: String,
+        files: Vec<FileRef>,
         routes: Vec<PushRoute>,
     ) -> Result<PushId, PushError> {
         let session = self
@@ -240,6 +244,7 @@ impl Pushes {
                     source_run: source.run,
                     source_label,
                     text,
+                    files,
                     routes,
                 },
                 now_ms(),
@@ -264,11 +269,17 @@ impl Pushes {
     }
 }
 
-pub(crate) fn handle(pushes: &Arc<Pushes>) -> ToolHandle {
-    ToolHandle::new(PushTool(pushes.clone()))
+pub(crate) fn handle(pushes: &Arc<Pushes>, files: PathBuf) -> ToolHandle {
+    ToolHandle::new(PushTool {
+        pushes: pushes.clone(),
+        files,
+    })
 }
 
-struct PushTool(Arc<Pushes>);
+struct PushTool {
+    pushes: Arc<Pushes>,
+    files: PathBuf,
+}
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -277,6 +288,8 @@ struct PushArgs {
     text: String,
     /// IM channels such as "wechat"; omit for the user's default, [] for Web only.
     via: Option<Vec<String>>,
+    /// Paths of files to attach, sent as a snapshot taken now.
+    files: Option<Vec<String>>,
 }
 
 impl Tool for PushTool {
@@ -299,14 +312,22 @@ impl Tool for PushTool {
             session: origin.session,
             run: Some(origin.run),
         };
+        let (files, saved) = match &args.files {
+            Some(paths) => {
+                let (files, saved) =
+                    snapshot(&self.files, self.pushes.owner, ctx.cwd(), paths).await?;
+                (files, Some(saved))
+            }
+            None => (Vec::new(), None),
+        };
         let via = self
-            .0
-            .send(source, args.text, args.via)
+            .pushes
+            .send(source, args.text, files, args.via)
             .await
             .map_err(|e| match e {
                 PushError::UnknownChannel(c) => ToolError::input(format!(
                     "unknown channel \"{c}\"; available: {}",
-                    self.0.channels().join(", ")
+                    self.pushes.channels().join(", ")
                 )),
                 PushError::EmptyText => ToolError::input("text must not be empty"),
                 PushError::Unavailable(down) => ToolError::business(format!(
@@ -319,6 +340,9 @@ impl Tool for PushTool {
                 PushError::Store(e) => ToolError::dependency(e.to_string()),
                 PushError::Setup(e) => ToolError::dependency(e.to_string()),
             })?;
+        if let Some(saved) = saved {
+            saved.keep();
+        }
         let text = if via.is_empty() {
             "Pushed to the Web notification center.".to_owned()
         } else {

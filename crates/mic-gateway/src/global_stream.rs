@@ -54,7 +54,9 @@ pub(crate) async fn stream(
                 KernelEventKind::MessageAppended(ref m)
                     if matches!(
                         m.body,
-                        MessageBody::Reply { .. } | MessageBody::Notification { .. }
+                        MessageBody::Reply { .. }
+                            | MessageBody::Notification { .. }
+                            | MessageBody::Attachment { .. }
                     ) =>
                 {
                     ("session_activity", event.session_id.0)

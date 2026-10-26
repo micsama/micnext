@@ -42,6 +42,10 @@ fn push(
         source_run: None,
         source_label: "push from session".into(),
         text: "到点了".into(),
+        files: vec![mic_message::FileRef {
+            path: "/data/files/1/图.html".into(),
+            size_bytes: 3,
+        }],
         routes,
     }
 }
@@ -68,7 +72,9 @@ async fn check() {
         .unwrap();
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].session_id, dm);
-    assert!(matches!(notices[0].body, MessageBody::Notification { .. }));
+    assert!(
+        matches!(&notices[0].body, MessageBody::Notification { files, .. } if files.len() == 1)
+    );
     store.mark_delivered(notices[0].id, 11).await.unwrap();
 
     let (failed, notices) = store
@@ -98,6 +104,12 @@ async fn check() {
         page.pushes[1].deliveries[0].state,
         PushDeliveryState::Delivered { at: 11 }
     ));
+
+    assert_eq!(page.pushes[1].files[0].name(), "图.html");
+    assert_eq!(
+        store.push_files(owner, delivered).await.unwrap().unwrap()[0].size_bytes,
+        3
+    );
 
     let older = store.pushes(owner, Some(failed), 1).await.unwrap();
     assert_eq!(older.pushes[0].id, delivered);

@@ -4,9 +4,11 @@ use super::*;
 async fn same_name_gets_numbered_and_leaves_others_untouched() {
     let dir = std::env::temp_dir().join(format!("mic-input-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let first = save(&dir, "a.txt.part", b"keep").await.unwrap();
-    let second = save(&dir, "a.txt", b"one").await.unwrap();
-    let third = save(&dir, "a.txt", b"two").await.unwrap();
+    let first = save(&dir, "a.txt.part", Source::Bytes(b"keep"))
+        .await
+        .unwrap();
+    let second = save(&dir, "a.txt", Source::Bytes(b"one")).await.unwrap();
+    let third = save(&dir, "a.txt", Source::Bytes(b"two")).await.unwrap();
 
     assert_eq!(second.file_name().unwrap(), "a.txt");
     assert_eq!(third.file_name().unwrap(), "a (2).txt");

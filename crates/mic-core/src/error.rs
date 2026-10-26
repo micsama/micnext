@@ -105,6 +105,13 @@ pub enum KernelError {
     Job(#[from] crate::JobAccessError),
     #[error(transparent)]
     Push(#[from] crate::PushError),
+    #[error("文件已清理")]
+    FileCleaned,
+    #[error("无法读取文件 {}", path.display())]
+    FileRead {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

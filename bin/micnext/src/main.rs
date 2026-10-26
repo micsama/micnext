@@ -356,9 +356,22 @@ impl Render {
             }
             MessageBody::Command { command, .. } => format!("[command] {command:?}"),
             MessageBody::HarnessNote { text } => format!("[runtime-note] {text}"),
-            MessageBody::Notification { source, text } => {
-                format!("[notification {source}] {text}")
+            MessageBody::Notification {
+                source,
+                text,
+                files,
+            } => {
+                let mut line = format!("[notification {source}] {text}");
+                for file in files {
+                    line.push_str(&format!("\n[file] {}", file.path));
+                }
+                line
             }
+            MessageBody::Attachment { files } => files
+                .iter()
+                .map(|f| format!("[file] {}", f.path))
+                .collect::<Vec<_>>()
+                .join("\n"),
             _ => return,
         };
         self.end_line();

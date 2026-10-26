@@ -1,4 +1,5 @@
 import { arr, bool, kinded, nullable, num, obj, str, type Decoder } from "./decode";
+import { fileRef, type FileRef } from "./types";
 
 // 与 docs/blueprints/scheduled-tasks.md P1 一一对应。
 
@@ -14,6 +15,7 @@ export type PushView = {
   source_session_id: number;
   source_session_title: string | null;
   text: string;
+  files: FileRef[];
   created_at: number;
   read_at: number | null;
   deliveries: PushDelivery[];
@@ -39,6 +41,7 @@ const pushPage: Decoder<PushPage> = obj({
       source_session_id: num,
       source_session_title: nullable(str),
       text: str,
+      files: arr(fileRef),
       created_at: num,
       read_at: nullable(num),
       deliveries: arr(delivery),

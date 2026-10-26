@@ -2,16 +2,17 @@
 
 use std::sync::Arc;
 
-use axum::extract::rejection::{JsonRejection, QueryRejection};
-use axum::extract::{Query, State};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::Response;
 use axum::Json;
 use mic_core::PushSettings;
 use mic_store::{PushId, PushPage};
 use serde::Deserialize;
 
-use crate::api::json;
-use crate::error::ApiError;
+use crate::api::{file_response, json};
+use crate::error::{ApiError, FILE_NOT_FOUND};
 use crate::limits::{PAGE_DEFAULT, PAGE_MAX};
 use crate::service::App;
 
@@ -73,4 +74,17 @@ pub(crate) async fn put_settings(
     let body = json(body)?;
     app.kernel.set_push_channels(body.channels).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn file(
+    State(app): State<Arc<App>>,
+    path: Result<Path<(i64, usize)>, PathRejection>,
+) -> Result<Response, ApiError> {
+    let Path((push, index)) = path.map_err(|_| ApiError::NotFound(FILE_NOT_FOUND))?;
+    let (file, handle) = app
+        .kernel
+        .push_file(PushId(push), index)
+        .await?
+        .ok_or(ApiError::NotFound(FILE_NOT_FOUND))?;
+    Ok(file_response(&file, handle))
 }

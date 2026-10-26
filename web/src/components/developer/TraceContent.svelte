@@ -29,6 +29,7 @@
       case "Completion": return outcomeText(body.outcome);
       case "Boundary": return body.boundary === "UserClear" ? "清空上下文" : body.boundary.Compaction.summary;
       case "SideOutput": return body.text;
+      case "Attachment": return body.files.map((f) => f.path).join("\n");
       case "Command": return body.command === "Clear" ? "/clear" : "Compact" in body.command ? `/compact ${body.command.Compact.text ?? ""}` : `撤回压缩 #${body.command.RevokeCompaction.boundary_id}`;
       case "Reply": return body.blocks.map((b) => "Text" in b ? b.Text.text : "Reasoning" in b ? "Visible" in b.Reasoning ? b.Reasoning.Visible.text : "[隐藏推理]" : `${b.ToolCall.name}\n${args(b.ToolCall.args)}`).join("\n\n");
     }
@@ -84,7 +85,9 @@
     <TraceCard icon="layers" title={body.boundary === "UserClear" ? "清空上下文" : "压缩摘要"} tone="compact" meta={chars(text)} long={isLong(text)} copy={text}><Markdown source={text} /></TraceCard>
   {:else if body.kind === "Command"}
     <TraceCard icon="terminal" title="指令" copy={text}><pre>{text}</pre></TraceCard>
+  {:else if body.kind === "Attachment"}
+    <TraceCard icon="file" title="交付文件" meta="{body.files.length} 个" copy={text}><pre>{text}</pre></TraceCard>
   {:else}
-    <TraceCard icon="info" title={body.kind === "Notification" ? `通知 · ${body.source}` : "系统备注"} meta={chars(text)} long={isLong(text)} copy={text}><Markdown source={text} /></TraceCard>
+    <TraceCard icon="info" title={body.kind === "Notification" ? `通知 · ${body.source}` : "系统备注"} meta={chars(text)} long={isLong(text)} copy={text}><Markdown source={text} />{#if body.kind === "Notification" && body.files.length}<div class="thumbs">{#each body.files as f, i (i)}<span class="cap" title={f.path}>[文件：{f.path.split(/[\\/]/).at(-1)}]</span>{/each}</div>{/if}</TraceCard>
   {/if}
 </div>

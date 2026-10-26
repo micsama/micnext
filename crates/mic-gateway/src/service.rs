@@ -120,6 +120,10 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
                 .post(api::send_message.layer(DefaultBodyLimit::max(MAX_INPUT_BODY_BYTES))),
         )
         .route("/sessions/{id}/images/{image_id}", get(api::get_image))
+        .route(
+            "/sessions/{id}/messages/{message_id}/files/{index}",
+            get(api::get_message_file),
+        )
         .route("/sessions/{id}/runs/{run_id}/stop", post(api::stop_run))
         .route("/sessions/{id}/jobs", get(jobs::list))
         .route("/sessions/{id}/jobs/{job}/output", get(jobs::output))
@@ -155,6 +159,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         )
         .route("/pushes", get(pushes::list))
         .route("/pushes/read", post(pushes::read))
+        .route("/pushes/{id}/files/{index}", get(pushes::file))
         .route("/stream-ticket", post(ticket::global_ticket))
         .route("/schedules", get(schedules::list))
         .route(

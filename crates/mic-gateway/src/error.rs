@@ -39,6 +39,8 @@ pub(crate) enum ApiError {
 pub(crate) const SESSION_NOT_FOUND: &str = "会话不存在";
 pub(crate) const PERSONA_NOT_FOUND: &str = "人设不存在";
 pub(crate) const IMAGE_NOT_FOUND: &str = "图片不存在";
+pub(crate) const FILE_NOT_FOUND: &str = "文件不存在";
+pub(crate) const FILE_CLEANED: &str = "文件已清理";
 pub(crate) const MODEL_NOT_FOUND: &str = "模型不存在";
 pub(crate) const ENDPOINT_NOT_FOUND: &str = "服务商不存在";
 pub(crate) const JOB_NOT_FOUND: &str = "任务不存在";
@@ -83,6 +85,7 @@ impl From<KernelError> for ApiError {
             }
             KernelError::BackupInvalid(reason) => Self::BadRequest(reason),
             KernelError::SessionNotFound => Self::NotFound(SESSION_NOT_FOUND),
+            KernelError::FileCleaned => Self::NotFound(FILE_CLEANED),
             KernelError::SessionNotRoot | KernelError::TaskSessionInput => {
                 Self::Forbidden(e.to_string())
             }

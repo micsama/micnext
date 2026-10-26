@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use mic_message::{
-    ContentPart, ContextBoundary, ExecOutcome, Message, MessageBody, MessageId, ReplyBlock,
-    SessionCommand, SessionId, ToolResultOutcome,
+    ContentPart, ContextBoundary, ExecOutcome, FileRef, Message, MessageBody, MessageId,
+    ReplyBlock, SessionCommand, SessionId, ToolResultOutcome,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
@@ -454,6 +454,16 @@ fn parts_text(parts: &[ContentPart]) -> String {
         .join(" ")
 }
 
+fn files_text(mut text: String, files: &[FileRef]) -> String {
+    for file in files {
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str(&format!("[文件：{}]", file.name()));
+    }
+    text
+}
+
 fn trace_message(m: Message) -> TraceMessage {
     let (kind, preview, tool) = match &m.body {
         MessageBody::Command { command, .. } => (
@@ -535,7 +545,10 @@ fn trace_message(m: Message) -> TraceMessage {
         MessageBody::JobNotice { text, .. } => ("JobNotice", text.clone(), None),
         MessageBody::Trigger { text, .. } => ("Trigger", text.clone(), None),
         MessageBody::HarnessNote { text } => ("HarnessNote", text.clone(), None),
-        MessageBody::Notification { text, .. } => ("Notification", text.clone(), None),
+        MessageBody::Notification { text, files, .. } => {
+            ("Notification", files_text(text.clone(), files), None)
+        }
+        MessageBody::Attachment { files } => ("Attachment", files_text(String::new(), files), None),
         MessageBody::Boundary { boundary } => (
             "Boundary",
             match boundary {

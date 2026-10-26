@@ -44,6 +44,7 @@ async fn notify(store: &Store, id: SessionId) -> mic_message::MessageId {
     let body = MessageBody::Notification {
         source: "t".into(),
         text: "到点了".into(),
+        files: Vec::new(),
     };
     store.append(id, None, body, 2).await.unwrap().id
 }

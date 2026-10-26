@@ -1,7 +1,8 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use mic_core::{AskArgs, BoxError, EventReceiver, Kernel, KernelEventKind, ASK_USER};
-use mic_message::{MessageBody, MessageId, ReplyBlock};
+use mic_message::{FileRef, MessageBody, MessageId, ReplyBlock};
 use mic_store::rusqlite::{params, OptionalExtension};
 use mic_store::PendingDelivery;
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::account::{now_ms, Account, AccountError, WechatTarget};
-use crate::client::{Client, ClientError};
+use crate::client::{Client, ClientError, MediaKind, Outgoing};
 use crate::limits::{ATTEMPT_ID_BYTES, TEXT_CHUNK_CHARS};
 use crate::service::ConnectionExit;
 
@@ -17,6 +18,8 @@ use crate::service::ConnectionExit;
 #[serde(deny_unknown_fields)]
 struct Plan {
     chunks: Vec<String>,
+    /// 文本段之后依次发出的文件名；发送事实的序号接在文本段之后。
+    files: Vec<String>,
 }
 
 enum Authentication {
@@ -50,7 +53,7 @@ pub(crate) async fn run(
         let scan = match event {
             Ok(event) if event.session_id == account.view.session_id => {
                 matches!(event.kind, KernelEventKind::MessageAppended(message)
-                        if matches!(message.body, MessageBody::Reply { .. } | MessageBody::Notification { .. }))
+                        if matches!(message.body, MessageBody::Reply { .. } | MessageBody::Notification { .. } | MessageBody::Attachment { .. }))
             }
             Ok(_) => false,
             Err(_) => true,
@@ -108,36 +111,36 @@ async fn deliver(
     if target.user_id != account.credentials.user_id {
         return Err(AccountError::Invalid("投递目标归属不一致").into());
     }
-    let text = match pending.message.body {
-        MessageBody::Reply { blocks, .. } => reply_text(blocks),
-        MessageBody::Notification { text, .. } => text,
-        _ => unreachable!("pending_deliveries 只返回 Reply/Notification"),
+    let (text, files) = match pending.message.body {
+        MessageBody::Reply { blocks, .. } => (reply_text(blocks), Vec::new()),
+        MessageBody::Notification { text, files, .. } => (text, files),
+        MessageBody::Attachment { files } => (String::new(), files),
+        _ => unreachable!("pending_deliveries 只返回 Reply/Notification/Attachment"),
     };
-    let plan = plan(text);
+    let plan = plan(text, &files);
     let id = pending.message.id;
     begin(kernel, id, &account.credentials.user_id.0, &plan).await?;
-    // 结果未知不重放：每段只发一次。
-    for (chunk_index, chunk) in plan.chunks.iter().enumerate() {
+    let items = plan.chunks.iter().map(|chunk| Item::Text(chunk)).chain(
+        plan.files
+            .iter()
+            .zip(&files)
+            .map(|(name, file)| Item::File(name, file)),
+    );
+    // 结果未知不重放：每项只发一次。
+    for (index, item) in items.enumerate() {
         if stop.is_cancelled() {
             return Ok(DeliveryResult::Stopped);
         }
         let client_id = client_id()?;
-        start_chunk(kernel, id, chunk_index, &client_id).await?;
+        start_chunk(kernel, id, index, &client_id).await?;
         let sent = tokio::select! {
             biased;
             () = stop.cancelled() => return Ok(DeliveryResult::Stopped),
-            result = client.send(&account.credentials, token, &client_id, chunk) => result,
+            result = send(client, account, token, &client_id, item) => result,
         };
         let error = match sent {
             Ok(external_id) => {
-                finish_chunk(
-                    kernel,
-                    id,
-                    chunk_index,
-                    Some(external_id.0.to_string()),
-                    None,
-                )
-                .await?;
+                finish_chunk(kernel, id, index, Some(external_id.0.to_string()), None).await?;
                 continue;
             }
             Err(error) => error,
@@ -145,23 +148,23 @@ async fn deliver(
         tracing::warn!(
             session = account.view.session_id.0,
             message_id = id.0,
-            chunk_index,
-            kind = failure(&error),
+            index,
+            kind = error.kind(),
             error = %error.diagnostic(),
             "wechat delivery failed"
         );
-        finish_chunk(kernel, id, chunk_index, None, Some(failure(&error))).await?;
-        if matches!(error, ClientError::Protocol(_)) {
+        finish_chunk(kernel, id, index, None, Some(error.kind())).await?;
+        if let SendError::Client(error @ ClientError::Protocol(_)) = error {
             return Err(error.into());
         }
-        let reason = if chunk_index == 0 {
+        let reason = if index == 0 {
             error.to_string()
         } else {
-            format!("只送达前 {chunk_index} 段：{error}")
+            format!("只送达前 {index} 条：{error}")
         };
         kernel.mark_delivery_failed(id, reason).await?;
         return Ok(DeliveryResult::Complete(
-            if matches!(error, ClientError::SessionExpired) {
+            if matches!(error, SendError::Client(ClientError::SessionExpired)) {
                 Authentication::Expired
             } else {
                 Authentication::Current
@@ -171,6 +174,72 @@ async fn deliver(
     kernel.mark_delivered(id).await?;
     tracing::debug!(message_id = id.0, "wechat delivery accepted");
     Ok(DeliveryResult::Complete(Authentication::Current))
+}
+
+enum Item<'a> {
+    Text(&'a str),
+    File(&'a str, &'a FileRef),
+}
+
+#[derive(Debug, thiserror::Error)]
+enum SendError {
+    #[error(transparent)]
+    Client(ClientError),
+    #[error("{}", if .0.kind() == std::io::ErrorKind::NotFound { "文件已清理" } else { "文件读取失败" })]
+    File(std::io::Error),
+}
+
+impl SendError {
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Client(error) => failure(error),
+            Self::File(_) => "file_read",
+        }
+    }
+
+    fn diagnostic(&self) -> String {
+        match self {
+            Self::Client(error) => error.diagnostic(),
+            Self::File(error) => error.to_string(),
+        }
+    }
+}
+
+async fn send(
+    client: &Client,
+    account: &Account,
+    token: &str,
+    client_id: &str,
+    item: Item<'_>,
+) -> Result<crate::wire::MessageId, SendError> {
+    let credentials = &account.credentials;
+    let outgoing = match item {
+        Item::Text(text) => Outgoing::Text(text),
+        Item::File(name, file) => {
+            let bytes = tokio::fs::read(&file.path).await.map_err(SendError::File)?;
+            let uploaded = client
+                .upload(credentials, media_kind(name), bytes)
+                .await
+                .map_err(SendError::Client)?;
+            Outgoing::Media { name, uploaded }
+        }
+    };
+    client
+        .send(credentials, token, client_id, outgoing)
+        .await
+        .map_err(SendError::Client)
+}
+
+/// 微信能直接显示的图片按图片发，其余按文件发。
+fn media_kind(name: &str) -> MediaKind {
+    let ext = Path::new(name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase);
+    match ext.as_deref() {
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp") => MediaKind::Image,
+        _ => MediaKind::File,
+    }
 }
 
 /// 正文块直接相连；`ask_user` 的入参排成编号文字接在后面，解析不了的不发。
@@ -222,7 +291,7 @@ fn question_text(ask: &AskArgs) -> String {
     out
 }
 
-fn plan(text: String) -> Plan {
+fn plan(text: String, files: &[FileRef]) -> Plan {
     let mut chunks = Vec::new();
     let mut current = String::new();
     let mut chars = 0;
@@ -237,7 +306,16 @@ fn plan(text: String) -> Plan {
     if !current.is_empty() {
         chunks.push(current);
     }
-    Plan { chunks }
+    let files = files
+        .iter()
+        .map(|file| {
+            Path::new(&file.path).file_name().map_or_else(
+                || file.path.clone(),
+                |name| name.to_string_lossy().into_owned(),
+            )
+        })
+        .collect();
+    Plan { chunks, files }
 }
 
 pub(crate) async fn quoted_text(
@@ -266,10 +344,15 @@ pub(crate) async fn quoted_text(
             serde_json::from_str(&raw).map_err(|_| AccountError::Invalid("投递计划字段不匹配"))?;
         let chunk =
             usize::try_from(chunk).map_err(|_| AccountError::Invalid("引用发送段位置不合法"))?;
-        plan.chunks
-            .into_iter()
-            .nth(chunk)
-            .ok_or(AccountError::Invalid("引用发送段不存在"))
+        let texts = plan.chunks.len();
+        match chunk.checked_sub(texts) {
+            None => Ok(plan.chunks.into_iter().nth(chunk).expect("序号在文本段内")),
+            Some(file) => plan
+                .files
+                .get(file)
+                .map(|name| format!("[文件：{name}]"))
+                .ok_or(AccountError::Invalid("引用发送段不存在")),
+        }
     })
     .transpose()
 }

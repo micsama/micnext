@@ -19,11 +19,18 @@ class ConversionTests(unittest.TestCase):
         with sqlite3.connect(self.db) as conn:
             conn.executescript("""
                 CREATE TABLE schema_migrations(module TEXT PRIMARY KEY, version INTEGER NOT NULL);
-                INSERT INTO schema_migrations VALUES ('core', 25);
+                INSERT INTO schema_migrations VALUES ('core', 25), ('wechat', 5);
                 CREATE TABLE core_sessions(id INTEGER PRIMARY KEY);
                 INSERT INTO core_sessions VALUES (1);
-                CREATE TABLE core_messages(id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL);
-                INSERT INTO core_messages VALUES (10, 1), (11, 1);
+                CREATE TABLE core_messages(id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, payload TEXT NOT NULL,
+                  delivered_at INTEGER, delivery_failure TEXT,
+                  kind TEXT GENERATED ALWAYS AS (json_extract(payload, '$.kind')) VIRTUAL);
+                INSERT INTO core_messages(id, session_id, payload) VALUES
+                  (10, 1, '{"kind":"Notification","source":"micnext","text":"t"}'), (11, 1, '{"kind":"HarnessNote","text":"n"}');
+                CREATE INDEX idx_messages_undelivered ON core_messages(session_id) WHERE kind IN ('Reply', 'Notification');
+                CREATE TABLE core_pushes(id INTEGER PRIMARY KEY, text TEXT NOT NULL);
+                CREATE TABLE wechat_delivery(message_id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, plan TEXT NOT NULL);
+                INSERT INTO wechat_delivery VALUES (10, 'u', '{"chunks":["a"]}');
             """)
 
     def run_script(self, mode):
@@ -38,9 +45,12 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(self.version(), 25)
         result = self.run_script("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.version(), 27)
+        self.assertEqual(self.version(), 28)
         with sqlite3.connect(self.db) as conn:
             self.assertEqual(conn.execute("SELECT seen_message_id FROM core_sessions").fetchone(), (11,))
+            payloads = conn.execute("SELECT json_extract(payload, '$.files') FROM core_messages ORDER BY id").fetchall()
+            self.assertEqual(payloads, [("[]",), (None,)])
+            self.assertEqual(conn.execute("SELECT plan FROM wechat_delivery").fetchone(), ('{"chunks":["a"],"files":[]}',))
         self.assertEqual(self.run_script("--apply").returncode, 0)
 
     def test_live_service_is_not_modified(self):
@@ -62,7 +72,7 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(self.version(), 25)
 
     def test_missing_step_and_newer_database_fail_without_writes(self):
-        for version in [9, 28]:
+        for version in [9, 999]:
             with sqlite3.connect(self.db) as conn:
                 conn.execute("UPDATE schema_migrations SET version=?", (version,))
             self.assertNotEqual(self.run_script("--apply").returncode, 0)

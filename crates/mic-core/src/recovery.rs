@@ -78,6 +78,7 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
         closing.push(MessageBody::Notification {
             source: NOTIFICATION_SOURCE.into(),
             text: text.into(),
+            files: Vec::new(),
         });
         let session = store
             .session(run.session_id)
@@ -113,6 +114,7 @@ pub(crate) async fn recover(store: &Store, data_dir: PathBuf) -> Result<usize, S
                 MessageBody::Notification {
                     source: NOTIFICATION_SOURCE.into(),
                     text: format!("重启前仍在运行的后台任务已中断：{}。", labels.join("、")),
+                    files: Vec::new(),
                 },
             )
         });

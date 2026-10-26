@@ -1759,6 +1759,7 @@ async fn schedule_operations_publish_changes_and_delivery_updates() {
                 source_run: None,
                 source_label: task.name.clone(),
                 text: "检查完毕".into(),
+                files: Vec::new(),
                 routes: vec![mic_store::PushRoute::Session {
                     channel: "web".into(),
                     session: f.session.id,
@@ -1850,5 +1851,56 @@ async fn ask_user_ends_the_run_and_turns_back_its_batch() {
             kind: ExecFailureKind::Input,
             ..
         }
+    ));
+}
+
+#[tokio::test]
+async fn message_file_serves_only_what_the_message_references() {
+    let f = Fixture::new().await;
+    let dir = std::env::temp_dir().join(format!("mic-message-file-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = |name: &str| {
+        let path = dir.join(name);
+        std::fs::write(&path, name).unwrap();
+        mic_message::FileRef {
+            path: path.to_string_lossy().into_owned(),
+            size_bytes: name.len() as u64,
+        }
+    };
+    let files = vec![file("a.html"), file("b.bin")];
+    let message = f
+        .store
+        .append(
+            f.session.id,
+            Some(f.claimed.run.id),
+            MessageBody::Attachment { files },
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let (found, _) = f
+        .kernel
+        .message_file(f.session.id, message.id, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(found.path.ends_with("b.bin"));
+    assert!(f
+        .kernel
+        .message_file(f.session.id, message.id, 2)
+        .await
+        .unwrap()
+        .is_none());
+    let other = mic_message::SessionId(f.session.id.0 + 1);
+    assert!(f
+        .kernel
+        .message_file(other, message.id, 0)
+        .await
+        .unwrap()
+        .is_none());
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(matches!(
+        f.kernel.message_file(f.session.id, message.id, 0).await,
+        Err(crate::KernelError::FileCleaned)
     ));
 }

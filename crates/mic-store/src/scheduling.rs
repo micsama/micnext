@@ -37,6 +37,7 @@ impl Store {
                 let body = MessageBody::Notification {
                     source: "micnext".to_owned(),
                     text: "重启前有消息还没处理，发新消息时会一并交给 agent。".to_owned(),
+                    files: Vec::new(),
                 };
                 notifications.push(Message {
                     id: insert_message(&tx, session_id, None, &body, at)?,

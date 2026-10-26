@@ -317,3 +317,29 @@ pub(crate) struct QrStatusResponse {
     pub ilink_user_id: Option<String>,
     pub redirect_host: Option<String>,
 }
+
+#[derive(Serialize)]
+pub(crate) struct GetUploadUrlRequest<'a> {
+    pub filekey: &'a str,
+    pub media_type: u8,
+    pub to_user_id: &'a str,
+    pub rawsize: u64,
+    pub rawfilemd5: &'a str,
+    pub filesize: u64,
+    pub no_need_thumb: bool,
+    pub aeskey: &'a str,
+    pub base_info: BaseInfo,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GetUploadUrlResponse {
+    pub ret: Option<i32>,
+    pub errcode: Option<i32>,
+    #[serde(rename = "errmsg")]
+    pub _errmsg: Option<String>,
+    pub upload_param: Option<String>,
+    #[serde(rename = "thumb_upload_param")]
+    pub _thumb_upload_param: Option<String>,
+    pub upload_full_url: Option<String>,
+}

@@ -302,6 +302,17 @@ export async function fetchImage(sessionId: number, imageId: number): Promise<Bl
   return (await ensureOk(res)).blob();
 }
 
+/** 消息或推送引用的文件原件；`path` 为 `/api` 下的下载路径。 */
+export async function fetchFile(path: string): Promise<Blob> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, { headers: authHeaders() });
+  } catch {
+    throw new ApiError(0, "连不上服务，请确认 micnext 正在运行");
+  }
+  return (await ensureOk(res)).blob();
+}
+
 /** 只读诊断 SQL；失败时 message 已是用户可读的原因。 */
 export async function runSql(sql: string): Promise<QueryResult> {
   return parseQueryResult(await request("POST", "/developer/sql", { sql }));

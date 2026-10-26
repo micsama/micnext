@@ -1,4 +1,7 @@
+use aes::cipher::block_padding::Pkcs7;
+use aes::cipher::{BlockEncryptMut, KeyInit};
 use base64::{engine::general_purpose::STANDARD, Engine};
+use md5::{Digest, Md5};
 use reqwest::{Client as HttpClient, Response, Url};
 use serde::de::DeserializeOwned;
 use std::error::Error;
@@ -6,7 +9,8 @@ use std::time::Duration;
 
 use crate::account::{Credentials, Token, WechatUserId};
 use crate::limits::{
-    API_BASE, API_TIMEOUT, APP_ID, BOT_TYPE, CDN_BASE, CLIENT_VERSION, PROTOCOL_VERSION, QR_TIMEOUT,
+    API_BASE, API_TIMEOUT, APP_ID, BOT_TYPE, CDN_BASE, CDN_UPLOAD_TIMEOUT, CLIENT_VERSION,
+    PROTOCOL_VERSION, QR_TIMEOUT,
 };
 use crate::media::{AttachmentFailure, ImageFailure};
 use crate::wire::{self, QrRequest, QrResponse, QrStatus, QrStatusResponse};
@@ -117,6 +121,28 @@ pub(crate) enum AttachmentKind {
 pub(crate) enum DownloadError {
     Client(ClientError),
     TooLarge,
+}
+
+/// 出站消息项：每项单独一条微信消息。
+pub(crate) enum Outgoing<'a> {
+    Text(&'a str),
+    Media { name: &'a str, uploaded: Uploaded },
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum MediaKind {
+    Image,
+    File,
+}
+
+/// 已加密上传到 CDN 的文件，凭下载参数与密钥组成消息项。
+pub(crate) struct Uploaded {
+    kind: MediaKind,
+    download_param: String,
+    /// 32 位 hex；消息项里再 base64，与 SDK 一致。
+    aes_hex: String,
+    raw_size: u64,
+    cipher_size: u64,
 }
 
 /// 当前不能交给模型的入站 item。
@@ -263,8 +289,52 @@ impl Client {
         credentials: &Credentials,
         context_token: &str,
         client_id: &str,
-        text: &str,
+        item: Outgoing<'_>,
     ) -> Result<wire::MessageId, ClientError> {
+        let item = match item {
+            Outgoing::Text(text) => wire::MessageItem {
+                kind: Some(1),
+                text_item: Some(wire::TextItem {
+                    text: Some(text.to_owned()),
+                }),
+                ..Default::default()
+            },
+            Outgoing::Media { name, uploaded } => {
+                let media = wire::CdnMedia {
+                    encrypt_query_param: Some(uploaded.download_param),
+                    aes_key: Some(STANDARD.encode(&uploaded.aes_hex)),
+                    encrypt_type: Some(1),
+                    full_url: None,
+                };
+                match uploaded.kind {
+                    MediaKind::Image => wire::MessageItem {
+                        kind: Some(2),
+                        image_item: Some(wire::ImageItem {
+                            media: Some(media),
+                            thumb_media: None,
+                            aeskey: None,
+                            url: None,
+                            mid_size: Some(uploaded.cipher_size),
+                            thumb_size: None,
+                            thumb_height: None,
+                            thumb_width: None,
+                            hd_size: None,
+                        }),
+                        ..Default::default()
+                    },
+                    MediaKind::File => wire::MessageItem {
+                        kind: Some(4),
+                        file_item: Some(wire::FileItem {
+                            media: Some(media),
+                            file_name: Some(name.to_owned()),
+                            md5: None,
+                            len: Some(uploaded.raw_size.to_string()),
+                        }),
+                        ..Default::default()
+                    },
+                }
+            }
+        };
         let msg = wire::WechatMessage {
             from_user_id: Some(String::new()),
             to_user_id: Some(credentials.user_id.0.clone()),
@@ -272,13 +342,7 @@ impl Client {
             message_type: Some(2),
             message_state: Some(2),
             context_token: Some(context_token.to_owned()),
-            item_list: Some(vec![wire::MessageItem {
-                kind: Some(1),
-                text_item: Some(wire::TextItem {
-                    text: Some(text.to_owned()),
-                }),
-                ..Default::default()
-            }]),
+            item_list: Some(vec![item]),
             ..Default::default()
         };
         let response = self
@@ -306,6 +370,107 @@ impl Client {
             error => error,
         })?;
         message_id.ok_or(ClientError::Protocol("发送成功但缺少 message_id"))
+    }
+
+    /// 规则同 SDK：AES-128-ECB 加密后传 CDN，无缩略图；只传一次，不重放。
+    pub async fn upload(
+        &self,
+        credentials: &Credentials,
+        kind: MediaKind,
+        bytes: Vec<u8>,
+    ) -> Result<Uploaded, ClientError> {
+        let mut random = [0u8; 32];
+        getrandom::fill(&mut random).map_err(|error| {
+            tracing::error!(%error, "wechat random source failed");
+            ClientError::Protocol("随机源不可用")
+        })?;
+        let filekey = hex(&random[..16]);
+        let key: [u8; 16] = random[16..].try_into().expect("切片 16 字节");
+        let raw_size = bytes.len() as u64;
+        let (md5, cipher) = tokio::task::spawn_blocking(move || {
+            let md5 = hex(&Md5::digest(&bytes));
+            let len = bytes.len();
+            let mut buf = bytes;
+            buf.resize(len / 16 * 16 + 16, 0);
+            let cipher_len = Encryptor::new(&key.into())
+                .encrypt_padded_mut::<Pkcs7>(&mut buf, len)
+                .expect("缓冲已按 PKCS7 留足")
+                .len();
+            buf.truncate(cipher_len);
+            (md5, buf)
+        })
+        .await
+        .expect("加密不 panic");
+        let cipher_size = cipher.len() as u64;
+        let aes_hex = hex(&key);
+        let response = self
+            .authenticated(credentials, "ilink/bot/getuploadurl")?
+            .timeout(API_TIMEOUT)
+            .json(&wire::GetUploadUrlRequest {
+                filekey: &filekey,
+                media_type: match kind {
+                    MediaKind::Image => 1,
+                    MediaKind::File => 3,
+                },
+                to_user_id: &credentials.user_id.0,
+                rawsize: raw_size,
+                rawfilemd5: &md5,
+                filesize: cipher_size,
+                no_need_thumb: true,
+                aeskey: &aes_hex,
+                base_info: base_info(),
+            })
+            .send()
+            .await
+            .map_err(|error| network_error("getuploadurl", error))?;
+        let response: wire::GetUploadUrlResponse = decode(response, "getuploadurl").await?;
+        successful(response.ret, response.errcode)?;
+        let url = match (response.upload_full_url, response.upload_param) {
+            (Some(full), _) if !full.trim().is_empty() => {
+                Url::parse(full.trim()).map_err(|_| ClientError::Protocol("上传地址无效"))?
+            }
+            (_, Some(param)) => {
+                let mut url =
+                    Url::parse(&format!("{CDN_BASE}/upload")).expect("CDN_BASE 为合法 URL");
+                url.query_pairs_mut()
+                    .append_pair("encrypted_query_param", &param)
+                    .append_pair("filekey", &filekey);
+                url
+            }
+            _ => return Err(ClientError::Protocol("缺少上传地址")),
+        };
+        let response = self
+            .http
+            .post(url)
+            .timeout(CDN_UPLOAD_TIMEOUT)
+            .header("Content-Type", "application/octet-stream")
+            .body(cipher)
+            .send()
+            .await
+            .map_err(|error| network_error("cdn_upload", error))?;
+        if response.status() != reqwest::StatusCode::OK {
+            let status = response.status().as_u16();
+            let message = response
+                .headers()
+                .get("x-error-message")
+                .and_then(|value| value.to_str().ok());
+            tracing::warn!(status, message, "wechat cdn upload rejected");
+            return Err(ClientError::Rejected(status));
+        }
+        let download_param = response
+            .headers()
+            .get("x-encrypted-param")
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.is_empty())
+            .ok_or(ClientError::Protocol("上传成功但缺少 x-encrypted-param"))?
+            .to_owned();
+        Ok(Uploaded {
+            kind,
+            download_param,
+            aes_hex,
+            raw_size,
+            cipher_size,
+        })
     }
 
     /// 取 typing ticket；成功但未下发 ticket 时为 `None`。
@@ -402,6 +567,12 @@ impl Client {
             }),
         })
     }
+}
+
+type Encryptor = ecb::Encryptor<aes::Aes128>;
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn base_info() -> wire::BaseInfo {

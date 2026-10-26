@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { ExecOutcome, Message, ToolResultOutcome } from "../api/types";
+  import type { ContentPart, ExecOutcome, FileRef, Message, ToolResultOutcome } from "../api/types";
+  import { fetchFile } from "../api/client";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import FileCard from "./FileCard.svelte";
@@ -7,6 +8,7 @@
   import { outcomeText } from "./outcome";
   import type { SessionView } from "../state/session.svelte";
   import ContextBoundaryView from "./ContextBoundaryView.svelte";
+  import CopyButton from "./CopyButton.svelte";
   import ReplyView from "./ReplyView.svelte";
   import ToolRow, { STEP_NAME, STEP_ROW } from "./ToolRow.svelte";
   import JobRef from "./JobRef.svelte";
@@ -27,9 +29,18 @@
   const time = $derived(formatTime(message.created_at));
   const queued = $derived(view.isQueued(message.id));
   const basename = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
+  const fileLoad = (index: number) => () => fetchFile(`/sessions/${message.session_id}/messages/${message.id}/files/${index}`);
   const VERDICT = { Completed: "完成", Failed: "失败", Cancelled: "取消", TimedOut: "超时" } as const;
   const outcomeKind = (o: ExecOutcome) => ("Completed" in o ? "Completed" : "TimedOut" in o ? "TimedOut" : "Failed" in o ? "Failed" : "Cancelled");
 </script>
+
+{#snippet fileCards(files: FileRef[], cls: string)}
+  <div class={["flex flex-wrap gap-2", cls]}>
+    {#each files as file, i (i)}
+      <FileCard name={basename(file.path)} size={file.size_bytes} load={fileLoad(i)} />
+    {/each}
+  </div>
+{/snippet}
 
 {#snippet queuedTag()}
   <span class="inline-flex items-center gap-1 text-xs text-muted-foreground"><Icon name="clock" class="size-3" />排队中</span>
@@ -37,6 +48,7 @@
 
 {#if body.kind === "UserInput"}
   {@const attachments = body.parts.filter((p) => !("Text" in p))}
+  {@const fileIndex = (part: ContentPart) => body.parts.filter((p) => "File" in p).findIndex((p) => p === part)}
   {@const text = body.parts.flatMap((p) => ("Text" in p ? [p.Text.text] : [])).join("")}
   <div class="group relative flex flex-col items-end gap-1.5">
     {#if attachments.length > 0}
@@ -45,13 +57,17 @@
           {#if "Image" in part}
             <HistoryImage sessionId={message.session_id} imageId={part.Image.id} />
           {:else if "File" in part}
-            <FileCard name={basename(part.File.path)} size={part.File.size_bytes} title={part.File.path} />
+            <FileCard name={basename(part.File.path)} size={part.File.size_bytes} title={part.File.path} load={fileLoad(fileIndex(part))} />
           {/if}
         {/each}
       </div>
     {/if}
     {#if text}
-      <div class={["max-w-[85%] rounded-2xl bg-accent px-4 py-2 whitespace-pre-wrap break-words", queued && "opacity-60"]}>{text}</div>
+      <!-- 复制放在气泡左侧：下方只留时间，悬停不压住下一条。 -->
+      <div class="relative max-w-[85%]">
+        <div class={["rounded-2xl bg-accent px-4 py-2 whitespace-pre-wrap break-words", queued && "opacity-60"]}>{text}</div>
+        <div class="absolute right-full bottom-1 pr-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"><CopyButton {text} /></div>
+      </div>
     {/if}
     {#if queued}{@render queuedTag()}{/if}
     <span class="pointer-events-none absolute top-full right-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{time}</span>
@@ -110,6 +126,9 @@
   </details>
 {:else if body.kind === "Notification"}
   <p class="w-fit max-w-full rounded-lg bg-muted/70 px-2.5 py-1 text-xs leading-5 whitespace-pre-wrap break-words text-muted-foreground" title="{body.source} · {time}">{body.text}</p>
+  {#if body.files.length > 0}{@render fileCards(body.files, "justify-center")}{/if}
+{:else if body.kind === "Attachment"}
+  {@render fileCards(body.files, "")}
 {:else if body.kind === "Boundary"}
   {#if body.boundary === "UserClear"}
     <div class="flex items-center gap-3 text-xs text-muted-foreground" title={time}><div class="h-px flex-1 bg-border"></div>上下文已清空<div class="h-px flex-1 bg-border"></div></div>

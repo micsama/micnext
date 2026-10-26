@@ -268,6 +268,7 @@ fn notice(text: String) -> MessageBody {
     MessageBody::Notification {
         source: "micnext".into(),
         text,
+        files: Vec::new(),
     }
 }
 

@@ -28,4 +28,6 @@ pub(crate) const CDN_DOWNLOAD_ATTEMPTS: u32 = 2;
 pub(crate) const IMAGE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) const IMAGE_DOWNLOAD_BYTES: usize = 32 * 1024 * 1024;
 pub(crate) const ATTACHMENT_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+/// 单个出站文件的 CDN 上传；文件大小已由内核限定。
+pub(crate) const CDN_UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 pub(crate) const ATTACHMENT_DOWNLOAD_BYTES: usize = 100 * 1024 * 1024;

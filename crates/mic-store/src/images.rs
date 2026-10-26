@@ -89,7 +89,11 @@ impl Store {
                 delivered_at: None,
             }];
             if let Some(NewNotice { source, text }) = notice {
-                let body = MessageBody::Notification { source, text };
+                let body = MessageBody::Notification {
+                    source,
+                    text,
+                    files: Vec::new(),
+                };
                 messages.push(Message {
                     id: insert_message(&tx, session_id, None, &body, at)?,
                     session_id,

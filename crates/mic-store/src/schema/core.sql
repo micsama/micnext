@@ -188,7 +188,7 @@ CREATE TABLE core_pushes (
   text               TEXT NOT NULL,
   created_at         INTEGER NOT NULL,
   read_at            INTEGER
-);
+, files TEXT NOT NULL DEFAULT '[]');
 
 CREATE INDEX idx_pushes_person ON core_pushes(person_id, id);
 
@@ -234,7 +234,7 @@ CREATE TABLE core_schedule_fires (
 CREATE INDEX idx_schedule_fires ON core_schedule_fires(schedule_id, id);
 
 CREATE INDEX idx_messages_undelivered ON core_messages(session_id)
-  WHERE delivered_at IS NULL AND delivery_failure IS NULL AND kind IN ('Reply', 'Notification');
+  WHERE delivered_at IS NULL AND delivery_failure IS NULL AND kind IN ('Reply', 'Notification', 'Attachment');
 
 CREATE TABLE "core_jobs" (
   id INTEGER PRIMARY KEY,

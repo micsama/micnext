@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mic_message::{
-    ImageData, ImageId, Message, MessageBody, MessageId, PersonId, ReplyBlock, SessionCommand,
-    SessionId,
+    ContentPart, FileRef, ImageData, ImageId, Message, MessageBody, MessageId, PersonId,
+    ReplyBlock, SessionCommand, SessionId,
 };
 use mic_store::rusqlite::{self, Transaction};
 use mic_store::{
@@ -437,6 +437,7 @@ impl Kernel {
                 MessageBody::Notification {
                     source: source.to_owned(),
                     text,
+                    files: Vec::new(),
                 },
                 now_ms(),
             )
@@ -488,6 +489,46 @@ impl Kernel {
         id: ImageId,
     ) -> Result<Option<ImageData>, KernelError> {
         Ok(self.store.image(session_id, id).await?)
+    }
+
+    /// 消息引用的第 `index` 个文件（UserInput 只数文件部分）；不属于该会话或不存在为 `None`。
+    pub async fn message_file(
+        &self,
+        session: SessionId,
+        id: MessageId,
+        index: usize,
+    ) -> Result<Option<(FileRef, tokio::fs::File)>, KernelError> {
+        let message = self
+            .store
+            .messages_by_ids(vec![id])
+            .await?
+            .into_iter()
+            .next();
+        let file = message
+            .filter(|m| m.session_id == session)
+            .and_then(|m| match m.body {
+                MessageBody::UserInput { parts, .. } => parts
+                    .into_iter()
+                    .filter_map(|part| match part {
+                        ContentPart::File(file) => Some(file),
+                        _ => None,
+                    })
+                    .nth(index),
+                MessageBody::Attachment { files } | MessageBody::Notification { files, .. } => {
+                    files.into_iter().nth(index)
+                }
+                _ => None,
+            });
+        open_file(file).await
+    }
+
+    pub async fn push_file(
+        &self,
+        id: PushId,
+        index: usize,
+    ) -> Result<Option<(FileRef, tokio::fs::File)>, KernelError> {
+        let files = self.store.push_files(self.owner, id).await?;
+        open_file(files.and_then(|files| files.into_iter().nth(index))).await
     }
 
     pub async fn archive_session(&self, id: SessionId) -> Result<(), KernelError> {
@@ -1313,5 +1354,22 @@ fn reject_task(session: &Session) -> Result<(), KernelError> {
     match session.kind {
         SessionKind::Task => Err(KernelError::TaskSessionInput),
         _ => Ok(()),
+    }
+}
+
+/// 磁盘上已不在即 `FileCleaned`：库里路径保留，字节可被按日期清理。
+async fn open_file(
+    file: Option<FileRef>,
+) -> Result<Option<(FileRef, tokio::fs::File)>, KernelError> {
+    let Some(file) = file else {
+        return Ok(None);
+    };
+    match tokio::fs::File::open(&file.path).await {
+        Ok(handle) => Ok(Some((file, handle))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(KernelError::FileCleaned),
+        Err(source) => Err(KernelError::FileRead {
+            path: file.path.into(),
+            source,
+        }),
     }
 }

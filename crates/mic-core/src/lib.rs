@@ -25,6 +25,7 @@ mod run;
 mod schedule;
 mod scheduler;
 mod search;
+mod send_file;
 mod title;
 
 pub use ask::{AskArgs, Question, QuestionOption, ASK_USER};

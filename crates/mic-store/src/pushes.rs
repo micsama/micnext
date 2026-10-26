@@ -1,10 +1,11 @@
 //! 推送：发给 person 的消息与各 IM 投递；每条都进 Web 通知中心。契约：docs/blueprints/scheduled-tasks.md P1。
 
-use mic_message::{Message, MessageBody, MessageId, PersonId, SessionId};
+use mic_message::{FileRef, Message, MessageBody, MessageId, PersonId, SessionId};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::messages::insert_message;
+use crate::row;
 use crate::store::Store;
 use crate::{RunId, StoreError};
 
@@ -19,6 +20,7 @@ pub struct NewPush {
     /// 写入私聊会话的 `Notification.source`。
     pub source_label: String,
     pub text: String,
+    pub files: Vec<FileRef>,
     pub routes: Vec<PushRoute>,
 }
 
@@ -35,6 +37,7 @@ pub struct PushView {
     pub source_session_id: SessionId,
     pub source_session_title: Option<String>,
     pub text: String,
+    pub files: Vec<FileRef>,
     pub created_at: i64,
     pub read_at: Option<i64>,
     pub deliveries: Vec<PushDelivery>,
@@ -85,10 +88,11 @@ impl Store {
     ) -> Result<(PushId, Vec<Message>), StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
+            let files = serde_json::to_string(&p.files).expect("FileRef 可序列化");
             tx.execute(
-                "INSERT INTO core_pushes (person_id, source_session_id, source_run_id, text, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![p.person.0, p.source_session.0, p.source_run.map(|r| r.0), p.text, now],
+                "INSERT INTO core_pushes (person_id, source_session_id, source_run_id, text, files, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![p.person.0, p.source_session.0, p.source_run.map(|r| r.0), p.text, files, now],
             )?;
             let id = PushId(tx.last_insert_rowid());
             let mut notices = Vec::new();
@@ -98,6 +102,7 @@ impl Store {
                         let body = MessageBody::Notification {
                             source: p.source_label.clone(),
                             text: p.text.clone(),
+                            files: p.files.clone(),
                         };
                         let message = insert_message(&tx, session, None, &body, now)?;
                         notices.push(Message {
@@ -132,7 +137,7 @@ impl Store {
     ) -> Result<PushPage, StoreError> {
         self.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT p.id, p.source_session_id, s.title, p.text, p.created_at, p.read_at
+                "SELECT p.id, p.source_session_id, s.title, p.text, p.files, p.created_at, p.read_at
                  FROM core_pushes p JOIN core_sessions s ON s.id = p.source_session_id
                  WHERE p.person_id = ?1 AND p.id < ?2
                  ORDER BY p.id DESC LIMIT ?3",
@@ -150,8 +155,9 @@ impl Store {
                             source_session_id: SessionId(r.get(1)?),
                             source_session_title: r.get(2)?,
                             text: r.get(3)?,
-                            created_at: r.get(4)?,
-                            read_at: r.get(5)?,
+                            files: row::json_col(r, 4)?,
+                            created_at: r.get(5)?,
+                            read_at: r.get(6)?,
                             deliveries: Vec::new(),
                         })
                     },
@@ -172,6 +178,24 @@ impl Store {
                 has_more,
                 unread,
             })
+        })
+        .await
+    }
+
+    /// 该 person 某条推送附带的文件；推送不存在为 `None`。
+    pub async fn push_files(
+        &self,
+        person: PersonId,
+        id: PushId,
+    ) -> Result<Option<Vec<FileRef>>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT files FROM core_pushes WHERE id = ?1 AND person_id = ?2",
+                    params![id.0, person.0],
+                    |r| row::json_col(r, 0),
+                )
+                .optional()?)
         })
         .await
     }

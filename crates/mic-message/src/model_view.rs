@@ -25,7 +25,7 @@ pub enum ModelView<'a> {
 }
 
 impl Message {
-    /// `Boundary`、`SideOutput` 不进上下文，返回 `None`。
+    /// `Attachment`、`Boundary`、`SideOutput` 不进上下文，返回 `None`。
     pub fn model_view(&self) -> Option<ModelView<'_>> {
         Some(match &self.body {
             MessageBody::Command {
@@ -89,16 +89,28 @@ impl Message {
                 "{}\n{note}",
                 Header::RuntimeNote.render()
             ))]),
-            MessageBody::Notification { source, text: note } => {
+            MessageBody::Notification {
+                source,
+                text: note,
+                files,
+            } => {
                 let at = local_time(self.created_at);
                 let header = Header::Notification {
                     src: source,
                     at: &at,
                 }
                 .render();
-                ModelView::User(vec![text(format!("{header}\n{note}"))])
+                let mut parts = vec![text(format!("{header}\n{note}"))];
+                parts.extend(
+                    files
+                        .iter()
+                        .map(|f| user_part(&ContentPart::File(f.clone()))),
+                );
+                ModelView::User(parts)
             }
-            MessageBody::Boundary { .. } | MessageBody::SideOutput { .. } => return None,
+            MessageBody::Attachment { .. }
+            | MessageBody::Boundary { .. }
+            | MessageBody::SideOutput { .. } => return None,
         })
     }
 }

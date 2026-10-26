@@ -13,7 +13,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use mic_core::{IncomingPart, ParsedCommand, StopOutcome};
 use mic_message::limits::{MAX_FILES_PER_INPUT, MAX_FILE_BYTES};
-use mic_message::{ImageId, MessageId, SessionId};
+use mic_message::{FileRef, ImageId, MessageId, SessionId};
 use mic_store::{
     ModelId, NewSession, PersonaId, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
     SessionSummary, TagId, ToolScope,
@@ -21,7 +21,9 @@ use mic_store::{
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ApiError, IMAGE_NOT_FOUND, PERSONA_NOT_FOUND, SESSION_NOT_FOUND};
+use crate::error::{
+    ApiError, FILE_NOT_FOUND, IMAGE_NOT_FOUND, PERSONA_NOT_FOUND, SESSION_NOT_FOUND,
+};
 use crate::limits::{CHAT_ID_BYTES, MAX_TEXT_CHARS, PAGE_DEFAULT, PAGE_MAX};
 use crate::service::{random_hex, App};
 use crate::WEB_CHANNEL;
@@ -522,6 +524,51 @@ pub(crate) async fn get_image(
         .header("X-Content-Type-Options", "nosniff")
         .body(Body::from(data.bytes.to_vec()))
         .expect("响应头静态合法"))
+}
+
+/// 消息引用的文件原件；不属于该会话、序号越界与不存在同样返回 404。
+pub(crate) async fn get_message_file(
+    State(app): State<Arc<App>>,
+    path: Result<Path<(i64, i64, usize)>, PathRejection>,
+) -> Result<Response, ApiError> {
+    let Path((session, message, index)) = path.map_err(|_| ApiError::NotFound(FILE_NOT_FOUND))?;
+    let (file, handle) = app
+        .kernel
+        .message_file(SessionId(session), MessageId(message), index)
+        .await?
+        .ok_or(ApiError::NotFound(FILE_NOT_FOUND))?;
+    Ok(file_response(&file, handle))
+}
+
+/// 内容由模型或用户提供：按扩展名给类型，`sandbox` 让直接打开的 HTML 拿不到同源权限。
+pub(crate) fn file_response(file: &FileRef, handle: tokio::fs::File) -> Response {
+    let name = std::path::Path::new(&file.path)
+        .file_name()
+        .map_or_else(|| file.path.clone(), |n| n.to_string_lossy().into_owned());
+    let mime = mime_guess::from_path(&name).first_or_octet_stream();
+    Response::builder()
+        .header(header::CONTENT_TYPE, mime.as_ref())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .header(header::CONTENT_SECURITY_POLICY, "sandbox")
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("inline; filename*=UTF-8''{}", rfc5987(&name)),
+        )
+        .body(Body::from_stream(tokio_util::io::ReaderStream::new(handle)))
+        .expect("响应头均已编码")
+}
+
+fn rfc5987(name: &str) -> String {
+    name.bytes()
+        .map(|b| match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' => (b as char).to_string(),
+            b'!' | b'#' | b'$' | b'&' | b'+' | b'-' | b'.' | b'^' | b'_' | b'`' | b'|' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 fn now_ms() -> i64 {

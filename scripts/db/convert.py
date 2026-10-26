@@ -74,7 +74,8 @@ def main():
     if not args.db.exists():
         print("数据库不存在，新程序将直接初始化当前结构", flush=True)
         return
-    with sqlite3.connect(args.db.resolve().as_uri() + "?mode=ro", uri=True) as conn:
+    # WAL 库在无 -shm 时只读打不开；规划只读不写。
+    with sqlite3.connect(args.db.resolve().as_uri() + "?mode=rw", uri=True) as conn:
         steps = plan(conn)
     if args.check or not steps:
         return

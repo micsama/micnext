@@ -4,11 +4,13 @@
   import BellIcon from "@lucide/svelte/icons/bell";
   import XIcon from "@lucide/svelte/icons/x";
   import type { PushView } from "../api/pushes";
+  import { fetchFile } from "../api/client";
   import { formatAgo, formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import { pushCenter } from "../state/pushes.svelte";
   import { router } from "../state/route.svelte";
   import DeliveryChips from "./DeliveryChips.svelte";
+  import FileCard from "./FileCard.svelte";
 
   $effect(() => {
     if (!pushCenter.open) { untrack(() => pushCenter.close()); return; }
@@ -75,6 +77,13 @@
                 <time class="ml-auto shrink-0 text-muted-foreground tabular-nums" title={formatTime(p.created_at)}>{formatAgo(p.created_at)}</time>
               </div>
               <p class={["mt-1 text-sm leading-relaxed break-words whitespace-pre-wrap", !fresh && "text-foreground/80", long && !full && "line-clamp-4"]}>{p.text}</p>
+              {#if p.files.length > 0}
+                <div class="mt-2 flex flex-wrap gap-2">
+                  {#each p.files as file, i (i)}
+                    <FileCard name={file.path.split(/[\\/]/).at(-1) ?? file.path} size={file.size_bytes} load={() => fetchFile(`/pushes/${p.id}/files/${i}`)} />
+                  {/each}
+                </div>
+              {/if}
               <div class="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
                 {#if long}
                   <button type="button" class="hover:text-foreground" onclick={() => (expanded = full ? expanded.filter((id) => id !== p.id) : [...expanded, p.id])}>{full ? "收起" : "展开全文"}</button>

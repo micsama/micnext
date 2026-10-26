@@ -81,7 +81,9 @@ export type MessageBody =
   /** 定时任务到点发给 bot 的指令。 */
   | { kind: "Trigger"; source: string; text: string }
   | { kind: "HarnessNote"; text: string }
-  | { kind: "Notification"; source: string; text: string }
+  | { kind: "Notification"; source: string; text: string; files: FileRef[] }
+  /** 模型用 send_file 交给用户的文件快照。 */
+  | { kind: "Attachment"; files: FileRef[] }
   | { kind: "Boundary"; boundary: ContextBoundary }
   /** 旁路调用的模型原文，只在 trace 出现。 */
   | { kind: "SideOutput"; purpose: "title"; text: string };
@@ -267,7 +269,7 @@ export type StreamEvent =
   | { event: "run_finished"; data: { run_id: number; state: RunState } }
   | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null } };
 
-const fileRef: Decoder<FileRef> = obj({ path: str, size_bytes: num });
+export const fileRef: Decoder<FileRef> = obj({ path: str, size_bytes: num });
 
 const contentPart: Decoder<ContentPart> = tagged({
   Text: obj({ text: str }),
@@ -338,7 +340,8 @@ const messageBody: Decoder<MessageBody> = kinded({
   JobNotice: { person: num, tool_name: str, exec_id: str, text: str },
   Trigger: { source: str, text: str },
   HarnessNote: { text: str },
-  Notification: { source: str, text: str },
+  Notification: { source: str, text: str, files: arr(fileRef) },
+  Attachment: { files: arr(fileRef) },
   Boundary: { boundary },
   SideOutput: { purpose: oneOf<"title">("title"), text: str },
 });

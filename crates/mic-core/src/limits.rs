@@ -38,6 +38,9 @@ pub(crate) const JOB_READ_MAX: u64 = 64 * 1024;
 pub(crate) const JOB_REPORT_TAIL: u64 = 4 * 1024;
 /// 任务列表里每项附带的输出尾部字节数。
 pub(crate) const JOB_VIEW_TAIL: u64 = 1024;
+/// 单次交付（`send_file` / push）的文件数与单个文件上限。
+pub(crate) const MAX_SEND_FILES: usize = 8;
+pub(crate) const MAX_SEND_FILE_BYTES: u64 = 100 * 1024 * 1024;
 /// 输出增长的列表刷新通知至多这么频繁。
 pub(crate) const JOB_NOTIFY_INTERVAL: Duration = Duration::from_secs(1);
 /// 结束超过这么久的任务默认不列出。

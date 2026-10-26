@@ -41,6 +41,9 @@ import {
   parseTitleModel,
   parseSessionPage,
   parsePinnedSessions,
+  parseTags,
+  parseCreatedTag,
+  type Tag,
   parseMessagePage,
   parseSettings,
   parseSetupAttempt,
@@ -117,8 +120,9 @@ export async function getStreamTicket(path: string): Promise<string> {
   return obj({ ticket: str })(await request("POST", `${path}-ticket`), "票据").ticket;
 }
 
-export async function listSessions(channel: string, before: Cursor | null): Promise<SessionPage> {
+export async function listSessions(channel: string, tag: number | null, before: Cursor | null): Promise<SessionPage> {
   const q = new URLSearchParams({ channel });
+  if (tag !== null) q.set("tag", String(tag));
   if (before) {
     q.set("before_at", String(before.before_at));
     q.set("before_id", String(before.before_id));
@@ -138,8 +142,28 @@ export async function archiveSession(id: number): Promise<void> {
   await request("POST", `/sessions/${id}/archive`);
 }
 
-export async function listPinnedSessions(): Promise<SessionItem[]> {
-  return parsePinnedSessions(await request("GET", "/sessions/pinned"));
+export async function listPinnedSessions(tag: number | null): Promise<SessionItem[]> {
+  return parsePinnedSessions(await request("GET", tag === null ? "/sessions/pinned" : `/sessions/pinned?tag=${tag}`));
+}
+
+export async function listTags(): Promise<Tag[]> {
+  return parseTags(await request("GET", "/tags"));
+}
+
+export async function createTag(name: string): Promise<number> {
+  return parseCreatedTag(await request("POST", "/tags", { name }));
+}
+
+export async function renameTag(id: number, name: string): Promise<void> {
+  await request("PUT", `/tags/${id}`, { name });
+}
+
+export async function deleteTag(id: number): Promise<void> {
+  await request("DELETE", `/tags/${id}`);
+}
+
+export async function setSessionTags(id: number, tagIds: number[]): Promise<void> {
+  await request("PUT", `/sessions/${id}/tags`, { tag_ids: tagIds });
 }
 
 export async function pinSession(id: number, pinned: boolean): Promise<void> {

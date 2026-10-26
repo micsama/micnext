@@ -13,8 +13,8 @@ use mic_store::{
     InputDisposition, JobId, MessagePage, ModelCallId, ModelCallPurpose, ModelId, ModelView,
     ModelWrite, NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId,
     PushId, PushPage, QueryResult, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
-    SessionPage, SessionSummary, Settings, Store, StoreError, TableSchema, TraceRunPage,
-    TraceSession,
+    SessionPage, SessionSummary, Settings, Store, StoreError, TableSchema, Tag, TagId, TagName,
+    TraceRunPage, TraceSession,
 };
 use mic_tool::ToolSpec;
 use tokio::sync::mpsc;
@@ -508,6 +508,33 @@ impl Kernel {
         Ok(())
     }
 
+    pub async fn tags(&self) -> Result<Vec<Tag>, KernelError> {
+        Ok(self.store.tags().await?)
+    }
+
+    pub async fn create_tag(&self, name: TagName) -> Result<TagId, KernelError> {
+        Ok(self.store.create_tag(name, now_ms()).await?)
+    }
+
+    pub async fn rename_tag(&self, id: TagId, name: TagName) -> Result<(), KernelError> {
+        Ok(self.store.rename_tag(id, name).await?)
+    }
+
+    pub async fn delete_tag(&self, id: TagId) -> Result<(), KernelError> {
+        Ok(self.store.delete_tag(id).await?)
+    }
+
+    pub async fn set_session_tags(
+        &self,
+        id: SessionId,
+        tags: Vec<TagId>,
+    ) -> Result<(), KernelError> {
+        let session = self.root_session(id).await?;
+        self.store.set_session_tags(id, tags).await?;
+        self.emit_session_changed(&session);
+        Ok(())
+    }
+
     /// 已读水位前移时才发布变化。
     pub async fn mark_session_seen(
         &self,
@@ -521,8 +548,11 @@ impl Kernel {
         Ok(())
     }
 
-    pub async fn list_pinned_sessions(&self) -> Result<Vec<SessionSummary>, KernelError> {
-        Ok(self.store.list_pinned_sessions().await?)
+    pub async fn list_pinned_sessions(
+        &self,
+        tag: Option<TagId>,
+    ) -> Result<Vec<SessionSummary>, KernelError> {
+        Ok(self.store.list_pinned_sessions(tag).await?)
     }
 
     async fn root_session(&self, id: SessionId) -> Result<Session, KernelError> {
@@ -697,12 +727,13 @@ impl Kernel {
     pub async fn list_root_sessions(
         &self,
         channel: &str,
+        tag: Option<TagId>,
         before: Option<SessionCursor>,
         limit: NonZeroU32,
     ) -> Result<SessionPage, KernelError> {
         Ok(self
             .store
-            .list_root_sessions(channel, before, limit)
+            .list_root_sessions(channel, tag, before, limit)
             .await?)
     }
 
@@ -847,9 +878,11 @@ impl Kernel {
                 return Ok(None);
             }
             let sources = self.store.messages_by_ids(sources).await?;
+            let tags = self.store.title_tag_choices(record.session_id).await?;
             return Ok(Some(crate::title::title_messages(
                 record.session_id,
                 &sources,
+                &tags,
             )));
         }
         let context = record.context;

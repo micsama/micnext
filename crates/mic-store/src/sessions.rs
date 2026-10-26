@@ -8,7 +8,7 @@ use crate::models;
 use crate::row::{self, SESSION_COLS};
 use crate::store::Store;
 use crate::{
-    NewSession, PersonaId, Session, SessionCursor, SessionPage, SessionSummary, StoreError,
+    NewSession, PersonaId, Session, SessionCursor, SessionPage, SessionSummary, StoreError, TagId,
 };
 
 impl Store {
@@ -157,17 +157,21 @@ impl Store {
         .await
     }
 
-    /// 全部置顶的未归档 Root，跨渠道，新置顶在前。
-    pub async fn list_pinned_sessions(&self) -> Result<Vec<SessionSummary>, StoreError> {
+    /// 全部置顶的未归档 Root，跨渠道，新置顶在前；`tag` 只留带这个标签的。
+    pub async fn list_pinned_sessions(
+        &self,
+        tag: Option<TagId>,
+    ) -> Result<Vec<SessionSummary>, StoreError> {
         self.call(move |conn| {
             Ok(conn
                 .prepare(&format!(
                     "{} ORDER BY pinned_at DESC, id DESC",
-                    summaries(
-                        "s.kind = 'root' AND s.archived_at IS NULL AND s.pinned_at IS NOT NULL"
-                    )
+                    summaries(&format!(
+                        "s.kind = 'root' AND s.archived_at IS NULL AND s.pinned_at IS NOT NULL AND {}",
+                        tagged("?1")
+                    ))
                 ))?
-                .query_map([], row_summary)?
+                .query_map([tag.map(|t| t.0)], row_summary)?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })
         .await
@@ -186,10 +190,11 @@ impl Store {
         .await
     }
 
-    /// 列出 `channel` 下已有用户输入的 Root 会话，按 `(last_activity_at, id)` 降序。
+    /// 列出 `channel` 下已有用户输入的 Root 会话，按 `(last_activity_at, id)` 降序；`tag` 只留带这个标签的。
     pub async fn list_root_sessions(
         &self,
         channel: &str,
+        tag: Option<TagId>,
         before: Option<SessionCursor>,
         limit: NonZeroU32,
     ) -> Result<SessionPage, StoreError> {
@@ -201,12 +206,13 @@ impl Store {
                     "{} WHERE ?2 IS NULL OR (act, id) < (?2, ?3)
                      ORDER BY act DESC, id DESC
                      LIMIT ?4",
-                    summaries(
+                    summaries(&format!(
                         "s.kind = 'root' AND s.channel = ?1 AND s.archived_at IS NULL
-                         AND s.pinned_at IS NULL
+                         AND s.pinned_at IS NULL AND {}
                          AND EXISTS (SELECT 1 FROM core_messages m
-                                      WHERE m.session_id = s.id AND m.kind IN ('UserInput', 'Command'))"
-                    )
+                                      WHERE m.session_id = s.id AND m.kind IN ('UserInput', 'Command'))",
+                        tagged("?5")
+                    ))
                 ))?
                 .query_map(
                     params![
@@ -214,6 +220,7 @@ impl Store {
                         before.map(|c| c.last_activity_at),
                         before.map(|c| c.session_id.0),
                         limit as i64 + 1,
+                        tag.map(|t| t.0),
                     ],
                     row_summary,
                 )?
@@ -287,12 +294,19 @@ pub(crate) fn insert_session(tx: &Transaction<'_>, new: NewSession) -> Result<Se
     })
 }
 
+/// `param` 为空或会话带这个标签。
+fn tagged(param: &str) -> String {
+    format!("({param} IS NULL OR EXISTS (SELECT 1 FROM core_session_tags st WHERE st.session_id = s.id AND st.tag_id = {param}))")
+}
+
 /// `filter` 筛出的会话连同 `act`（最近活跃）与 `preview`，供外层再筛选排序。
 fn summaries(filter: &str) -> String {
     // NOTE: 预览依赖 ContentPart 的 serde 外部标签形状 {"Text":{"text":..}}；无文字时以首个附件占位。
     format!(
-        "SELECT {SESSION_COLS}, act, preview, title, title_error, pinned_at, unread, running FROM (
+        "SELECT {SESSION_COLS}, act, preview, title, title_error, pinned_at, unread, running, tag_ids FROM (
            SELECT s.*,
+             (SELECT json_group_array(tag_id) FROM (SELECT tag_id FROM core_session_tags
+                WHERE session_id = s.id ORDER BY tag_id)) AS tag_ids,
              (s.kind = 'root' AND s.channel = 'web' AND EXISTS (
                 SELECT 1 FROM core_messages m
                  WHERE m.session_id = s.id AND m.kind IN ('Reply', 'Notification')
@@ -327,6 +341,17 @@ fn row_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
         pinned_at: r.get(row::SESSION_NEXT + 4)?,
         unread: r.get(row::SESSION_NEXT + 5)?,
         running: r.get(row::SESSION_NEXT + 6)?,
+        tag_ids: serde_json::from_str::<Vec<i64>>(&r.get::<_, String>(row::SESSION_NEXT + 7)?)
+            .map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    row::SESSION_NEXT + 7,
+                    rusqlite::types::Type::Text,
+                    e.into(),
+                )
+            })?
+            .into_iter()
+            .map(TagId)
+            .collect(),
     })
 }
 

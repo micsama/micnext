@@ -22,6 +22,7 @@ mod secrets;
 mod sessions;
 mod settings;
 mod store;
+mod tags;
 mod title;
 mod trace;
 mod types;
@@ -34,6 +35,7 @@ pub use rusqlite;
 pub use diagnostic::{Cell, ColumnSchema, DiagnosticError, QueryResult, TableSchema};
 pub use error::{ContextCommandError, ModelSettingsError, SettingsError, StoreError};
 pub use jobs::{AgentActivity, Job, JobId, JobKind, JobState, NewAgentJob, NewToolJob};
+pub use limits::{TAGS_PER_SESSION, TAG_CHARS};
 pub use pushes::{NewPush, PushDelivery, PushDeliveryState, PushId, PushPage, PushRoute, PushView};
 pub use schedules::{
     Fire, FireId, FireOutcome, FireResult, NewSchedule, Schedule, ScheduleEdit, ScheduleId,
@@ -41,6 +43,7 @@ pub use schedules::{
 };
 pub use secrets::{SecretKeyFile, SecretValue};
 pub use store::Store;
+pub use tags::{is_tag_separator, TagError, TagName};
 pub use title::reply_answer;
 pub use trace::{
     call_cost, CallRecord, CallStat, Dashboard, DayStat, ModelPeers, ModelStat, Peers, RunStats,
@@ -55,5 +58,5 @@ pub use types::{
     NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId,
     ReasoningEffort, Run, RunId, RunInput, RunSettings, RunState, Schema, SecretColumn,
     SelectedModel, Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings,
-    StopReason, TitleCall, TitleModelSelection, ToolScope, Usage,
+    StopReason, Tag, TagId, TitleCall, TitleModelSelection, TitleOutput, ToolScope, Usage,
 };

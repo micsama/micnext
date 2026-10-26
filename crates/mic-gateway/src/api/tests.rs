@@ -23,6 +23,7 @@ fn summary(kind: SessionKind) -> SessionSummary {
         pinned_at: None,
         unread: false,
         running: false,
+        tag_ids: Vec::new(),
     }
 }
 

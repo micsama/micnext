@@ -4,7 +4,7 @@ use axum::Json;
 use mic_core::{
     ChannelSetupError, InputError, JobAccessError, KernelError, MediaError, WorkdirError,
 };
-use mic_store::{DiagnosticError, ModelSettingsError, SettingsError};
+use mic_store::{DiagnosticError, ModelSettingsError, SettingsError, TagError};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -42,6 +42,7 @@ pub(crate) const IMAGE_NOT_FOUND: &str = "图片不存在";
 pub(crate) const MODEL_NOT_FOUND: &str = "模型不存在";
 pub(crate) const ENDPOINT_NOT_FOUND: &str = "服务商不存在";
 pub(crate) const JOB_NOT_FOUND: &str = "任务不存在";
+pub(crate) const TAG_NOT_FOUND: &str = "标签不存在";
 
 impl From<ChannelSetupError> for ApiError {
     fn from(error: ChannelSetupError) -> Self {
@@ -113,6 +114,17 @@ impl From<KernelError> for ApiError {
                 | ModelSettingsError::NameTaken(_)
                 | ModelSettingsError::DefaultInUse => Self::Conflict(e.to_string()),
                 ModelSettingsError::Store(e) => Self::Internal(e.into()),
+            },
+            KernelError::Tag(e) => match e {
+                TagError::NotFound => Self::NotFound(TAG_NOT_FOUND),
+                TagError::Empty | TagError::TooLong | TagError::Separator | TagError::TooMany => {
+                    Self::BadRequest(e.to_string())
+                }
+                TagError::NameTaken(_) => Self::Conflict(e.to_string()),
+                TagError::Store(mic_store::StoreError::SessionArchived) => {
+                    Self::Conflict(e.to_string())
+                }
+                TagError::Store(e) => Self::Internal(e.into()),
             },
             KernelError::Input(e) => match e {
                 InputError::Empty => Self::BadRequest(e.to_string()),

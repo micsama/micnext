@@ -332,7 +332,7 @@ async fn manual_title_records_sources_and_side_output() {
         (ids[0], ids[1], ids[3], ids[4]),
         (first.id, plain.id, answer.id, last.id)
     );
-    let messages = title_messages(session.id, &sources);
+    let messages = title_messages(session.id, &sources, &[]);
     assert_eq!(messages.len(), 6);
     assert!(matches!(&messages[0].body, MessageBody::UserInput { .. }));
     assert!(
@@ -414,4 +414,37 @@ async fn manual_title_records_sources_and_side_output() {
         .messages
         .iter()
         .all(|m| !matches!(m.body, MessageBody::SideOutput { .. })));
+}
+
+#[test]
+fn title_output_parses_title_and_vocabulary_tags() {
+    use mic_store::TagId;
+    let tags = [("工作", 1), ("学习", 2), ("生活", 3)].map(|(name, id)| Tag {
+        id: TagId(id),
+        name: name.into(),
+        sessions: 0,
+    });
+    let parse = |text: &str, tags: &[Tag]| {
+        parse_title(
+            &ModelResponse {
+                blocks: vec![ReplyBlock::Text {
+                    text: text.into(),
+                    phase: None,
+                }],
+                stop: StopReason::EndTurn,
+            },
+            tags,
+        )
+        .map(|out| (out.title, out.tags))
+    };
+    assert_eq!(parse("周报", &[]).unwrap(), ("周报".into(), None));
+    assert!(parse("周报\n工作", &[]).is_err());
+    assert_eq!(
+        parse("周报\n\n学习, 工作", &tags).unwrap(),
+        ("周报".into(), Some(vec![TagId(1), TagId(2)]))
+    );
+    assert_eq!(parse("周报", &tags).unwrap(), ("周报".into(), Some(vec![])));
+    assert!(parse("周报\n代码", &tags).is_err());
+    assert!(parse("周报\n工作、学习、生活", &tags).is_err());
+    assert!(parse("周报\n工作\n多余", &tags).is_err());
 }

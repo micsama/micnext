@@ -7,9 +7,10 @@ use rusqlite::{params, Connection};
 
 use crate::context::insert_call;
 use crate::row::{self, MESSAGE_COLS, MESSAGE_FROM};
+use crate::tags::replace_session_tags;
 use crate::{
     models, ClaimedModel, ModelId, ModelSettingsError, Store, StoreError, TitleCall,
-    TitleModelSelection,
+    TitleModelSelection, TitleOutput,
 };
 
 impl Store {
@@ -85,7 +86,7 @@ impl Store {
     pub async fn save_title_result(
         &self,
         session: SessionId,
-        result: Result<String, String>,
+        result: Result<TitleOutput, String>,
         call: Option<TitleCall>,
     ) -> Result<(), StoreError> {
         self.call(move |conn| {
@@ -105,11 +106,20 @@ impl Store {
                 }
             }
             match result {
-                Ok(title) => {
+                Ok(TitleOutput { title, tags }) => {
                     tx.execute(
                         "UPDATE core_sessions SET title = ?1, title_error = NULL WHERE id = ?2",
                         params![title, session.0],
                     )?;
+                    // 生成期间用户手动改过标签，就以手动为准。
+                    let manual: bool = tx.query_row(
+                        "SELECT tags_manual FROM core_sessions WHERE id = ?1",
+                        [session.0],
+                        |r| r.get(0),
+                    )?;
+                    if let (Some(tags), false) = (tags, manual) {
+                        replace_session_tags(&tx, session, &tags)?;
+                    }
                 }
                 Err(error) => {
                     tx.execute(

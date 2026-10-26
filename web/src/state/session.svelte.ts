@@ -48,7 +48,7 @@ export class SessionView {
         try {
           const info = await getSession(this.id);
           if (this.#abort.signal.aborted) return;
-          if (this.info) Object.assign(this.info, { schedule: info.schedule, title: info.title, title_error: info.title_error, title_generating: info.title_generating, pinned_at: info.pinned_at, archived_at: info.archived_at });
+          if (this.info) Object.assign(this.info, { schedule: info.schedule, title: info.title, title_error: info.title_error, title_generating: info.title_generating, pinned_at: info.pinned_at, archived_at: info.archived_at, tag_ids: info.tag_ids });
           this.titleSyncError = null;
         } catch (error) {
           if (!this.#abort.signal.aborted) this.titleSyncError = (error as Error).message;

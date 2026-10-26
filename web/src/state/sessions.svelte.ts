@@ -1,5 +1,35 @@
-import { listPinnedSessions, listSessions } from "../api/client";
-import type { Cursor, SessionItem } from "../api/types";
+import { listPinnedSessions, listSessions, listTags } from "../api/client";
+import type { Cursor, SessionItem, Tag } from "../api/types";
+
+/** 标签词表与侧栏的单选筛选；筛选只在本页有效。 */
+class Tags {
+  items = $state<Tag[]>([]);
+  error = $state<string | null>(null);
+  filter = $state<number | null>(null);
+
+  byId(id: number): Tag | undefined {
+    return this.items.find((t) => t.id === id);
+  }
+
+  async refresh(): Promise<void> {
+    try {
+      this.items = await listTags();
+      this.error = null;
+      if (this.filter !== null && !this.byId(this.filter)) this.select(null);
+    } catch (e) {
+      this.error = (e as Error).message;
+    }
+  }
+
+  select(id: number | null): void {
+    if (this.filter === id) return;
+    this.filter = id;
+    for (const list of allLists()) list.reset();
+    sessionsSync.request();
+  }
+}
+
+export const tags = new Tags();
 
 /** Gateway 之外、Web 只读查看的渠道。新渠道由接入它的 B2 追加（web-ui §五）。 */
 export const OTHER_CHANNELS = ["cli", "wechat"] as const;
@@ -15,15 +45,25 @@ export class SessionList {
 
   constructor(readonly channel: string) {}
 
+  /** 换筛选后从头加载。 */
+  reset(): void {
+    this.items = [];
+    this.next = null;
+    this.loaded = false;
+    this.#pages = 1;
+  }
+
   /** 从首页起重拉已加载的页数，整体替换。 */
   async refresh(): Promise<void> {
+    const tag = tags.filter;
     try {
-      let page = await listSessions(this.channel, null);
+      let page = await listSessions(this.channel, tag, null);
       const items = [...page.items];
       for (let n = 1; n < this.#pages && page.next; n++) {
-        page = await listSessions(this.channel, page.next);
+        page = await listSessions(this.channel, tag, page.next);
         items.push(...page.items);
       }
+      if (tag !== tags.filter) return;
       this.items = items;
       this.next = page.next;
       this.loaded = true;
@@ -37,7 +77,9 @@ export class SessionList {
     if (!this.next || this.loading) return;
     this.loading = true;
     try {
-      const page = await listSessions(this.channel, this.next);
+      const tag = tags.filter;
+      const page = await listSessions(this.channel, tag, this.next);
+      if (tag !== tags.filter) return;
       const ids = new Set(this.items.map((s) => s.id));
       this.items = [...this.items, ...page.items.filter((s) => !ids.has(s.id))];
       this.next = page.next;
@@ -56,9 +98,16 @@ class PinnedList {
   items = $state<SessionItem[]>([]);
   error = $state<string | null>(null);
 
+  reset(): void {
+    this.items = [];
+  }
+
   async refresh(): Promise<void> {
     try {
-      this.items = await listPinnedSessions();
+      const tag = tags.filter;
+      const items = await listPinnedSessions(tag);
+      if (tag !== tags.filter) return;
+      this.items = items;
       this.error = null;
     } catch (e) {
       this.error = (e as Error).message;
@@ -86,7 +135,7 @@ class SessionsSync {
   async #loop(): Promise<void> {
     while (this.#dirty) {
       this.#dirty = false;
-      await Promise.all(allLists().map((list) => list.refresh()));
+      await Promise.all([tags.refresh(), ...allLists().map((list) => list.refresh())]);
       if (this.#dirty) await new Promise((r) => setTimeout(r, THROTTLE_MS));
     }
   }

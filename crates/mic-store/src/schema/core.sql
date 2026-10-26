@@ -89,7 +89,7 @@ CREATE TABLE core_sessions (
   archived_at         INTEGER,
   title               TEXT,
   title_error         TEXT
-, plain_after INTEGER, pinned_at INTEGER, seen_message_id INTEGER);
+, plain_after INTEGER, pinned_at INTEGER, seen_message_id INTEGER, tags_manual INTEGER NOT NULL DEFAULT 0);
 
 CREATE UNIQUE INDEX idx_root_chat ON core_sessions(channel, chat) WHERE kind = 'root';
 
@@ -259,6 +259,20 @@ CREATE TABLE "core_jobs" (
 CREATE INDEX idx_jobs_owner ON core_jobs(owner_session_id);
 
 CREATE INDEX idx_jobs_running ON core_jobs(id) WHERE state = 'running';
+
+CREATE TABLE core_tags (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  created_at  INTEGER NOT NULL
+);
+
+CREATE TABLE core_session_tags (
+  session_id  INTEGER NOT NULL REFERENCES core_sessions(id),
+  tag_id      INTEGER NOT NULL REFERENCES core_tags(id) ON DELETE CASCADE,
+  PRIMARY KEY (session_id, tag_id)
+);
+
+CREATE INDEX idx_session_tags_tag ON core_session_tags(tag_id);
 
 INSERT INTO core_personas (id, name, prompt, builtin, created_at, updated_at) VALUES (1, '默认', '', 1, 0, 0);
 INSERT INTO core_settings (id, default_persona_id, general_prompt, default_workdir, max_turns) VALUES (1, 1, '', '~/workspace/mic', 50);

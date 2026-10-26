@@ -16,6 +16,8 @@ pub struct SettingsExport {
     pub endpoints: Vec<ExportEndpoint>,
     pub personas: Vec<ExportPersona>,
     pub preferences: ExportPreferences,
+    /// 标签词表的名字；导入只补缺少的。
+    pub tags: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -113,8 +115,9 @@ impl Store {
             preferences.default_model = default_model.map(|id| model_reference(&tx, id)).transpose()?;
             preferences.title_model = title_model.map(|id| model_reference(&tx, id)).transpose()?;
             preferences.push_channels = crate::pushes::read_push_channels(&tx)?;
+            let tags = crate::tags::export_names(&tx)?;
             tx.commit()?;
-            Ok(SettingsExport { endpoints, personas, preferences })
+            Ok(SettingsExport { endpoints, personas, preferences, tags })
         }).await
     }
 
@@ -198,6 +201,10 @@ impl Store {
                 || (title_model.is_none() && p.title_reasoning_effort.is_some()) {
                 return Err(invalid("通用设置或标题模型选择无效"));
             }
+            crate::tags::import_names(&tx, &s.tags, now).map_err(|e| match e {
+                crate::TagError::Store(e) => SettingsError::Store(e),
+                e => invalid(&format!("标签：{e}")),
+            })?;
             tx.execute("UPDATE core_settings SET default_persona_id = ?1, general_prompt = ?2, default_workdir = ?3, max_turns = ?4, compaction_trigger_percent = ?5, compaction_keep_percent = ?6, default_model_id = ?7, title_model_id = ?8, title_reasoning_effort = ?9, push_channels = ?10", params![persona, p.general_prompt, p.default_workdir, p.max_turns, p.compaction.trigger_percent, p.compaction.keep_percent, default_model, title_model, p.title_reasoning_effort, serde_json::to_string(&p.push_channels).expect("字符串数组可序列化")])?;
             tx.commit()?;
             Ok(())

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { toolKey, toolResults } from "./tool-results";
   import type { SessionView } from "../state/session.svelte";
+  import ThinkingDots from "./ThinkingDots.svelte";
 
   let { view }: { view: SessionView } = $props();
 
@@ -37,7 +38,7 @@
 </script>
 
 <div class="flex items-center gap-2.5 text-sm" role="status">
-  <span class="dots flex gap-1" aria-hidden="true"><i></i><i></i><i></i></span>
+  <ThinkingDots />
   <span class="shimmer font-medium">{label}</span>
   {#if view.modelRetry}<span class="text-xs text-muted-foreground">第 {view.modelRetry.attempt} 次重试</span>{/if}
   {#if retrySeconds > 0}
@@ -46,19 +47,6 @@
 </div>
 
 <style>
-  .dots i {
-    width: 6px;
-    height: 6px;
-    border-radius: 9999px;
-    background: var(--primary);
-    animation: hop 1.2s ease-in-out infinite;
-  }
-  .dots i:nth-child(2) { animation-delay: .15s; }
-  .dots i:nth-child(3) { animation-delay: .3s; }
-  @keyframes hop {
-    0%, 60%, 100% { transform: translateY(0); opacity: .35; }
-    30% { transform: translateY(-4px); opacity: 1; }
-  }
   .shimmer {
     background: linear-gradient(90deg, var(--muted-foreground) 40%, var(--foreground) 50%, var(--muted-foreground) 60%) 0 0 / 300% 100%;
     background-clip: text;
@@ -67,7 +55,6 @@
   }
   @keyframes sweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
   @media (prefers-reduced-motion: reduce) {
-    .dots i, .shimmer { animation: none; }
-    .dots i { opacity: .6; }
+    .shimmer { animation: none; }
   }
 </style>

@@ -11,3 +11,6 @@ pub(crate) const DIAGNOSTIC_BYTES: usize = 1024 * 1024;
 pub(crate) const DIAGNOSTIC_VALUE_BYTES: i32 = 32 * 1024 * 1024;
 /// 每执行这么多条 VM 指令检查一次超时。
 pub(crate) const DIAGNOSTIC_PROGRESS_OPS: i32 = 1000;
+/// 标签名字数与每个会话的标签数上限。
+pub const TAG_CHARS: usize = 4;
+pub const TAGS_PER_SESSION: usize = 2;

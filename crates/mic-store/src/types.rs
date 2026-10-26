@@ -22,6 +22,25 @@ pub struct PersonaId(pub i64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
+pub struct TagId(pub i64);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Tag {
+    pub id: TagId,
+    pub name: String,
+    /// 带这个标签的会话数。
+    pub sessions: u32,
+}
+
+/// 一次标题生成的结果；`tags` 为 `None` 时不动会话标签。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TitleOutput {
+    pub title: String,
+    pub tags: Option<Vec<TagId>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ModelId(pub i64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -281,6 +300,8 @@ pub struct SessionSummary {
     pub unread: bool,
     /// 自身有 `Executing` 的 run。
     pub running: bool,
+    /// id 升序。
+    pub tag_ids: Vec<TagId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

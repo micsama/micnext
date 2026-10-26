@@ -16,7 +16,7 @@ use mic_message::limits::{MAX_FILES_PER_INPUT, MAX_FILE_BYTES};
 use mic_message::{ImageId, MessageId, SessionId};
 use mic_store::{
     ModelId, NewSession, PersonaId, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
-    SessionSummary, ToolScope,
+    SessionSummary, TagId, ToolScope,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ListQuery {
     channel: String,
+    tag: Option<TagId>,
     before_at: Option<i64>,
     before_id: Option<i64>,
     limit: Option<u32>,
@@ -92,6 +93,7 @@ pub(crate) struct SessionItem {
     pinned_at: Option<i64>,
     unread: bool,
     running: bool,
+    tag_ids: Vec<TagId>,
 }
 
 #[derive(Serialize)]
@@ -135,7 +137,7 @@ pub(crate) async fn list_sessions(
     let limit = NonZeroU32::new(limit).expect("limit 已限定为正");
     let page = app
         .kernel
-        .list_root_sessions(&q.channel, before, limit)
+        .list_root_sessions(&q.channel, q.tag, before, limit)
         .await?;
     Ok(Json(SessionPage {
         items: page
@@ -155,10 +157,18 @@ pub(crate) struct PinnedSessions {
     items: Vec<SessionItem>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PinnedQuery {
+    tag: Option<TagId>,
+}
+
 pub(crate) async fn list_pinned_sessions(
     State(app): State<Arc<App>>,
+    query: Result<Query<PinnedQuery>, QueryRejection>,
 ) -> Result<Json<PinnedSessions>, ApiError> {
-    let items = app.kernel.list_pinned_sessions().await?;
+    let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
+    let items = app.kernel.list_pinned_sessions(q.tag).await?;
     Ok(Json(PinnedSessions {
         items: items
             .into_iter()
@@ -198,6 +208,7 @@ fn item(s: SessionSummary) -> Option<SessionItem> {
         pinned_at: s.pinned_at,
         unread: s.unread,
         running: s.running,
+        tag_ids: s.tag_ids,
     })
 }
 

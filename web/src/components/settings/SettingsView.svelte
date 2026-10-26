@@ -4,6 +4,7 @@
   import BoxesIcon from "@lucide/svelte/icons/boxes";
   import SlidersIcon from "@lucide/svelte/icons/sliders-horizontal";
   import SparklesIcon from "@lucide/svelte/icons/sparkles";
+  import TagIcon from "@lucide/svelte/icons/tag";
   import QrCodeIcon from "@lucide/svelte/icons/qr-code";
   import type { Component } from "svelte";
   import { cn } from "$lib/utils";
@@ -13,16 +14,18 @@
   import EndpointsSection from "./EndpointsSection.svelte";
   import PersonasSection from "./PersonasSection.svelte";
   import PrefsSection from "./PrefsSection.svelte";
+  import TagsSection from "./TagsSection.svelte";
   import WechatSection from "./WechatSection.svelte";
 
   $effect(() => {
     document.title = "设置 · micnext";
   });
 
-  type Tab = "prefs" | "personas" | "models" | "wechat" | "backup";
+  type Tab = "prefs" | "personas" | "tags" | "models" | "wechat" | "backup";
   const tabs: { id: Tab; label: string; icon: Component }[] = [
     { id: "prefs", label: "对话偏好", icon: SlidersIcon },
     { id: "personas", label: "人设", icon: SparklesIcon },
+    { id: "tags", label: "标签", icon: TagIcon },
     { id: "models", label: "服务商与模型", icon: BoxesIcon },
     { id: "wechat", label: "微信", icon: QrCodeIcon },
     { id: "backup", label: "设置备份", icon: ArchiveIcon },
@@ -71,6 +74,8 @@
       {/if}
       {#if tab === "backup"}
         <BackupSection />
+      {:else if tab === "tags"}
+        <TagsSection />
       {:else if tab === "wechat"}
         <WechatSection />
       {:else if !settingsStore.settings}

@@ -38,7 +38,7 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(self.version(), 25)
         result = self.run_script("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.version(), 26)
+        self.assertEqual(self.version(), 27)
         with sqlite3.connect(self.db) as conn:
             self.assertEqual(conn.execute("SELECT seen_message_id FROM core_sessions").fetchone(), (11,))
         self.assertEqual(self.run_script("--apply").returncode, 0)
@@ -62,7 +62,7 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(self.version(), 25)
 
     def test_missing_step_and_newer_database_fail_without_writes(self):
-        for version in [9, 27]:
+        for version in [9, 28]:
             with sqlite3.connect(self.db) as conn:
                 conn.execute("UPDATE schema_migrations SET version=?", (version,))
             self.assertNotEqual(self.run_script("--apply").returncode, 0)

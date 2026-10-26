@@ -12,7 +12,8 @@
   import { groupSessions } from "../lib/format";
   import Icon, { type IconName } from "../lib/Icon.svelte";
   import { router } from "../state/route.svelte";
-  import { otherSessions, pinnedSessions, sessionsSync, webSessions, type SessionList } from "../state/sessions.svelte";
+  import { otherSessions, pinnedSessions, sessionsSync, tags, webSessions, type SessionList } from "../state/sessions.svelte";
+  import TagPill from "./TagPill.svelte";
   import { SvelteMap } from "svelte/reactivity";
   import type { TraceSession } from "../api/trace";
   import { issues, traceSessions } from "../state/trace-sessions.svelte";
@@ -183,7 +184,7 @@
   {@const current = activeSession?.id === id ? activeSession : s}
   {@const running = s.running || (activeId === id && executingRun !== null)}
   {@const unread = s.unread && !running}
-  <div class="session-entry group flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={(stripeIndex.get(id) ?? 0) % 2 === 1} data-selected={activeId === id} data-state={running ? "running" : unread ? "unread" : undefined}>
+  <div class="session-entry group relative flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={(stripeIndex.get(id) ?? 0) % 2 === 1} data-selected={activeId === id} data-state={running ? "running" : unread ? "unread" : undefined}>
     <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && "md:opacity-0"]}>
       <PinIcon class="size-3" />
     </button>
@@ -192,7 +193,11 @@
       onclick={(e) => (e.preventDefault(), go(`/s/${id}`))}
       class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-sm">
       <span class={["min-w-0 flex-1 truncate", activeId === id && "font-medium", unread && "font-semibold"]}>{current.title ?? current.preview ?? `会话 ${id}`}</span>
-      {#if running}<span role="status" aria-label="运行中" title="运行中" class="flex shrink-0"><Icon name="loader" class="size-3 animate-spin text-primary motion-reduce:animate-none" /></span>
+      {#each s.tag_ids.filter((t) => t !== tags.filter) as t (t)}
+        {@const tag = tags.byId(t)}
+        {#if tag}<TagPill id={t} name={tag.name} />{/if}
+      {/each}
+      {#if running}<span role="status" class="sr-only">运行中</span>
       {:else if unread}<span class="sr-only">有新回复</span>{/if}
     </a>
     <Popover.Root>
@@ -256,6 +261,14 @@
         class="flex w-full items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm hover:bg-accent">
         <Icon name="plus" />新会话
       </button>
+      {#if tags.items.length > 0}
+        <div role="group" aria-label="按标签筛选" class="mt-2 flex [scrollbar-width:none] items-center gap-1 overflow-x-auto">
+          <button type="button" aria-pressed={tags.filter === null} onclick={() => tags.select(null)} class={["shrink-0 rounded-full px-1.5 text-[11px] leading-[18px] text-muted-foreground hover:bg-accent", tags.filter === null && "bg-background text-foreground ring-1 ring-border"]}>全部</button>
+          {#each tags.items as t (t.id)}
+            <TagPill id={t.id} name={t.name} active={tags.filter === t.id} onclick={() => tags.select(tags.filter === t.id ? null : t.id)} />
+          {/each}
+        </div>
+      {/if}
     {/if}
   </div>
   <nav class="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -344,21 +357,36 @@
     background-color: color-mix(in srgb, var(--foreground) 2%, transparent);
   }
   .session-entry[data-selected="true"] {
-    outline: 2px solid var(--primary);
-    outline-offset: -1px;
+    box-shadow: inset 0 0 0 2px var(--primary);
     background-color: color-mix(in srgb, var(--primary) 10%, var(--muted));
   }
   .session-entry[data-state="unread"] {
     border-color: color-mix(in srgb, var(--primary) 32%, transparent);
   }
+  /* 运行中：一段主色光沿边框绕行，行内不占位。 */
   .session-entry[data-state="running"] {
-    border-color: color-mix(in srgb, var(--primary) 30%, transparent);
-    animation: running-border 2.4s ease-in-out infinite;
+    border-color: color-mix(in srgb, var(--primary) 20%, transparent);
   }
-  @keyframes running-border {
-    50% { border-color: color-mix(in srgb, var(--primary) 75%, transparent); }
+  .session-entry[data-state="running"]::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    padding: 1px;
+    border-radius: inherit;
+    background: conic-gradient(from var(--sweep), transparent 0 65%, var(--primary) 90%, transparent);
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    animation: sweep 2.4s linear infinite;
+    pointer-events: none;
+  }
+  @property --sweep {
+    syntax: "<angle>";
+    initial-value: 0deg;
+    inherits: false;
+  }
+  @keyframes sweep {
+    to { --sweep: 360deg; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .session-entry[data-state="running"] { animation: none; }
+    .session-entry[data-state="running"]::before { animation: none; }
   }
 </style>

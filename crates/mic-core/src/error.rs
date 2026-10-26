@@ -92,6 +92,8 @@ pub enum KernelError {
     #[error(transparent)]
     ModelSettings(#[from] mic_store::ModelSettingsError),
     #[error(transparent)]
+    Tag(#[from] mic_store::TagError),
+    #[error(transparent)]
     Input(#[from] crate::InputError),
     #[error("模型配置有误：{0}")]
     Config(#[from] crate::ConfigError),

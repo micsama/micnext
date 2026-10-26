@@ -13,6 +13,7 @@
   import PersonaPicker from "./PersonaPicker.svelte";
   import Switch from "./Switch.svelte";
   import Icon from "../lib/Icon.svelte";
+  import SessionTags from "./SessionTags.svelte";
   import JobsDock from "./JobsDock.svelte";
   import { provideJobRefs } from "./JobRef.svelte";
 
@@ -124,6 +125,7 @@
     <button type="button" aria-label="重新生成标题" title={titleBusy ? "正在生成标题" : "重新生成标题"} disabled={titleBusy || !view.ready || !!view.fatal || item?.archived_at != null} onclick={() => view.regenerateTitle()} class="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40">
       <Icon name={titleBusy ? "loader" : "refresh"} class="size-3.5 {titleBusy ? 'animate-spin' : ''}" />
     </button>
+    {#if item}<SessionTags {item} />{/if}
     {/if}
   {/snippet}
 </Header>

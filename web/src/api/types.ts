@@ -120,7 +120,11 @@ export type SessionItem = {
   /** Web 会话有未看过的回复或通知。 */
   unread: boolean;
   running: boolean;
+  /** id 升序；名字查 `/tags` 词表。 */
+  tag_ids: number[];
 };
+
+export type Tag = { id: number; name: string; sessions: number };
 
 export type Preset = "generic" | "deepseek" | "ollama" | "openai" | "chatgpt";
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -370,6 +374,7 @@ const sessionFields = {
   pinned_at: nullable(num),
   unread: bool,
   running: bool,
+  tag_ids: arr(num),
 };
 const sessionItem: Decoder<SessionItem> = obj(sessionFields);
 const sessionDetail: Decoder<SessionDetail> = obj({ ...sessionFields, title_generating: bool });
@@ -462,6 +467,8 @@ export const parseSessionDetail = (v: unknown): SessionDetail => sessionDetail(v
 export const parseTitleModel = (v: unknown): TitleModelSelection => titleModel(v, "标题模型");
 
 export const parseSessionPage = (v: unknown): SessionPage => sessionPage(v, "会话列表");
+export const parseTags = (v: unknown): Tag[] => arr(obj({ id: num, name: str, sessions: num }))(v, "标签");
+export const parseCreatedTag = (v: unknown): number => obj({ id: num })(v, "新建标签").id;
 export const parsePinnedSessions = (v: unknown): SessionItem[] => pinnedSessions(v, "置顶会话").items;
 
 export const parseMessage = (v: unknown): Message => message(v, "消息");

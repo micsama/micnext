@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use mic_message::{ContentPart, Message, MessageBody, ReplyBlock, SessionId};
 use mic_store::{
-    reply_answer, ClaimedModel, ModelCallContext, ModelCallOutcome, ModelCallPurpose, Session,
-    Store, StoreError, TitleCall,
+    is_tag_separator, reply_answer, ClaimedModel, ModelCallContext, ModelCallOutcome,
+    ModelCallPurpose, Session, Store, StoreError, Tag, TitleCall, TitleOutput, TAGS_PER_SESSION,
 };
 use tokio::sync::{mpsc, watch};
 use tokio::task::{Id, JoinSet};
@@ -194,7 +194,11 @@ fn root_channel(session: &Session) -> &str {
 }
 
 /// 生成与 trace 重建共用取材和末尾任务。
-pub(crate) fn title_messages(session: SessionId, sources: &[Message]) -> Vec<Message> {
+pub(crate) fn title_messages(
+    session: SessionId,
+    sources: &[Message],
+    tags: &[Tag],
+) -> Vec<Message> {
     let mut budget = TITLE_INPUT_CHARS;
     let mut messages: Vec<Message> = sources
         .iter()
@@ -250,13 +254,28 @@ pub(crate) fn title_messages(session: SessionId, sources: &[Message]) -> Vec<Mes
     messages.push(Message {
         id: mic_message::MessageId(0),
         session_id: session,
-        body: MessageBody::HarnessNote {
-            text: format!("为以上对话生成简短标题，使用用户的语言。只输出一行纯文本，最多 {TITLE_CHARS} 字，不带 Markdown、引号、前缀或解释。"),
-        },
+        body: MessageBody::HarnessNote { text: task(tags) },
         created_at: now_ms(),
         delivered_at: None,
     });
     messages
+}
+
+fn task(tags: &[Tag]) -> String {
+    const TITLE: &str = "不带 Markdown、引号、前缀或解释";
+    if tags.is_empty() {
+        return format!("为以上对话生成简短标题，使用用户的语言。只输出一行纯文本，最多 {TITLE_CHARS} 字，{TITLE}。");
+    }
+    let names = tags
+        .iter()
+        .map(|t| t.name.as_str())
+        .collect::<Vec<_>>()
+        .join("、");
+    format!(
+        "为以上对话生成简短标题并挑选标签，使用用户的语言。\n\
+         第一行输出标题：纯文本，最多 {TITLE_CHARS} 字，{TITLE}。\n\
+         第二行从这些标签中选 0–{TAGS_PER_SESSION} 个最贴切的，用「、」分隔：{names}。都不贴切就只输出标题这一行。不要输出其他内容。"
+    )
 }
 
 async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(), StoreError> {
@@ -275,10 +294,11 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
                 .await;
         }
     };
+    let tags = store.title_tag_choices(job.session.id).await?;
     let request = ModelRequest {
         tool_choice: ToolChoice::None,
         system: "你负责为对话生成标题。".into(),
-        messages: title_messages(job.session.id, &job.sources),
+        messages: title_messages(job.session.id, &job.sources, &tags),
         tools: Vec::new(),
         images: Default::default(),
         cache_key: format!("title-{}", job.session.id.0),
@@ -302,7 +322,7 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
             })
             .collect::<String>()
     });
-    let result = response.and_then(|response| parse_title(&response));
+    let result = response.and_then(|response| parse_title(&response, &tags));
     if let Err(error) = &result {
         tracing::warn!(
             session = job.session.id.0,
@@ -359,34 +379,63 @@ fn build_provider(
     }
 }
 
-fn parse_title(response: &ModelResponse) -> Result<String, ProviderError> {
+fn parse_title(response: &ModelResponse, tags: &[Tag]) -> Result<TitleOutput, ProviderError> {
+    let protocol = |message: String| ProviderError::Protocol { message };
     if response.stop != StopReason::EndTurn {
-        return Err(ProviderError::Protocol {
-            message: "标题输出未正常完成，请重试".into(),
-        });
+        return Err(protocol("标题输出未正常完成，请重试".into()));
     }
     let mut text = String::new();
     for block in &response.blocks {
         match block {
             ReplyBlock::Text { text: part, .. } => text.push_str(part),
-            ReplyBlock::ToolCall { .. } => {
-                return Err(ProviderError::Protocol {
-                    message: "标题输出包含工具调用".into(),
-                })
-            }
+            ReplyBlock::ToolCall { .. } => return Err(protocol("标题输出包含工具调用".into())),
             ReplyBlock::Reasoning(_) => {}
         }
     }
-    let text = text.trim();
-    if text.is_empty()
-        || text
-            .chars()
-            .any(|c| matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}'))
-        || text.chars().count() > TITLE_CHARS
+    let mut lines = text
+        .trim()
+        .split(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'])
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    let title = lines.next().unwrap_or_default();
+    let tag_line = lines.next();
+    if title.chars().count() > TITLE_CHARS
+        || lines.next().is_some()
+        || (tags.is_empty() && tag_line.is_some())
+        || title.is_empty()
     {
-        return Err(ProviderError::Protocol {
-            message: format!("标题须为一行非空文本，最多 {TITLE_CHARS} 字，请重试"),
+        return Err(protocol(if tags.is_empty() {
+            format!("标题须为一行非空文本，最多 {TITLE_CHARS} 字，请重试")
+        } else {
+            format!("须输出一行标题（最多 {TITLE_CHARS} 字）和至多一行标签，请重试")
+        }));
+    }
+    if tags.is_empty() {
+        return Ok(TitleOutput {
+            title: title.into(),
+            tags: None,
         });
     }
-    Ok(text.into())
+    let mut chosen = Vec::new();
+    for name in tag_line
+        .unwrap_or_default()
+        .split(is_tag_separator)
+        .filter(|n| !n.is_empty())
+    {
+        let tag = tags
+            .iter()
+            .find(|t| t.name == name)
+            .ok_or_else(|| protocol(format!("标签「{name}」不在词表中，请重试")))?;
+        if !chosen.contains(&tag.id) {
+            chosen.push(tag.id);
+        }
+    }
+    if chosen.len() > TAGS_PER_SESSION {
+        return Err(protocol(format!("标签最多 {TAGS_PER_SESSION} 个，请重试")));
+    }
+    chosen.sort();
+    Ok(TitleOutput {
+        title: title.into(),
+        tags: Some(chosen),
+    })
 }

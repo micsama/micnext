@@ -73,3 +73,4 @@
 | 实现完成（CLOSED，2026-10-26） | 会话标签（受控词表，随标题生成，侧栏筛选） | [B2](docs/blueprints/archive/session-tags.md) |
 | 实现完成（CLOSED，2026-10-26） | 意外结束的 run 原地重试 / 继续 | [B2](docs/blueprints/archive/run-retry.md) |
 | 实现完成（CLOSED，2026-10-27） | 会话搜索（⌘K 面板，标题与对话正文） | [B2](docs/blueprints/archive/session-search.md) |
+| 实现完成（CLOSED，2026-10-27） | 模型收藏（选择器只列收藏） | [B2](docs/blueprints/archive/model-favorites.md) |

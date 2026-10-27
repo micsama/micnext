@@ -10,7 +10,7 @@ use crate::{
     ReasoningEffort, SelectedModel, Store, StoreError,
 };
 
-const MODEL_COLS: &str = "id, endpoint_id, name, config_json, context_window, price_input, price_cache_read, price_cache_write, price_output, images";
+const MODEL_COLS: &str = "id, endpoint_id, name, config_json, context_window, price_input, price_cache_read, price_cache_write, price_output, images, starred";
 
 fn view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelView> {
     Ok(ModelView {
@@ -26,6 +26,7 @@ fn view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelView> {
             output: row.get(8)?,
         },
         images: row.get(9)?,
+        starred: row.get(10)?,
     })
 }
 
@@ -67,8 +68,8 @@ impl Store {
             tx.execute(
                 "INSERT INTO core_models
                    (endpoint_id, name, config_json, created_at, updated_at, context_window,
-                    price_input, price_cache_read, price_cache_write, price_output, images)
-                 VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    price_input, price_cache_read, price_cache_write, price_output, images, starred)
+                 VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     m.endpoint_id.0,
                     m.name,
@@ -79,7 +80,8 @@ impl Store {
                     m.price.cache_read,
                     m.price.cache_write,
                     m.price.output,
-                    m.images
+                    m.images,
+                    m.starred
                 ],
             )?;
             let id = ModelId(tx.last_insert_rowid());
@@ -117,10 +119,10 @@ impl Store {
             tx.execute(
                 "UPDATE core_models SET name = ?1, config_json = ?2, updated_at = ?3, context_window = ?5,
                     price_input = ?6, price_cache_read = ?7, price_cache_write = ?8, price_output = ?9,
-                    images = ?10
+                    images = ?10, starred = ?11
                  WHERE id = ?4",
                 params![m.name, m.config_json, now, id.0, m.context_window,
-                    m.price.input, m.price.cache_read, m.price.cache_write, m.price.output, m.images],
+                    m.price.input, m.price.cache_read, m.price.cache_write, m.price.output, m.images, m.starred],
             )?;
             tx.commit()?;
             Ok(())

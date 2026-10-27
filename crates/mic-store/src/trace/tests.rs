@@ -85,6 +85,7 @@ async fn run_stats_fixture() {
     let model = store
         .create_model(
             ModelWrite {
+                starred: false,
                 endpoint_id: endpoint,
                 name: "m".into(),
                 config_json: "{}".into(),

@@ -70,6 +70,7 @@ pub struct EndpointDraft {
 pub struct ModelDraft {
     pub context_window: Option<NonZeroU32>,
     pub images: bool,
+    pub starred: bool,
     pub endpoint_id: EndpointId,
     pub name: String,
     pub config_json: String,
@@ -1292,6 +1293,7 @@ impl Kernel {
         Ok(ModelWrite {
             context_window: draft.context_window,
             images: draft.images,
+            starred: draft.starred,
             endpoint_id: draft.endpoint_id,
             name: draft.name,
             config_json,

@@ -130,6 +130,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
     let model = store
         .create_model(
             ModelWrite {
+                starred: false,
                 endpoint_id: endpoint,
                 name: "test".into(),
                 config_json: "{}".into(),
@@ -343,6 +344,7 @@ impl Fixture {
         let model = store
             .create_model(
                 ModelWrite {
+                    starred: false,
                     endpoint_id: endpoint,
                     name: "test".into(),
                     config_json: "{}".into(),

@@ -26,6 +26,7 @@ async fn populated() -> Store {
     let model = store
         .create_model(
             ModelWrite {
+                starred: false,
                 endpoint_id: endpoint,
                 name: "model / one".into(),
                 config_json: "{}".into(),

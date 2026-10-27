@@ -19,3 +19,4 @@
 | 实现完成，待真实网页更新验收 | 数据库转换移出 Rust 二进制 | [B2](docs/blueprints/database-conversion.md) |
 | 实现完成，待验收 | 联网搜索工具 web_search（DeepSeek Search） | [B2](docs/blueprints/web-search.md) |
 | 实现完成，待验收 | 模型交付文件：send_file 与 push 附件（Web + 微信出站） | [B2](docs/blueprints/send-file.md) |
+| 实现完成，待验收 | 模型收藏（选择器只列收藏） | [B2](docs/blueprints/model-favorites.md) |

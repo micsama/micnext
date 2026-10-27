@@ -219,6 +219,7 @@ async fn manual_title_records_sources_and_side_output() {
     let model = store
         .create_model(
             ModelWrite {
+                starred: false,
                 endpoint_id: endpoint,
                 name: "test".into(),
                 config_json: "{}".into(),

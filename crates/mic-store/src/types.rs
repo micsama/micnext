@@ -122,6 +122,8 @@ pub struct ModelView {
     pub context_window: Option<NonZeroU32>,
     /// 关闭时请求里的图片换成文字占位。
     pub images: bool,
+    /// 收藏后模型选择器里该服务商只列收藏的模型。
+    pub starred: bool,
     pub price: ModelPrice,
     pub id: ModelId,
     pub endpoint_id: EndpointId,
@@ -132,6 +134,7 @@ pub struct ModelView {
 pub struct ModelWrite {
     pub context_window: Option<NonZeroU32>,
     pub images: bool,
+    pub starred: bool,
     pub price: ModelPrice,
     pub endpoint_id: EndpointId,
     pub name: String,

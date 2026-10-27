@@ -50,6 +50,7 @@ export type ModelRow = {
   max_tokens: string;
   context_window: string;
   images: boolean;
+  starred: boolean;
   /** 单价，空串 = 未填。 */
   price_input: string;
   price_cache_read: string;
@@ -86,6 +87,7 @@ export const blankRow = (name = ""): ModelRow => ({
   max_tokens: "",
   context_window: "",
   images: true,
+  starred: false,
   price_input: "",
   price_cache_read: "",
   price_cache_write: "",
@@ -110,6 +112,7 @@ export const toForm = (e: Endpoint, models: Model[]): EndpointForm => ({
       name: m.name,
       context_window: m.context_window === null ? "" : String(m.context_window),
       images: m.images,
+      starred: m.starred,
       max_tokens: m.config.max_tokens === null ? "" : String(m.config.max_tokens),
       price_input: priceText(m.price.input),
       price_cache_read: priceText(m.price.cache_read),
@@ -135,6 +138,7 @@ function modelInput(endpoint_id: number, r: ModelRow, preset: Preset): ModelInpu
     name: r.name.trim(),
     context_window: r.context_window.trim() ? Number(r.context_window) : null,
     images: r.images,
+    starred: r.starred,
     price: {
       input: priceValue(r.price_input),
       cache_read: priceValue(r.price_cache_read),

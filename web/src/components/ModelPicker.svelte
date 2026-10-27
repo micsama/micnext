@@ -20,6 +20,18 @@
   const effort = $derived(reasoningEffort ?? model?.reasoning?.default ?? null);
   const strength = $derived(effort === null ? null : reasoningLabel(effort));
   const showReasoning = $derived(!!model && (model.reasoning !== null || reasoningEffort !== null));
+
+  /** 本次打开里点过「全部」的服务商，关闭即复原。 */
+  let expanded = $state<number[]>([]);
+  $effect(() => { if (!open) expanded = []; });
+
+  /** 有收藏的服务商只列收藏和当前所选；`hidden` 为收起的个数。 */
+  function listed(endpointId: number) {
+    const all = settingsStore.models.filter((m) => m.endpoint_id === endpointId);
+    if (expanded.includes(endpointId) || !all.some((m) => m.starred)) return { models: all, hidden: 0 };
+    const models = all.filter((m) => m.starred || m.id === value);
+    return { models, hidden: all.length - models.length };
+  }
 </script>
 
 <Popover.Root bind:open>
@@ -49,7 +61,7 @@
           </button>
         {/if}
         {#each settingsStore.endpoints as endpoint (endpoint.id)}
-          {@const models = settingsStore.models.filter((m) => m.endpoint_id === endpoint.id)}
+          {@const { models, hidden } = listed(endpoint.id)}
           {#if models.length > 0}
             <p class="px-2.5 pb-1 pt-2 text-[10px] font-medium tracking-wide text-muted-foreground">{endpoint.name}</p>
             {#each models as choice (choice.id)}
@@ -64,6 +76,11 @@
                 {#if choice.id === value}<Icon name="check" class="size-4 shrink-0 text-foreground" />{/if}
               </button>
             {/each}
+            {#if hidden > 0}
+              <button type="button" class="flex min-h-8 w-full items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onclick={() => expanded.push(endpoint.id)}>
+                全部 {models.length + hidden} 个模型<Icon name="chevron" class="size-3 rotate-90" />
+              </button>
+            {/if}
           {/if}
         {/each}
         {#if settingsStore.models.length === 0}

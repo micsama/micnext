@@ -2,6 +2,7 @@
   import ImageOffIcon from "@lucide/svelte/icons/image-off";
   import PlusIcon from "@lucide/svelte/icons/plus";
   import ServerIcon from "@lucide/svelte/icons/server";
+  import StarIcon from "@lucide/svelte/icons/star";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { setDefaultModel } from "../../api/client";
@@ -77,6 +78,7 @@
         {#each models as m (m.id)}
           {@const isDefault = m.id === settingsStore.defaultModelId}
           <li class="group flex min-h-10 items-center gap-2 px-4 py-1.5">
+            {#if m.starred}<span title="已收藏" class="text-warning"><StarIcon class="size-3.5 fill-current" /></span>{/if}
             <span class="truncate font-mono text-xs">{m.name}</span>
             {#if isDefault}<Badge variant="secondary">默认</Badge>{/if}
             {#if !m.images}

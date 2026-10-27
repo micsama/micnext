@@ -82,6 +82,7 @@ fn reasoning_is_per_session_and_fixed_when_claimed() {
             let model = store
                 .create_model(
                     ModelWrite {
+                        starred: false,
                         endpoint_id: endpoint,
                         name: "test".into(),
                         config_json: "{}".into(),

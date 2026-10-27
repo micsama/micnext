@@ -39,6 +39,7 @@ pub struct ExportModel {
     #[serde(deserialize_with = "Deserialize::deserialize")]
     pub context_window: Option<NonZeroU32>,
     pub images: bool,
+    pub starred: bool,
     pub price: ModelPrice,
 }
 
@@ -93,9 +94,9 @@ impl Store {
             for row in rows {
                 let (id, name, kind, config_json, key) = row?;
                 let key = key.map(|blob| cipher.decrypt(id, &blob).map(|s| s.expose().to_owned())).transpose()?;
-                let models = tx.prepare("SELECT name, config_json, context_window, images, price_input, price_cache_read, price_cache_write, price_output FROM core_models WHERE endpoint_id = ?1 AND deleted_at IS NULL ORDER BY id")?
+                let models = tx.prepare("SELECT name, config_json, context_window, images, price_input, price_cache_read, price_cache_write, price_output, starred FROM core_models WHERE endpoint_id = ?1 AND deleted_at IS NULL ORDER BY id")?
                     .query_map([id], |r| Ok(ExportModel {
-                        name: r.get(0)?, config_json: r.get(1)?, context_window: r.get(2)?, images: r.get(3)?,
+                        name: r.get(0)?, config_json: r.get(1)?, context_window: r.get(2)?, images: r.get(3)?, starred: r.get(8)?,
                         price: ModelPrice { input: r.get(4)?, cache_read: r.get(5)?, cache_write: r.get(6)?, output: r.get(7)? },
                     }))?.collect::<rusqlite::Result<Vec<_>>>()?;
                 endpoints.push(ExportEndpoint { name, kind, config_json, key, models });
@@ -167,7 +168,7 @@ impl Store {
                             tx.last_insert_rowid()
                         }
                     };
-                    tx.execute("UPDATE core_models SET config_json = ?1, context_window = ?2, images = ?3, price_input = ?4, price_cache_read = ?5, price_cache_write = ?6, price_output = ?7, deleted_at = NULL, updated_at = ?8 WHERE id = ?9", params![m.config_json, m.context_window, m.images, m.price.input, m.price.cache_read, m.price.cache_write, m.price.output, now, model])?;
+                    tx.execute("UPDATE core_models SET config_json = ?1, context_window = ?2, images = ?3, price_input = ?4, price_cache_read = ?5, price_cache_write = ?6, price_output = ?7, starred = ?10, deleted_at = NULL, updated_at = ?8 WHERE id = ?9", params![m.config_json, m.context_window, m.images, m.price.input, m.price.cache_read, m.price.cache_write, m.price.output, now, model, m.starred])?;
                     model_ids.insert(reference, model);
                 }
             }

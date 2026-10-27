@@ -51,7 +51,8 @@ CREATE TABLE core_models (
   created_at         INTEGER NOT NULL,
   updated_at         INTEGER NOT NULL,
   deleted_at         INTEGER
-, images INTEGER NOT NULL DEFAULT 1 CHECK(images IN (0, 1)));
+, images INTEGER NOT NULL DEFAULT 1 CHECK(images IN (0, 1))
+, starred INTEGER NOT NULL DEFAULT 0 CHECK(starred IN (0, 1)));
 
 CREATE UNIQUE INDEX idx_models_name ON core_models(endpoint_id, name) WHERE deleted_at IS NULL;
 

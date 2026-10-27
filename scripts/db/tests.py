@@ -29,6 +29,8 @@ class ConversionTests(unittest.TestCase):
                   (10, 1, '{"kind":"Notification","source":"micnext","text":"t"}'), (11, 1, '{"kind":"HarnessNote","text":"n"}');
                 CREATE INDEX idx_messages_undelivered ON core_messages(session_id) WHERE kind IN ('Reply', 'Notification');
                 CREATE TABLE core_pushes(id INTEGER PRIMARY KEY, text TEXT NOT NULL);
+                CREATE TABLE core_models(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+                INSERT INTO core_models VALUES (1, 'm');
                 CREATE TABLE wechat_delivery(message_id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, plan TEXT NOT NULL);
                 INSERT INTO wechat_delivery VALUES (10, 'u', '{"chunks":["a"]}');
             """)
@@ -45,12 +47,13 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(self.version(), 25)
         result = self.run_script("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.version(), 28)
+        self.assertEqual(self.version(), 29)
         with sqlite3.connect(self.db) as conn:
             self.assertEqual(conn.execute("SELECT seen_message_id FROM core_sessions").fetchone(), (11,))
             payloads = conn.execute("SELECT json_extract(payload, '$.files') FROM core_messages ORDER BY id").fetchall()
             self.assertEqual(payloads, [("[]",), (None,)])
             self.assertEqual(conn.execute("SELECT plan FROM wechat_delivery").fetchone(), ('{"chunks":["a"],"files":[]}',))
+            self.assertEqual(conn.execute("SELECT starred FROM core_models").fetchone(), (0,))
         self.assertEqual(self.run_script("--apply").returncode, 0)
 
     def test_live_service_is_not_modified(self):

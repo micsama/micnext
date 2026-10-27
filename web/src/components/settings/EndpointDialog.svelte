@@ -3,6 +3,7 @@
   import ImageIcon from "@lucide/svelte/icons/image";
   import ImageOffIcon from "@lucide/svelte/icons/image-off";
   import PlusIcon from "@lucide/svelte/icons/plus";
+  import StarIcon from "@lucide/svelte/icons/star";
   import XIcon from "@lucide/svelte/icons/x";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -174,7 +175,23 @@
             {#each f.models as r, i (r)}
               <div class="border-b last:border-b-0 py-3 space-y-2">
                 <div class="model-fields">
-                  <label class="min-w-0 space-y-1 text-xs text-muted-foreground">模型 ID<Input bind:value={r.name} class="h-8 font-mono text-xs text-foreground" placeholder="例如 deepseek-flash" /></label>
+                  <div class="min-w-0 space-y-1 text-xs text-muted-foreground">
+                    <span class="block">模型 ID</span>
+                    <div class="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        class={r.starred ? "text-warning hover:text-warning" : "text-muted-foreground/50"}
+                        aria-pressed={r.starred}
+                        aria-label="收藏"
+                        title={r.starred ? "已收藏：切换模型时显示（点击取消）" : "收藏后，切换模型时这个服务商只显示收藏的模型"}
+                        onclick={() => (r.starred = !r.starred)}
+                      >
+                        <StarIcon class={r.starred ? "fill-current" : ""} />
+                      </Button>
+                      <Input bind:value={r.name} aria-label="模型 ID" class="h-8 font-mono text-xs text-foreground" placeholder="例如 deepseek-flash" />
+                    </div>
+                  </div>
                   <label class="space-y-1 text-xs text-muted-foreground">上下文 · token<Input class="h-8 text-xs text-foreground" type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="200000" /></label>
                   <label class="space-y-1 text-xs text-muted-foreground">最大输出<Input class="h-8 text-xs text-foreground" type="number" min="1" value={limitable(f.preset) ? r.max_tokens : ""} oninput={(e) => (r.max_tokens = e.currentTarget.value)} disabled={!limitable(f.preset)} placeholder={limitable(f.preset) ? "默认" : "不支持"} /></label>
                   <div class="space-y-1 text-xs text-muted-foreground">
@@ -234,6 +251,6 @@
   .model-fields { display: grid; grid-template-columns: minmax(0, 1fr) 96px 88px 44px 32px; align-items: end; gap: 8px; }
   @media (max-width: 480px) {
     .model-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px 32px; }
-    .model-fields>label:first-child { grid-column: 1 / -1; }
+    .model-fields>:first-child { grid-column: 1 / -1; }
   }
 </style>

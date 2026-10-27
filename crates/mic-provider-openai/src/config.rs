@@ -86,11 +86,10 @@ impl EndpointConfig {
     pub(crate) fn reasoning_options(&self, model_name: &str) -> Option<ReasoningOptions> {
         use ReasoningEffort as E;
         let (choices, default): (&[E], E) = match (self.preset, model_name) {
-            (Preset::Chatgpt, "gpt-6-luna") => (
-                &[E::None, E::Low, E::Medium, E::High, E::Xhigh, E::Max],
-                E::Medium,
-            ),
-            (Preset::Chatgpt, "gpt-6.1-sol") => {
+            (Preset::Chatgpt, "gpt-6-luna") => {
+                (&[E::Low, E::Medium, E::High, E::Xhigh, E::Max], E::Medium)
+            }
+            (Preset::Chatgpt, "gpt-6.1-sol" | "gpt-6.1-terra") => {
                 (&[E::Low, E::Medium, E::High, E::Xhigh, E::Max], E::Low)
             }
             (Preset::Chatgpt, _) => (&[E::Low, E::Medium, E::High], E::Low),

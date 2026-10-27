@@ -1,4 +1,4 @@
-//! 会话搜索：按最近活跃倒序逐个会话扫标题与对话正文，凑满一页即停。契约：docs/blueprints/session-search.md。
+//! 会话搜索：按最近活跃倒序逐个会话扫标题与对话正文，凑满一页即停。契约：docs/blueprints/archive/session-search.md。
 
 use std::num::NonZeroU32;
 

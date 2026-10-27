@@ -1,4 +1,4 @@
-//! 会话搜索接口。契约：docs/blueprints/session-search.md。
+//! 会话搜索接口。契约：docs/blueprints/archive/session-search.md。
 
 use std::sync::Arc;
 

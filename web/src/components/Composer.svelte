@@ -10,7 +10,7 @@
 
   let {
     onsend,
-    placeholder = "输入消息，回车发送，Shift+回车换行",
+    placeholder = "输入消息，回车发送，Shift / Option + 回车换行",
     autofocus = false,
     leading,
     trailing,
@@ -175,11 +175,48 @@
       void stop();
       return;
     }
-    // 输入法选词中的回车不发送。
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+    // 输入法选词中的回车不处理。
+    if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      void send();
+    } else if (e.shiftKey || e.altKey || listItem()) {
+      e.preventDefault();
+      newline();
+    } else {
       e.preventDefault();
       void send();
     }
+  }
+
+  /** 列表项行首：缩进、无序标记或带分隔符的序号、空白。 */
+  const LIST_ITEM = /^(\s*)(?:([-*+•])|(\d+)([.)、]))(\s+)/;
+
+  /** 光标所在行是列表项且光标在标记之后时，返回该行起点与标记。 */
+  function listItem(): { start: number; marker: RegExpExecArray } | null {
+    const caret = input.selectionStart;
+    if (caret !== input.selectionEnd) return null;
+    const start = text.lastIndexOf("\n", caret - 1) + 1;
+    const marker = LIST_ITEM.exec(text.slice(start, caret));
+    return marker ? { start, marker } : null;
+  }
+
+  /** 换行；在列表项里续上下一个标记，空列表项则退出列表。用 execCommand 以保留撤销。 */
+  function newline() {
+    const item = listItem();
+    if (!item) {
+      document.execCommand("insertText", false, "\n");
+      return;
+    }
+    const [whole, indent, bullet, num, delim, space] = item.marker;
+    const end = text.indexOf("\n", item.start);
+    if (text.slice(item.start + whole.length, end === -1 ? text.length : end).trim() === "") {
+      input.setSelectionRange(item.start, item.start + whole.length);
+      document.execCommand("delete");
+      return;
+    }
+    const next = bullet ?? `${Number(num) + 1}${delim}`;
+    document.execCommand("insertText", false, `\n${indent}${next}${space}`);
   }
 </script>
 

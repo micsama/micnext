@@ -78,7 +78,7 @@ struct EditArgs {
     id: Option<i64>,
     /// Short name, in the user's language.
     name: Option<String>,
-    /// 5-field cron (minute hour day month weekday, 0 = Sunday) or a one-off "YYYY-MM-DD HH:MM", in the server's local time; a past one-off is rejected.
+    /// 5-field cron (minute hour day month weekday, 0 = Sunday) or a one-off "YYYY-MM-DD HH:MM", in the server's local time; a past one-off is rejected, and recurring runs must be at least 10 minutes apart.
     when: Option<String>,
     /// Self-contained instruction for every run, including when and what to report to the user; runs do not see this conversation.
     prompt: Option<String>,

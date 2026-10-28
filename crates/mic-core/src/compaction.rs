@@ -1,10 +1,10 @@
 use mic_message::{
     Compaction, ContentPart, ExecOutcome, Message, MessageBody, MessageId, ModelView, ReplyBlock,
-    SessionCommand, SessionId, ToolResultOutcome, Trim,
+    SessionCommand, ToolResultOutcome, Trim,
 };
 use mic_store::{
     ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
-    StoreError,
+    SessionKind, StoreError,
 };
 use serde::Serialize;
 
@@ -19,6 +19,9 @@ use crate::skills::SKILL;
 use crate::{request, ModelRequest, ModelResponse, Provider, StopReason, ToolChoice};
 
 const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Output only the summary itself, without analysis or preamble. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Copy hard facts verbatim: file paths, exact error messages, explicit user constraints, unfinished tasks. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to continuing the current task. The additional user input is for focus; it will be processed after compaction.";
+
+/// 定时任务会话：每次触发都重读历史，摘要按事项而非按次记录。
+const SCHEDULE_SUMMARY_PROMPT: &str = "Summarize the earlier runs of this scheduled task for its next runs. Do not continue the task or call tools. Output only the summary itself, without analysis or preamble. Include: 任务目标、用户在此会话中给过的修正与约束、已经推送或报告过的事项（后续不再重复）、待跟进的状态. Merge runs that found nothing new into one line giving only the latest check time and conclusion. Copy hard facts verbatim: identifiers, links, file paths, exact error messages, explicit user constraints. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to the next runs. The additional user input is for focus; it will be processed after compaction.";
 
 /// 当前上下文占用，口径同自动压缩判定。契约：docs/blueprints/chat-run-stats.md §二。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -235,7 +238,7 @@ impl Exec<'_> {
         context.keep_from = retention.keep_from;
         context.elide = retention.elide.iter().map(|m| m.id).collect();
         req.messages.push(instruction_note(
-            self.session.id,
+            self.session,
             extra_text(&pending),
             retention.kept_replies,
             &retention.elide,
@@ -386,12 +389,17 @@ pub(crate) fn extra_text(messages: &[Message]) -> Option<String> {
 
 /// 压缩请求末尾的指令消息；执行与 Trace 重建共用。
 pub(crate) fn instruction_note(
-    session: SessionId,
+    session: &Session,
     extra: Option<String>,
     kept_replies: usize,
     elide: &[Message],
 ) -> Message {
-    let mut text = String::from(SUMMARY_PROMPT);
+    let scheduled = matches!(&session.kind, SessionKind::Triggered { module, .. } if module == mic_store::SCHEDULE_MODULE);
+    let mut text = String::from(if scheduled {
+        SCHEDULE_SUMMARY_PROMPT
+    } else {
+        SUMMARY_PROMPT
+    });
     if kept_replies > 0 {
         text += &format!("\n\nThe last {kept_replies} assistant replies and their tool results will be kept verbatim after compaction; summarize what comes before them and do not restate them.");
     }
@@ -416,7 +424,7 @@ pub(crate) fn instruction_note(
     }
     Message {
         id: MessageId(0),
-        session_id: session,
+        session_id: session.id,
         body: MessageBody::HarnessNote { text },
         created_at: now_ms(),
         delivered_at: None,

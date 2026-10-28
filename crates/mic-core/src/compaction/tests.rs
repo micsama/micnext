@@ -1,4 +1,4 @@
-use mic_message::{ExecFailureKind, PersonId};
+use mic_message::{ExecFailureKind, PersonId, SessionId};
 
 use super::*;
 

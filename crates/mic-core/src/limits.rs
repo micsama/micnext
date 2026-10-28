@@ -59,6 +59,10 @@ pub(crate) const AGENT_MAX_TURNS: u32 = 12;
 pub(crate) const AGENT_RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// 子 run 交付的文本上限，超出截断并指向子会话。
 pub(crate) const AGENT_DELIVERY_MAX: usize = 32 * 1024;
+/// 定时任务：到点时上下文占用超过此百分比先压缩；低于对话阈值，因每次触发都重读整段历史。
+pub(crate) const SCHEDULE_COMPACT_PERCENT: u64 = 30;
+/// 定时任务：周期规则相邻两次触发的最小间隔。
+pub(crate) const SCHEDULE_MIN_INTERVAL: Duration = Duration::from_secs(10 * 60);
 /// 任务会话 run 的墙钟上限；轮次上限同子 agent。
 pub(crate) const SCHEDULE_RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// 连续这么多次系统级失败后自动暂停。

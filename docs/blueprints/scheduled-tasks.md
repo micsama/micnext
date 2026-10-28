@@ -160,7 +160,7 @@ core 内一个 tokio 任务，状态只在库里：
 2. 追加 `Trigger { source: 任务名, text: 当前 prompt }`，写触发行关联该消息。
 3. 提交后唤醒会话；现有 `claim_next` 认领 Trigger 成一个 run。之后到达的人工输入 id 更大，排在后面。
 
-到点前的压缩改由通用的冷时整理负责，见 [cold-trim](cold-trim.md)。
+到点前压缩和最小触发间隔见 [schedule-limits](schedule-limits.md)；闲置后的整理见 [cold-trim](cold-trim.md)。
 
 检查与写入在同一事务里，不会有人工 run 夹进来，也不会只有消息没有触发行。
 

@@ -42,6 +42,22 @@ impl Rule {
                 .map(|t| t.timestamp_millis()),
         }
     }
+
+    /// 从 `after` 起接下来一批触发里相邻两次的最短间隔（毫秒）；一次性时刻为空。
+    /// cron 的密集段总在连续的触发里出现，取前 1000 次足够。
+    pub(crate) fn min_gap(&self, after: i64) -> Option<i64> {
+        let Self::Cron(_) = self else { return None };
+        let mut at = self.next_after(after)?;
+        let mut gap = i64::MAX;
+        for _ in 0..1000 {
+            let Some(next) = self.next_after(at) else {
+                break;
+            };
+            gap = gap.min(next - at);
+            at = next;
+        }
+        Some(gap)
+    }
 }
 
 fn local(ms: i64) -> DateTime<Local> {

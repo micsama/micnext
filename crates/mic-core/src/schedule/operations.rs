@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{final_paragraph, Rule, Schedules};
 use crate::event::KernelEventKind;
+use crate::limits::SCHEDULE_MIN_INTERVAL;
 use crate::run::now_ms;
 
 #[derive(Debug, thiserror::Error)]
@@ -68,8 +69,18 @@ fn non_empty(field: &str, value: Option<String>) -> Result<Option<String>, Sched
     }
 }
 
+/// 新规则或重新启用时的下次时刻；周期规则须满足最小间隔。
 fn upcoming(rule: &Rule) -> Result<i64, ScheduleError> {
-    rule.next_after(now_ms())
+    let now = now_ms();
+    let min = SCHEDULE_MIN_INTERVAL.as_millis() as i64;
+    if let Some(gap) = rule.min_gap(now).filter(|gap| *gap < min) {
+        return Err(ScheduleError::Invalid(format!(
+            "相邻两次触发至少间隔 {} 分钟，当前规则最短 {} 分钟，请调整时间规则",
+            min / 60_000,
+            gap / 60_000
+        )));
+    }
+    rule.next_after(now)
         .ok_or_else(|| ScheduleError::Invalid("一次性时刻已过去，请重新设置时间规则".into()))
 }
 

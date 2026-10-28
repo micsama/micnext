@@ -8,6 +8,7 @@
 |---|---|---|
 | 暂缓 | 推送降级（微信被拒） | [B1](docs/brainstorm/push-fallback.md) |
 | P1 已验收，P2 待验收（调度已修订），P3 已实现、待验收 | 推送与定时任务（P1 推送 / P2 内核 / P3 页面） | [B2](docs/blueprints/scheduled-tasks.md) |
+| 已实现，待验收 | 定时任务限频与到点前压缩 | [B2](docs/blueprints/schedule-limits.md) |
 | 延期 | 服务商分时段计价 | [B2](docs/blueprints/offpeak-pricing.md) |
 | 实现完成，待真实环境验收 | 外部交互错误链日志 | [B2](docs/blueprints/external-error-observability.md) |
 | Web 已验收，微信文件待验收 | Web 上传文件，统一文件消息 | [B2](docs/blueprints/web-file-upload.md) |

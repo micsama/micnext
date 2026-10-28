@@ -1,6 +1,6 @@
 //! 定时任务与触发。契约：docs/blueprints/scheduled-tasks.md P2。
 
-use mic_message::{Message, MessageBody, PersonId, SessionId};
+use mic_message::{Message, MessageBody, PersonId, SessionCommand, SessionId};
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use serde::Serialize;
 
@@ -119,8 +119,8 @@ pub struct Fire {
 pub enum FireResult {
     /// 到点时会话有执行中的 run 或待处理输入，已记 `busy`。
     Busy,
-    /// 已写入的 `Trigger`。
-    Fired(Message),
+    /// 已写入的消息（可能先有 `/compact`，最后是 `Trigger`），按 id 升序。
+    Fired(Vec<Message>),
     /// 任务已删除，或 `next_run_at` 已被改动。
     Gone,
 }
@@ -425,13 +425,14 @@ impl Store {
         .await
     }
 
-    /// 到点：检查忙、追加 `Trigger` 并写触发行，同事务把
+    /// 到点：检查忙、按需先追加 `/compact`、追加 `Trigger` 并写触发行，同事务把
     /// `next_run_at` 从 `due_at` 移到 `next`（一次性规则为空，即停用）。
     pub async fn fire_schedule(
         &self,
         id: ScheduleId,
         due_at: i64,
         next: Option<i64>,
+        compact: bool,
         at: i64,
     ) -> Result<FireResult, StoreError> {
         self.call(move |conn| {
@@ -450,23 +451,33 @@ impl Store {
                 )?;
                 FireResult::Busy
             } else {
-                let body = MessageBody::Trigger {
+                let mut bodies = Vec::new();
+                if compact {
+                    bodies.push(MessageBody::Command {
+                        person: s.person,
+                        command: SessionCommand::Compact { text: None },
+                    });
+                }
+                bodies.push(MessageBody::Trigger {
                     source: s.name,
                     text: s.prompt,
-                };
-                let message = Message {
-                    id: insert_message(&tx, s.session_id, None, &body, at)?,
-                    session_id: s.session_id,
-                    body,
-                    created_at: at,
-                    delivered_at: None,
-                };
+                });
+                let mut messages = Vec::with_capacity(bodies.len());
+                for body in bodies {
+                    messages.push(Message {
+                        id: insert_message(&tx, s.session_id, None, &body, at)?,
+                        session_id: s.session_id,
+                        body,
+                        created_at: at,
+                        delivered_at: None,
+                    });
+                }
                 tx.execute(
                     "INSERT INTO core_schedule_fires (schedule_id, due_at, message_id)
                      VALUES (?1, ?2, ?3)",
-                    params![id.0, due_at, message.id.0],
+                    params![id.0, due_at, messages.last().expect("至少有 Trigger").id.0],
                 )?;
-                FireResult::Fired(message)
+                FireResult::Fired(messages)
             };
             tx.commit()?;
             Ok(result)

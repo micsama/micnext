@@ -1872,6 +1872,53 @@ async fn schedule_operations_publish_changes_and_delivery_updates() {
         .unwrap();
     assert!(matches!(events.recv().await.unwrap().kind,
         KernelEventKind::ScheduleChanged { schedule } if schedule == task.id));
+    // 最小间隔：新规则、改规则和带旧规则重新启用都校验。
+    let frequent = |rule: &str| crate::ScheduleUpdate {
+        rule: Some(rule.into()),
+        ..Default::default()
+    };
+    for rule in ["* * * * *", "*/5 * * * *", "0,3 * * * *"] {
+        assert!(matches!(
+            schedules.update(task.id, frequent(rule)).await,
+            Err(crate::ScheduleError::Invalid(_))
+        ));
+    }
+    assert!(matches!(
+        schedules
+            .create(
+                f.session.id,
+                "频繁".into(),
+                "* * * * *".into(),
+                "检查".into()
+            )
+            .await,
+        Err(crate::ScheduleError::Invalid(_))
+    ));
+    f.store
+        .update_schedule(
+            task.id,
+            mic_store::ScheduleEdit {
+                rule: Some("* * * * *".into()),
+                ..Default::default()
+            },
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let enable = crate::ScheduleUpdate {
+        enabled: Some(true),
+        ..Default::default()
+    };
+    assert!(matches!(
+        schedules.update(task.id, enable).await,
+        Err(crate::ScheduleError::Invalid(_))
+    ));
+    schedules
+        .update(task.id, frequent("*/10 * * * *"))
+        .await
+        .unwrap();
+    assert!(matches!(events.recv().await.unwrap().kind,
+        KernelEventKind::ScheduleChanged { schedule } if schedule == task.id));
 
     let (push_id, notices) = f
         .store

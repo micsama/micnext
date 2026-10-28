@@ -1023,8 +1023,13 @@ impl Kernel {
                 messages.drain(..context.skip as usize);
                 let instruction = self.store.messages_by_ids(context.instruction).await?;
                 let elide = self.store.messages_by_ids(context.elide).await?;
+                let session = self
+                    .store
+                    .session(record.session_id)
+                    .await?
+                    .expect("调用所属会话存在（外键保证）");
                 messages.push(crate::compaction::instruction_note(
-                    record.session_id,
+                    &session,
                     crate::compaction::extra_text(&instruction),
                     kept_replies,
                     &elide,

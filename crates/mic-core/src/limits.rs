@@ -22,6 +22,12 @@ pub(crate) const ELIDE_TOOL_TOKENS: u64 = 2_000;
 pub(crate) const QUOTE_FULL_TOKENS: u64 = 500;
 pub(crate) const QUOTE_HEAD_TOKENS: u64 = 300;
 pub(crate) const QUOTE_TAIL_TOKENS: u64 = 150;
+/// 冷时整理：距上次对话调用超过此闲置时长，run 开始前整理历史；按模型名前缀匹配，
+/// 未列出的取缺省。经验值，宁可晚整理。
+pub(crate) const IDLE_TRIM_AFTER: &[(&str, Duration)] = &[("gpt-", Duration::from_secs(3 * 3600))];
+pub(crate) const IDLE_TRIM_DEFAULT: Duration = Duration::from_secs(24 * 3600);
+/// 冷时整理：上下文占用超过此百分比改为直接压缩。
+pub(crate) const IDLE_COMPACT_PERCENT: u64 = 50;
 /// skill：加载结果里列出的文件数上限；description 字符上限（同开放规范）。
 pub(crate) const SKILL_FILES_LISTED: usize = 50;
 pub(crate) const SKILL_DESCRIPTION_CHARS: usize = 1024;
@@ -53,8 +59,6 @@ pub(crate) const AGENT_MAX_TURNS: u32 = 12;
 pub(crate) const AGENT_RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// 子 run 交付的文本上限，超出截断并指向子会话。
 pub(crate) const AGENT_DELIVERY_MAX: usize = 32 * 1024;
-/// 定时任务：到点时上下文占用超过此百分比先压缩。
-pub(crate) const SCHEDULE_COMPACT_PERCENT: u64 = 50;
 /// 任务会话 run 的墙钟上限；轮次上限同子 agent。
 pub(crate) const SCHEDULE_RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// 连续这么多次系统级失败后自动暂停。

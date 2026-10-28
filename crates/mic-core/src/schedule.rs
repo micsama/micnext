@@ -18,8 +18,8 @@ use tokio::sync::{mpsc, Notify};
 
 use crate::event::Events;
 use crate::limits::{
-    SCHEDULE_COMPACT_PERCENT, SCHEDULE_FAIL_PAUSE, SCHEDULE_LATE_GRACE, SCHEDULE_MISSED_SCAN,
-    SCHEDULE_RUN_TIMEOUT, SCHEDULE_TICK_MAX,
+    SCHEDULE_FAIL_PAUSE, SCHEDULE_LATE_GRACE, SCHEDULE_MISSED_SCAN, SCHEDULE_RUN_TIMEOUT,
+    SCHEDULE_TICK_MAX,
 };
 use crate::push::Pushes;
 use crate::run::{now_ms, Engine};
@@ -164,7 +164,6 @@ impl Schedules {
     /// 到点：上下文占用高时先压缩；忙则只记一行。`next_run_at` 前移到 `next`。
     async fn fire(
         &self,
-        engine: &Engine,
         schedule: &Schedule,
         due: i64,
         next: Option<i64>,
@@ -174,21 +173,16 @@ impl Schedules {
             .session(schedule.session_id)
             .await?
             .expect("任务会话存在（外键保证）");
-        let compact = crate::compaction::occupancy(engine, &session)
-            .await?
-            .is_some_and(|o| o.used_tokens * 100 > u64::from(o.window) * SCHEDULE_COMPACT_PERCENT);
         let publish = self.events.publisher().await;
         let result = self
             .store
-            .fire_schedule(schedule.id, due, next, compact, now_ms())
+            .fire_schedule(schedule.id, due, next, now_ms())
             .await?;
         if !matches!(result, FireResult::Gone) {
             self.publish_changed(schedule);
         }
-        if let FireResult::Fired(messages) = result {
-            for message in messages {
-                publish.appended(session.id, SCHEDULE_MODULE, message);
-            }
+        if let FireResult::Fired(message) = result {
+            publish.appended(session.id, SCHEDULE_MODULE, message);
             drop(publish);
             tracing::info!(
                 schedule = schedule.id.0,
@@ -228,7 +222,7 @@ async fn drive(engine: Arc<Engine>, boot: i64) -> Result<Infallible, StoreError>
             let rule = Rule::parse(&schedule.rule).expect("写入时已校验");
             let next = rule.next_after(now);
             if now - due <= SCHEDULE_LATE_GRACE.as_millis() as i64 {
-                schedules.fire(&engine, &schedule, due, next).await?;
+                schedules.fire(&schedule, due, next).await?;
             } else {
                 let (last, count) = missed(&rule, due, now);
                 if let Some(fire) = store

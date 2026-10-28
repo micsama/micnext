@@ -555,6 +555,7 @@ fn trace_message(m: Message) -> TraceMessage {
             match boundary {
                 ContextBoundary::Compaction(c) => c.summary.clone(),
                 ContextBoundary::UserClear => "清空上下文".into(),
+                ContextBoundary::Trim(t) => format!("整理历史，省略 {} 条", t.elided.len()),
             },
             None,
         ),

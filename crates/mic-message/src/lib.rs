@@ -145,11 +145,12 @@ pub enum ReplyBlock {
     },
 }
 
-/// 压缩/`/clear` 产生的上下文边界。
+/// 压缩/`/clear`/冷时整理产生的上下文边界。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContextBoundary {
     Compaction(Compaction),
     UserClear,
+    Trim(Trim),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,10 +165,19 @@ pub struct Compaction {
     pub summary: String,
     pub keep_from: Option<MessageId>,
     pub files: Vec<String>,
-    /// 保留段里换成占位的工具结果（`ToolResult` / `Completion`）。
+    /// 保留段里换成占位的消息，见 `Message::elide_output`。
     pub elided: Vec<MessageId>,
     /// 压掉范围内带回原文的用户输入。
     pub quoted: Vec<MessageId>,
+}
+
+/// 冷时整理：不移动窗口起点，只在 `base` 的窗口上追加占位。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Trim {
+    /// 整理时的有效边界；窗口与摘要沿它解析。
+    pub base: Option<MessageId>,
+    /// 本次新增换成占位的消息。
+    pub elided: Vec<MessageId>,
 }
 
 /// 产出回复的单次模型请求事实，不进入模型上下文。

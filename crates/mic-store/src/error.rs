@@ -86,9 +86,9 @@ impl From<rusqlite::Error> for ModelSettingsError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ContextCommandError {
-    #[error("压缩边界不存在")]
+    #[error("压缩或整理边界不存在")]
     BoundaryNotFound,
-    #[error("目标已不是当前生效的压缩，无法撤回")]
+    #[error("目标已不是当前生效的压缩或整理，无法撤回")]
     NotCurrentCompaction,
     #[error(transparent)]
     Store(#[from] StoreError),

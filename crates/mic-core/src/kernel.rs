@@ -285,11 +285,7 @@ impl Kernel {
         reject_task(&session)?;
         if let SessionCommand::RevokeCompaction { boundary_id } = &command {
             let view = self.store.context_view(session.id).await?;
-            if !view
-                .compactions
-                .iter()
-                .any(|v| v.boundary_id == *boundary_id)
-            {
+            if !view.revocable.iter().any(|v| v.boundary_id == *boundary_id) {
                 return Err(mic_store::ContextCommandError::BoundaryNotFound.into());
             }
             if view.active_boundary != Some(*boundary_id) {

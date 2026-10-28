@@ -648,11 +648,8 @@ async fn compaction_keeps_paths_without_reading_files() {
     let mut exec = f.exec();
     exec.call_model(&provider, &[]).await.unwrap().unwrap();
     exec.compact(&provider).await.unwrap().unwrap();
-    let view = f.store.context_view(f.session.id).await.unwrap();
-    assert_eq!(
-        view.compactions[0].result.files,
-        ["/does/not/exist", "a.rs"]
-    );
+    let window = f.store.context_window(f.session.id).await.unwrap();
+    assert_eq!(window.files, ["/does/not/exist", "a.rs"]);
     exec.call_model(&provider, &[]).await.unwrap().unwrap();
     let requests = provider.requests.lock().unwrap();
     let system = &requests.last().unwrap().system;
@@ -1567,18 +1564,17 @@ async fn compaction_elides_old_outputs_quotes_inputs_and_keeps_elision_across_co
             panic!()
         };
         assert!(
-            matches!(&output[..], [mic_message::ContentPart::Text { text }] if text.contains("omitted at compaction (9000 chars)"))
+            matches!(&output[..], [mic_message::ContentPart::Text { text }] if text.contains("omitted (9000 chars)"))
         );
     }
     let ids: Vec<_> = results.iter().map(|m| m.id).collect();
     assert_eq!(window.quoted.len(), 1);
-    let view = f.store.context_view(f.session.id).await.unwrap();
-    assert_eq!(view.compactions[0].result.elided, ids);
+    assert_eq!(window.elided, ids);
 
     exec.compact(&provider).await.unwrap().unwrap();
-    let view = f.store.context_view(f.session.id).await.unwrap();
-    assert_eq!(view.compactions[1].result.elided, ids);
-    assert!(view.compactions[1].result.quoted.is_empty());
+    let window = f.store.context_window(f.session.id).await.unwrap();
+    assert_eq!(window.elided, ids);
+    assert!(window.quoted.is_empty());
 
     let calls = f.verify(&provider).await;
     let elide = |i: usize| {
@@ -1589,6 +1585,126 @@ async fn compaction_elides_old_outputs_quotes_inputs_and_keeps_elision_across_co
     assert_eq!(elide(3).await, ids, "失败的压缩调用同样记下");
     assert_eq!(elide(4).await, ids);
     assert!(elide(5).await.is_empty(), "沿用的替换不再要求提炼");
+}
+
+// 冷时整理：占位跨次累加，撤回只退最近一次，压缩沿用、清空作废。
+#[tokio::test]
+async fn trims_stack_and_survive_revoke_compaction_and_clear() {
+    let f = Fixture::new().await;
+    let provider = scripted(vec![
+        call_big("a"),
+        reply("done"),
+        call_big("b"),
+        reply("done"),
+        reply("summary"),
+    ]);
+    let mut settings = f.claimed.settings.clone();
+    settings.compaction.keep_percent = 100;
+    let mut exec = f.exec();
+    exec.settings = &settings;
+    exec.tools = vec![ToolHandle::new(BigTool)];
+    assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Completed);
+    let skill_input = f
+        .store
+        .append_input(
+            f.session.id,
+            f.owner,
+            vec![
+                NewInputPart::Skill {
+                    name: "alpha".into(),
+                    text: "alpha body".into(),
+                },
+                NewInputPart::Text("do it".into()),
+            ],
+            InputDisposition::Held,
+            None,
+            now_ms(),
+        )
+        .await
+        .unwrap()[0]
+        .id;
+    exec.pending_inputs.clear();
+    let outputs = |w: &mic_store::ContextWindow| -> Vec<MessageId> {
+        w.messages
+            .iter()
+            .filter(|m| matches!(m.body, MessageBody::ToolResult { .. }))
+            .map(|m| m.id)
+            .collect()
+    };
+
+    exec.trim().await.unwrap();
+    let first = f.store.context_window(f.session.id).await.unwrap();
+    let a = outputs(&first);
+    assert_eq!(first.elided, [a[0], skill_input]);
+    let input = first.messages.iter().find(|m| m.id == skill_input).unwrap();
+    let Some(mic_message::ModelView::User(parts)) = input.model_view() else {
+        panic!()
+    };
+    let text: String = parts
+        .iter()
+        .map(|p| match p {
+            mic_message::ContentPart::Text { text } => text.as_str(),
+            _ => "",
+        })
+        .collect();
+    assert!(text.contains("Skill alpha was loaded here") && text.contains("do it"));
+    assert!(!text.contains("alpha body"));
+    let count = f
+        .store
+        .context_window(f.session.id)
+        .await
+        .unwrap()
+        .messages
+        .len();
+    exec.trim().await.unwrap();
+    assert_eq!(
+        f.store
+            .context_window(f.session.id)
+            .await
+            .unwrap()
+            .messages
+            .len(),
+        count,
+        "没有可省略的内容不写边界"
+    );
+
+    assert_eq!(exec.execute(&provider).await.unwrap(), RunState::Completed);
+    exec.trim().await.unwrap();
+    let second = f.store.context_window(f.session.id).await.unwrap();
+    let both = outputs(&second);
+    assert_eq!(second.elided, [both[0], skill_input, both[1]]);
+
+    let run = f.claimed.run.id;
+    let top = second.boundary_id.unwrap();
+    f.store
+        .revoke_compaction(f.session.id, run, top, now_ms())
+        .await
+        .unwrap();
+    let revoked = f.store.context_window(f.session.id).await.unwrap();
+    assert_eq!(revoked.elided, first.elided);
+
+    exec.trim().await.unwrap();
+    exec.compact(&provider).await.unwrap().unwrap();
+    let compacted = f.store.context_window(f.session.id).await.unwrap();
+    assert_eq!(compacted.summary.as_deref(), Some("summary"));
+    assert_eq!(compacted.elided, second.elided, "压缩沿用整理的占位");
+
+    let clear = f
+        .store
+        .append_command(f.session.id, f.owner, SessionCommand::Clear, now_ms())
+        .await
+        .unwrap();
+    f.store
+        .clear_context(f.session.id, run, clear.id, now_ms())
+        .await
+        .unwrap();
+    assert!(f
+        .store
+        .context_window(f.session.id)
+        .await
+        .unwrap()
+        .elided
+        .is_empty());
 }
 
 // 同一时间线分别验收后续请求与压缩保留，重建复用 verify。

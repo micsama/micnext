@@ -234,7 +234,7 @@ impl Engine {
                     Err(ContextCommandError::Store(error)) => return Err(error),
                     Err(error) => {
                         drop(publish);
-                        exec.notify(format!("未撤回压缩：{error}。")).await?;
+                        exec.notify(format!("未撤回：{error}。")).await?;
                     }
                 }
                 RunState::Completed
@@ -262,7 +262,10 @@ impl Engine {
                                 Ok(()) => RunState::Completed,
                             },
                             RunInput::Conversation { .. } => {
-                                exec.execute(provider.as_ref()).await?
+                                match exec.tidy_if_idle(provider.as_ref()).await? {
+                                    Ok(()) => exec.execute(provider.as_ref()).await?,
+                                    Err(failed) => failed,
+                                }
                             }
                             _ => unreachable!("非模型指令已处理"),
                         }

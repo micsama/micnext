@@ -7,7 +7,7 @@
   import Undo2Icon from "@lucide/svelte/icons/undo-2";
   import ChevronUpIcon from "@lucide/svelte/icons/chevron-up";
   let { id, result, view }: { id: number; result: Compaction; view: SessionView } = $props();
-  const compactionState = $derived(view.context?.compactions.find((c) => c.boundary_id === id)?.state);
+  const compactionState = $derived(view.context?.revocable.find((c) => c.boundary_id === id)?.state);
   const revoked = $derived(compactionState?.kind === "revoked");
   const canRevoke = $derived(view.info?.writable && compactionState?.kind === "applied" && view.context?.active_boundary === id);
   const retained = $derived([

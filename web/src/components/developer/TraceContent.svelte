@@ -27,10 +27,10 @@
       case "HarnessNote": case "Notification": case "JobNotice": case "Trigger": return body.text;
       case "ToolResult": return "Terminal" in body.outcome ? outcomeText(body.outcome.Terminal) : `已派发：${body.outcome.Dispatched.exec_id}`;
       case "Completion": return outcomeText(body.outcome);
-      case "Boundary": return body.boundary === "UserClear" ? "清空上下文" : body.boundary.Compaction.summary;
+      case "Boundary": return body.boundary === "UserClear" ? "清空上下文" : "Trim" in body.boundary ? `省略 ${body.boundary.Trim.elided.length} 条旧内容` : body.boundary.Compaction.summary;
       case "SideOutput": return body.text;
       case "Attachment": return body.files.map((f) => f.path).join("\n");
-      case "Command": return body.command === "Clear" ? "/clear" : "Compact" in body.command ? `/compact ${body.command.Compact.text ?? ""}` : `撤回压缩 #${body.command.RevokeCompaction.boundary_id}`;
+      case "Command": return body.command === "Clear" ? "/clear" : "Compact" in body.command ? `/compact ${body.command.Compact.text ?? ""}` : `撤回 #${body.command.RevokeCompaction.boundary_id}`;
       case "Reply": return body.blocks.map((b) => "Text" in b ? b.Text.text : "Reasoning" in b ? "Visible" in b.Reasoning ? b.Reasoning.Visible.text : "[隐藏推理]" : `${b.ToolCall.name}\n${args(b.ToolCall.args)}`).join("\n\n");
     }
   });
@@ -85,7 +85,7 @@
   {:else if body.kind === "JobNotice"}
     <TraceCard icon="info" title="后台通知 · {body.tool_name}" meta={chars(text)} long={isLong(text)} copy={text}><pre>{text}</pre></TraceCard>
   {:else if body.kind === "Boundary"}
-    <TraceCard icon="layers" title={body.boundary === "UserClear" ? "清空上下文" : "压缩摘要"} tone="compact" meta={chars(text)} long={isLong(text)} copy={text}><Markdown source={text} /></TraceCard>
+    <TraceCard icon="layers" title={body.boundary === "UserClear" ? "清空上下文" : "Trim" in body.boundary ? "整理历史" : "压缩摘要"} tone="compact" meta={chars(text)} long={isLong(text)} copy={text}><Markdown source={text} /></TraceCard>
   {:else if body.kind === "Command"}
     <TraceCard icon="terminal" title="指令" copy={text}><pre>{text}</pre></TraceCard>
   {:else if body.kind === "Attachment"}

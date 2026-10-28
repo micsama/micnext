@@ -39,9 +39,11 @@ export type ReplyBlock =
   | { ToolCall: { id: string; name: string; args: unknown } };
 
 export type Compaction = { summary: string; keep_from: number | null; files: string[]; elided: number[]; quoted: number[] };
-export type ContextBoundary = { Compaction: Compaction } | "UserClear";
+export type Trim = { base: number | null; elided: number[] };
+export type ContextBoundary = { Compaction: Compaction } | { Trim: Trim } | "UserClear";
 export type SessionCommand = { Compact: { text: string | null } } | "Clear" | { RevokeCompaction: { boundary_id: number } };
-export type CompactionView = { boundary_id: number; result: Compaction; state: { kind: "applied" } | { kind: "revoked"; at: number } };
+/** 可撤回的边界：压缩与冷时整理。 */
+export type RevocableView = { boundary_id: number; state: { kind: "applied" } | { kind: "revoked"; at: number } };
 /** 上下文占用，口径同自动压缩判定，总含估算。 */
 export type Occupancy = { used_tokens: number; window: number; trigger_percent: number };
 export type ContextKind = "instructions" | "persona" | "tools" | "environment" | "skills" | "summary" | "conversation";
@@ -56,7 +58,7 @@ export type AgentJobView = JobBase & { kind: "agent" } & AgentJobFields;
 export type JobView = ToolJobView | AgentJobView;
 export type JobOutput = { text: string; offset: number; next_offset: number; eof: boolean; available_from: number; total_bytes: number };
 export type StopJobOutcome = "stopped" | "already_idle" | "already_finished";
-export type ContextView = { active_boundary: number | null; compactions: CompactionView[]; occupancy: Occupancy | null };
+export type ContextView = { active_boundary: number | null; revocable: RevocableView[]; occupancy: Occupancy | null };
 /** Trace 执行合计。 */
 export type RunStats = {
   total_ms: number | null;
@@ -310,12 +312,12 @@ const replyBlock: Decoder<ReplyBlock> = tagged({
 });
 
 const compactionResult: Decoder<Compaction> = obj({ summary: str, keep_from: nullable(num), files: arr(str), elided: arr(num), quoted: arr(num) });
-const compaction = tagged({ Compaction: compactionResult });
+const compaction = tagged({ Compaction: compactionResult, Trim: obj({ base: nullable(num), elided: arr(num) }) });
 const command: Decoder<SessionCommand> = (v, at) => v === "Clear" ? v : tagged({ Compact: obj({ text: nullable(str) }), RevokeCompaction: obj({ boundary_id: num }) })(v, at);
-const compactionState: Decoder<CompactionView["state"]> = kinded<{ applied: Record<string, never>; revoked: { at: number } }>({ applied: {}, revoked: { at: num } });
+const revocationState: Decoder<RevocableView["state"]> = kinded<{ applied: Record<string, never>; revoked: { at: number } }>({ applied: {}, revoked: { at: num } });
 const runState: Decoder<RunState> = oneOf("executing", "completed", "provider_failed", "max_turns", "interrupted", "stopped", "timed_out");
 const occupancy: Decoder<Occupancy> = obj({ used_tokens: num, window: num, trigger_percent: num });
-const contextView: Decoder<ContextView> = obj({ active_boundary: nullable(num), compactions: arr(obj({ boundary_id: num, result: compactionResult, state: compactionState })), occupancy: nullable(occupancy) });
+const contextView: Decoder<ContextView> = obj({ active_boundary: nullable(num), revocable: arr(obj({ boundary_id: num, state: revocationState })), occupancy: nullable(occupancy) });
 const runStatsFields = {
   total_ms: nullable(num), model_ms: num, tool_ms: num, steps: num, requests: num, tools: num,
 };

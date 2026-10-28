@@ -53,12 +53,13 @@ pub use trace::{
     TraceRunPage, TraceSession, TraceSessionKind, TraceTool, TreeUsage, UsageTotal,
 };
 pub use types::{
-    ClaimedModel, ClaimedRun, CompactionSettings, CompactionState, CompactionView, ContextUsage,
-    ContextView, ContextWindow, CredentialWrite, DeliveryTarget, EndpointId, EndpointView,
-    EndpointWrite, Identity, InputDisposition, InterruptedRun, MessagePage, ModelCallContext,
-    ModelCallId, ModelCallOutcome, ModelCallPurpose, ModelId, ModelPrice, ModelView, ModelWrite,
-    NewInputPart, NewModelCall, NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId,
-    ReasoningEffort, Resumable, Run, RunId, RunInput, RunSettings, RunState, Schema, SecretColumn,
-    SelectedModel, Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings,
-    StopReason, Tag, TagId, TitleCall, TitleModelSelection, TitleOutput, ToolScope, Usage,
+    ClaimedModel, ClaimedRun, CompactionSettings, ContextUsage, ContextView, ContextWindow,
+    CredentialWrite, DeliveryTarget, EndpointId, EndpointView, EndpointWrite, Identity,
+    InputDisposition, InterruptedRun, MessagePage, ModelCallContext, ModelCallId, ModelCallOutcome,
+    ModelCallPurpose, ModelId, ModelPrice, ModelView, ModelWrite, NewInputPart, NewModelCall,
+    NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId, ReasoningEffort, Resumable,
+    RevocableView, RevocationState, Run, RunId, RunInput, RunSettings, RunState, Schema,
+    SecretColumn, SelectedModel, Session, SessionCursor, SessionKind, SessionPage, SessionSummary,
+    Settings, StopReason, Tag, TagId, TitleCall, TitleModelSelection, TitleOutput, ToolScope,
+    Usage,
 };

@@ -1,14 +1,14 @@
 use mic_message::{
     Compaction, ContextBoundary, Message, MessageBody, MessageId, PersonId, SessionCommand,
-    SessionId,
+    SessionId, Trim,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::messages::{insert_message, read_messages};
 use crate::row::{self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, UNCLAIMED};
 use crate::{
-    CompactionState, CompactionView, ContextCommandError, ContextUsage, ContextView, ContextWindow,
-    ModelCallId, ModelCallOutcome, NewModelCall, RunId, Store, StoreError,
+    ContextCommandError, ContextUsage, ContextView, ContextWindow, ModelCallId, ModelCallOutcome,
+    NewModelCall, RevocableView, RevocationState, RunId, Store, StoreError,
 };
 
 impl Store {
@@ -27,16 +27,16 @@ impl Store {
         self.call(move |conn| {
             let active_boundary = active_boundary(conn, session)?.map(|m| m.id);
             let mut stmt = conn.prepare(&format!("SELECT {MESSAGE_COLS}, m.compaction_revoked_at FROM {MESSAGE_FROM} WHERE m.session_id = ?1 AND m.kind = 'Boundary' ORDER BY m.id"))?;
-            let mut compactions = Vec::new();
+            let mut revocable = Vec::new();
             let mut rows = stmt.query([session.0])?;
             while let Some(row) = rows.next()? {
                 let message = row::message(row)?;
-                if let MessageBody::Boundary { boundary: ContextBoundary::Compaction(result) } = message.body {
+                if let MessageBody::Boundary { boundary: ContextBoundary::Compaction(_) | ContextBoundary::Trim(_) } = message.body {
                     let at: Option<i64> = row.get(row::MESSAGE_NEXT)?;
-                    compactions.push(CompactionView { boundary_id: message.id, result, state: match at { Some(at) => CompactionState::Revoked { at }, None => CompactionState::Applied } });
+                    revocable.push(RevocableView { boundary_id: message.id, state: match at { Some(at) => RevocationState::Revoked { at }, None => RevocationState::Applied } });
                 }
             }
-            Ok(ContextView { active_boundary, compactions })
+            Ok(ContextView { active_boundary, revocable })
         }).await
     }
 
@@ -44,10 +44,10 @@ impl Store {
         self.call(move |conn| {
             let boundary = active_boundary(conn, session)?;
             let boundary_id = boundary.as_ref().map(|m| m.id);
-            let start = window_start(boundary);
+            let start = window_start(conn, boundary)?;
             let mut messages = Vec::new();
             let mut skipped = Vec::new();
-            for (message, filtered) in read_range(conn, session, &start, boundary_id, None)? {
+            for (message, filtered) in read_range(conn, session, &start, None)? {
                 if filtered {
                     skipped.push(message.id);
                 } else {
@@ -63,6 +63,7 @@ impl Store {
                 Some(c) => read_messages(conn, &c.quoted)?,
                 None => Vec::new(),
             };
+            let elided = start.elided;
             let (summary, files) = match start.compaction {
                 Some(c) => (Some(c.summary), c.files),
                 None => (None, Vec::new()),
@@ -77,6 +78,7 @@ impl Store {
                 summary,
                 files,
                 messages,
+                elided,
                 filtered,
                 quoted,
                 plain_after: plain_after.map(MessageId),
@@ -112,6 +114,22 @@ impl Store {
         .await
     }
 
+    /// 会话最近一次成功对话调用的结束时刻，不受边界限制。
+    pub async fn last_conversation_at(
+        &self,
+        session: SessionId,
+    ) -> Result<Option<i64>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn.query_row(
+                "SELECT max(finished_at) FROM core_model_calls
+                 WHERE session_id = ?1 AND purpose = 'conversation' AND error IS NULL",
+                [session.0],
+                |r| r.get(0),
+            )?)
+        })
+        .await
+    }
+
     /// 某次调用当时的窗口：按其边界读到 `through`，不看认领状态，排除项由调用方按记录剔除。
     pub async fn window_at(
         &self,
@@ -123,16 +141,9 @@ impl Store {
             return Ok(Vec::new());
         };
         self.call(move |conn| {
-            let boundary_message = match boundary {
-                Some(id) => Some(conn.query_row(
-                    &format!("SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.id = ?1"),
-                    [id.0],
-                    row::message,
-                )?),
-                None => None,
-            };
-            let start = window_start(boundary_message);
-            Ok(read_range(conn, session, &start, boundary, Some(through))?
+            let boundary = boundary.map(|id| message_by_id(conn, id)).transpose()?;
+            let start = window_start(conn, boundary)?;
+            Ok(read_range(conn, session, &start, Some(through))?
                 .into_iter()
                 .map(|(message, _)| message)
                 .collect())
@@ -174,6 +185,33 @@ impl Store {
             tx.commit()?;
             Ok(vec![boundary, notice])
         }).await
+    }
+
+    /// 冷时整理：边界与通知同事务。
+    pub async fn commit_trim(
+        &self,
+        session: SessionId,
+        run: RunId,
+        trim: Trim,
+        text: String,
+        now: i64,
+    ) -> Result<Vec<Message>, StoreError> {
+        self.call(move |conn| {
+            let tx = conn.transaction()?;
+            let boundary = append(
+                &tx,
+                session,
+                run,
+                MessageBody::Boundary {
+                    boundary: ContextBoundary::Trim(trim),
+                },
+                now,
+            )?;
+            let notice = append(&tx, session, run, notice(text), now)?;
+            tx.commit()?;
+            Ok(vec![boundary, notice])
+        })
+        .await
     }
 
     pub async fn clear_context(
@@ -219,15 +257,19 @@ impl Store {
             let tx = conn.transaction()?;
             let exists: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM core_messages WHERE id = ?1 AND session_id = ?2 AND kind = 'Boundary')", params![boundary_id.0, session.0], |r| r.get(0))?;
             if !exists { return Err(ContextCommandError::BoundaryNotFound); }
-            match active_boundary(&tx, session)? {
-                Some(Message { id, body: MessageBody::Boundary { boundary: ContextBoundary::Compaction(_) }, .. }) if id == boundary_id => {}
+            let text = match active_boundary(&tx, session)? {
+                Some(Message { id, body: MessageBody::Boundary { boundary }, .. }) if id == boundary_id => match boundary {
+                    ContextBoundary::Compaction(_) => "已撤回压缩，恢复之前的上下文。",
+                    ContextBoundary::Trim(_) => "已撤回整理，恢复被省略的内容。",
+                    ContextBoundary::UserClear => return Err(ContextCommandError::NotCurrentCompaction),
+                },
                 _ => return Err(ContextCommandError::NotCurrentCompaction),
-            }
+            };
             tx.execute("UPDATE core_messages SET compaction_revoked_at = ?2 WHERE id = ?1", params![boundary_id.0, now])?;
             if let Some(previous) = active_boundary(&tx, session)? {
                 tx.execute("INSERT OR IGNORE INTO core_boundary_inputs (boundary_id, message_id) SELECT ?1, message_id FROM core_boundary_inputs WHERE boundary_id = ?2", params![previous.id.0, boundary_id.0])?;
             }
-            let notification = append(&tx, session, run, notice("已撤回压缩，恢复之前的上下文。".into()), now)?;
+            let notification = append(&tx, session, run, notice(text.into()), now)?;
             tx.commit()?;
             Ok(vec![notification])
         }).await
@@ -272,43 +314,70 @@ fn notice(text: String) -> MessageBody {
     }
 }
 
-/// 窗口起点（含）与当前压缩边界：压缩边界按 `keep_from`，其余边界之后全部。
+/// 窗口起点（含）：沿 `Trim::base` 找到锚定边界，压缩边界按 `keep_from`，其余边界之后全部。
 struct WindowStart {
     start: i64,
+    /// 锚定边界（非整理），其保留的待处理输入随窗口带上。
+    anchor: Option<MessageId>,
     compaction: Option<Compaction>,
+    /// 锚定压缩与其上各次整理的占位并集。
+    elided: Vec<MessageId>,
 }
 
-fn window_start(boundary: Option<Message>) -> WindowStart {
-    match boundary {
-        Some(Message {
-            id,
-            body:
-                MessageBody::Boundary {
-                    boundary: ContextBoundary::Compaction(result),
-                },
-            ..
-        }) => WindowStart {
-            start: id.0 + 1,
-            compaction: Some(result),
-        },
-        Some(message) => WindowStart {
-            start: message.id.0 + 1,
-            compaction: None,
-        },
-        None => WindowStart {
-            start: 0,
-            compaction: None,
-        },
+fn window_start(conn: &Connection, boundary: Option<Message>) -> Result<WindowStart, StoreError> {
+    let mut elided = Vec::new();
+    let mut current = boundary;
+    let mut start = loop {
+        let Some(message) = current else {
+            break WindowStart {
+                start: 0,
+                anchor: None,
+                compaction: None,
+                elided: Vec::new(),
+            };
+        };
+        let MessageBody::Boundary { boundary } = message.body else {
+            unreachable!("边界 id 指向边界消息")
+        };
+        let (anchor, compaction) = match boundary {
+            ContextBoundary::Trim(trim) => {
+                elided.extend(trim.elided);
+                current = trim.base.map(|id| message_by_id(conn, id)).transpose()?;
+                continue;
+            }
+            ContextBoundary::Compaction(result) => (message.id, Some(result)),
+            ContextBoundary::UserClear => (message.id, None),
+        };
+        break WindowStart {
+            start: anchor.0 + 1,
+            anchor: Some(anchor),
+            compaction,
+            elided: Vec::new(),
+        };
+    };
+    if let Some(c) = &start.compaction {
+        elided.extend(c.elided.iter().copied());
     }
+    elided.sort();
+    elided.dedup();
+    start.elided = elided;
+    Ok(start)
 }
 
-/// 窗口范围内的全部消息（按位置，写入范围至多到 `through`），边界 `elided` 已换成占位；
+fn message_by_id(conn: &Connection, id: MessageId) -> Result<Message, StoreError> {
+    Ok(conn.query_row(
+        &format!("SELECT {MESSAGE_COLS} FROM {MESSAGE_FROM} WHERE m.id = ?1"),
+        [id.0],
+        row::message,
+    )?)
+}
+
+/// 窗口范围内的全部消息（按位置，写入范围至多到 `through`），`elided` 已换成占位；
 /// 布尔值 = 未认领且非 held，对话窗口不可见。
 fn read_range(
     conn: &Connection,
     session: SessionId,
     start: &WindowStart,
-    boundary: Option<MessageId>,
     through: Option<MessageId>,
 ) -> Result<Vec<(Message, bool)>, StoreError> {
     let mut rows = conn.prepare(&format!(
@@ -317,14 +386,12 @@ fn read_range(
            AND ((CASE WHEN ?5 IS NULL THEN m.id >= ?2 ELSE (m.created_at, m.id) >= (SELECT created_at, id FROM core_messages WHERE id = ?5) END) OR EXISTS (SELECT 1 FROM core_boundary_inputs b WHERE b.boundary_id = ?3 AND b.message_id = m.id))
            AND m.id <= ?4 ORDER BY m.created_at, m.id"
     ))?.query_map(
-        params![session.0, start.start, boundary.map(|id| id.0), through.map_or(i64::MAX, |id| id.0), start.compaction.as_ref().and_then(|c| c.keep_from).map(|id| id.0)],
+        params![session.0, start.start, start.anchor.map(|id| id.0), through.map_or(i64::MAX, |id| id.0), start.compaction.as_ref().and_then(|c| c.keep_from).map(|id| id.0)],
         |r| Ok((row::message(r)?, r.get(row::MESSAGE_NEXT)?)),
     )?.collect::<rusqlite::Result<Vec<_>>>()?;
-    if let Some(c) = &start.compaction {
-        for (message, _) in &mut rows {
-            if c.elided.contains(&message.id) {
-                message.elide_output();
-            }
+    for (message, _) in &mut rows {
+        if start.elided.binary_search(&message.id).is_ok() {
+            message.elide_output();
         }
     }
     Ok(rows)

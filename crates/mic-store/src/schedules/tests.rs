@@ -35,20 +35,12 @@ async fn check() {
 
     // next_run_at 已不是该时刻（被改动）则不触发。
     assert!(matches!(
-        store
-            .fire_schedule(s.id, 99, None, false, 100)
-            .await
-            .unwrap(),
+        store.fire_schedule(s.id, 99, None, 100).await.unwrap(),
         FireResult::Gone
     ));
-    let FireResult::Fired(messages) = store
-        .fire_schedule(s.id, 100, None, true, 100)
-        .await
-        .unwrap()
-    else {
+    let FireResult::Fired(fired) = store.fire_schedule(s.id, 100, None, 100).await.unwrap() else {
         panic!("空闲会话应触发");
     };
-    assert_eq!(messages.len(), 2);
     let disabled = store.schedule(s.id).await.unwrap().unwrap();
     assert!(!disabled.enabled(), "一次性触发后停用");
     let user = MessageBody::UserInput {
@@ -59,21 +51,12 @@ async fn check() {
     };
     store.append(session, None, user, 101).await.unwrap();
 
-    // 压缩独占一个 run，不吸收后续输入。
-    let compact = store.claim_next(session, 102).await.unwrap().unwrap();
-    assert!(matches!(compact.input, RunInput::Command { .. }));
-    assert!(store.absorb(compact.run.id).await.unwrap().is_empty());
-    store
-        .finish_run(compact.run.id, RunState::Completed, None, 103)
-        .await
-        .unwrap();
-
     // Trigger 独占认领，但其 run 吸收任何人的后续输入。
     let trigger = store.claim_next(session, 104).await.unwrap().unwrap();
     let RunInput::Conversation { message_ids } = &trigger.input else {
         panic!("Trigger 是对话输入");
     };
-    assert_eq!(message_ids, &[messages[1].id]);
+    assert_eq!(message_ids, &[fired.id]);
     assert_eq!(store.absorb(trigger.run.id).await.unwrap().len(), 1);
     let fire = store.fire_of_run(trigger.run.id).await.unwrap().unwrap();
     assert_eq!(fire.outcome, FireOutcome::Pending);
@@ -91,7 +74,7 @@ async fn check() {
     assert_eq!(enabled.enabled_at, 105, "重新启用记启用时刻");
     assert!(matches!(
         store
-            .fire_schedule(s.id, 106, Some(166), false, 106)
+            .fire_schedule(s.id, 106, Some(166), 106)
             .await
             .unwrap(),
         FireResult::Busy

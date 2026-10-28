@@ -1,6 +1,6 @@
 use mic_message::{
     Compaction, ContentPart, ExecOutcome, Message, MessageBody, MessageId, ModelView, ReplyBlock,
-    SessionCommand, SessionId, ToolResultOutcome,
+    SessionCommand, SessionId, ToolResultOutcome, Trim,
 };
 use mic_store::{
     ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
@@ -10,8 +10,12 @@ use serde::Serialize;
 
 use crate::attempt::{stream_attempt, Facts};
 use crate::context_usage::{estimate_tokens, message_tokens};
-use crate::limits::{COMPACTION_BUDGET_PERCENT, DEFAULT_CONTEXT_WINDOW, ELIDE_TOOL_TOKENS};
+use crate::limits::{
+    COMPACTION_BUDGET_PERCENT, DEFAULT_CONTEXT_WINDOW, ELIDE_TOOL_TOKENS, IDLE_COMPACT_PERCENT,
+    IDLE_TRIM_AFTER, IDLE_TRIM_DEFAULT,
+};
 use crate::run::{now_ms, Engine, Exec};
+use crate::skills::SKILL;
 use crate::{request, ModelRequest, ModelResponse, Provider, StopReason, ToolChoice};
 
 const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Output only the summary itself, without analysis or preamble. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Copy hard facts verbatim: file paths, exact error messages, explicit user constraints, unfinished tasks. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to continuing the current task. The additional user input is for focus; it will be processed after compaction.";
@@ -58,8 +62,12 @@ pub(crate) async fn usage(
 }
 
 impl Exec<'_> {
-    async fn history_request(&self) -> Result<(ModelRequest, ModelCallContext), StoreError> {
+    /// 压缩请求的历史，连同窗口内已换成占位的消息。
+    async fn history_request(
+        &self,
+    ) -> Result<(ModelRequest, ModelCallContext, Vec<MessageId>), StoreError> {
         let mut window = self.engine.store.context_window(self.session.id).await?;
+        let elided = std::mem::take(&mut window.elided);
         window
             .messages
             .retain(|m| !self.pending_inputs.contains(&m.id));
@@ -91,7 +99,7 @@ impl Exec<'_> {
             &self.tools,
             self.settings,
         );
-        Ok((req, context))
+        Ok((req, context, elided))
     }
 
     /// 每步工具结果落盘后判定：本步上游用量达到触发比例即压缩；已停止不再发起。
@@ -114,24 +122,85 @@ impl Exec<'_> {
         self.compact(provider).await
     }
 
+    /// 普通对话 run 开始前：闲置超过模型阈值即整理历史，占用过半直接压缩。
+    /// 契约：docs/blueprints/cold-trim.md。
+    pub(crate) async fn tidy_if_idle(
+        &self,
+        provider: &dyn Provider,
+    ) -> Result<Result<(), RunState>, StoreError> {
+        let Some(last) = self
+            .engine
+            .store
+            .last_conversation_at(self.session.id)
+            .await?
+        else {
+            return Ok(Ok(()));
+        };
+        let model = provider.model();
+        let idle = IDLE_TRIM_AFTER
+            .iter()
+            .find(|(prefix, _)| model.starts_with(prefix))
+            .map_or(IDLE_TRIM_DEFAULT, |(_, after)| *after);
+        if now_ms() - last < idle.as_millis() as i64 {
+            return Ok(Ok(()));
+        }
+        if let Some(usage) = self.engine.store.context_usage(self.session.id).await? {
+            if (usage.input_tokens + usage.output_tokens) * 100
+                > u64::from(self.context_window) * IDLE_COMPACT_PERCENT
+            {
+                return self.compact(provider).await;
+            }
+        }
+        self.trim().await.map(Ok)
+    }
+
+    /// 轻整理：本 run 输入之前、尚未占位的可省略内容换成占位，不调用模型。
+    pub(crate) async fn trim(&self) -> Result<(), StoreError> {
+        let window = self.engine.store.context_window(self.session.id).await?;
+        let (mut outputs, mut skills) = (0, 0);
+        let mut elided = Vec::new();
+        for m in &window.messages {
+            if self.pending_inputs.contains(&m.id) || window.elided.binary_search(&m.id).is_ok() {
+                continue;
+            }
+            match elidable(m) {
+                Some(Elidable::Output) => outputs += 1,
+                Some(Elidable::Skill) => skills += 1,
+                None => continue,
+            }
+            elided.push(m.id);
+        }
+        if elided.is_empty() {
+            return Ok(());
+        }
+        let counts: Vec<String> = [(outputs, "条工具输出"), (skills, "个 skill 正文")]
+            .into_iter()
+            .filter(|(n, _)| *n > 0)
+            .map(|(n, unit)| format!("{n} {unit}"))
+            .collect();
+        let text = format!("长时间未活动，已整理历史：省略 {}。", counts.join("、"));
+        let trim = Trim {
+            base: window.boundary_id,
+            elided,
+        };
+        let publish = self.engine.events.publisher().await;
+        for message in self
+            .engine
+            .store
+            .commit_trim(self.session.id, self.run.id, trim, text, now_ms())
+            .await?
+        {
+            publish.appended(self.session.id, self.channel, message);
+        }
+        Ok(())
+    }
+
     /// 自动压缩与 `/compact` 共用：附加文字取本步待处理输入。
     pub(crate) async fn compact(
         &self,
         provider: &dyn Provider,
     ) -> Result<Result<(), RunState>, StoreError> {
-        let (mut req, mut context) = self.history_request().await?;
-        let carried = match context.boundary_id {
-            Some(id) => self
-                .engine
-                .store
-                .context_view(self.session.id)
-                .await?
-                .compactions
-                .into_iter()
-                .find(|c| c.boundary_id == id)
-                .map_or_else(Vec::new, |c| c.result.elided),
-            None => Vec::new(),
-        };
+        let (mut req, mut context, carried) = self.history_request().await?;
         let retention = retain(
             &req.messages,
             &carried,
@@ -359,14 +428,14 @@ pub(crate) fn instruction_note(
 pub(crate) struct Retention {
     pub keep_from: Option<MessageId>,
     pub kept_replies: usize,
-    /// 保留段内换成占位的结果：沿用上一边界的与本次新增的。
+    /// 保留段内换成占位的消息：沿用上一边界的与本次新增的。
     pub elided: Vec<MessageId>,
-    /// 本次新增替换的结果原文，按 id。
+    /// 本次新增替换、需要摘要提取要点的工具输出原文，按 id；skill 正文可重新加载，不在此列。
     pub elide: Vec<Message>,
     pub quoted: Vec<MessageId>,
 }
 
-/// `messages` 为请求顺序的完整历史（不含待回答输入），`carried` 为上一边界已替换的结果；
+/// `messages` 为请求顺序的完整历史（不含待回答输入），`carried` 为窗口内已替换的消息；
 /// 预算 = 替换后整段历史估算 × `percent`。
 pub(crate) fn retain(messages: &[Message], carried: &[MessageId], percent: u8) -> Retention {
     let starts: Vec<usize> = messages
@@ -377,10 +446,7 @@ pub(crate) fn retain(messages: &[Message], carried: &[MessageId], percent: u8) -
         .collect();
     let newest = starts.last().copied().unwrap_or(messages.len());
     let fresh = |i: usize| {
-        i < newest
-            && !carried.contains(&messages[i].id)
-            && completed_output(&messages[i])
-            && message_tokens(&messages[i]) > ELIDE_TOOL_TOKENS
+        i < newest && !carried.contains(&messages[i].id) && elidable(&messages[i]).is_some()
     };
     let size = |range: std::ops::Range<usize>| -> u64 {
         range
@@ -418,7 +484,9 @@ pub(crate) fn retain(messages: &[Message], carried: &[MessageId], percent: u8) -
             elided.push(messages[i].id);
         } else if fresh(i) {
             elided.push(messages[i].id);
-            elide.push(messages[i].clone());
+            if elidable(&messages[i]) == Some(Elidable::Output) {
+                elide.push(messages[i].clone());
+            }
         }
     }
     elided.sort();
@@ -440,17 +508,36 @@ pub(crate) fn retain(messages: &[Message], carried: &[MessageId], percent: u8) -
     }
 }
 
-fn completed_output(message: &Message) -> bool {
-    matches!(
-        message.body,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Elidable {
+    /// 超过阈值的完成态工具输出。
+    Output,
+    /// skill 正文：`skill` 工具结果或 `/name` 注入的用户输入。
+    Skill,
+}
+
+/// 可换成占位的旧内容；压缩保留段与冷时整理共用。
+pub(crate) fn elidable(message: &Message) -> Option<Elidable> {
+    match &message.body {
+        MessageBody::ToolResult {
+            tool_name,
+            outcome: ToolResultOutcome::Terminal(ExecOutcome::Completed { .. }),
+            ..
+        } if tool_name == SKILL => Some(Elidable::Skill),
         MessageBody::ToolResult {
             outcome: ToolResultOutcome::Terminal(ExecOutcome::Completed { .. }),
             ..
-        } | MessageBody::Completion {
+        }
+        | MessageBody::Completion {
             outcome: ExecOutcome::Completed { .. },
             ..
-        }
-    )
+        } => (message_tokens(message) > ELIDE_TOOL_TOKENS).then_some(Elidable::Output),
+        MessageBody::UserInput { parts, .. } => parts
+            .iter()
+            .any(|p| matches!(p, ContentPart::Skill { .. }))
+            .then_some(Elidable::Skill),
+        _ => None,
+    }
 }
 
 fn parse_summary(response: &ModelResponse) -> Result<(String, Vec<String>), String> {

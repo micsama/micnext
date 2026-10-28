@@ -8,6 +8,7 @@
   import { outcomeText } from "./outcome";
   import type { SessionView } from "../state/session.svelte";
   import ContextBoundaryView from "./ContextBoundaryView.svelte";
+  import TrimBoundaryView from "./TrimBoundaryView.svelte";
   import CopyButton from "./CopyButton.svelte";
   import ReplyView from "./ReplyView.svelte";
   import ToolRow, { STEP_NAME, STEP_ROW } from "./ToolRow.svelte";
@@ -141,6 +142,8 @@
 {:else if body.kind === "Boundary"}
   {#if body.boundary === "UserClear"}
     <div class="flex items-center gap-3 text-xs text-muted-foreground" title={time}><div class="h-px flex-1 bg-border"></div>上下文已清空<div class="h-px flex-1 bg-border"></div></div>
+  {:else if "Trim" in body.boundary}
+    <TrimBoundaryView id={message.id} trim={body.boundary.Trim} {view} />
   {:else}
     <ContextBoundaryView id={message.id} result={body.boundary.Compaction} {view} />
   {/if}

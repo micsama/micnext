@@ -1,6 +1,6 @@
 # B1：Skill 加载，以及缓存冷了以后整理历史
 
-**状态：梳理中（2026-10-27）；Skill 加载见 [B2](../blueprints/skills.md)，冷时整理另立 B2。** 前作：[next-gen-architecture](next-gen-architecture.md) 待办 15（Skill 注入粒度）、[compaction-retention](compaction-retention.md)（压缩时把旧工具输出换成占位）。
+**状态：梳理中（2026-10-27）；Skill 加载见 [B2](../blueprints/skills.md)，冷时整理见 [B2](../blueprints/cold-trim.md)。** 前作：[next-gen-architecture](next-gen-architecture.md) 待办 15（Skill 注入粒度）、[compaction-retention](compaction-retention.md)（压缩时把旧工具输出换成占位）。
 
 ## 现状
 

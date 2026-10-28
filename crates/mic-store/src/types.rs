@@ -1,9 +1,7 @@
 use std::collections::BTreeSet;
 use std::num::NonZeroU32;
 
-use mic_message::{
-    Compaction, Message, MessageId, PersonId, ReplyBlock, SessionCommand, SessionId,
-};
+use mic_message::{Message, MessageId, PersonId, ReplyBlock, SessionCommand, SessionId};
 use serde::{Deserialize, Serialize};
 
 use crate::SecretValue;
@@ -387,8 +385,10 @@ pub struct ContextWindow {
     /// 当前有效压缩边界的摘要。
     pub summary: Option<String>,
     /// 当前有效历史与边界保留的输入，按 id；包含 held 输入，排除仍待调度的输入。
-    /// 边界 `elided` 的工具结果已换成占位。
+    /// `elided` 已换成占位。
     pub messages: Vec<Message>,
+    /// 窗口内已换成占位的消息：压缩边界与其上各次整理的并集。
+    pub elided: Vec<MessageId>,
     /// 当前有效压缩边界带回的用户原话，按 id。
     pub quoted: Vec<Message>,
     /// 读窗口时会话的临时明文水位，见 `Session::plain_after`。
@@ -397,22 +397,22 @@ pub struct ContextWindow {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum CompactionState {
+pub enum RevocationState {
     Applied,
     Revoked { at: i64 },
 }
 
+/// 可撤回的边界（压缩与冷时整理）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct CompactionView {
+pub struct RevocableView {
     pub boundary_id: MessageId,
-    pub result: Compaction,
-    pub state: CompactionState,
+    pub state: RevocationState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ContextView {
     pub active_boundary: Option<MessageId>,
-    pub compactions: Vec<CompactionView>,
+    pub revocable: Vec<RevocableView>,
 }
 
 /// 调用时模型输入的描述；重建只靠这些事实，见 docs/blueprints/run-trace.md §五。

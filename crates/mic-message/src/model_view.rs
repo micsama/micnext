@@ -116,7 +116,7 @@ impl Message {
 }
 
 impl Message {
-    /// 压缩后保留段里的工具结果：`Completed` 输出换成一行占位，原长按字符计。
+    /// 换成占位：`Completed` 工具输出整段换掉（原长按字符计），用户输入只换 skill 正文。
     pub fn elide_output(&mut self) {
         let (tool_name, output) = match &mut self.body {
             MessageBody::ToolResult {
@@ -129,6 +129,16 @@ impl Message {
                 outcome: ExecOutcome::Completed { output },
                 ..
             } => (tool_name, output),
+            MessageBody::UserInput { parts, .. } => {
+                for part in parts {
+                    if let ContentPart::Skill { name, .. } = part {
+                        *part = text(format!(
+                            "[Skill {name} was loaded here; its body is omitted. Load it again if needed.]"
+                        ));
+                    }
+                }
+                return;
+            }
             _ => return,
         };
         let chars: usize = output
@@ -139,7 +149,7 @@ impl Message {
             })
             .sum();
         *output = vec![text(format!(
-            "[Output of {tool_name} omitted at compaction ({chars} chars). Key points are in the summary.]"
+            "[Output of {tool_name} omitted ({chars} chars). Call it again if needed.]"
         ))];
     }
 }

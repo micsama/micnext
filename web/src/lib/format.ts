@@ -75,7 +75,7 @@ export function formatDuration(ms: number): string {
 }
 
 export function formatTokens(n: number): string {
-  return n < 10_000 ? String(n) : n < 1_000_000 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(2)}M`;
+  return n < 1_000 ? String(n) : n < 99_950 ? `${(n / 1000).toFixed(1)}k` : n < 999_500 ? `${Math.round(n / 1000)}k` : `${(n / 1_000_000).toFixed(2)}M`;
 }
 
 /** 美元，小额保留足够有效位。 */

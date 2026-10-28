@@ -22,8 +22,10 @@ class ConversionTests(unittest.TestCase):
                 INSERT INTO schema_migrations VALUES ('core', 25), ('wechat', 5);
                 CREATE TABLE core_sessions(id INTEGER PRIMARY KEY);
                 INSERT INTO core_sessions VALUES (1);
+                CREATE TABLE core_runs(id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL);
+                CREATE TABLE core_model_calls(id INTEGER PRIMARY KEY, started_at INTEGER NOT NULL);
                 CREATE TABLE core_messages(id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, payload TEXT NOT NULL,
-                  delivered_at INTEGER, delivery_failure TEXT,
+                  model_call_id INTEGER, created_at INTEGER NOT NULL DEFAULT 0, delivered_at INTEGER, delivery_failure TEXT,
                   kind TEXT GENERATED ALWAYS AS (json_extract(payload, '$.kind')) VIRTUAL);
                 INSERT INTO core_messages(id, session_id, payload) VALUES
                   (10, 1, '{"kind":"Notification","source":"micnext","text":"t"}'), (11, 1, '{"kind":"HarnessNote","text":"n"}');
@@ -50,8 +52,10 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(self.version(), 25)
         result = self.run_script("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.version(), 30)
+        self.assertEqual(self.version(), 31)
         with sqlite3.connect(self.db) as conn:
+            plan = conn.execute("EXPLAIN QUERY PLAN SELECT id FROM core_messages WHERE model_call_id = 1 AND kind = 'Reply'").fetchall()
+            self.assertIn("idx_messages_call", plan[0][3])
             self.assertEqual(conn.execute("SELECT seen_message_id FROM core_sessions").fetchone(), (11,))
             payloads = conn.execute("SELECT json_extract(payload, '$.files') FROM core_messages ORDER BY id").fetchall()
             self.assertEqual(payloads, [("[]",), (None,)])

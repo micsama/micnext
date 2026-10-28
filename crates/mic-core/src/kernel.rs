@@ -1346,12 +1346,7 @@ impl Kernel {
             return Err(KernelError::SessionNotFound);
         }
         let receiver = self.events.subscribe();
-        let latest = self
-            .store
-            .messages_after(session, None)
-            .await?
-            .last()
-            .map(|message| message.id);
+        let latest = self.store.last_message_id(session).await?;
         Ok((receiver, latest))
     }
 

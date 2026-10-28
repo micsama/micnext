@@ -57,8 +57,6 @@ pub struct TraceCall {
     pub side_id: Option<MessageId>,
     #[serde(skip)]
     key: (Option<i64>, Option<i64>),
-    #[serde(skip)]
-    day: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -151,7 +149,7 @@ pub struct UsageTotal {
 }
 
 impl UsageTotal {
-    fn add(&mut self, c: &TraceCall) {
+    fn add(&mut self, c: &CallUsage) {
         self.calls += 1;
         match &c.usage {
             Some(u) => {
@@ -171,7 +169,7 @@ impl UsageTotal {
         }
     }
 
-    fn of(calls: &[TraceCall]) -> Self {
+    fn of(calls: &[CallUsage]) -> Self {
         let mut total = Self::default();
         for c in calls {
             total.add(c);
@@ -302,54 +300,89 @@ fn mean(values: &[i64]) -> Option<i64> {
     (!values.is_empty()).then(|| values.iter().sum::<i64>() / values.len() as i64)
 }
 
-const CALL_SELECT: &str = "SELECT c.id, c.purpose, c.model_id, c.model, c.reasoning_effort,
-        c.started_at, c.first_output_at, c.finished_at, c.stop, c.error,
+/// 用量聚合只读这些列，不反查消息：会话全期统计的行数随历史增长。
+const USAGE_SELECT: &str = "SELECT c.purpose, c.model_id, c.model, c.started_at, c.finished_at, c.stop, c.error,
         c.input_tokens, c.output_tokens, c.cache_read_tokens, c.cache_write_tokens, c.reasoning_tokens,
-        m.price_input, m.price_cache_read, m.price_cache_write, m.price_output,
+        m.price_input, m.price_cache_read, m.price_cache_write, m.price_output";
+const USAGE_FROM: &str = "FROM core_model_calls c LEFT JOIN core_models m ON m.id = c.model_id";
+/// trace 详情在用量列之后追加的列。
+const CALL_EXTRA: &str = "c.id, c.reasoning_effort, c.first_output_at,
         (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'Reply'),
         (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'Boundary'),
         (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'SideOutput'),
-        c.context_boundary_id, c.context_through_id,
-        strftime('%Y-%m-%d', c.started_at / 1000, 'unixepoch', 'localtime')
- FROM core_model_calls c LEFT JOIN core_models m ON m.id = c.model_id";
+        c.context_boundary_id, c.context_through_id";
 
-fn call(r: &Row<'_>) -> rusqlite::Result<TraceCall> {
+/// 用量聚合需要的调用事实。
+struct CallUsage {
+    purpose: ModelCallPurpose,
+    model_id: Option<ModelId>,
+    model: String,
+    started_at: i64,
+    finished_at: i64,
+    stop: Option<StopReason>,
+    error: Option<String>,
+    usage: Option<Usage>,
+    cost: Option<f64>,
+}
+
+fn call_usage(r: &Row<'_>) -> rusqlite::Result<CallUsage> {
     let tokens = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.map(|n| n as u64));
-    let usage = tokens(10)?.map(|input_tokens| -> rusqlite::Result<Usage> {
+    let usage = tokens(7)?.map(|input_tokens| -> rusqlite::Result<Usage> {
         Ok(Usage {
             input_tokens,
-            output_tokens: tokens(11)?.unwrap_or(0),
-            cache_read_tokens: tokens(12)?,
-            cache_write_tokens: tokens(13)?,
-            reasoning_tokens: tokens(14)?,
+            output_tokens: tokens(8)?.unwrap_or(0),
+            cache_read_tokens: tokens(9)?,
+            cache_write_tokens: tokens(10)?,
+            reasoning_tokens: tokens(11)?,
         })
     });
     let usage = usage.transpose()?;
     let price = ModelPrice {
-        input: r.get(15)?,
-        cache_read: r.get(16)?,
-        cache_write: r.get(17)?,
-        output: r.get(18)?,
+        input: r.get(12)?,
+        cache_read: r.get(13)?,
+        cache_write: r.get(14)?,
+        output: r.get(15)?,
     };
-    Ok(TraceCall {
-        id: ModelCallId(r.get(0)?),
-        purpose: r.get(1)?,
-        model_id: r.get::<_, Option<i64>>(2)?.map(ModelId),
-        model: r.get(3)?,
-        reasoning_effort: r.get(4)?,
-        started_at: r.get(5)?,
-        first_output_at: r.get(6)?,
-        finished_at: r.get(7)?,
-        stop: r.get(8)?,
-        error: r.get(9)?,
+    Ok(CallUsage {
+        purpose: r.get(0)?,
+        model_id: r.get::<_, Option<i64>>(1)?.map(ModelId),
+        model: r.get(2)?,
+        started_at: r.get(3)?,
+        finished_at: r.get(4)?,
+        stop: r.get(5)?,
+        error: r.get(6)?,
         cost: call_cost(usage.as_ref(), &price),
         usage,
+    })
+}
+
+fn load_usage(conn: &Connection, filter: &str, arg: i64) -> Result<Vec<CallUsage>, StoreError> {
+    Ok(conn
+        .prepare(&format!("{USAGE_SELECT} {USAGE_FROM} WHERE {filter}"))?
+        .query_map([arg], call_usage)?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+fn call(r: &Row<'_>) -> rusqlite::Result<TraceCall> {
+    let u = call_usage(r)?;
+    Ok(TraceCall {
+        id: ModelCallId(r.get(16)?),
+        purpose: u.purpose,
+        model_id: u.model_id,
+        model: u.model,
+        reasoning_effort: r.get(17)?,
+        started_at: u.started_at,
+        first_output_at: r.get(18)?,
+        finished_at: u.finished_at,
+        stop: u.stop,
+        error: u.error,
+        usage: u.usage,
+        cost: u.cost,
         attempt: 1,
         reply_id: r.get::<_, Option<i64>>(19)?.map(MessageId),
         boundary_id: r.get::<_, Option<i64>>(20)?.map(MessageId),
         side_id: r.get::<_, Option<i64>>(21)?.map(MessageId),
         key: (r.get(22)?, r.get(23)?),
-        day: r.get(24)?,
     })
 }
 
@@ -366,7 +399,9 @@ fn number_attempts(calls: &mut [TraceCall]) {
 
 fn load_calls(conn: &Connection, filter: &str, arg: i64) -> Result<Vec<TraceCall>, StoreError> {
     let mut calls = conn
-        .prepare(&format!("{CALL_SELECT} WHERE {filter} ORDER BY c.id"))?
+        .prepare(&format!(
+            "{USAGE_SELECT}, {CALL_EXTRA} {USAGE_FROM} WHERE {filter} ORDER BY c.id"
+        ))?
         .query_map([arg], call)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     number_attempts(&mut calls);
@@ -581,7 +616,7 @@ impl Store {
         schedule: crate::ScheduleId,
     ) -> Result<CallStat, StoreError> {
         self.call(move |conn| {
-            let calls = load_calls(
+            let calls = load_usage(
                 conn,
                 "c.run_id IN (SELECT m.run_id FROM core_schedule_fires f
                  JOIN core_messages m ON m.id = f.message_id WHERE f.schedule_id = ?1)",
@@ -600,7 +635,7 @@ impl Store {
     /// 所有已记录调用，包括重试、压缩、标题；整树递归含归档、隐藏后代。
     pub async fn session_usage(&self, session: SessionId) -> Result<SessionUsageView, StoreError> {
         self.call(move |conn| {
-            let own = UsageTotal::of(&load_calls(conn, "c.session_id = ?1", session.0)?);
+            let own = UsageTotal::of(&load_usage(conn, "c.session_id = ?1", session.0)?);
             let descendants: u32 = conn.query_row(
                 "WITH RECURSIVE tree(id) AS (SELECT id FROM core_sessions WHERE parent_session_id = ?1
                  UNION ALL SELECT s.id FROM core_sessions s JOIN tree t ON s.parent_session_id = t.id)
@@ -611,7 +646,7 @@ impl Store {
             let tree = if descendants == 0 {
                 None
             } else {
-                let calls = load_calls(
+                let calls = load_usage(
                     conn,
                     "c.session_id IN (WITH RECURSIVE tree(id) AS (SELECT ?1 UNION ALL
                      SELECT s.id FROM core_sessions s JOIN tree t ON s.parent_session_id = t.id)
@@ -846,41 +881,45 @@ impl Store {
     }
 
     /// 最近 `days` 天（含今天，按本地日历）的聚合；不读正文。
+    /// 本地日期只为每天零点各算一次，按时间戳范围筛选、在内存里分组。
     pub async fn dashboard(&self, days: u32) -> Result<Dashboard, StoreError> {
-        let since = format!("-{} days", days.saturating_sub(1));
         self.call(move |conn| {
-            let day =
-                |col: &str| format!("strftime('%Y-%m-%d', {col} / 1000, 'unixepoch', 'localtime')");
-            let floor = "date('now', 'localtime', ?1)";
+            // 升序的 (本地日期, 当天零点 unix 毫秒)。
+            let starts: Vec<(String, i64)> = conn
+                .prepare(
+                    "WITH RECURSIVE n(i) AS (SELECT ?1 - 1 UNION ALL SELECT i - 1 FROM n WHERE i > 0),
+                     day(d) AS (SELECT date('now', 'localtime', '-' || i || ' days') FROM n)
+                     SELECT d, CAST(strftime('%s', d, 'utc') AS INTEGER) * 1000 FROM day",
+                )?
+                .query_map([days.max(1)], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            let floor = starts[0].1;
             let mut by_day: BTreeMap<String, DayStat> = BTreeMap::new();
-            let blank = |d: &str| DayStat {
-                day: d.to_owned(),
-                runs: 0,
-                completed_runs: 0,
-                calls: CallStat::default(),
-            };
-            let mut stmt = conn.prepare(&format!(
-                "SELECT {d}, count(*), count(CASE WHEN state = 'completed' THEN 1 END)
-                 FROM core_runs WHERE state NOT IN ('executing', 'stopped') AND {d} >= {floor} GROUP BY 1",
-                d = day("created_at")
-            ))?;
-            let mut rows = stmt.query([&since])?;
+            fn day_stat<'a>(
+                by_day: &'a mut BTreeMap<String, DayStat>,
+                starts: &[(String, i64)],
+                ms: i64,
+            ) -> &'a mut DayStat {
+                let d = &starts[starts.partition_point(|(_, s)| *s <= ms) - 1].0;
+                by_day.entry(d.clone()).or_insert_with(|| DayStat {
+                    day: d.clone(),
+                    runs: 0,
+                    completed_runs: 0,
+                    calls: CallStat::default(),
+                })
+            }
+            let mut stmt = conn.prepare(
+                "SELECT created_at, state = 'completed' FROM core_runs
+                 WHERE created_at >= ?1 AND state NOT IN ('executing', 'stopped')",
+            )?;
+            let mut rows = stmt.query([floor])?;
             while let Some(r) = rows.next()? {
-                let d: String = r.get(0)?;
-                let e = by_day.entry(d.clone()).or_insert_with(|| blank(&d));
-                e.runs = r.get(1)?;
-                e.completed_runs = r.get(2)?;
+                let e = day_stat(&mut by_day, &starts, r.get(0)?);
+                e.runs += 1;
+                e.completed_runs += u32::from(r.get::<_, bool>(1)?);
             }
             let mut by_model: BTreeMap<(&'static str, i64, String), ModelStat> = BTreeMap::new();
-            let mut stmt = conn.prepare(&format!(
-                "{CALL_SELECT} WHERE {d} >= {floor} ORDER BY c.id",
-                d = day("c.started_at")
-            ))?;
-            let calls = stmt
-                .query_map([&since], call)?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            for c in calls {
-                let d = c.day.clone();
+            for c in load_usage(conn, "c.started_at >= ?1", floor)? {
                 let model_key = (
                     c.purpose.as_str(),
                     c.model_id.map_or(0, |m| m.0),
@@ -892,21 +931,18 @@ impl Store {
                     model: c.model.clone(),
                     calls: CallStat::default(),
                 });
-                let day_stat = by_day.entry(d.clone()).or_insert_with(|| blank(&d));
-                for s in [&mut stat.calls, &mut day_stat.calls] {
-                    s.add(&c);
-                }
+                stat.calls.add(&c);
+                day_stat(&mut by_day, &starts, c.started_at).calls.add(&c);
             }
             let mut by_tool: BTreeMap<String, (u32, u32, Vec<i64>)> = BTreeMap::new();
-            let mut stmt = conn.prepare(&format!(
+            let mut stmt = conn.prepare(
                 "SELECT json_extract(payload, '$.tool_name'),
                         (json_extract(payload, '$.outcome.Terminal.Failed') IS NOT NULL OR json_extract(payload, '$.outcome.Terminal.TimedOut') IS NOT NULL),
                         CASE WHEN json_extract(payload, '$.outcome.Terminal.Completed') IS NOT NULL
                              THEN created_at - json_extract(payload, '$.started_at') END
-                 FROM core_messages WHERE kind = 'ToolResult' AND {d} >= {floor}",
-                d = day("created_at")
-            ))?;
-            let mut rows = stmt.query([&since])?;
+                 FROM core_messages WHERE kind = 'ToolResult' AND created_at >= ?1",
+            )?;
+            let mut rows = stmt.query([floor])?;
             while let Some(r) = rows.next()? {
                 let e = by_tool.entry(r.get(0)?).or_default();
                 e.0 += 1;
@@ -948,7 +984,7 @@ impl Store {
 }
 
 impl CallStat {
-    fn add(&mut self, c: &TraceCall) {
+    fn add(&mut self, c: &CallUsage) {
         self.usage.add(c);
         if c.error.is_some() {
             self.failed_calls += 1;

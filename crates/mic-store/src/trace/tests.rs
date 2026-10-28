@@ -224,7 +224,7 @@ async fn run_stats_fixture() {
     let stat = store
         .call(move |conn| {
             let mut stat = CallStat::default();
-            for c in &load_calls(conn, "c.session_id = ?1", session.0)? {
+            for c in &load_usage(conn, "c.session_id = ?1", session.0)? {
                 stat.add(c);
             }
             Ok(stat)
@@ -234,4 +234,55 @@ async fn run_stats_fixture() {
     assert_eq!((stat.failed_calls, stat.stopped_calls), (2, 1));
     assert_eq!(mean(&stat.ok_ms), Some(833), "平均耗时只取成功调用");
     assert_eq!(stat.usage, want);
+}
+
+/// 真实库副本压测：`MICNEXT_PERF_DB` 指向已转换到当前版本、`key_cipher` 已清空的副本。
+#[test]
+#[ignore]
+fn real_database_reads_stay_bounded() {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(real_database());
+}
+
+async fn real_database() {
+    use std::time::Instant;
+    let path = std::path::PathBuf::from(std::env::var("MICNEXT_PERF_DB").unwrap());
+    let key = crate::SecretKeyFile(path.with_extension("key"));
+    let store = Store::open(&path, &[], key).await.unwrap();
+    let (session, schedule) = store
+        .call(|conn| {
+            Ok(conn.query_row(
+                "SELECT m.session_id, (SELECT id FROM core_schedules s WHERE s.session_id = m.session_id LIMIT 1)
+                 FROM core_messages m GROUP BY m.session_id ORDER BY count(*) DESC LIMIT 1",
+                [],
+                |r| Ok((SessionId(r.get(0)?), r.get::<_, Option<i64>>(1)?)),
+            )?)
+        })
+        .await
+        .unwrap();
+    macro_rules! timed {
+        ($name:literal, $e:expr) => {{
+            let at = Instant::now();
+            $e.await.unwrap();
+            let ms = at.elapsed().as_millis();
+            println!("{:<16} {ms:>5}ms", $name);
+            assert!(ms < 300, "{} 用时 {ms}ms", $name);
+        }};
+    }
+    timed!("context_window", store.context_window(session));
+    timed!("context_usage", store.context_usage(session));
+    timed!("last_message_id", store.last_message_id(session));
+    timed!("trace_sessions", store.trace_sessions());
+    timed!("trace_runs", store.trace_runs(session, None, 5));
+    timed!("session_usage", store.session_usage(session));
+    if let Some(id) = schedule {
+        timed!(
+            "schedule_usage",
+            store.schedule_usage(crate::ScheduleId(id))
+        );
+    }
+    timed!("dashboard_30", store.dashboard(30));
+    timed!("dashboard_366", store.dashboard(366));
 }

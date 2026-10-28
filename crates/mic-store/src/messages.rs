@@ -133,6 +133,23 @@ impl Store {
         .await
     }
 
+    /// `messages_after` 回放序列的最后一条 id。
+    pub async fn last_message_id(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<MessageId>, StoreError> {
+        self.call(move |conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT id FROM core_messages WHERE session_id = ?1 AND kind <> 'SideOutput' ORDER BY id DESC LIMIT 1",
+                    [session_id.0],
+                    |r| r.get(0).map(MessageId),
+                )
+                .optional()?)
+        })
+        .await
+    }
+
     /// `before` 之前的一页（不含 `before`；`None` = 到最新）：最近 `rounds` 轮，至多 `cap` 条；不含 `SideOutput`。
     pub async fn messages_page(
         &self,

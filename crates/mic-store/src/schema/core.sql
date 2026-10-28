@@ -107,6 +107,8 @@ CREATE TABLE core_runs (
 
 CREATE INDEX idx_runs_executing ON core_runs(session_id) WHERE state = 'executing';
 
+CREATE INDEX idx_runs_created ON core_runs(created_at);
+
 CREATE TABLE core_model_calls (
   id                  INTEGER PRIMARY KEY,
   session_id          INTEGER NOT NULL REFERENCES core_sessions(id),
@@ -134,6 +136,8 @@ CREATE INDEX idx_model_calls_run ON core_model_calls(run_id);
 
 CREATE INDEX idx_model_calls_session ON core_model_calls(session_id);
 
+CREATE INDEX idx_model_calls_started ON core_model_calls(started_at);
+
 CREATE TABLE core_messages (
   id                    INTEGER PRIMARY KEY,
   session_id            INTEGER NOT NULL REFERENCES core_sessions(id),
@@ -152,6 +156,16 @@ CREATE TABLE core_messages (
 CREATE INDEX idx_messages_session ON core_messages(session_id, id);
 
 CREATE INDEX idx_messages_run ON core_messages(run_id);
+
+CREATE INDEX idx_messages_call ON core_messages(model_call_id, kind) WHERE model_call_id IS NOT NULL;
+
+CREATE INDEX idx_messages_boundary ON core_messages(session_id, id) WHERE kind = 'Boundary';
+
+CREATE INDEX idx_messages_time ON core_messages(session_id, created_at, id);
+
+CREATE INDEX idx_messages_tool_time ON core_messages(created_at) WHERE kind = 'ToolResult';
+
+CREATE INDEX idx_messages_tool_failed ON core_messages(session_id) WHERE kind = 'ToolResult' AND (json_extract(payload, '$.outcome.Terminal.Failed') IS NOT NULL OR json_extract(payload, '$.outcome.Terminal.TimedOut') IS NOT NULL);
 
 CREATE TABLE core_boundary_inputs (
   boundary_id INTEGER NOT NULL REFERENCES core_messages(id),

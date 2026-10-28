@@ -380,13 +380,23 @@ fn read_range(
     start: &WindowStart,
     through: Option<MessageId>,
 ) -> Result<Vec<(Message, bool)>, StoreError> {
+    // 窗口段按索引范围读，边界带过来的未答输入另取，代价只随窗口大小增长。
+    let (from, from_arg) = match start.compaction.as_ref().and_then(|c| c.keep_from) {
+        Some(keep) => (
+            "(m.created_at, m.id) >= (SELECT created_at, id FROM core_messages WHERE id = ?2)",
+            keep.0,
+        ),
+        None => ("m.id >= ?2", start.start),
+    };
+    let cols = format!("{MESSAGE_COLS}, ({UNCLAIMED}) AND NOT ({HELD_INPUT})");
     let mut rows = conn.prepare(&format!(
-        "SELECT {MESSAGE_COLS}, ({UNCLAIMED}) AND NOT ({HELD_INPUT}) FROM {MESSAGE_FROM}
-         WHERE m.session_id = ?1
-           AND ((CASE WHEN ?5 IS NULL THEN m.id >= ?2 ELSE (m.created_at, m.id) >= (SELECT created_at, id FROM core_messages WHERE id = ?5) END) OR EXISTS (SELECT 1 FROM core_boundary_inputs b WHERE b.boundary_id = ?3 AND b.message_id = m.id))
-           AND m.id <= ?4 ORDER BY m.created_at, m.id"
+        "SELECT {cols} FROM {MESSAGE_FROM} WHERE m.session_id = ?1 AND {from} AND m.id <= ?4
+         UNION ALL
+         SELECT {cols} FROM {MESSAGE_FROM}
+         WHERE m.id IN (SELECT message_id FROM core_boundary_inputs WHERE boundary_id = ?3) AND NOT ({from}) AND m.id <= ?4
+         ORDER BY 4, 1"
     ))?.query_map(
-        params![session.0, start.start, start.anchor.map(|id| id.0), through.map_or(i64::MAX, |id| id.0), start.compaction.as_ref().and_then(|c| c.keep_from).map(|id| id.0)],
+        params![session.0, from_arg, start.anchor.map(|id| id.0), through.map_or(i64::MAX, |id| id.0)],
         |r| Ok((row::message(r)?, r.get(row::MESSAGE_NEXT)?)),
     )?.collect::<rusqlite::Result<Vec<_>>>()?;
     for (message, _) in &mut rows {

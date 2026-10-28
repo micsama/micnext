@@ -1,5 +1,5 @@
 //! 开发者 SQL 写入前的把关：试运行取影响行数与 DDL，再由标题模型评估风险。
-//! 契约：docs/blueprints/sql-write.md。
+//! 契约：docs/blueprints/archive/sql-write.md。
 
 use mic_message::{Message, MessageBody, MessageId, ReplyBlock, SessionId};
 use mic_store::Store;

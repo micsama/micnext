@@ -21,4 +21,3 @@
 | 实现完成，待验收 | 模型交付文件：send_file 与 push 附件（Web + 微信出站） | [B2](docs/blueprints/send-file.md) |
 | 实现完成，待验收 | Skill 加载（目录、`skill` 工具、`/name` 点名） | [B2](docs/blueprints/skills.md)；[B1](docs/brainstorm/skills.md) |
 | 实现完成，待验收 | 缓存冷后整理历史（轻整理 / 提前压缩，并入定时任务规则） | [B2](docs/blueprints/cold-trim.md)；[B1](docs/brainstorm/skills.md) |
-| 实现完成，待验收 | 开发者 SQL 写入模式（先备份再执行，AI 把关） | [B2](docs/blueprints/sql-write.md) |

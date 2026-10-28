@@ -74,3 +74,4 @@
 | 实现完成（CLOSED，2026-10-26） | 意外结束的 run 原地重试 / 继续 | [B2](docs/blueprints/archive/run-retry.md) |
 | 实现完成（CLOSED，2026-10-27） | 会话搜索（⌘K 面板，标题与对话正文） | [B2](docs/blueprints/archive/session-search.md) |
 | 实现完成（CLOSED，2026-10-27） | 模型收藏（选择器只列收藏） | [B2](docs/blueprints/archive/model-favorites.md) |
+| 实现完成（CLOSED，2026-10-28） | 开发者 SQL 写入模式（先备份再执行，AI 把关） | [B2](docs/blueprints/archive/sql-write.md) |

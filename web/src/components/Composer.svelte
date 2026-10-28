@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { onMount, type Snippet } from "svelte";
   import { listCommands, listSkills } from "../api/client";
   import type { CommandSpec, SkillList } from "../api/types";
@@ -142,8 +143,30 @@
     }
   }
 
-  function ondrop(e: DragEvent) {
+  // 拖拽在整个窗口接收：进出子元素会成对触发 enter/leave，按层数计数才不闪。
+  let dragDepth = 0;
+  const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes("Files") ?? false;
+  function ondragenter(e: DragEvent) {
+    if (!hasFiles(e)) return;
     e.preventDefault();
+    dragDepth++;
+    dragging = true;
+  }
+  function ondragover(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = readonly === null ? "copy" : "none";
+  }
+  function ondragleave(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dragging = false;
+  }
+  /** 拦下默认行为，免得浏览器直接打开文件、离开页面。 */
+  function ondrop(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
     dragging = false;
     attach([...(e.dataTransfer?.files ?? [])]);
   }
@@ -231,6 +254,22 @@
   }
 </script>
 
+<svelte:window {ondragenter} {ondragover} {ondragleave} {ondrop} />
+
+{#if dragging}
+  <div transition:fade={{ duration: 120 }} class="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-background/60 p-6 backdrop-blur-sm">
+    <div class={["flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed bg-card/90 px-12 py-10 text-center shadow-lg", readonly === null ? "border-primary" : "border-border"]}>
+      <div class={["flex gap-2", readonly === null ? "text-primary" : "text-muted-foreground"]}><Icon name="image" class="size-8" /><Icon name="file" class="size-8" /></div>
+      {#if readonly === null}
+        <p class="text-base font-medium">松开以添加图片或文件</p>
+      {:else}
+        <p class="text-base font-medium">这里不能添加附件</p>
+        <p class="max-w-xs text-sm text-muted-foreground">{readonly}</p>
+      {/if}
+    </div>
+  </div>
+{/if}
+
 <div class="mx-auto w-full max-w-chat px-4 pb-4">
   {#if error}
     <p class="mb-2 text-sm text-destructive">{error}</p>
@@ -241,12 +280,6 @@
   <div
     role="group"
     data-composer-input
-    ondragover={(e) => {
-      e.preventDefault();
-      dragging = true;
-    }}
-    ondragleave={() => (dragging = false)}
-    {ondrop}
     class="relative z-20 rounded-3xl border bg-card p-2 shadow-sm transition-colors {dragging
       ? 'border-primary'
       : danger

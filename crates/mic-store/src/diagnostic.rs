@@ -1,6 +1,6 @@
 //! 开发者诊断：独立只读连接上执行单条只读 SQL，凭据列读作 NULL；
 //! 写入模式在业务连接上先备份再执行。
-//! 契约：docs/blueprints/archive/developer-diagnostics.md §三、docs/blueprints/sql-write.md。
+//! 契约：docs/blueprints/archive/developer-diagnostics.md §三、docs/blueprints/archive/sql-write.md。
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

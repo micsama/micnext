@@ -215,7 +215,7 @@
       }
       if (e.key === "Tab") { e.preventDefault(); complete(suggestions[commandIndex % suggestions.length]!); return; }
     }
-    if (e.key === "Tab" && guess !== null && !e.isComposing && !e.shiftKey) {
+    if ((e.key === "Tab" || e.key === "ArrowRight") && guess !== null && !e.isComposing && !e.shiftKey) {
       e.preventDefault();
       accept();
       return;

@@ -24,4 +24,4 @@
 | 实现完成，待验收 | 缓存冷后整理历史（轻整理 / 提前压缩，并入定时任务规则） | [B2](docs/blueprints/cold-trim.md)；[B1](docs/brainstorm/skills.md) |
 | 实现完成，待验收 | 标题模型改名为杂活模型 | [B2](docs/blueprints/utility-model.md) |
 | 实现完成，待验收 | 预测用户的下一句输入 | [B2](docs/blueprints/input-prediction.md)；[B1](docs/brainstorm/input-prediction.md) |
-| 待写 B1 | 统一「轮」的口径（Trace 轮次=run、取材/窗口按输入计轮、会话页复制与统计的归属单位） | — |
+| B1 待定 | 统一「轮」的口径 | [B1](docs/brainstorm/rounds.md) |

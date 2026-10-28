@@ -80,7 +80,7 @@
               {#if p.files.length > 0}
                 <div class="mt-2 flex flex-wrap gap-2">
                   {#each p.files as file, i (i)}
-                    <FileCard name={file.path.split(/[\\/]/).at(-1) ?? file.path} size={file.size_bytes} load={() => fetchFile(`/pushes/${p.id}/files/${i}`)} />
+                    <FileCard name={file.path.split(/[\\/]/).at(-1) ?? file.path} size={file.size_bytes} load={(onProgress) => fetchFile(`/pushes/${p.id}/files/${i}`, onProgress)} />
                   {/each}
                 </div>
               {/if}

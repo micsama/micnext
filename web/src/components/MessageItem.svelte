@@ -30,7 +30,7 @@
   const time = $derived(formatTime(message.created_at));
   const queued = $derived(view.isQueued(message.id));
   const basename = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
-  const fileLoad = (index: number) => () => fetchFile(`/sessions/${message.session_id}/messages/${message.id}/files/${index}`);
+  const fileLoad = (index: number) => (onProgress: (received: number) => void) => fetchFile(`/sessions/${message.session_id}/messages/${message.id}/files/${index}`, onProgress);
   const VERDICT = { Completed: "完成", Failed: "失败", Cancelled: "取消", TimedOut: "超时" } as const;
   const outcomeKind = (o: ExecOutcome) => ("Completed" in o ? "Completed" : "TimedOut" in o ? "TimedOut" : "Failed" in o ? "Failed" : "Cancelled");
 </script>

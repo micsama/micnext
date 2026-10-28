@@ -89,7 +89,7 @@
 .trace-layout .toggle.on { color: var(--t-bad); border-color: var(--t-bad); background: var(--t-bad-bg); }
 .trace-layout .stream { padding: 0 12px 32px; height: 100%; }
 .trace-layout .stream-wrap { position: relative; flex: 1; min-height: 0; }
-.trace-layout .stream-nav { position: absolute; right: 16px; z-index: 3; display: flex; gap: 6px; opacity: 0; pointer-events: none; transform: translateY(var(--nav-shift)); transition: opacity .15s, transform .15s; }
+.trace-layout .stream-nav { position: absolute; left: 50%; translate: -50% 0; z-index: 3; display: flex; gap: 6px; opacity: 0; pointer-events: none; transform: translateY(var(--nav-shift)); transition: opacity .15s, transform .15s; }
 .trace-layout .stream-nav.top { --nav-shift: -4px; top: 52px; }
 .trace-layout .stream-nav.bottom { --nav-shift: 4px; bottom: 12px; }
 .trace-layout .stream-nav.shown { opacity: 1; pointer-events: auto; transform: none; }

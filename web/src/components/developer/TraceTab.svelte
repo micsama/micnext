@@ -140,21 +140,24 @@
     stream.scrollTop = stream.scrollHeight;
   }
 
-  /** 往前加载一页，保持当前视口内容不动。 */
-  async function more() {
-    if (session === null || nextBefore === null || paging) return;
-    const id = session;
+  /** 往前加载一页，保持当前视口内容不动；加载中再调用复用同一次请求。返回是否加载到了。 */
+  let inflight: Promise<boolean> | null = null;
+  function more(): Promise<boolean> {
+    if (session === null || nextBefore === null) return Promise.resolve(false);
+    inflight ??= loadEarlier(session, nextBefore).finally(() => { inflight = null; paging = false; });
+    return inflight;
+  }
+  async function loadEarlier(id: number, before: number): Promise<boolean> {
     const request = pageRequest;
     paging = true;
-    try {
-      const page = await guard(() => getTraceRuns(id, nextBefore));
-      if (!page || request !== pageRequest) return;
-      const fromBottom = stream.scrollHeight - stream.scrollTop;
-      runs = [...page.runs, ...runs];
-      nextBefore = page.next_before;
-      await tick();
-      stream.scrollTop = stream.scrollHeight - fromBottom;
-    } finally { paging = false; }
+    const page = await guard(() => getTraceRuns(id, before));
+    if (!page || request !== pageRequest) return false;
+    const fromBottom = stream.scrollHeight - stream.scrollTop;
+    runs = [...page.runs, ...runs];
+    nextBefore = page.next_before;
+    await tick();
+    stream.scrollTop = stream.scrollHeight - fromBottom;
+    return true;
   }
 
   // 运行流默认停在最新；滚近顶部自动往前加载，浮动按钮只在离开对应一端时出现。
@@ -175,15 +178,14 @@
         const edge = stream.getBoundingClientRect().top + (stream.querySelector<HTMLElement>(".pinned")?.offsetHeight ?? 0);
         const above = [...stream.querySelectorAll<HTMLElement>("[data-boundary]")].filter((el) => el.getBoundingClientRect().top < edge - 2).at(-1);
         if (above) { stream.scrollTop += above.getBoundingClientRect().top - edge - 4; return; }
-        if (nextBefore === null) { stream.scrollTop = 0; return; }
-        await more();
+        if (!(await more())) { stream.scrollTop = 0; return; }
       }
     } finally { jumping = false; }
   }
   async function toTop() {
     jumping = true;
     try {
-      while (nextBefore !== null) await more();
+      while (await more());
       stream.scrollTop = 0;
     } finally { jumping = false; }
   }
@@ -540,14 +542,14 @@
         {#if session !== null}{#each traceSessions.ancestors(session) as a (a.session)}<button type="button" class="crumb" title="打开父会话" onclick={() => void open(a.session)}>{traceSessions.title(a.session)}</button><span class="crumb-sep">›</span>{/each}{/if}
         <button type="button" class={cn("s-head", sessionSelected && "on")} disabled={session === null} title="查看会话详情" onclick={chooseSession}><h2 class="truncate">{session === null ? "Trace" : traceSessions.title(session)}</h2><Icon name="info" class="size-3.5" /></button>
       </div>
-      <div class="caps"><span class="cap">{total} 轮</span><span class="cap">{runs.reduce((n, r) => n + r.calls.length, 0)} 次调用</span><span class="cap">{tokensOf(runs.flatMap((r) => r.calls))} token</span></div>
+      <div class="caps"><span class="cap">{total} 轮</span>{#if sessionUsage}{@const u = sessionUsage.own}<span class="cap" title="整个会话，含标题等旁路调用">{u.calls} 次调用</span><span class="cap" title="整个会话，含标题等旁路调用">{atLeast(formatTokens(u.input_tokens + u.output_tokens), u.unknown_usage, u.calls)} token</span>{/if}</div>
       <button type="button" class="toggle" class:on={issuesOnly} title="只看失败、中断或含报错的运行" onclick={() => issuesOnly = !issuesOnly}><Icon name="error" class="size-[13px]" />只看异常<b>{badCount}</b></button><button type="button" class="iconbtn sm" title="刷新 Trace" aria-label="刷新 Trace" onclick={refresh}><Icon name="refresh" class="size-3.5" /></button>
     </div>
     <div class="stream-wrap">
     <div class="panel-body stream" bind:this={stream} onscroll={onStreamScroll}>
       {#if session !== null}<button type="button" class={cn("row cols sys pinned", systemSelected && selected)} onclick={chooseSystem}><span class="role r-sys">系统</span><span class="sum"><b>系统提示</b>当前配置，非历史快照</span></button>{/if}
       {#if error}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{error}</div></div>{/if}
-      {#if nextBefore !== null && !loading}<button type="button" class="load" disabled={paging} onclick={more}>{paging ? "加载中…" : "↑ 加载更早运行"}</button>{/if}
+      {#if nextBefore !== null && !loading}<button type="button" class="load" disabled={paging} onclick={() => void more()}>{paging ? "加载中…" : "↑ 加载更早运行"}</button>{/if}
       {#if loading}<p class="blank">正在加载运行记录…</p>{:else if visibleEntries.length === 0}<p class="blank">{issuesOnly ? "当前已加载的运行没有异常" : "这个会话还没有已结束的运行"}</p>{/if}
       {#each visibleEntries as entry (entry.kind === "run" ? `r${entry.run.id}` : `s${entry.call.id}`)}
         {#if entry.kind === "side"}

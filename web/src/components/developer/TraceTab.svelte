@@ -58,7 +58,8 @@
   let session = $state<number | null>(null);
   let runs = $state.raw<TraceRun[]>([]);
   let titleCalls = $state.raw<TraceCall[]>([]);
-  let nextAfter = $state<number | null>(null);
+  let nextBefore = $state<number | null>(null);
+  let total = $state(0);
   let peers = $state.raw<Peers>({ models: [], tools: [] });
   let pick = $state.raw<Pick | null>(null);
   let selectedRun = $state.raw<TraceRun | null>(null);
@@ -75,7 +76,7 @@
   type Entry = { kind: "run"; at: number; run: TraceRun } | { kind: "side"; at: number; call: TraceCall };
   const entries = $derived([
     ...runs.map((run): Entry => ({ kind: "run", at: run.created_at, run })),
-    ...titleCalls.filter((c) => nextAfter === null || c.started_at <= (runs.at(-1)?.finished_at ?? 0)).map((call): Entry => ({ kind: "side", at: call.started_at, call })),
+    ...titleCalls.filter((c) => nextBefore === null || c.started_at >= (runs[0]?.created_at ?? Infinity)).map((call): Entry => ({ kind: "side", at: call.started_at, call })),
   ].sort((a, b) => a.at - b.at));
 
   // 详情页签按需加载，换选中项即作废。
@@ -110,7 +111,8 @@
     selectedRun = null;
     runs = [];
     titleCalls = [];
-    nextAfter = null;
+    nextBefore = null;
+    total = 0;
     detailError = null;
     pick = null;
     detail = null;
@@ -120,32 +122,70 @@
     if (!page || request !== pageRequest) return;
     runs = page.runs;
     titleCalls = page.title_calls;
-    nextAfter = page.next_after;
+    nextBefore = page.next_before;
+    total = page.total;
     if (runTarget !== null) {
-      while (!runs.some(r => r.id === runTarget) && nextAfter !== null) {
-        const page = await guard(() => getTraceRuns(id, nextAfter));
+      while (!runs.some(r => r.id === runTarget) && nextBefore !== null) {
+        const page = await guard(() => getTraceRuns(id, nextBefore));
         if (!page || request !== pageRequest) return;
-        runs = [...runs, ...page.runs];
-        nextAfter = page.next_after;
+        runs = [...page.runs, ...runs];
+        nextBefore = page.next_before;
       }
       const run = runs.find(r => r.id === runTarget);
       if (run) { chooseRun(run); return; }
       error = "该运行尚未结束，或已不存在";
     }
-    chooseSession();
+    void chooseSession();
+    await tick();
+    stream.scrollTop = stream.scrollHeight;
   }
 
+  /** 往前加载一页，保持当前视口内容不动。 */
   async function more() {
-    if (session === null || nextAfter === null || paging) return;
+    if (session === null || nextBefore === null || paging) return;
     const id = session;
     const request = pageRequest;
     paging = true;
     try {
-      const page = await guard(() => getTraceRuns(id, nextAfter));
+      const page = await guard(() => getTraceRuns(id, nextBefore));
       if (!page || request !== pageRequest) return;
-      runs = [...runs, ...page.runs];
-      nextAfter = page.next_after;
+      const fromBottom = stream.scrollHeight - stream.scrollTop;
+      runs = [...page.runs, ...runs];
+      nextBefore = page.next_before;
+      await tick();
+      stream.scrollTop = stream.scrollHeight - fromBottom;
     } finally { paging = false; }
+  }
+
+  // 运行流默认停在最新；滚近顶部自动往前加载，浮动按钮只在离开对应一端时出现。
+  const EDGE_PX = 200;
+  let awayFromTop = $state(false);
+  let awayFromBottom = $state(false);
+  function onStreamScroll() {
+    awayFromTop = stream.scrollTop > EDGE_PX;
+    awayFromBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight > EDGE_PX;
+    if (!awayFromTop && !jumping) void more();
+  }
+  let jumping = false;
+  /** 视口上沿以上最近一个含上下文边界的轮次；已加载的都没有就继续往前加载。 */
+  async function previousBoundary() {
+    jumping = true;
+    try {
+      for (;;) {
+        const edge = stream.getBoundingClientRect().top + (stream.querySelector<HTMLElement>(".pinned")?.offsetHeight ?? 0);
+        const above = [...stream.querySelectorAll<HTMLElement>("[data-boundary]")].filter((el) => el.getBoundingClientRect().top < edge - 2).at(-1);
+        if (above) { stream.scrollTop += above.getBoundingClientRect().top - edge - 4; return; }
+        if (nextBefore === null) { stream.scrollTop = 0; return; }
+        await more();
+      }
+    } finally { jumping = false; }
+  }
+  async function toTop() {
+    jumping = true;
+    try {
+      while (nextBefore !== null) await more();
+      stream.scrollTop = 0;
+    } finally { jumping = false; }
   }
 
   $effect(() => {
@@ -390,7 +430,7 @@
   const visibleEntries = $derived(entries.filter((e) => !issuesOnly || isBad(e)));
   const badCount = $derived(entries.filter(isBad).length);
 
-  const runNumber = (r: TraceRun) => runs.findIndex((run) => run.id === r.id) + 1;
+  const runNumber = (r: TraceRun) => total - runs.length + runs.findIndex((run) => run.id === r.id) + 1;
   const selected = "selection-active";
 </script>
 
@@ -500,12 +540,14 @@
         {#if session !== null}{#each traceSessions.ancestors(session) as a (a.session)}<button type="button" class="crumb" title="打开父会话" onclick={() => void open(a.session)}>{traceSessions.title(a.session)}</button><span class="crumb-sep">›</span>{/each}{/if}
         <button type="button" class={cn("s-head", sessionSelected && "on")} disabled={session === null} title="查看会话详情" onclick={chooseSession}><h2 class="truncate">{session === null ? "Trace" : traceSessions.title(session)}</h2><Icon name="info" class="size-3.5" /></button>
       </div>
-      <div class="caps"><span class="cap">{runs.length} 轮</span><span class="cap">{runs.reduce((n, r) => n + r.calls.length, 0)} 次调用</span><span class="cap">{tokensOf(runs.flatMap((r) => r.calls))} token</span></div>
+      <div class="caps"><span class="cap">{total} 轮</span><span class="cap">{runs.reduce((n, r) => n + r.calls.length, 0)} 次调用</span><span class="cap">{tokensOf(runs.flatMap((r) => r.calls))} token</span></div>
       <button type="button" class="toggle" class:on={issuesOnly} title="只看失败、中断或含报错的运行" onclick={() => issuesOnly = !issuesOnly}><Icon name="error" class="size-[13px]" />只看异常<b>{badCount}</b></button><button type="button" class="iconbtn sm" title="刷新 Trace" aria-label="刷新 Trace" onclick={refresh}><Icon name="refresh" class="size-3.5" /></button>
     </div>
-    <div class="panel-body stream" bind:this={stream}>
+    <div class="stream-wrap">
+    <div class="panel-body stream" bind:this={stream} onscroll={onStreamScroll}>
       {#if session !== null}<button type="button" class={cn("row cols sys pinned", systemSelected && selected)} onclick={chooseSystem}><span class="role r-sys">系统</span><span class="sum"><b>系统提示</b>当前配置，非历史快照</span></button>{/if}
       {#if error}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{error}</div></div>{/if}
+      {#if nextBefore !== null && !loading}<button type="button" class="load" disabled={paging} onclick={more}>{paging ? "加载中…" : "↑ 加载更早运行"}</button>{/if}
       {#if loading}<p class="blank">正在加载运行记录…</p>{:else if visibleEntries.length === 0}<p class="blank">{issuesOnly ? "当前已加载的运行没有异常" : "这个会话还没有已结束的运行"}</p>{/if}
       {#each visibleEntries as entry (entry.kind === "run" ? `r${entry.run.id}` : `s${entry.call.id}`)}
         {#if entry.kind === "side"}
@@ -513,7 +555,7 @@
         {:else}
           {@const r = entry.run}
           {@const isFolded = folded.has(r.id)}
-          <article class="turn" class:folded={isFolded}>
+          <article class="turn" class:folded={isFolded} data-boundary={r.messages.some((m) => m.kind === "Boundary") || undefined}>
             <div class={cn("turn-head", selectedRun?.id === r.id && selected)}>
               <button type="button" class="tw" title={isFolded ? "展开" : "折叠"} aria-label={isFolded ? "展开轮次" : "折叠轮次"} aria-expanded={!isFolded} onclick={() => toggle(r.id)}><Icon name="chevron" class="size-[13px]" /></button>
               <button type="button" class="cols turn-select" onclick={() => chooseRun(r)}>
@@ -549,7 +591,16 @@
           </article>
         {/if}
       {/each}
-      {#if nextAfter !== null}<button type="button" class="load" disabled={paging} onclick={more}>{paging ? "加载中…" : "↓ 加载后续运行"}</button>{/if}
+    </div>
+    {#if !loading && runs.length > 0}
+      <div class="stream-nav top" class:shown={awayFromTop}>
+        <button type="button" title="上一个上下文边界（压缩、清空或整理）" onclick={previousBoundary}><Icon name="chevron" class="size-3.5 -rotate-90" />上一个边界</button>
+        <button type="button" title="到会话开头" onclick={toTop}><Icon name="chevron" class="size-3.5 -rotate-90" />到顶</button>
+      </div>
+      <div class="stream-nav bottom" class:shown={awayFromBottom}>
+        <button type="button" title="到最新" onclick={() => stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" })}><Icon name="chevron" class="size-3.5 rotate-90" />最新</button>
+      </div>
+    {/if}
     </div>
   </section>
 
@@ -564,14 +615,14 @@
         {#if detailError}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div>{detailError}</div></div>{/if}
         <div class="metrics">
           <div class="metric">
-            <div class="m-head"><span class="m-label"><Icon name="refresh" class="size-3.5" />轮次</span><span class="m-val">{runs.length}{nextAfter !== null ? "+" : ""}</span></div>
+            <div class="m-head"><span class="m-label"><Icon name="refresh" class="size-3.5" />轮次</span><span class="m-val">{total}</span></div>
             <div class="spark" title="{runs.length > SPARK_RUNS ? `最近 ${SPARK_RUNS} 轮` : "每轮"}总耗时，点击查看">
               {#each recent as r (r.id)}<button type="button" class={cn(r.state === "completed" ? "ok" : r.state === "interrupted" || r.state === "stopped" ? "warn" : "bad")} style="height:{Math.max(8, (runMs(r) ?? 0) / longest * 100)}%" title="#{runNumber(r)} · {runMs(r) === null ? "未结束" : formatDuration(runMs(r)!)} · {stateName(r)}" aria-label="轮次 {runNumber(r)}" onclick={() => chooseRun(r)}></button>{/each}
             </div>
             <div class="m-row"><i class="dot s-bad"></i><span>失败</span><b>{s?.failed_runs ?? runs.filter((r) => r.state === "provider_failed").length}</b></div>
             <div class="m-row"><i class="dot s-warn"></i><span>中断</span><b>{s?.interrupted_runs ?? runs.filter((r) => r.state === "interrupted").length}</b></div>
             <div class="m-row"><i class="dot s-bad"></i><span>工具报错</span><b>{s?.tool_errors ?? runs.reduce((n, r) => n + r.messages.filter((m) => (m.tool?.outcome === "failed" || m.tool?.outcome === "timed_out")).length, 0)}</b></div>
-            {#if nextAfter !== null}<p class="m-note">轮次图表只含已加载的 {runs.length} 轮</p>{/if}
+            {#if nextBefore !== null}<p class="m-note">轮次图表只含已加载的 {runs.length} 轮</p>{/if}
           </div>
           <div>
             {#if usageError}<p role="alert" class="bad">{usageError}</p>

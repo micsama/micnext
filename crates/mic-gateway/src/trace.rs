@@ -39,7 +39,7 @@ pub(crate) async fn usage(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RunsQuery {
-    after: Option<i64>,
+    before: Option<i64>,
     limit: Option<u32>,
 }
 
@@ -57,7 +57,7 @@ pub(crate) async fn runs(
     };
     Ok(Json(
         app.kernel
-            .trace_runs(session, q.after.map(RunId), limit)
+            .trace_runs(session, q.before.map(RunId), limit)
             .await?,
     ))
 }

@@ -78,7 +78,8 @@ export type TraceRun = {
   stats: RunStats;
 };
 
-export type TraceRunPage = { runs: TraceRun[]; title_calls: TraceCall[]; next_after: number | null };
+/** `runs` 旧到新；`next_before` 为取更早一页的游标，`total` 为已结束 run 总数。 */
+export type TraceRunPage = { runs: TraceRun[]; title_calls: TraceCall[]; next_before: number | null; total: number };
 
 export type Peers = {
   models: { purpose: Purpose; model_id: number; median_ms: number; samples: number }[];
@@ -178,7 +179,8 @@ const traceRun: Decoder<TraceRun> = obj({
 const runPage: Decoder<TraceRunPage> = obj({
   runs: arr(traceRun),
   title_calls: arr(traceCall),
-  next_after: nullable(num),
+  next_before: nullable(num),
+  total: num,
 });
 
 const peers: Decoder<Peers> = obj({

@@ -1051,11 +1051,11 @@ impl Kernel {
     pub async fn trace_runs(
         &self,
         session: SessionId,
-        after: Option<RunId>,
+        before: Option<RunId>,
         limit: u32,
     ) -> Result<TraceRunPage, KernelError> {
         self.existing(session).await?;
-        Ok(self.store.trace_runs(session, after, limit).await?)
+        Ok(self.store.trace_runs(session, before, limit).await?)
     }
 
     pub async fn message(&self, id: MessageId) -> Result<Option<Message>, KernelError> {

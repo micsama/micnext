@@ -23,7 +23,7 @@ pub struct TraceSession {
     pub session: SessionId,
     pub kind: TraceSessionKind,
     pub parent: Option<SessionId>,
-    /// root：会话标题；task：任务说明。
+    /// task：任务说明；其余：会话标题（定时任务即任务名）。
     pub label: Option<String>,
     pub job: Option<i64>,
     /// 根祖先的 Channel；Triggered 根取触发模块名。
@@ -182,9 +182,13 @@ impl UsageTotal {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TraceRunPage {
+    /// 旧到新。
     pub runs: Vec<TraceRun>,
     pub title_calls: Vec<TraceCall>,
-    pub next_after: Option<RunId>,
+    /// 还有更早的 run 时，取下一页的游标。
+    pub next_before: Option<RunId>,
+    /// 会话已结束 run 的总数，前端据此给分页加载的 run 编号。
+    pub total: u32,
 }
 
 /// 重建输入所需的调用事实。
@@ -644,7 +648,7 @@ impl Store {
                        UNION SELECT top.id, s.parent_session_id FROM top
                        JOIN core_sessions s ON s.id = top.top WHERE s.parent_session_id IS NOT NULL)
                      SELECT s.id, s.kind, s.parent_session_id,
-                       CASE s.kind WHEN 'root' THEN s.title WHEN 'task' THEN j.description END,
+                       CASE s.kind WHEN 'task' THEN j.description ELSE s.title END,
                        j.id, CASE t.kind WHEN 'triggered' THEN t.trigger_module ELSE t.channel END,
                        st.last_run_at, coalesce(st.failed, 0), coalesce(st.interrupted, 0),
                        (SELECT count(*) FROM core_messages m
@@ -684,33 +688,39 @@ impl Store {
         .await
     }
 
-    /// 已结束的 run，新到旧，每页若干个完整 run。
+    /// 已结束的 run，从最新往前分页，每页若干个完整 run；首页附带全部标题旁路调用。
     pub async fn trace_runs(
         &self,
         session: SessionId,
-        after: Option<RunId>,
+        before: Option<RunId>,
         limit: u32,
     ) -> Result<TraceRunPage, StoreError> {
         self.call(move |conn| {
             let mut runs = conn
                 .prepare(&format!(
                     "SELECT {RUN_COLS} FROM core_runs
-                     WHERE session_id = ?1 AND state <> 'executing' AND (?2 IS NULL OR id > ?2)
-                     ORDER BY id ASC LIMIT ?3"
+                     WHERE session_id = ?1 AND state <> 'executing' AND (?2 IS NULL OR id < ?2)
+                     ORDER BY id DESC LIMIT ?3"
                 ))?
                 .query_map(
-                    params![session.0, after.map(|r| r.0), limit as i64 + 1],
+                    params![session.0, before.map(|r| r.0), limit as i64 + 1],
                     row::run,
                 )?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let more = runs.len() > limit as usize;
             runs.truncate(limit as usize);
-            let next_after = more.then(|| runs.last().expect("limit ≥ 1").id);
+            runs.reverse();
+            let next_before = more.then(|| runs[0].id);
+            let total = conn.query_row(
+                "SELECT count(*) FROM core_runs WHERE session_id = ?1 AND state <> 'executing'",
+                [session.0],
+                |r| r.get(0),
+            )?;
             let out = runs
                 .into_iter()
                 .map(|run| load_run(conn, run))
                 .collect::<Result<Vec<_>, _>>()?;
-            let title_calls = if after.is_none() {
+            let title_calls = if before.is_none() {
                 load_calls(conn, "c.session_id = ?1 AND c.purpose = 'title'", session.0)?
             } else {
                 Vec::new()
@@ -718,7 +728,8 @@ impl Store {
             Ok(TraceRunPage {
                 runs: out,
                 title_calls,
-                next_after,
+                next_before,
+                total,
             })
         })
         .await

@@ -14,7 +14,8 @@
   import { router } from "../state/route.svelte";
   import { otherSessions, pinnedSessions, sessionsSync, tags, webSessions, type SessionList } from "../state/sessions.svelte";
   import TagPill from "./TagPill.svelte";
-  import { SvelteMap } from "svelte/reactivity";
+  import { SvelteMap, SvelteSet } from "svelte/reactivity";
+  import { load, save } from "../state/storage";
   import type { TraceSession } from "../api/trace";
   import { issues, traceSessions } from "../state/trace-sessions.svelte";
   import { theme, type ThemeChoice } from "../state/theme.svelte";
@@ -42,24 +43,39 @@
   ] satisfies { tracing: boolean; icon: IconName; label: string; href: string }[]);
   const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K";
   let search = $state("");
-  let channel = $state("");
-  const channelName = (c: string) => (c === "wechat" ? "微信" : c);
+  const searching = $derived(search.trim() !== "");
+  const channelName = (c: string) => ({ web: "Web", wechat: "微信", schedule: "定时任务" })[c] ?? c;
   // 会话树：Root 按最近运行排在渠道下，子会话挂在父会话下；搜索命中后代时保留并展开祖先。
   const hit = (s: TraceSession) => traceSessions.title(s.session).toLowerCase().includes(search.trim().toLowerCase());
   const shown = (s: TraceSession): boolean => hit(s) || traceSessions.descendants(s.session).some(hit);
+  const toggled = new SvelteMap<number, boolean>();
+  const branch = $derived(new Set(traceId === null ? [] : traceSessions.ancestors(traceId).map((s) => s.session)));
+  // 渠道分组：收起状态按浏览器记忆；组内近 7 天或最近 5 个照常列出，更早的收进末尾，当前会话所在的一支总是列出。
+  const COLLAPSED_KEY = "micnext.trace.collapsed";
+  const RECENT_MS = 7 * 86_400_000;
+  const RECENT_MIN = 5;
+  const collapsed = new SvelteSet<string>(JSON.parse(load(COLLAPSED_KEY) ?? "[]") as string[]);
+  const older = new SvelteSet<string>();
+  function toggleGroup(ch: string) {
+    if (!collapsed.delete(ch)) collapsed.add(ch);
+    save(COLLAPSED_KEY, collapsed.size === 0 ? null : JSON.stringify([...collapsed]));
+  }
   const traceGroups = $derived.by(() => {
     const by = new Map<string, TraceSession[]>();
     for (const s of traceSessions.items)
-      if (s.parent === null && (!channel || s.channel === channel) && shown(s)) by.set(s.channel, [...(by.get(s.channel) ?? []), s]);
-    return [...by];
+      if (s.parent === null && shown(s)) by.set(s.channel, [...(by.get(s.channel) ?? []), s]);
+    const since = Date.now() - RECENT_MS;
+    return [...by].map(([ch, items]) => {
+      const fold = !searching && !older.has(ch);
+      const recent = items.filter((s, i) => !fold || i < RECENT_MIN || (s.last_run_at ?? 0) >= since || s.session === traceId || branch.has(s.session));
+      return { ch, items, recent, rest: items.filter((s) => !recent.includes(s)) };
+    });
   });
-  const toggled = new SvelteMap<number, boolean>();
-  const branch = $derived(new Set(traceId === null ? [] : traceSessions.ancestors(traceId).map((s) => s.session)));
   const expanded = (s: TraceSession) =>
-    toggled.get(s.session) ?? (branch.has(s.session) || (search.trim() !== "" && traceSessions.descendants(s.session).some(hit)));
-  /** 收起时后代的异常：只给一个弱化的关联标记，悬停列出各子 agent。 */
-  const hiddenIssues = (s: TraceSession) => {
-    const bad = traceSessions.descendants(s.session).filter((d) => issues(d).bad + issues(d).interrupted > 0);
+    toggled.get(s.session) ?? (branch.has(s.session) || (searching && traceSessions.descendants(s.session).some(hit)));
+  /** 收起处的异常：只给一个弱化的关联标记，悬停列出各会话。 */
+  const hiddenIssues = (list: TraceSession[]) => {
+    const bad = list.filter((d) => issues(d).bad + issues(d).interrupted > 0);
     return bad.length === 0 ? null : {
       count: bad.length,
       tip: bad.map((d) => {
@@ -68,6 +84,7 @@
       }).join("\n"),
     };
   };
+  const withDescendants = (list: TraceSession[]) => list.flatMap((s) => [s, ...traceSessions.descendants(s.session)]);
   const lastRun = (at: number) => {
     const d = new Date(at);
     return d.toDateString() === new Date().toDateString()
@@ -144,7 +161,7 @@
   {@const kids = hit(s) ? traceSessions.children(s.session) : traceSessions.children(s.session).filter(shown)}
   {@const open = kids.length > 0 && expanded(s)}
   {@const own = issues(s)}
-  {@const hidden = open ? null : hiddenIssues(s)}
+  {@const hidden = open ? null : hiddenIssues(traceSessions.descendants(s.session))}
   <div class={["flex items-center gap-1 rounded-md pl-1.5 hover:bg-accent", traceId === s.session && "bg-accent font-medium"]}>
     {#if kids.length > 0}
       <button type="button" aria-label={open ? "收起子 agent" : "展开子 agent"} title={open ? "收起子 agent" : "展开子 agent"} onclick={() => toggled.set(s.session, !open)} class="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground">
@@ -254,11 +271,7 @@
     {#if tracing}
       <div class="flex items-center gap-1 rounded-md border border-border bg-background pl-3 focus-within:border-ring">
         <Icon name="search" class="size-3.5 shrink-0 text-muted-foreground" />
-        <input bind:value={search} placeholder="搜索会话" aria-label="搜索会话" class="h-9 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none" />
-        <select bind:value={channel} aria-label="筛选渠道" class="mr-1 max-w-20 bg-transparent text-xs text-muted-foreground outline-none">
-          <option value="">全部</option>
-          {#each [...new Set(traceSessions.items.map((s) => s.channel))] as c (c)}<option value={c}>{channelName(c)}</option>{/each}
-        </select>
+        <input bind:value={search} placeholder="搜索会话" aria-label="搜索会话" class="h-9 min-w-0 flex-1 bg-transparent px-1 pr-3 text-sm outline-none" />
       </div>
     {:else}
       <div class="flex gap-1.5">
@@ -291,9 +304,27 @@
   <nav class="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
     {#if tracing}
       {#if traceSessions.error}<p class="px-3 py-1 text-xs text-destructive">{traceSessions.error}</p>{/if}
-      {#each traceGroups as [ch, items] (ch)}
-        <p class="flex px-3 pt-3 pb-1 text-xs text-muted-foreground"><span class="flex-1">{channelName(ch)}</span>{items.length}</p>
-        {#each items as s (s.session)}{@render traceNode(s)}{/each}
+      {#each traceGroups as g (g.ch)}
+        {@const open = searching || !collapsed.has(g.ch)}
+        {@const hidden = open ? null : hiddenIssues(withDescendants(g.items))}
+        <button type="button" aria-expanded={open} disabled={searching} onclick={() => toggleGroup(g.ch)} class="group/head mt-2 flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:hover:text-muted-foreground">
+          <Icon name="chevron" class="size-3.5 transition-transform {open ? 'rotate-90' : ''}" />
+          <span class="flex-1 text-left">{channelName(g.ch)}</span>
+          {#if hidden}<span class="inline-flex items-center gap-0.5 text-destructive/70" title={hidden.tip}><Icon name="error" class="size-3" />{hidden.count}</span>{/if}
+          <span class="tabular-nums">{g.items.length}</span>
+        </button>
+        {#if open}
+          {#each g.recent as s (s.session)}{@render traceNode(s)}{/each}
+          {#if g.rest.length > 0}
+            {@const restIssues = hiddenIssues(withDescendants(g.rest))}
+            <button type="button" onclick={() => older.add(g.ch)} class="flex w-full items-center gap-1 rounded-md py-1.5 pr-3 pl-6.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
+              <span class="flex-1 text-left">更早 {g.rest.length} 个</span>
+              {#if restIssues}<span class="inline-flex items-center gap-0.5 text-destructive/70" title={restIssues.tip}><Icon name="error" class="size-3" />{restIssues.count}</span>{/if}
+            </button>
+          {:else if older.has(g.ch) && !searching}
+            <button type="button" onclick={() => older.delete(g.ch)} class="w-full rounded-md py-1.5 pr-3 pl-6.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground">收起更早的</button>
+          {/if}
+        {/if}
       {/each}
       {#if traceSessions.loaded && traceGroups.length === 0}<p class="px-3 pt-3 text-xs text-muted-foreground">没有匹配的会话</p>{/if}
       <p class="px-3 pt-4 text-xs text-muted-foreground">仅列出有已结束运行的会话</p>

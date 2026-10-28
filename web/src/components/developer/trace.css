@@ -87,7 +87,14 @@
 .trace-layout .toggle b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .trace-layout .toggle:hover { background: var(--t-hover); }
 .trace-layout .toggle.on { color: var(--t-bad); border-color: var(--t-bad); background: var(--t-bad-bg); }
-.trace-layout .stream { padding: 0 12px 32px; }
+.trace-layout .stream { padding: 0 12px 32px; height: 100%; }
+.trace-layout .stream-wrap { position: relative; flex: 1; min-height: 0; }
+.trace-layout .stream-nav { position: absolute; right: 16px; z-index: 3; display: flex; gap: 6px; opacity: 0; pointer-events: none; transform: translateY(var(--nav-shift)); transition: opacity .15s, transform .15s; }
+.trace-layout .stream-nav.top { --nav-shift: -4px; top: 52px; }
+.trace-layout .stream-nav.bottom { --nav-shift: 4px; bottom: 12px; }
+.trace-layout .stream-nav.shown { opacity: 1; pointer-events: auto; transform: none; }
+.trace-layout .stream-nav button { display: inline-flex; align-items: center; gap: 2px; padding: 3px 10px 3px 6px; border-radius: 999px; border: 1px solid var(--t-line); background: var(--t-panel); color: var(--t-muted); font-size: 12px; box-shadow: 0 2px 8px rgb(0 0 0 / .08); }
+.trace-layout .stream-nav button:hover { color: var(--t-accent); border-color: var(--t-accent); }
 .trace-layout .load { display: block; margin: 8px auto; color: var(--t-accent); font-size: 12px; padding: 2px 10px; border-radius: 6px; }
 .trace-layout .load:hover { background: var(--t-accent-bg); }
 

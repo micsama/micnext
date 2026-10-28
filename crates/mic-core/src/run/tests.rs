@@ -1067,7 +1067,7 @@ async fn trace_paging_keeps_session_side_calls_out_of_runs() {
         .unwrap();
     let page = f.store.trace_runs(f.session.id, None, 1).await.unwrap();
     assert_eq!(page.runs[0].id, f.claimed.run.id); // 执行中的 next 不显示
-    assert!(page.next_after.is_none());
+    assert!(page.next_before.is_none());
     assert_eq!(page.title_calls.len(), 1);
     assert!(f
         .kernel
@@ -1080,16 +1080,17 @@ async fn trace_paging_keeps_session_side_calls_out_of_runs() {
         .await
         .unwrap();
     let page = f.store.trace_runs(f.session.id, None, 1).await.unwrap();
-    assert_eq!(page.runs[0].id, f.claimed.run.id);
-    assert_eq!(page.runs[0].calls.len(), 1);
-    let later = f
+    assert_eq!(page.runs[0].id, next.run.id, "首页是最新的 run");
+    assert!(page.runs[0].calls.is_empty());
+    assert_eq!(page.total, 2);
+    let earlier = f
         .store
-        .trace_runs(f.session.id, page.next_after, 1)
+        .trace_runs(f.session.id, page.next_before, 1)
         .await
         .unwrap();
-    assert_eq!(later.runs[0].id, next.run.id);
-    assert!(later.runs[0].calls.is_empty());
-    assert!(later.title_calls.is_empty() && later.next_after.is_none());
+    assert_eq!(earlier.runs[0].id, f.claimed.run.id);
+    assert_eq!(earlier.runs[0].calls.len(), 1);
+    assert!(earlier.title_calls.is_empty() && earlier.next_before.is_none());
     let sessions = f.store.trace_sessions().await.unwrap();
     assert_eq!(sessions[0].interrupted_runs, 1);
     let board = f.store.dashboard(1).await.unwrap();

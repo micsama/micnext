@@ -136,7 +136,7 @@ export type Preset = "generic" | "deepseek" | "ollama" | "openai" | "chatgpt";
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ReasoningOptions = { choices: ReasoningEffort[]; default: ReasoningEffort };
 export type SessionDetail = SessionItem & { title_generating: boolean };
-export type TitleModelSelection = { model_id: number | null; reasoning_effort: ReasoningEffort | null };
+export type UtilityModelSelection = { model_id: number | null; reasoning_effort: ReasoningEffort | null };
 
 export type Endpoint = {
   id: number;
@@ -398,7 +398,7 @@ const sessionFields = {
 };
 const sessionItem: Decoder<SessionItem> = obj(sessionFields);
 const sessionDetail: Decoder<SessionDetail> = obj({ ...sessionFields, title_generating: bool });
-const titleModel: Decoder<TitleModelSelection> = obj({ model_id: nullable(num), reasoning_effort: nullable(reasoningEffort) });
+const utilityModel: Decoder<UtilityModelSelection> = obj({ model_id: nullable(num), reasoning_effort: nullable(reasoningEffort) });
 
 const preset = oneOf("generic", "deepseek", "ollama", "openai", "chatgpt");
 
@@ -497,7 +497,7 @@ export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入
 
 export const parseSessionItem = (v: unknown): SessionItem => sessionItem(v, "会话");
 export const parseSessionDetail = (v: unknown): SessionDetail => sessionDetail(v, "会话详情");
-export const parseTitleModel = (v: unknown): TitleModelSelection => titleModel(v, "标题模型");
+export const parseUtilityModel = (v: unknown): UtilityModelSelection => utilityModel(v, "杂活模型");
 
 export const parseSessionPage = (v: unknown): SessionPage => sessionPage(v, "会话列表");
 export const parseSearchPage = (v: unknown): SearchPage => searchPage(v, "搜索结果");

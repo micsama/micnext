@@ -68,9 +68,9 @@ pub struct ExportPreferences {
     #[serde(deserialize_with = "Deserialize::deserialize")]
     pub default_model: Option<ExportModelRef>,
     #[serde(deserialize_with = "Deserialize::deserialize")]
-    pub title_model: Option<ExportModelRef>,
+    pub utility_model: Option<ExportModelRef>,
     #[serde(deserialize_with = "Deserialize::deserialize")]
-    pub title_reasoning_effort: Option<ReasoningEffort>,
+    pub utility_reasoning_effort: Option<ReasoningEffort>,
     /// 空 = 未设。
     pub push_channels: Vec<String>,
 }
@@ -105,16 +105,16 @@ impl Store {
             let personas = tx.prepare("SELECT name, prompt FROM core_personas WHERE builtin = 0 AND deleted_at IS NULL ORDER BY id")?
                 .query_map([], |r| Ok(ExportPersona { name: r.get(0)?, prompt: r.get(1)? }))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            let (preferences, default_model, title_model) = tx.query_row(
-                "SELECT p.name, s.general_prompt, s.default_workdir, s.max_turns, s.compaction_trigger_percent, s.compaction_keep_percent, s.default_model_id, s.title_model_id, s.title_reasoning_effort FROM core_settings s JOIN core_personas p ON p.id = s.default_persona_id",
+            let (preferences, default_model, utility_model) = tx.query_row(
+                "SELECT p.name, s.general_prompt, s.default_workdir, s.max_turns, s.compaction_trigger_percent, s.compaction_keep_percent, s.default_model_id, s.utility_model_id, s.utility_reasoning_effort FROM core_settings s JOIN core_personas p ON p.id = s.default_persona_id",
                 [], |r| Ok((ExportPreferences {
                     default_persona: r.get(0)?, general_prompt: r.get(1)?, default_workdir: r.get(2)?, max_turns: r.get(3)?,
                     compaction: CompactionSettings { trigger_percent: r.get(4)?, keep_percent: r.get(5)? },
-                    default_model: None, title_model: None, title_reasoning_effort: r.get(8)?, push_channels: Vec::new(),
+                    default_model: None, utility_model: None, utility_reasoning_effort: r.get(8)?, push_channels: Vec::new(),
                 }, r.get::<_, Option<i64>>(6)?, r.get::<_, Option<i64>>(7)?)))?;
             let mut preferences = preferences;
             preferences.default_model = default_model.map(|id| model_reference(&tx, id)).transpose()?;
-            preferences.title_model = title_model.map(|id| model_reference(&tx, id)).transpose()?;
+            preferences.utility_model = utility_model.map(|id| model_reference(&tx, id)).transpose()?;
             preferences.push_channels = crate::pushes::read_push_channels(&tx)?;
             let tags = crate::tags::export_names(&tx)?;
             tx.commit()?;
@@ -196,17 +196,17 @@ impl Store {
                 r.map(|r| model_ids.get(&r).copied().ok_or_else(|| invalid("引用的模型不存在"))).transpose()
             };
             let default_model = resolve(p.default_model)?;
-            let title_model = resolve(p.title_model)?;
+            let utility_model = resolve(p.utility_model)?;
             if !(1..=80).contains(&p.compaction.trigger_percent) || p.compaction.keep_percent > 50 || p.max_turns == 0
                 || !(p.default_workdir.starts_with('/') || p.default_workdir.starts_with("~/"))
-                || (title_model.is_none() && p.title_reasoning_effort.is_some()) {
-                return Err(invalid("通用设置或标题模型选择无效"));
+                || (utility_model.is_none() && p.utility_reasoning_effort.is_some()) {
+                return Err(invalid("通用设置或杂活模型选择无效"));
             }
             crate::tags::import_names(&tx, &s.tags, now).map_err(|e| match e {
                 crate::TagError::Store(e) => SettingsError::Store(e),
                 e => invalid(&format!("标签：{e}")),
             })?;
-            tx.execute("UPDATE core_settings SET default_persona_id = ?1, general_prompt = ?2, default_workdir = ?3, max_turns = ?4, compaction_trigger_percent = ?5, compaction_keep_percent = ?6, default_model_id = ?7, title_model_id = ?8, title_reasoning_effort = ?9, push_channels = ?10", params![persona, p.general_prompt, p.default_workdir, p.max_turns, p.compaction.trigger_percent, p.compaction.keep_percent, default_model, title_model, p.title_reasoning_effort, serde_json::to_string(&p.push_channels).expect("字符串数组可序列化")])?;
+            tx.execute("UPDATE core_settings SET default_persona_id = ?1, general_prompt = ?2, default_workdir = ?3, max_turns = ?4, compaction_trigger_percent = ?5, compaction_keep_percent = ?6, default_model_id = ?7, utility_model_id = ?8, utility_reasoning_effort = ?9, push_channels = ?10", params![persona, p.general_prompt, p.default_workdir, p.max_turns, p.compaction.trigger_percent, p.compaction.keep_percent, default_model, utility_model, p.utility_reasoning_effort, serde_json::to_string(&p.push_channels).expect("字符串数组可序列化")])?;
             tx.commit()?;
             Ok(())
         }).await

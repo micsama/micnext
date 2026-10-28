@@ -198,20 +198,20 @@ def regenerate(s):
 
 try:
     boot()
-    assert api("GET", "/settings/title-model") == {
+    assert api("GET", "/settings/utility-model") == {
         "model_id": None,
         "reasoning_effort": None,
     }
     api(
         "PUT",
-        "/settings/title-model",
+        "/settings/utility-model",
         {"model_id": None, "reasoning_effort": "none"},
         400,
     )
-    api("PUT", "/settings/title-model", {"model_id": None}, 400)
+    api("PUT", "/settings/utility-model", {"model_id": None}, 400)
     api(
         "PUT",
-        "/settings/title-model",
+        "/settings/utility-model",
         {"model_id": 99999, "reasoning_effort": None},
         404,
     )
@@ -246,7 +246,7 @@ try:
     )["id"]
     api(
         "PUT",
-        "/settings/title-model",
+        "/settings/utility-model",
         {"model_id": model, "reasoning_effort": "high"},
         400,
     )
@@ -456,7 +456,7 @@ try:
     )["id"]
     api(
         "PUT",
-        "/settings/title-model",
+        "/settings/utility-model",
         {"model_id": dedicated, "reasoning_effort": None},
         204,
     )
@@ -470,7 +470,7 @@ try:
     )
     api(
         "PUT",
-        "/settings/title-model",
+        "/settings/utility-model",
         {"model_id": None, "reasoning_effort": None},
         204,
     )

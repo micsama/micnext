@@ -8,55 +8,9 @@ use rusqlite::{params, Connection};
 use crate::context::insert_call;
 use crate::row::{self, MESSAGE_COLS, MESSAGE_FROM};
 use crate::tags::replace_session_tags;
-use crate::{
-    models, ClaimedModel, ModelId, ModelSettingsError, Store, StoreError, TitleCall,
-    TitleModelSelection, TitleOutput,
-};
+use crate::{Store, StoreError, TitleCall, TitleOutput};
 
 impl Store {
-    pub async fn title_model(&self) -> Result<TitleModelSelection, StoreError> {
-        self.call(|conn| read_selection(conn)).await
-    }
-
-    pub async fn set_title_model(
-        &self,
-        selection: TitleModelSelection,
-    ) -> Result<(), ModelSettingsError> {
-        self.call_models(move |conn| {
-            let tx = conn.transaction()?;
-            if let Some(id) = selection.model_id {
-                models::live(&tx, id)?;
-            }
-            tx.execute(
-                "UPDATE core_settings SET title_model_id = ?1, title_reasoning_effort = ?2",
-                params![
-                    selection.model_id.map(|id| id.0),
-                    selection.reasoning_effort
-                ],
-            )?;
-            tx.commit()?;
-            Ok(())
-        })
-        .await
-    }
-
-    /// 标题用途、模型连接配置与凭据在同一读事务中固定。
-    pub async fn title_model_snapshot(&self) -> Result<ClaimedModel, StoreError> {
-        let cipher = self.cipher();
-        self.call(move |conn| {
-            let tx = conn.transaction()?;
-            let selection = read_selection(&tx)?;
-            let id = selection.model_id.or(models::read_default(&tx)?);
-            let model = match id {
-                Some(id) => models::read_model(&tx, &cipher, id, selection.reasoning_effort)?,
-                None => ClaimedModel::Missing,
-            };
-            tx.commit()?;
-            Ok(model)
-        })
-        .await
-    }
-
     pub async fn first_text_input(
         &self,
         session: SessionId,
@@ -133,19 +87,6 @@ impl Store {
         })
         .await
     }
-}
-
-fn read_selection(conn: &Connection) -> Result<TitleModelSelection, StoreError> {
-    Ok(conn.query_row(
-        "SELECT title_model_id, title_reasoning_effort FROM core_settings",
-        [],
-        |row| {
-            Ok(TitleModelSelection {
-                model_id: row.get::<_, Option<i64>>(0)?.map(ModelId),
-                reasoning_effort: row.get(1)?,
-            })
-        },
-    )?)
 }
 
 fn text_inputs(

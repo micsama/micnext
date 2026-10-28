@@ -130,14 +130,14 @@ impl Kernel {
                     .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
             }
         }
-        if let Some(reference) = &s.preferences.title_model {
+        if let Some(reference) = &s.preferences.utility_model {
             if let Some(endpoint) = s.endpoints.iter().find(|e| e.name == reference.endpoint) {
                 let options = self
                     .factories
                     .get(&endpoint.kind)?
                     .reasoning_options(&endpoint.config_json, &reference.model)
                     .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
-                resolve_reasoning(options, s.preferences.title_reasoning_effort)
+                resolve_reasoning(options, s.preferences.utility_reasoning_effort)
                     .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
             }
         }
@@ -668,17 +668,17 @@ impl Kernel {
         Ok(self.store.session_summary(id).await?)
     }
 
-    pub async fn title_model(&self) -> Result<mic_store::TitleModelSelection, KernelError> {
-        Ok(self.store.title_model().await?)
+    pub async fn utility_model(&self) -> Result<mic_store::UtilityModelSelection, KernelError> {
+        Ok(self.store.utility_model().await?)
     }
 
-    pub async fn set_title_model(
+    pub async fn set_utility_model(
         &self,
-        selection: mic_store::TitleModelSelection,
+        selection: mic_store::UtilityModelSelection,
     ) -> Result<(), KernelError> {
         self.check_reasoning(selection.model_id, selection.reasoning_effort)
             .await?;
-        Ok(self.store.set_title_model(selection).await?)
+        Ok(self.store.set_utility_model(selection).await?)
     }
 
     fn schedule_operations(&self) -> Result<&crate::schedule::Schedules, crate::ScheduleError> {

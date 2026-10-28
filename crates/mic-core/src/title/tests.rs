@@ -1,4 +1,5 @@
 use super::*;
+use crate::ConfigError;
 
 #[tokio::test]
 async fn held_first_text_is_eligible_but_commands_old_text_and_failed_first_are_not_retried() {
@@ -195,7 +196,7 @@ async fn manual_title_records_sources_and_side_output() {
     use mic_message::AssistantPhase;
     use mic_store::{
         CredentialWrite, EndpointWrite, ModelWrite, NewModelCall, NewSession, SessionKind,
-        TitleModelSelection, ToolScope,
+        ToolScope, UtilityModelSelection,
     };
     let store = Store::open_in_memory(&[]).await.unwrap();
     let owner = store.ensure_person("test", 0).await.unwrap();
@@ -233,7 +234,7 @@ async fn manual_title_records_sources_and_side_output() {
         .await
         .unwrap();
     store
-        .set_title_model(TitleModelSelection {
+        .set_utility_model(UtilityModelSelection {
             model_id: Some(model),
             reasoning_effort: None,
         })

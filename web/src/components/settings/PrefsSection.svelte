@@ -11,7 +11,7 @@
   import Group from "./Group.svelte";
   import SaveStatus, { type SaveState } from "./SaveStatus.svelte";
   import PushSection from "./PushSection.svelte";
-  import TitleModelSection from "./TitleModelSection.svelte";
+  import UtilityModelSection from "./UtilityModelSection.svelte";
 
   type Field = keyof SettingsInput;
 
@@ -163,7 +163,7 @@
     {/if}
   </Group>
 
-  <TitleModelSection />
+  <UtilityModelSection />
 
   <PushSection />
 

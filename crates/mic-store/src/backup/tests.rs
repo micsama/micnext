@@ -60,7 +60,7 @@ async fn populated() -> Store {
         .await
         .unwrap();
     store
-        .set_title_model(crate::TitleModelSelection {
+        .set_utility_model(crate::UtilityModelSelection {
             model_id: Some(model),
             reasoning_effort: Some(ReasoningEffort::Low),
         })

@@ -31,6 +31,9 @@ class ConversionTests(unittest.TestCase):
                 CREATE TABLE core_pushes(id INTEGER PRIMARY KEY, text TEXT NOT NULL);
                 CREATE TABLE core_models(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
                 INSERT INTO core_models VALUES (1, 'm');
+                CREATE TABLE core_settings(id INTEGER PRIMARY KEY, title_model_id INTEGER REFERENCES core_models(id),
+                  title_reasoning_effort TEXT CHECK(title_reasoning_effort IS NULL OR title_model_id IS NOT NULL));
+                INSERT INTO core_settings VALUES (1, 1, 'low');
                 CREATE TABLE wechat_delivery(message_id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, plan TEXT NOT NULL);
                 INSERT INTO wechat_delivery VALUES (10, 'u', '{"chunks":["a"]}');
             """)
@@ -47,13 +50,14 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(self.version(), 25)
         result = self.run_script("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.version(), 29)
+        self.assertEqual(self.version(), 30)
         with sqlite3.connect(self.db) as conn:
             self.assertEqual(conn.execute("SELECT seen_message_id FROM core_sessions").fetchone(), (11,))
             payloads = conn.execute("SELECT json_extract(payload, '$.files') FROM core_messages ORDER BY id").fetchall()
             self.assertEqual(payloads, [("[]",), (None,)])
             self.assertEqual(conn.execute("SELECT plan FROM wechat_delivery").fetchone(), ('{"chunks":["a"],"files":[]}',))
             self.assertEqual(conn.execute("SELECT starred FROM core_models").fetchone(), (0,))
+            self.assertEqual(conn.execute("SELECT utility_model_id, utility_reasoning_effort FROM core_settings").fetchone(), (1, "low"))
         self.assertEqual(self.run_script("--apply").returncode, 0)
 
     def test_live_service_is_not_modified(self):

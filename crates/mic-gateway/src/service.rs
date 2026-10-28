@@ -153,8 +153,8 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         )
         .route("/sessions/{id}/model", put(models::set_session_model))
         .route(
-            "/settings/title-model",
-            get(settings::get_title_model).put(settings::put_title_model),
+            "/settings/utility-model",
+            get(settings::get_utility_model).put(settings::put_utility_model),
         )
         .route(
             "/settings/push",

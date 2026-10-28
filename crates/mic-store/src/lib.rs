@@ -27,6 +27,7 @@ mod tags;
 mod title;
 mod trace;
 mod types;
+mod utility_model;
 
 pub use backup::{
     ExportEndpoint, ExportModel, ExportModelRef, ExportPersona, ExportPreferences, SettingsExport,
@@ -62,6 +63,6 @@ pub use types::{
     NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId, ReasoningEffort, Resumable,
     RevocableView, RevocationState, Run, RunId, RunInput, RunSettings, RunState, Schema,
     SecretColumn, SelectedModel, Session, SessionCursor, SessionKind, SessionPage, SessionSummary,
-    Settings, StopReason, Tag, TagId, TitleCall, TitleModelSelection, TitleOutput, ToolScope,
-    Usage,
+    Settings, StopReason, Tag, TagId, TitleCall, TitleOutput, ToolScope, Usage,
+    UtilityModelSelection,
 };

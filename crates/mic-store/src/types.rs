@@ -61,7 +61,7 @@ pub struct TitleCall {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TitleModelSelection {
+pub struct UtilityModelSelection {
     pub model_id: Option<ModelId>,
     pub reasoning_effort: Option<ReasoningEffort>,
 }

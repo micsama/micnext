@@ -29,6 +29,7 @@ mod send_file;
 mod skills;
 mod sql_review;
 mod title;
+mod utility;
 
 pub use ask::{AskArgs, Question, QuestionOption, ASK_USER};
 pub use assembly::{Assembly, OnceOutcome, OneShot};

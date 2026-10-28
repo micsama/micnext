@@ -64,9 +64,9 @@ CREATE TABLE core_settings (
   max_turns                   INTEGER NOT NULL CHECK (max_turns >= 1),
   default_model_id            INTEGER REFERENCES core_models(id),
   compaction_trigger_percent  INTEGER NOT NULL DEFAULT 80 CHECK(compaction_trigger_percent BETWEEN 1 AND 80),
-  title_model_id              INTEGER REFERENCES core_models(id),
-  title_reasoning_effort      TEXT
-    CHECK(title_reasoning_effort IS NULL OR (title_model_id IS NOT NULL AND title_reasoning_effort IN ('none','minimal','low','medium','high','xhigh','max')))
+  utility_model_id            INTEGER REFERENCES core_models(id),
+  utility_reasoning_effort    TEXT
+    CHECK(utility_reasoning_effort IS NULL OR (utility_model_id IS NOT NULL AND utility_reasoning_effort IN ('none','minimal','low','medium','high','xhigh','max')))
 , compaction_keep_percent INTEGER NOT NULL DEFAULT 15
   CHECK(compaction_keep_percent BETWEEN 0 AND 50), push_channels TEXT NOT NULL DEFAULT '[]');
 

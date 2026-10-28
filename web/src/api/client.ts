@@ -40,7 +40,7 @@ import {
   parseInputLimits,
   parsePersonas,
   parseSessionDetail,
-  parseTitleModel,
+  parseUtilityModel,
   parseSessionPage,
   parseSearchPage,
   parsePinnedSessions,
@@ -63,7 +63,7 @@ import {
   type ReasoningEffort,
   type Persona,
   type SessionDetail,
-  type TitleModelSelection,
+  type UtilityModelSelection,
   type SessionItem,
   type SessionPage,
   type SearchPage,
@@ -178,12 +178,12 @@ export async function markSessionSeen(id: number, messageId: number): Promise<vo
   await request("POST", `/sessions/${id}/seen`, { message_id: messageId });
 }
 
-export async function getTitleModel(): Promise<TitleModelSelection> {
-  return parseTitleModel(await request("GET", "/settings/title-model"));
+export async function getUtilityModel(): Promise<UtilityModelSelection> {
+  return parseUtilityModel(await request("GET", "/settings/utility-model"));
 }
 
-export async function putTitleModel(selection: TitleModelSelection): Promise<void> {
-  await request("PUT", "/settings/title-model", selection);
+export async function putUtilityModel(selection: UtilityModelSelection): Promise<void> {
+  await request("PUT", "/settings/utility-model", selection);
 }
 
 /** `until`：一并取回 `[until, before)` 的全部消息，用于定位。 */
@@ -334,7 +334,7 @@ export async function runSql(sql: string, write = false): Promise<QueryResult> {
   return parseQueryResult(await request("POST", "/developer/sql", { sql, write }));
 }
 
-/** 写入前把关：试运行后回滚，再由标题模型评估风险。 */
+/** 写入前把关：试运行后回滚，再由杂活模型评估风险。 */
 export async function reviewSql(sql: string): Promise<SqlReview> {
   return parseSqlReview(await request("POST", "/developer/sql/review", { sql }));
 }

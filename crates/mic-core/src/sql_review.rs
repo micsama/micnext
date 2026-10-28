@@ -1,4 +1,4 @@
-//! 开发者 SQL 写入前的把关：试运行取影响行数与 DDL，再由标题模型评估风险。
+//! 开发者 SQL 写入前的把关：试运行取影响行数与 DDL，再由杂活模型评估风险。
 //! 契约：docs/blueprints/archive/sql-write.md。
 
 use mic_message::{Message, MessageBody, MessageId, ReplyBlock, SessionId};
@@ -31,8 +31,7 @@ pub(crate) async fn review(
     sql: String,
 ) -> Result<SqlReview, KernelError> {
     let dry = store.diagnostic_dry_run(sql.clone()).await?;
-    let verdict = match crate::title::build_provider(factories, store.title_model_snapshot().await?)
-    {
+    let verdict = match crate::utility::provider(factories, store.utility_model_snapshot().await?) {
         Ok(built) => {
             let request = ModelRequest {
                 tool_choice: ToolChoice::None,

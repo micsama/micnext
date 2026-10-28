@@ -7,7 +7,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use mic_store::{
-    CompactionSettings, ModelId, PersonaId, ReasoningEffort, Settings, TitleModelSelection,
+    CompactionSettings, ModelId, PersonaId, ReasoningEffort, Settings, UtilityModelSelection,
 };
 use serde::{Deserialize, Serialize};
 
@@ -70,26 +70,26 @@ pub(crate) struct SessionPersonaBody {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct TitleModelBody {
+pub(crate) struct UtilityModelBody {
     #[serde(deserialize_with = "Deserialize::deserialize")]
     model_id: Option<ModelId>,
     #[serde(deserialize_with = "Deserialize::deserialize")]
     reasoning_effort: Option<ReasoningEffort>,
 }
 
-pub(crate) async fn get_title_model(
+pub(crate) async fn get_utility_model(
     State(app): State<Arc<App>>,
-) -> Result<Json<TitleModelSelection>, ApiError> {
-    Ok(Json(app.kernel.title_model().await?))
+) -> Result<Json<UtilityModelSelection>, ApiError> {
+    Ok(Json(app.kernel.utility_model().await?))
 }
 
-pub(crate) async fn put_title_model(
+pub(crate) async fn put_utility_model(
     State(app): State<Arc<App>>,
-    body: Result<Json<TitleModelBody>, JsonRejection>,
+    body: Result<Json<UtilityModelBody>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let body = json(body)?;
     app.kernel
-        .set_title_model(TitleModelSelection {
+        .set_utility_model(UtilityModelSelection {
             model_id: body.model_id,
             reasoning_effort: body.reasoning_effort,
         })

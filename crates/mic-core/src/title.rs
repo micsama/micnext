@@ -15,9 +15,7 @@ use crate::event::{Events, KernelEventKind};
 use crate::limits::{TITLE_CHARS, TITLE_INPUT_CHARS, TITLE_REPLY_CHARS};
 use crate::provider::{BuiltProvider, Factories};
 use crate::run::now_ms;
-use crate::{
-    ConfigError, ModelRequest, ModelResponse, ProviderError, RunError, StopReason, ToolChoice,
-};
+use crate::{ModelRequest, ModelResponse, ProviderError, RunError, StopReason, ToolChoice};
 
 #[cfg(test)]
 mod tests;
@@ -279,16 +277,16 @@ fn task(tags: &[Tag]) -> String {
 }
 
 async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(), StoreError> {
-    let snapshot = store.title_model_snapshot().await?;
+    let snapshot = store.utility_model_snapshot().await?;
     let model_id = match &snapshot {
         ClaimedModel::Selected(m) => Some(m.id),
         _ => None,
     };
-    let built = build_provider(factories, snapshot);
+    let built = crate::utility::provider(factories, snapshot);
     let BuiltProvider { provider, effort } = match built {
         Ok(built) => built,
         Err(error) => {
-            tracing::warn!(session = job.session.id.0, purpose = "title", %error, "title model unavailable");
+            tracing::warn!(session = job.session.id.0, purpose = "title", %error, "utility model unavailable");
             return store
                 .save_title_result(job.session.id, Err(error.to_string()), None)
                 .await;
@@ -360,23 +358,6 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
             }),
         )
         .await
-}
-
-pub(crate) fn build_provider(
-    factories: &Factories,
-    model: ClaimedModel,
-) -> Result<BuiltProvider, ConfigError> {
-    match model {
-        ClaimedModel::Missing => Err(ConfigError {
-            field: "model_id".into(),
-            message: "没有默认标题模型，请在设置中选择模型".into(),
-        }),
-        ClaimedModel::Deleted { name, .. } => Err(ConfigError {
-            field: "model_id".into(),
-            message: format!("标题模型「{name}」已删除，请重新选择"),
-        }),
-        ClaimedModel::Selected(m) => factories.build(m),
-    }
 }
 
 fn parse_title(response: &ModelResponse, tags: &[Tag]) -> Result<TitleOutput, ProviderError> {

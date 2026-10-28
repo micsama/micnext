@@ -76,7 +76,7 @@
       <!-- 复制放在气泡左侧：下方只留时间，悬停不压住下一条。 -->
       <div class="relative max-w-[85%]">
         <div class={["rounded-2xl bg-accent px-4 py-2 whitespace-pre-wrap break-words", queued && "opacity-60"]}>{text}</div>
-        <div class="absolute right-full bottom-1 pr-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"><CopyButton {text} /></div>
+        <div class="absolute right-full bottom-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"><CopyButton {text} variant="icon" /></div>
       </div>
     {/if}
     {#if queued}{@render queuedTag()}{/if}

@@ -41,7 +41,7 @@
     <span class:summary-flash={flash} onanimationend={() => (flash = false)} class="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-0.5 group-open/compact:py-1 group-open/compact:pr-1 group-open/compact:pl-3 group-open/compact:shadow-lg">
       {#if revoked}<Undo2Icon class="size-3.5" />已撤回压缩{:else}<CheckIcon class="size-3.5 text-emerald-600 dark:text-emerald-400" />已压缩{/if}{#if retained} · {retained}{/if}<span class="group-open/compact:hidden"> · 查看摘要</span>
       <span class="ml-2 hidden items-center gap-1 group-open/compact:inline-flex">
-        <span role="presentation" onclick={(e) => e.preventDefault()}><CopyButton text={result.summary} prominent /></span>
+        <span role="presentation" onclick={(e) => e.preventDefault()}><CopyButton text={result.summary} variant="prominent" /></span>
         <span class="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 font-medium text-foreground hover:bg-accent"><ChevronUpIcon class="size-3.5" />收起</span>
       </span>
     </span>

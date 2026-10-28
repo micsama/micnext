@@ -1,8 +1,8 @@
 <script lang="ts">
   import hljs from "highlight.js/lib/common";
   import { onMount } from "svelte";
-  import { getSqlSchema, runSql } from "../../api/client";
-  import type { Cell, QueryResult, TableSchema } from "../../api/developer";
+  import { getSqlSchema, reviewSql, runSql } from "../../api/client";
+  import type { Cell, QueryResult, SqlReview, SqlRisk, TableSchema } from "../../api/developer";
   import { copyText } from "../../lib/clipboard";
   import Icon from "../../lib/Icon.svelte";
   import { loadRecent, pushRecent } from "../../lib/recent";
@@ -15,6 +15,17 @@
   const groups = $derived([...new Set(tables?.map((t) => t.group))]);
   let schemaError = $state<string | null>(null);
   let copyNote = $state<string | null>(null);
+
+  /** 写入模式不记住，刷新后回到只读。 */
+  let write = $state(false);
+  let review = $state.raw<{ sql: string; review: SqlReview } | null>(null);
+  /** 改了 SQL 后旧的把关结果作废。 */
+  const pending = $derived(write && review?.sql === sql ? review.review : null);
+  const RISK: Record<SqlRisk, { label: string; tone: string }> = {
+    low: { label: "低", tone: "border-emerald-500/60 bg-emerald-500/5" },
+    medium: { label: "中", tone: "border-amber-500/70 bg-amber-500/10" },
+    high: { label: "高", tone: "border-destructive bg-destructive/10" },
+  };
 
   const RECENT_KEY = "micnext.developer.sqlRecent";
   let recent = $state(loadRecent(RECENT_KEY));
@@ -66,19 +77,32 @@
     );
   });
 
-  async function run() {
+  /** 写入模式下先把关，确认后才执行。 */
+  async function run(confirmed = false) {
     if (running || sql.trim() === "") return;
     running = true;
     error = null;
+    const q = sql;
     try {
-      result = await runSql(sql);
-      recent = pushRecent(RECENT_KEY, recent, sql.trim(), 30);
+      if (write && !confirmed) {
+        review = null;
+        review = { sql: q, review: await reviewSql(q) };
+        return;
+      }
+      review = null;
+      result = await runSql(q, write);
+      recent = pushRecent(RECENT_KEY, recent, q.trim(), 30);
     } catch (e) {
-      result = null;
+      if (confirmed) result = null;
       error = (e as Error).message;
     } finally {
       running = false;
     }
+  }
+
+  function toggleWrite() {
+    write = !write;
+    review = null;
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -172,7 +196,12 @@
 
   <div bind:this={pane} class="flex min-h-0 min-w-0 flex-1 flex-col">
     <!-- 透明文字的 textarea 叠在高亮层上，两层字体、内边距、换行与滚动须一致。 -->
-    <div class="relative shrink-0 bg-background font-mono text-sm" style:height="{editorHeight}px">
+    {#if write}
+      <p class="shrink-0 border-b border-destructive bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
+        写入模式：每次执行前先备份整个数据库，再直接改主库。改动立即生效，已打开的页面不会自动刷新，部分设置可能要重启才生效。改错时，停服务后用备份文件替换 micnext.db。
+      </p>
+    {/if}
+    <div class={["relative shrink-0 bg-background font-mono text-sm", write && "border-4 border-destructive"]} style:height="{editorHeight}px">
       <pre
         bind:this={backdrop}
         aria-hidden="true"
@@ -183,7 +212,7 @@
         {onkeydown}
         onscroll={(e) => backdrop && (backdrop.scrollTop = e.currentTarget.scrollTop)}
         spellcheck="false"
-        placeholder="输入一条只读 SQL，如 SELECT * FROM core_sessions LIMIT 20"
+        placeholder={write ? "输入一条 SQL，可增删改，如 UPDATE core_sessions SET … WHERE …" : "输入一条只读 SQL，如 SELECT * FROM core_sessions LIMIT 20"}
         class="absolute inset-0 resize-none overflow-y-scroll bg-transparent p-3 break-words whitespace-pre-wrap text-transparent caret-foreground outline-none placeholder:text-muted-foreground"
       ></textarea>
     </div>
@@ -197,13 +226,24 @@
       <button
         type="button"
         disabled={running || sql.trim() === ""}
-        class="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50"
-        onclick={run}>
-        {#if running}<Icon name="loader" class="size-3.5 animate-spin" />{/if}执行
+        class={["inline-flex items-center gap-1 rounded-md px-3 py-1 disabled:opacity-50", write ? "bg-destructive text-white" : "bg-primary text-primary-foreground"]}
+        onclick={() => run()}>
+        {#if running}<Icon name="loader" class="size-3.5 animate-spin" />{/if}{write ? "把关" : "执行"}
       </button>
       <span>Ctrl/⌘ + Enter</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={write}
+        class={["inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5", write ? "border-destructive text-destructive" : "hover:bg-accent hover:text-foreground"]}
+        onclick={toggleWrite}>
+        <span class={["relative h-3.5 w-6 rounded-full transition-colors", write ? "bg-destructive" : "bg-muted-foreground/40"]}
+          ><span class={["absolute top-0.5 size-2.5 rounded-full bg-white transition-all", write ? "left-3" : "left-0.5"]}></span></span
+        >写入模式
+      </button>
       {#if result}
         <span>{result.rows.length} 行 · {result.elapsed_ms} ms</span>
+        {#if result.changes !== null}<span class="text-destructive">影响 {result.changes} 行 · 已备份 {result.backup}</span>{/if}
         {#if result.truncated}<span class="text-amber-600 dark:text-amber-400"
             >{result.rows.length === 0
               ? "首行文本超过 1 MiB，未返回；可用 substr() 截取"
@@ -219,8 +259,30 @@
           onclick={() => result && downloadCsv(result)}><Icon name="arrowDown" class="size-3.5" />下载 CSV</button>
         {#if copyNote}<span>{copyNote}</span>{/if}
       {/if}
-      <span class="ml-auto">只读连接；凭据列读作 NULL</span>
+      <span class="ml-auto">{write ? "主库；先试运行与 AI 把关，确认后备份再执行；凭据列读作 NULL 且不可写" : "只读连接；凭据列读作 NULL"}</span>
     </div>
+    {#if pending}
+      {@const risk = pending.risk ? RISK[pending.risk] : null}
+      <div class={["shrink-0 space-y-1.5 border-y-2 px-3 py-2 text-sm", risk?.tone ?? "border-border bg-muted/50"]}>
+        <p class="font-medium">
+          {#if risk}风险：{risk.label}{:else}未经 AI 评估{/if}
+          <span class="ml-2 text-xs font-normal text-muted-foreground"
+            >试运行影响 {pending.changes} 行{#if pending.tables.length > 0} · 涉及 {pending.tables.join("、")}{/if}</span>
+        </p>
+        {#if pending.reason}<p class="whitespace-pre-wrap">{pending.reason}</p>{/if}
+        {#if pending.ai_error}<p class="text-xs text-muted-foreground">{pending.ai_error}</p>{/if}
+        <div class="flex gap-2">
+          <button
+            type="button"
+            disabled={running}
+            class="inline-flex items-center gap-1 rounded-md bg-destructive px-3 py-1 text-xs text-white disabled:opacity-50"
+            onclick={() => run(true)}>
+            {#if running}<Icon name="loader" class="size-3.5 animate-spin" />{/if}确认执行
+          </button>
+          <button type="button" class="rounded-md px-3 py-1 text-xs hover:bg-accent" onclick={() => (review = null)}>取消</button>
+        </div>
+      </div>
+    {/if}
     {#if error}
       <p class="shrink-0 border-b px-3 py-2 text-sm text-destructive">{error}</p>
     {/if}

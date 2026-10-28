@@ -17,10 +17,12 @@ import {
 import {
   parseLogHistory,
   parseQueryResult,
+  parseSqlReview,
   parseTables,
   parseUpdateStatus,
   type LogHistory,
   type QueryResult,
+  type SqlReview,
   type TableSchema,
   type UpdateStatus,
 } from "./developer";
@@ -327,9 +329,14 @@ export async function fetchFile(path: string): Promise<Blob> {
   return (await ensureOk(res)).blob();
 }
 
-/** 只读诊断 SQL；失败时 message 已是用户可读的原因。 */
-export async function runSql(sql: string): Promise<QueryResult> {
-  return parseQueryResult(await request("POST", "/developer/sql", { sql }));
+/** 诊断 SQL；`write` 时先备份整库再改主库。失败时 message 已是用户可读的原因。 */
+export async function runSql(sql: string, write = false): Promise<QueryResult> {
+  return parseQueryResult(await request("POST", "/developer/sql", { sql, write }));
+}
+
+/** 写入前把关：试运行后回滚，再由标题模型评估风险。 */
+export async function reviewSql(sql: string): Promise<SqlReview> {
+  return parseSqlReview(await request("POST", "/developer/sql/review", { sql }));
 }
 
 export async function getSqlSchema(): Promise<TableSchema[]> {

@@ -14,7 +14,7 @@ use mic_store::{
     ModelWrite, NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId,
     PushId, PushPage, QueryResult, ReasoningEffort, Resumable, RunId, SearchPage, SearchTerms,
     Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, Store, StoreError,
-    TableSchema, Tag, TagId, TagName, TraceRunPage, TraceSession,
+    TableSchema, Tag, TagId, TagName, TraceRunPage, TraceSession, WriteResult,
 };
 use mic_tool::ToolSpec;
 use tokio::sync::mpsc;
@@ -1367,6 +1367,14 @@ impl Kernel {
     /// 开发者诊断：只读连接上的单条 SQL，凭据列读作 NULL。
     pub async fn diagnostic_query(&self, sql: String) -> Result<QueryResult, KernelError> {
         Ok(self.store.diagnostic_query(sql).await?)
+    }
+
+    pub async fn diagnostic_write(&self, sql: String) -> Result<WriteResult, KernelError> {
+        Ok(self.store.diagnostic_write(sql, now_ms()).await?)
+    }
+
+    pub async fn review_sql(&self, sql: String) -> Result<crate::SqlReview, KernelError> {
+        crate::sql_review::review(&self.store, &self.factories, sql).await
     }
 
     pub async fn diagnostic_schema(&self) -> Result<Vec<TableSchema>, KernelError> {

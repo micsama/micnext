@@ -27,6 +27,7 @@ mod scheduler;
 mod search;
 mod send_file;
 mod skills;
+mod sql_review;
 mod title;
 
 pub use ask::{AskArgs, Question, QuestionOption, ASK_USER};
@@ -58,6 +59,7 @@ pub use provider::{
 pub use push::PushError;
 pub use request::{PromptBlock, PromptBlockKind, PromptPart, PromptPartKind, SystemPrompt};
 pub use skills::{InvalidSkill, SkillInfo, SkillList, SkillsError};
+pub use sql_review::{SqlReview, SqlRisk};
 pub use title::TitleError;
 
 pub use schedule::{ScheduleError, ScheduleFirePage, ScheduleUpdate, ScheduleView};

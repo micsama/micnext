@@ -71,3 +71,5 @@ pub(crate) const SCHEDULE_LATE_GRACE: Duration = Duration::from_secs(30);
 pub(crate) const SCHEDULE_TICK_MAX: Duration = Duration::from_secs(60);
 /// 合并错过时最多枚举的次数。
 pub(crate) const SCHEDULE_MISSED_SCAN: u32 = 100_000;
+/// SQL 写入把关等待 AI 答复的上限。
+pub(crate) const SQL_REVIEW_TIMEOUT: Duration = Duration::from_secs(60);

@@ -37,7 +37,13 @@ export type Cell =
   | { type: "text"; value: string }
   | { type: "blob"; bytes: number };
 
-export type QueryResult = { columns: string[]; rows: Cell[][]; truncated: boolean; elapsed_ms: number };
+/** `changes` 与 `backup` 仅写入模式有值。 */
+export type QueryResult = { columns: string[]; rows: Cell[][]; truncated: boolean; elapsed_ms: number; changes: number | null; backup: string | null };
+
+export type SqlRisk = "low" | "medium" | "high";
+
+/** 写入前把关；`risk` 为 null 时 `ai_error` 是未经 AI 评估的原因。 */
+export type SqlReview = { changes: number; tables: string[]; risk: SqlRisk | null; reason: string | null; ai_error: string | null };
 
 export type TableSchema = { name: string; group: string; description: string; columns: { name: string; decl_type: string; secret: boolean }[] };
 
@@ -99,6 +105,16 @@ const queryResult: Decoder<QueryResult> = obj({
   rows: arr(arr(cell)),
   truncated: bool,
   elapsed_ms: num,
+  changes: nullable(num),
+  backup: nullable(str),
+});
+
+const sqlReview: Decoder<SqlReview> = obj({
+  changes: num,
+  tables: arr(str),
+  risk: nullable(oneOf("low", "medium", "high")),
+  reason: nullable(str),
+  ai_error: nullable(str),
 });
 
 const tables: Decoder<TableSchema[]> = arr(
@@ -106,6 +122,8 @@ const tables: Decoder<TableSchema[]> = arr(
 );
 
 export const parseQueryResult = (v: unknown): QueryResult => queryResult(v, "查询结果");
+
+export const parseSqlReview = (v: unknown): SqlReview => sqlReview(v, "把关结果");
 
 export const parseTables = (v: unknown): TableSchema[] => tables(v, "表结构");
 

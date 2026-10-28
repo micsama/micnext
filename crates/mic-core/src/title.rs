@@ -362,7 +362,7 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
         .await
 }
 
-fn build_provider(
+pub(crate) fn build_provider(
     factories: &Factories,
     model: ClaimedModel,
 ) -> Result<BuiltProvider, ConfigError> {

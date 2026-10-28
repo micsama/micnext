@@ -148,6 +148,7 @@ impl From<KernelError> for ApiError {
                     Self::BadRequest(e.to_string())
                 }
                 DiagnosticError::Unavailable => Self::Unavailable(e.to_string()),
+                DiagnosticError::Backup(_) => Self::LocalPath(e.to_string()),
                 DiagnosticError::Store(e) => Self::Internal(e.into()),
             },
             KernelError::Job(e) => match e {

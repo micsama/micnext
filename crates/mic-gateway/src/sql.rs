@@ -5,6 +5,7 @@ use axum::extract::State;
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::Json;
+use mic_core::SqlRisk;
 use mic_store::{Cell, QueryResult, TableSchema};
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +18,15 @@ use crate::service::App;
 #[serde(deny_unknown_fields)]
 pub(crate) struct SqlBody {
     sql: String,
+    /// 写入模式：先备份整库，再在业务连接上执行。
+    #[serde(default)]
+    write: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReviewBody {
+    sql: String,
 }
 
 #[derive(Serialize)]
@@ -25,6 +35,17 @@ struct ResultView {
     rows: Vec<Vec<CellView>>,
     truncated: bool,
     elapsed_ms: u64,
+    changes: Option<u64>,
+    backup: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ReviewView {
+    changes: u64,
+    tables: Vec<String>,
+    risk: Option<&'static str>,
+    reason: Option<String>,
+    ai_error: Option<String>,
 }
 
 /// 整数以十进制字符串下发，避免 JavaScript 精度丢失。
@@ -57,15 +78,57 @@ pub(crate) async fn query(
     State(app): State<Arc<App>>,
     body: Result<Json<SqlBody>, JsonRejection>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let SqlBody { sql } = json(body)?;
+    let SqlBody { sql, write } = json(body)?;
+    check_size(&sql)?;
+    let view = if write {
+        let w = app.kernel.diagnostic_write(sql).await?;
+        ResultView {
+            changes: Some(w.changes),
+            backup: Some(w.backup),
+            ..result_view(w.result)
+        }
+    } else {
+        result_view(app.kernel.diagnostic_query(sql).await?)
+    };
+    Ok(no_store(view))
+}
+
+pub(crate) async fn review(
+    State(app): State<Arc<App>>,
+    body: Result<Json<ReviewBody>, JsonRejection>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ReviewBody { sql } = json(body)?;
+    check_size(&sql)?;
+    let review = app.kernel.review_sql(sql).await?;
+    let (risk, reason, ai_error) = match review.verdict {
+        Ok((risk, reason)) => (
+            Some(match risk {
+                SqlRisk::Low => "low",
+                SqlRisk::Medium => "medium",
+                SqlRisk::High => "high",
+            }),
+            Some(reason),
+            None,
+        ),
+        Err(error) => (None, None, Some(error)),
+    };
+    Ok(no_store(ReviewView {
+        changes: review.changes,
+        tables: review.tables,
+        risk,
+        reason,
+        ai_error,
+    }))
+}
+
+fn check_size(sql: &str) -> Result<(), ApiError> {
     if sql.len() > SQL_MAX_BYTES {
         return Err(ApiError::BadRequest(format!(
             "SQL 最多 {} KiB",
             SQL_MAX_BYTES / 1024
         )));
     }
-    let result = app.kernel.diagnostic_query(sql).await?;
-    Ok(no_store(result_view(result)))
+    Ok(())
 }
 
 pub(crate) async fn schema(State(app): State<Arc<App>>) -> Result<impl IntoResponse, ApiError> {
@@ -89,6 +152,8 @@ fn result_view(result: QueryResult) -> ResultView {
             .collect(),
         truncated: result.truncated,
         elapsed_ms: result.elapsed_ms,
+        changes: None,
+        backup: None,
     }
 }
 

@@ -33,7 +33,9 @@ pub use backup::{
 };
 pub use rusqlite;
 
-pub use diagnostic::{Cell, ColumnSchema, DiagnosticError, QueryResult, TableSchema};
+pub use diagnostic::{
+    Cell, ColumnSchema, DiagnosticError, DryRun, QueryResult, TableSchema, WriteResult,
+};
 pub use error::{ContextCommandError, ModelSettingsError, SettingsError, StoreError};
 pub use jobs::{AgentActivity, Job, JobId, JobKind, JobState, NewAgentJob, NewToolJob};
 pub use limits::{TAGS_PER_SESSION, TAG_CHARS};

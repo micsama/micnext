@@ -210,6 +210,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/developer/logs/stream-ticket", post(ticket::logs_ticket))
         .route("/developer/sql", post(sql::query))
         .route("/developer/sql/schema", get(sql::schema))
+        .route("/developer/sql/review", post(sql::review))
         .route("/developer/update", get(update::status).post(update::start))
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(middleware::from_fn_with_state(app.clone(), api::authorize))

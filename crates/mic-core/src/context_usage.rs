@@ -18,7 +18,9 @@ fn parts_tokens(parts: &[ContentPart]) -> u64 {
         .map(|part| match part {
             ContentPart::Text { text } => text_tokens(text),
             ContentPart::Image(_) => IMAGE_TOKENS,
-            ContentPart::File(_) => unreachable!("文件只出现在用户输入，model_view 已转成文字"),
+            ContentPart::File(_) | ContentPart::Skill { .. } => {
+                unreachable!("文件与 skill 只出现在用户输入，model_view 已转成文字")
+            }
         })
         .sum()
 }
@@ -93,15 +95,17 @@ pub enum ContextKind {
     Persona,
     Tools,
     Environment,
+    Skills,
     Summary,
     Conversation,
 }
 
-const KINDS: [ContextKind; 6] = [
+const KINDS: [ContextKind; 7] = [
     ContextKind::Instructions,
     ContextKind::Persona,
     ContextKind::Tools,
     ContextKind::Environment,
+    ContextKind::Skills,
     ContextKind::Summary,
     ContextKind::Conversation,
 ];
@@ -112,12 +116,13 @@ impl From<PromptPartKind> for ContextKind {
             PromptPartKind::Instructions => Self::Instructions,
             PromptPartKind::Persona => Self::Persona,
             PromptPartKind::Environment => Self::Environment,
+            PromptPartKind::Skills => Self::Skills,
             PromptPartKind::Summary => Self::Summary,
         }
     }
 }
 
-/// 估算各类权重后缩放到上游用量：输入按比例分到六类，输出整体归对话。
+/// 估算各类权重后缩放到上游用量：输入按比例分到各类，输出整体归对话。
 pub(crate) fn breakdown(
     occupancy: Occupancy,
     usage: &ContextUsage,
@@ -126,7 +131,7 @@ pub(crate) fn breakdown(
     messages: &[Message],
     output: &[ReplyBlock],
 ) -> ContextBreakdown {
-    let mut weights = [0u64; 6];
+    let mut weights = [0u64; KINDS.len()];
     for part in system.blocks.iter().flat_map(|b| &b.parts) {
         weights[ContextKind::from(part.kind) as usize] += text_tokens(&part.text);
     }

@@ -6,6 +6,7 @@ export const CONTEXT_LABEL: Record<ContextKind, string> = {
   persona: "人设与偏好",
   tools: "工具",
   environment: "运行环境",
+  skills: "Skill 目录",
   summary: "压缩摘要",
   conversation: "用户对话",
 };

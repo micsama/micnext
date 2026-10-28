@@ -78,6 +78,7 @@ pub enum PromptPartKind {
     Instructions,
     Persona,
     Environment,
+    Skills,
     Summary,
 }
 
@@ -134,12 +135,13 @@ pub(crate) fn build(
     window: ContextWindow,
     images: HashMap<ImageId, ImageData>,
     channel_prompt: Option<&str>,
+    skills: Option<&str>,
     tools: &[ToolHandle],
     settings: &RunSettings,
 ) -> ModelRequest {
     ModelRequest {
         tool_choice: ToolChoice::Auto,
-        system: system_prompt(settings, session, channel_prompt, &window).render(),
+        system: system_prompt(settings, session, channel_prompt, skills, &window).render(),
         messages: order(window.messages),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
@@ -154,6 +156,7 @@ pub(crate) fn system_prompt(
     settings: &RunSettings,
     session: &mic_store::Session,
     channel_prompt: Option<&str>,
+    skills: Option<&str>,
     window: &ContextWindow,
 ) -> SystemPrompt {
     use PromptPartKind::*;
@@ -182,6 +185,7 @@ pub(crate) fn system_prompt(
         }
         .to_owned(),
     ));
+    context.extend(skills.map(|s| part(Skills, s.to_owned())));
     if let Some(summary) = &window.summary {
         context.push(part(
             Summary,
@@ -237,6 +241,7 @@ fn quote(message: &Message) -> String {
             ContentPart::Text { text } => text.clone(),
             ContentPart::Image(_) => "[图片]".into(),
             ContentPart::File(f) => format!("[文件：{}]", f.path),
+            ContentPart::Skill { name, .. } => format!("[skill：{name}]"),
         })
         .collect::<Vec<_>>()
         .join("\n");

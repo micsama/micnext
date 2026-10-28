@@ -29,6 +29,7 @@ use crate::provider::{resolve_key, resolve_reasoning, Factories};
 use crate::push::Pushes;
 use crate::request::SystemPrompt;
 use crate::run::{now_ms, Engine};
+use crate::skills::{Named, SkillList};
 use crate::{request, ChannelSetup, KernelError, ProviderKindView, WorkdirError};
 
 /// 模块拿到的内核窄接口。Clone 廉价；核心表只经这些方法写。
@@ -388,7 +389,8 @@ impl Kernel {
             .ok_or(KernelError::SessionNotFound)?;
         self.store.ensure_session_active(session.id).await?;
         reject_task(&session)?;
-        let input = validate(parts, &self.files, person).await?;
+        let mut input = validate(parts, &self.files, person).await?;
+        let notice = self.expand_skill(&mut input.parts).await;
         let messages = append_input(
             &self.store,
             &self.events,
@@ -396,7 +398,7 @@ impl Kernel {
             person,
             input.parts,
             InputDisposition::Pending,
-            None,
+            notice,
         )
         .await?;
         input.files.keep();
@@ -404,6 +406,28 @@ impl Kernel {
         let _ = self.wake.send(session_id).await;
         self.maybe_title(&messages[0]).await?;
         Ok(messages[0].id)
+    }
+
+    /// 以 `/name` 开头且 name 是 skill 时，把首段文字换成 `[Skill, 其余文字]`；
+    /// skill 读不出时原样收下，并附一条通知把原因交给 agent。
+    async fn expand_skill(&self, parts: &mut Vec<NewInputPart>) -> Option<NewNotice> {
+        let Some(NewInputPart::Text(text)) = parts.first() else {
+            return None;
+        };
+        match self.engine.skills.expand(text).await? {
+            Named::Loaded { name, text, rest } => {
+                let rest = (!rest.is_empty()).then_some(NewInputPart::Text(rest));
+                parts.splice(
+                    0..1,
+                    std::iter::once(NewInputPart::Skill { name, text }).chain(rest),
+                );
+                None
+            }
+            Named::Failed { name, reason } => Some(NewNotice {
+                source: crate::run::NOTIFICATION_SOURCE.into(),
+                text: format!("skill `{name}` 加载失败：{reason}"),
+            }),
+        }
     }
 
     /// 只记录不执行的入站：输入以 held 落盘，与处置说明同事务，按 id 顺序发布，不唤醒。
@@ -858,6 +882,11 @@ impl Kernel {
         Ok(self.store.queued_inputs(session_id).await?)
     }
 
+    /// 数据目录下的 skill，含不合法项及原因。
+    pub async fn skills(&self) -> Result<SkillList, KernelError> {
+        Ok(self.engine.skills.list().await?)
+    }
+
     /// 内置 instructions 块（不可改），供设置页只读展示。
     pub fn base_prompt(&self) -> &'static str {
         request::base_prompt()
@@ -894,10 +923,15 @@ impl Kernel {
     async fn current_system_prompt(&self, s: &Session) -> Result<SystemPrompt, KernelError> {
         let settings = self.store.run_settings(s.id).await?;
         let window = self.store.context_window(s.id).await?;
+        let skills = self
+            .engine
+            .skill_catalog(&self.engine.scoped_tools(s))
+            .await?;
         Ok(request::system_prompt(
             &settings,
             s,
             self.engine.channel_prompt(s),
+            skills.as_deref(),
             &window,
         ))
     }

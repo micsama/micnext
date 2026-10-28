@@ -340,6 +340,7 @@ impl Render {
                             Some(ContentPart::Text { text }) => text.lines().next().unwrap_or(""),
                             Some(ContentPart::File(f)) => f.name(),
                             Some(ContentPart::Image(_)) => "[image]",
+                            Some(ContentPart::Skill { name, .. }) => name.as_str(),
                             None => "",
                         };
                         format!("ok {}", preview(first))

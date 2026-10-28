@@ -11,7 +11,7 @@
   const BLOCK: Record<PromptBlock["kind"], [string, IconName, string]> = {
     instructions: ["内置指令", "file", "固定，不可修改"],
     persona: ["人设与偏好", "user", "设置页可改"],
-    context: ["环境与上下文", "folder", "工作目录、渠道与压缩摘要"],
+    context: ["环境与上下文", "folder", "工作目录、渠道、Skill 目录与压缩摘要"],
   };
   /** 原文里的块标签行，单独着色。 */
   const tags = $derived(new Set(view.blocks.flatMap((b) => [`<${b.kind}>`, `</${b.kind}>`])));

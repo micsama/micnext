@@ -37,7 +37,7 @@
 </script>
 
 {#snippet media(items: ContentPart[])}
-  {@const extra = items.filter((p) => !("Text" in p))}
+  {@const extra = items.filter((p) => "Image" in p || "File" in p)}
   {#if extra.length}<div class="thumbs">{#each extra as p, i (i)}{#if "Image" in p}<HistoryImage sessionId={message.session_id} imageId={p.Image.id} />{:else if "File" in p}<span class="cap" title={p.File.path}>[文件：{p.File.path.split(/[\\/]/).at(-1)}]</span>{/if}{/each}</div>{/if}
 {/snippet}
 
@@ -71,6 +71,9 @@
     {/each}
   {:else if body.kind === "UserInput"}
     {@const t = plain(body.parts)}
+    {#each body.parts.flatMap((p) => ("Skill" in p ? [p.Skill] : [])) as skill, i (i)}
+      <TraceCard icon="zap" title="Skill · {skill.name}" tone="user" meta={chars(skill.text)} long={isLong(skill.text)} copy={skill.text}><Markdown source={skill.text} /></TraceCard>
+    {/each}
     <TraceCard icon="user" title="用户输入" tone="user" meta={chars(t)} long={isLong(t)} copy={t || undefined}>{#if t}<Markdown source={t} />{/if}{@render media(body.parts)}</TraceCard>
   {:else if body.kind === "Trigger"}
     <TraceCard icon="clock" title="定时任务指令" tone="user" meta={chars(text)} long={isLong(text)} copy={text}><Markdown source={text} /></TraceCard>

@@ -27,9 +27,9 @@ import {
 import { parsePushPage, parsePushSettings, type PushPage, type PushSettings } from "./pushes";
 import { parseMessage, parseMessages, type Message } from "./types";
 import {
-  parseContextBreakdown, parseContextView, parseCommands,
+  parseContextBreakdown, parseContextView, parseCommands, parseSkills,
   parseJobs, parseJobOutput, parseStopJob, type JobView, type JobOutput, type StopJobOutcome,
-  type ContextBreakdown, type ContextView, type CommandSpec,
+  type ContextBreakdown, type ContextView, type CommandSpec, type SkillList,
   parseCreated,
   parseEndpoints,
   parseModels,
@@ -357,6 +357,9 @@ export async function getContextBreakdown(sessionId: number): Promise<ContextBre
 }
 export async function listCommands(): Promise<CommandSpec[]> {
   return parseCommands(await request("GET", "/commands"));
+}
+export async function listSkills(): Promise<SkillList> {
+  return parseSkills(await request("GET", "/skills"));
 }
 /** 停止指定执行；该执行已结束时 409。 */
 export async function stopRun(sessionId: number, runId: number): Promise<void> {

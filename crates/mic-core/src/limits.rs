@@ -22,6 +22,9 @@ pub(crate) const ELIDE_TOOL_TOKENS: u64 = 2_000;
 pub(crate) const QUOTE_FULL_TOKENS: u64 = 500;
 pub(crate) const QUOTE_HEAD_TOKENS: u64 = 300;
 pub(crate) const QUOTE_TAIL_TOKENS: u64 = 150;
+/// skill：加载结果里列出的文件数上限；description 字符上限（同开放规范）。
+pub(crate) const SKILL_FILES_LISTED: usize = 50;
+pub(crate) const SKILL_DESCRIPTION_CHARS: usize = 1024;
 /// 标题取材：用户文字合计保留最近部分；每条回复保留开头。
 pub(crate) const TITLE_INPUT_CHARS: usize = 2_000;
 pub(crate) const TITLE_INPUTS: u32 = 8;

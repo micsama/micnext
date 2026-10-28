@@ -214,7 +214,7 @@ export type PromptBlock = { kind: "instructions" | "persona" | "context"; parts:
 export type SystemPromptView = { text: string; blocks: PromptBlock[]; tools: ToolSpec[] };
 /** 发给模型的工具定义；`parameters` 为 JSON Schema。 */
 export type ToolSpec = { name: string; description: string; parameters: Record<string, unknown> };
-const promptPart: Decoder<PromptPart> = obj({ kind: oneOf("instructions", "persona", "environment", "summary"), text: str });
+const promptPart: Decoder<PromptPart> = obj({ kind: oneOf("instructions", "persona", "environment", "skills", "summary"), text: str });
 const toolSpec: Decoder<ToolSpec> = obj({
   name: str, description: str, parameters: record,
 });

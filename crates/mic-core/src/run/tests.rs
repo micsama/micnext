@@ -174,6 +174,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         channel_prompts: Arc::new(HashMap::new()),
         control: Default::default(),
         schedules: None,
+        skills: crate::skills::Skills::new(Default::default()),
     });
     store
         .append_input(
@@ -403,6 +404,7 @@ impl Fixture {
             channel_prompts: Arc::default(),
             control: Default::default(),
             schedules: None,
+            skills: crate::skills::Skills::new(Default::default()),
         });
         let (titles, _worker) = crate::title::TitleRuntime::new(
             store.clone(),
@@ -443,6 +445,7 @@ impl Fixture {
                 _ => None,
             },
             effort: None,
+            skills: None,
             context_window: 100_000,
             images: true,
             stop: CancellationToken::new(),
@@ -1611,6 +1614,7 @@ async fn timeline_keeps_late_inputs_after_reply_and_through_compaction() {
             &f.session,
             window,
             HashMap::new(),
+            None,
             None,
             &[],
             exec.settings,

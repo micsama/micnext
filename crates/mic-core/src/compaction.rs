@@ -87,6 +87,7 @@ impl Exec<'_> {
             window,
             images,
             channel_prompt,
+            self.skills.as_deref(),
             &self.tools,
             self.settings,
         );

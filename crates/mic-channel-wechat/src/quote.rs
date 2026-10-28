@@ -121,6 +121,7 @@ fn source_text(
             ContentPart::Text { text: part } => text.push_str(part),
             ContentPart::Image(_) => text.push_str("[图片]"),
             ContentPart::File(file) => text.push_str(&format!("[文件：{}]", file.name())),
+            ContentPart::Skill { name, .. } => text.push_str(&format!("[skill：{name}]")),
         }
     }
     Ok(text)

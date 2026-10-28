@@ -1,7 +1,7 @@
 import type { ContentPart, ExecOutcome } from "../api/types";
 
 export function partsText(parts: ContentPart[]): string {
-  return parts.map((p) => ("Text" in p ? p.Text.text : "File" in p ? `[文件] ${p.File.path}` : "[图片]")).join("\n");
+  return parts.map((p) => ("Text" in p ? p.Text.text : "File" in p ? `[文件] ${p.File.path}` : "Skill" in p ? `[skill] ${p.Skill.name}` : "[图片]")).join("\n");
 }
 
 export function outcomeText(o: ExecOutcome): string {

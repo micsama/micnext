@@ -273,6 +273,7 @@ impl Fixture {
             channel_prompts: Arc::new(HashMap::new()),
             control,
             schedules: None,
+            skills: crate::skills::Skills::new(Default::default()),
         });
         let scheduler = tokio::spawn(crate::scheduler::run(engine.clone(), wakes));
         store

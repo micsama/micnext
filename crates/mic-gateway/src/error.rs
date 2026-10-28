@@ -29,8 +29,8 @@ pub(crate) enum ApiError {
     Unprocessable(String),
     /// 当前部署不提供该能力。
     Unavailable(String),
-    /// 新会话工作目录无法使用，文案含路径与原因。
-    Workdir(String),
+    /// 本机目录无法使用（新会话工作目录、skill 目录），500，文案含路径与原因。
+    LocalPath(String),
     ImportPartial(String),
     Internal(KernelError),
     Setup(ChannelSetupError),
@@ -96,7 +96,7 @@ impl From<KernelError> for ApiError {
                     WorkdirError::NonUtf8 { .. } => "请在 设置 → 对话偏好 修改",
                     WorkdirError::Create { .. } => "请在 设置 → 对话偏好 改为可写的目录",
                 };
-                Self::Workdir(format!("{e}。{hint}"))
+                Self::LocalPath(format!("{e}。{hint}"))
             }
             KernelError::Settings(e) => match e {
                 SettingsError::ImportInvalid(reason) => Self::BadRequest(reason),
@@ -136,6 +136,7 @@ impl From<KernelError> for ApiError {
                 InputError::ImageLimit | InputError::Image(_) => Self::Unprocessable(e.to_string()),
                 InputError::FileSave => Self::Unavailable(e.to_string()),
             },
+            KernelError::Skills(e) => Self::LocalPath(e.to_string()),
             KernelError::Config(e) if e.field == "reasoning_effort" => {
                 Self::BadRequest(e.to_string())
             }
@@ -182,8 +183,8 @@ impl IntoResponse for ApiError {
             Self::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             Self::Conflict(m) => (StatusCode::CONFLICT, m),
             Self::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
-            Self::Workdir(m) => {
-                tracing::error!(error = %m, "web session workdir unusable");
+            Self::LocalPath(m) => {
+                tracing::error!(error = %m, "local path unusable");
                 (StatusCode::INTERNAL_SERVER_ERROR, m)
             }
             Self::ImportPartial(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),

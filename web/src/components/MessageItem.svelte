@@ -47,7 +47,8 @@
 {/snippet}
 
 {#if body.kind === "UserInput"}
-  {@const attachments = body.parts.filter((p) => !("Text" in p))}
+  {@const attachments = body.parts.filter((p) => "Image" in p || "File" in p)}
+  {@const skills = body.parts.flatMap((p) => ("Skill" in p ? [p.Skill] : []))}
   {@const fileIndex = (part: ContentPart) => body.parts.filter((p) => "File" in p).findIndex((p) => p === part)}
   {@const text = body.parts.flatMap((p) => ("Text" in p ? [p.Text.text] : [])).join("")}
   <div class="group relative flex flex-col items-end gap-1.5">
@@ -62,6 +63,14 @@
         {/each}
       </div>
     {/if}
+    {#each skills as skill, i (i)}
+      <details class={["group/skill w-full max-w-[85%] rounded-lg border border-border text-xs", queued && "opacity-60"]}>
+        <summary class="{STEP_ROW} justify-end rounded-lg text-muted-foreground hover:bg-muted">
+          <Icon name="zap" class="size-3.5 shrink-0" />已加载 skill <span class="font-mono text-foreground">{skill.name}</span><Icon name="chevron" class="size-3 transition-transform group-open/skill:rotate-90" />
+        </summary>
+        <pre class="max-h-80 overflow-auto border-t border-border px-2.5 py-2 font-mono whitespace-pre-wrap break-words">{skill.text}</pre>
+      </details>
+    {/each}
     {#if text}
       <!-- 复制放在气泡左侧：下方只留时间，悬停不压住下一条。 -->
       <div class="relative max-w-[85%]">

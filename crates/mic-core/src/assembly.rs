@@ -485,6 +485,8 @@ impl Assembly {
             owner,
         ));
         tools.push(crate::search::handle(store.clone(), factories.clone()));
+        let skills = crate::skills::Skills::new(self.data_dir.join(crate::skills::SKILLS_DIR));
+        tools.push(crate::skills::handle(skills.clone()));
         let schedules = wake.clone().map(|wake| {
             Arc::new(Schedules::new(
                 store.clone(),
@@ -510,6 +512,7 @@ impl Assembly {
             channel_prompts: self.channel_prompts.clone(),
             control,
             schedules,
+            skills,
         }
     }
 }

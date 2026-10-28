@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, type Snippet } from "svelte";
-  import { listCommands } from "../api/client";
-  import type { CommandSpec } from "../api/types";
+  import { listCommands, listSkills } from "../api/client";
+  import type { CommandSpec, SkillList } from "../api/types";
   import type { InputPart } from "../api/types";
   import FileCard from "./FileCard.svelte";
   import Icon from "../lib/Icon.svelte";
@@ -54,13 +54,24 @@
   let nextId = 0;
 
   let text = $state("");
+  /** `/` 补全项：内置指令与 skill 同列；不合法的 skill 带原因，不可选。 */
+  type Suggestion = { key: string; usage: string; description: string; skill: boolean; invalid: string | null };
   let commands = $state<CommandSpec[]>([]);
+  let skills = $state<SkillList>({ skills: [], invalid: [] });
   let commandIndex = $state(0);
   onMount(() => { void listCommands().then((items) => { commands = items; }).catch((e: Error) => { error = e.message; }); });
-  function complete(command: CommandSpec) { text = `/${command.name} `; commandIndex = 0; input.focus(); }
+  function complete(s: Suggestion) { if (s.invalid !== null) return; text = `${s.usage.split(" ")[0]} `; commandIndex = 0; input.focus(); }
 
   let attachments = $state<Attachment[]>([]);
-  const suggestions = $derived(text.trim().startsWith("/") && !/\s/.test(text.trim()) && attachments.length === 0 ? commands.filter((c) => `/${c.name}`.startsWith(text.trim())) : []);
+  const slash = $derived(text.trim().startsWith("/") && !/\s/.test(text.trim()) && attachments.length === 0);
+  // skill 可能随时被增删，每次打开补全时重新拉取。
+  $effect(() => { if (slash) void listSkills().then((list) => { skills = list; }).catch((e: Error) => { error = e.message; }); });
+  const entries = $derived<Suggestion[]>([
+    ...commands.map((c) => ({ key: c.name, usage: c.usage, description: c.description, skill: false, invalid: null })),
+    ...skills.skills.map((s) => ({ key: s.name, usage: `/${s.name}`, description: s.description, skill: true, invalid: null })),
+    ...skills.invalid.map((s) => ({ key: s.dir, usage: `/${s.dir}`, description: "不可用", skill: true, invalid: s.reason })),
+  ]);
+  const suggestions = $derived(slash ? entries.filter((e) => e.usage.startsWith(text.trim())) : []);
   let picker: HTMLInputElement;
   let dragging = $state(false);
   const limits = $derived(settingsStore.inputLimits);
@@ -271,9 +282,9 @@
     {/if}
     {#if suggestions.length > 0}
       <div class="mb-1 rounded-xl border border-border bg-background p-1">
-        {#each suggestions as command, i (command.name)}
-          <button type="button" class="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent {i === commandIndex % suggestions.length ? 'bg-accent' : ''}" onclick={() => complete(command)}>
-            <span class="font-mono">{command.usage}</span><span class="text-xs text-muted-foreground">{command.description}</span>
+        {#each suggestions as s, i (`${s.skill}/${s.key}`)}
+          <button type="button" class={["flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm", s.invalid === null ? "hover:bg-accent" : "cursor-not-allowed opacity-50", i === commandIndex % suggestions.length && "bg-accent"]} title={s.invalid ?? undefined} onclick={() => complete(s)}>
+            <span class="flex shrink-0 items-center gap-1.5 font-mono">{#if s.skill}<Icon name="zap" class="size-3.5 text-muted-foreground" />{/if}{s.usage}</span><span class="min-w-0 truncate text-xs text-muted-foreground" title={s.invalid ?? s.description}>{s.description}</span>
           </button>
         {/each}
       </div>

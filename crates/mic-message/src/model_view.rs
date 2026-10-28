@@ -288,13 +288,16 @@ fn with_header(header: String, mut parts: Vec<ContentPart>) -> Vec<ContentPart> 
     parts
 }
 
-/// 文件只给路径，模型按需用工具读取；Provider 因此不会见到 `File`。
+/// 文件只给路径，模型按需用工具读取；skill 渲染成文本块。Provider 因此不会见到 `File`、`Skill`。
 fn user_part(part: &ContentPart) -> ContentPart {
     match part {
         ContentPart::File(file) => text(format!(
             "[Attached file saved at {} ({} bytes)]",
             file.path, file.size_bytes
         )),
+        ContentPart::Skill { name, text: body } => {
+            text(format!("<skill name=\"{name}\">\n{body}\n</skill>"))
+        }
         other => other.clone(),
     }
 }

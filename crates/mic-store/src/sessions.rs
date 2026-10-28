@@ -321,7 +321,9 @@ pub(crate) fn summaries(filter: &str) -> String {
                  WHERE m.session_id = s.id AND m.kind = 'UserInput'
                    AND json_type(p.value, '$.Text') IS NOT NULL
                  ORDER BY m.id, p.key LIMIT 1),
-               (SELECT CASE WHEN json_type(p.value, '$.Image') IS NOT NULL THEN '[图片]' ELSE '[文件]' END
+               (SELECT CASE WHEN json_type(p.value, '$.Image') IS NOT NULL THEN '[图片]'
+                             WHEN json_type(p.value, '$.Skill') IS NOT NULL THEN '/' || json_extract(p.value, '$.Skill.name')
+                             ELSE '[文件]' END
                   FROM core_messages m, json_each(m.payload, '$.parts') p
                  WHERE m.session_id = s.id AND m.kind = 'UserInput'
                  ORDER BY m.id, p.key LIMIT 1)) AS preview

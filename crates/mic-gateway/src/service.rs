@@ -132,6 +132,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/sessions/{id}/jobs/{job}/stop", post(jobs::stop))
         .route("/sessions/{id}/stream-ticket", post(ticket::session_ticket))
         .route("/commands", get(context::commands))
+        .route("/skills", get(context::skills))
         .route("/sessions/{id}/context", get(context::get_context))
         .route(
             "/sessions/{id}/context/breakdown",

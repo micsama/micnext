@@ -223,7 +223,9 @@ fn user_content(
     for part in parts {
         match part {
             ContentPart::Text { text } => texts.push(text),
-            ContentPart::File(_) => unreachable!("文件只出现在用户输入，model_view 已转成文字"),
+            ContentPart::File(_) | ContentPart::Skill { .. } => {
+                unreachable!("文件与 skill 只出现在用户输入，model_view 已转成文字")
+            }
             ContentPart::Image(r) => {
                 flush(&mut texts, &mut out);
                 let img = images

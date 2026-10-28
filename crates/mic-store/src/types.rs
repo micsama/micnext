@@ -550,6 +550,7 @@ pub enum NewInputPart {
     Text(String),
     Image(mic_message::ImageData),
     File(mic_message::FileRef),
+    Skill { name: String, text: String },
 }
 
 /// 入站输入落盘后的执行处置。

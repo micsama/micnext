@@ -21,6 +21,12 @@ pub(crate) async fn commands() -> Json<Commands> {
     })
 }
 
+pub(crate) async fn skills(
+    State(app): State<Arc<App>>,
+) -> Result<Json<mic_core::SkillList>, ApiError> {
+    Ok(Json(app.kernel.skills().await?))
+}
+
 pub(crate) async fn get_context(
     State(app): State<Arc<App>>,
     id: Result<Path<i64>, PathRejection>,

@@ -44,12 +44,19 @@ impl FileRef {
     }
 }
 
-/// 消息里的片段：文本、文件引用或用户入站图片。
+/// 消息里的片段：文本、文件引用、用户入站图片，或用户点名时注入的 skill 加载结果。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContentPart {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     File(FileRef),
     Image(ImageRef),
+    /// `text` 是点名当时的完整加载结果（正文、目录、文件清单）。
+    Skill {
+        name: String,
+        text: String,
+    },
 }
 
 /// 工具失败按"谁改了才能成功"分类。

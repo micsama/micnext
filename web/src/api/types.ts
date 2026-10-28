@@ -8,7 +8,7 @@ export type FileRef = { path: string; size_bytes: number };
 
 export type ImageRef = { id: number };
 
-export type ContentPart = { Text: { text: string } } | { File: FileRef } | { Image: ImageRef };
+export type ContentPart = { Text: { text: string } } | { File: FileRef } | { Image: ImageRef } | { Skill: { name: string; text: string } };
 
 /** 提交给服务端的消息片段；图片为 base64 原始字节。 */
 export type InputPart = { kind: "text"; text: string } | { kind: "image"; base64: string } | { kind: "file"; name: string; base64: string };
@@ -44,7 +44,7 @@ export type SessionCommand = { Compact: { text: string | null } } | "Clear" | { 
 export type CompactionView = { boundary_id: number; result: Compaction; state: { kind: "applied" } | { kind: "revoked"; at: number } };
 /** 上下文占用，口径同自动压缩判定，总含估算。 */
 export type Occupancy = { used_tokens: number; window: number; trigger_percent: number };
-export type ContextKind = "instructions" | "persona" | "tools" | "environment" | "summary" | "conversation";
+export type ContextKind = "instructions" | "persona" | "tools" | "environment" | "skills" | "summary" | "conversation";
 export type ContextBreakdown = Occupancy & { parts: { kind: ContextKind; tokens: number; tool_tokens: number | null }[] };
 export type JobState = "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted";
 type JobBase = { id: number; tool_name: string; owner_session_id: number; description: string; created_at: number };
@@ -69,6 +69,8 @@ export type RunStats = {
 export type ReplyUsage = { input_tokens: number; output_tokens: number; cache_read_tokens: number | null };
 export type ReplyStats = { model_ms: number; first_output_ms: number | null; usage: ReplyUsage | null };
 export type CommandSpec = { name: string; usage: string; description: string };
+/** 数据目录下的 skill；不合法的只有目录名与原因。 */
+export type SkillList = { skills: { name: string; description: string }[]; invalid: { dir: string; reason: string }[] };
 
 export type MessageBody =
   | { kind: "Command"; person: number; command: SessionCommand }
@@ -286,6 +288,7 @@ const contentPart: Decoder<ContentPart> = tagged({
   Text: obj({ text: str }),
   File: fileRef,
   Image: obj({ id: num }),
+  Skill: obj({ name: str, text: str }),
 });
 
 const execOutcome: Decoder<ExecOutcome> = tagged({
@@ -330,10 +333,11 @@ export const parseJobs = (v: unknown): JobView[] => arr(jobView)(v, "任务列�
 export const parseJobOutput = (v: unknown): JobOutput => jobOutput(v, "任务输出");
 export const parseStopJob = (v: unknown): StopJobOutcome => obj({ outcome: oneOf("stopped", "already_idle", "already_finished") })(v, "终止任务").outcome;
 export const parseContextView = (v: unknown): ContextView => contextView(v, "上下文");
-const contextKind: Decoder<ContextKind> = oneOf("instructions", "persona", "tools", "environment", "summary", "conversation");
+const contextKind: Decoder<ContextKind> = oneOf("instructions", "persona", "tools", "environment", "skills", "summary", "conversation");
 const contextBreakdown: Decoder<ContextBreakdown> = obj({ used_tokens: num, window: num, trigger_percent: num, parts: arr(obj({ kind: contextKind, tokens: num, tool_tokens: nullable(num) })) });
 export const parseContextBreakdown = (v: unknown): ContextBreakdown | null => nullable(contextBreakdown)(v, "上下文构成");
 export const parseCommands = (v: unknown): CommandSpec[] => obj({ items: arr(obj({ name: str, usage: str, description: str })) })(v, "指令列表").items;
+export const parseSkills = (v: unknown): SkillList => obj({ skills: arr(obj({ name: str, description: str })), invalid: arr(obj({ dir: str, reason: str })) })(v, "skill 列表");
 const boundary: Decoder<ContextBoundary> = (v, at) => (v === "UserClear" ? v : compaction(v, at));
 
 const messageBody: Decoder<MessageBody> = kinded({

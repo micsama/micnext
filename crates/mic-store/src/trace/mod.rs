@@ -446,9 +446,10 @@ fn parts_text(parts: &[ContentPart]) -> String {
     parts
         .iter()
         .map(|p| match p {
-            ContentPart::Text { text } => text.as_str(),
-            ContentPart::File(_) => "[文件]",
-            ContentPart::Image(_) => "[图片]",
+            ContentPart::Text { text } => text.clone(),
+            ContentPart::File(_) => "[文件]".into(),
+            ContentPart::Image(_) => "[图片]".into(),
+            ContentPart::Skill { name, .. } => format!("[skill：{name}]"),
         })
         .collect::<Vec<_>>()
         .join(" ")

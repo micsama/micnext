@@ -30,6 +30,7 @@ use crate::limits::{
 };
 use crate::provider::{BuiltProvider, Factories};
 use crate::schedule::Schedules;
+use crate::skills::{Skills, SkillsError};
 use crate::{request, ModelEvent, ModelResponse, Provider, ProviderError, StopReason};
 
 /// 框架通知的 `source`。
@@ -51,6 +52,7 @@ pub(crate) struct Engine {
     pub(crate) control: Arc<RunControl>,
     /// 常驻时才有；`-p` 不建定时任务。
     pub(crate) schedules: Option<Arc<Schedules>>,
+    pub(crate) skills: Skills,
 }
 
 impl Engine {
@@ -79,6 +81,17 @@ impl Engine {
             ToolScope::All => all.collect(),
             ToolScope::Only(names) => all.filter(|t| names.contains(t.name())).collect(),
         }
+    }
+
+    /// 开放了 `skill` 工具时按磁盘现状生成 Skill 目录。
+    pub(crate) async fn skill_catalog(
+        &self,
+        tools: &[ToolHandle],
+    ) -> Result<Option<String>, SkillsError> {
+        if !tools.iter().any(|t| t.name() == crate::skills::SKILL) {
+            return Ok(None);
+        }
+        Ok(self.skills.catalog(&self.skills.list().await?))
     }
 
     /// Root 按渠道、任务会话按触发模块取渠道说明。
@@ -183,6 +196,7 @@ impl Engine {
             pending_inputs,
             model_id,
             effort: None,
+            skills: None,
             context_window,
             images,
             stop,
@@ -225,28 +239,41 @@ impl Engine {
                 }
                 RunState::Completed
             }
-            input => match self.provider(model) {
-                Ok(BuiltProvider { provider, effort }) => {
-                    exec.effort = effort;
-                    match input {
-                        RunInput::Command {
-                            command: SessionCommand::Compact { text },
-                            ..
-                        } => match exec.compact(provider.as_ref()).await? {
-                            Err(failed) => failed,
-                            Ok(()) if text.is_some() => exec.execute(provider.as_ref()).await?,
-                            Ok(()) => RunState::Completed,
-                        },
-                        RunInput::Conversation { .. } => exec.execute(provider.as_ref()).await?,
-                        _ => unreachable!("非模型指令已处理"),
+            input => {
+                // 模型不可用与 skill 目录读不出都让 run 无法开始，同样以 ProviderFailed 收尾。
+                let prepared = match self.provider(model) {
+                    Ok(built) => match self.skill_catalog(&exec.tools).await {
+                        Ok(skills) => Ok((built, skills)),
+                        Err(error) => Err(format!("{error}。")),
+                    },
+                    Err(text) => Err(text),
+                };
+                match prepared {
+                    Ok((BuiltProvider { provider, effort }, skills)) => {
+                        exec.effort = effort;
+                        exec.skills = skills;
+                        match input {
+                            RunInput::Command {
+                                command: SessionCommand::Compact { text },
+                                ..
+                            } => match exec.compact(provider.as_ref()).await? {
+                                Err(failed) => failed,
+                                Ok(()) if text.is_some() => exec.execute(provider.as_ref()).await?,
+                                Ok(()) => RunState::Completed,
+                            },
+                            RunInput::Conversation { .. } => {
+                                exec.execute(provider.as_ref()).await?
+                            }
+                            _ => unreachable!("非模型指令已处理"),
+                        }
+                    }
+                    Err(text) => {
+                        tracing::warn!(session = session.id.0, run = run.id.0, %text, "run cannot start");
+                        exec.notify(text).await?;
+                        RunState::ProviderFailed
                     }
                 }
-                Err(text) => {
-                    tracing::warn!(session = session.id.0, run = run.id.0, %text, "model unavailable");
-                    exec.notify(text).await?;
-                    RunState::ProviderFailed
-                }
-            },
+            }
         };
         if let Some(timer) = timer {
             timer.abort();
@@ -352,6 +379,8 @@ pub(crate) struct Exec<'a> {
     pub(crate) model_id: Option<ModelId>,
     /// 实际生效的思考档位（已解析默认值）；Provider 建好后才有。
     pub(crate) effort: Option<ReasoningEffort>,
+    /// run 开始时扫描的 Skill 目录，本 run 内各次请求共用。
+    pub(crate) skills: Option<String>,
     pub(crate) context_window: u32,
     /// 模型是否支持图片；否则请求里的图片换成文字占位。
     pub(crate) images: bool,
@@ -467,6 +496,7 @@ impl Exec<'_> {
             window,
             images,
             channel_prompt,
+            self.skills.as_deref(),
             tools,
             self.settings,
         );

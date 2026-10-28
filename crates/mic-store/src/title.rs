@@ -5,7 +5,7 @@ use mic_message::{
 };
 use rusqlite::{params, Connection};
 
-use crate::context::insert_call;
+use crate::context::{insert_call, insert_side_output};
 use crate::row::{self, MESSAGE_COLS, MESSAGE_FROM};
 use crate::tags::replace_session_tags;
 use crate::{Store, StoreError, TitleCall, TitleOutput};
@@ -48,15 +48,7 @@ impl Store {
             if let Some(TitleCall { call, output }) = call {
                 let call_id = insert_call(&tx, &call)?;
                 if let Some(text) = output {
-                    let body = MessageBody::SideOutput {
-                        purpose: SidePurpose::Title,
-                        text,
-                    };
-                    tx.execute(
-                        "INSERT INTO core_messages (session_id, model_call_id, payload, created_at)
-                         VALUES (?1, ?2, ?3, ?4)",
-                        params![session.0, call_id.0, row::payload(&body)?, call.finished_at],
-                    )?;
+                    insert_side_output(&tx, &call, call_id, SidePurpose::Title, text)?;
                 }
             }
             match result {

@@ -407,6 +407,28 @@ fn read_range(
     Ok(rows)
 }
 
+/// 旁路调用的模型原文，挂在调用上，不属于任何 run 的消息。
+pub(crate) fn insert_side_output(
+    conn: &Connection,
+    call: &NewModelCall,
+    call_id: ModelCallId,
+    purpose: mic_message::SidePurpose,
+    text: String,
+) -> Result<(), StoreError> {
+    let body = mic_message::MessageBody::SideOutput { purpose, text };
+    conn.execute(
+        "INSERT INTO core_messages (session_id, model_call_id, payload, created_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            call.session_id.0,
+            call_id.0,
+            row::payload(&body)?,
+            call.finished_at
+        ],
+    )?;
+    Ok(())
+}
+
 pub(crate) fn insert_call(
     conn: &Connection,
     call: &NewModelCall,

@@ -50,6 +50,11 @@ pub enum KernelEventKind {
         state: RunState,
         resume: Option<Resumable>,
     },
+    /// 来源 run 的输入预测已落盘；会话开始新 run 后即作废。
+    PredictionReady {
+        run_id: RunId,
+        text: String,
+    },
     /// 会话树的后台任务有变化（登记、输出增长、结束），`session_id` 为树根；订阅方重新拉取。
     JobsChanged,
     /// 新推送已记录，`session_id` 为来源会话；订阅方重新拉取通知中心。

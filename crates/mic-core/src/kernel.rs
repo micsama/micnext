@@ -575,6 +575,9 @@ impl Kernel {
         self.store.archive_session(id, now_ms()).await?;
         self.emit_session_changed(&session);
         self.titles.stop(id).await;
+        if let Some(predictions) = &self.engine.predictions {
+            predictions.cancel(id);
+        }
         self.engine.jobs.archive(id).await?;
         Ok(())
     }
@@ -739,6 +742,14 @@ impl Kernel {
 
     pub async fn set_push_channels(&self, channels: Vec<String>) -> Result<(), KernelError> {
         Ok(self.pushes.set_default_channels(channels).await?)
+    }
+
+    /// 会话当前的输入预测；只对最新 run 有效。
+    pub async fn current_prediction(
+        &self,
+        session: SessionId,
+    ) -> Result<Option<mic_store::Prediction>, KernelError> {
+        Ok(self.store.current_prediction(session).await?)
     }
 
     pub async fn title_generating(&self, session: SessionId) -> bool {
@@ -998,6 +1009,16 @@ impl Kernel {
                 record.session_id,
                 &sources,
                 &tags,
+            )));
+        }
+        if record.purpose == ModelCallPurpose::Prediction {
+            let sources = self
+                .store
+                .messages_by_ids(record.context.instruction)
+                .await?;
+            return Ok(Some(crate::prediction::prediction_messages(
+                record.session_id,
+                &sources,
             )));
         }
         let context = record.context;

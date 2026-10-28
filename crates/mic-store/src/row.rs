@@ -59,6 +59,7 @@ impl ModelCallPurpose {
             Self::Conversation => "conversation",
             Self::Compaction => "compaction",
             Self::Title => "title",
+            Self::Prediction => "prediction",
         }
     }
 }
@@ -104,6 +105,7 @@ impl rusqlite::types::FromSql for ModelCallPurpose {
             "conversation" => Self::Conversation,
             "compaction" => Self::Compaction,
             "title" => Self::Title,
+            "prediction" => Self::Prediction,
             other => {
                 return Err(rusqlite::types::FromSqlError::Other(
                     format!("未知 purpose: {other}").into(),

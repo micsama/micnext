@@ -45,7 +45,7 @@
   const LOG_CONTEXT = new Set(["session", "run"]);
   const hm = (at: number) => new Date(at).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
   const role = (m: TraceMessage) => m.tool ? "工具" : ({ UserInput: "用户", Reply: "AI", Command: "指令", Boundary: "压缩", Notification: "通知", Trigger: "定时", HarnessNote: "系统", Completion: "完成", JobNotice: "后台通知", Attachment: "文件" }[m.kind] ?? m.kind);
-  const purpose = (c: TraceCall) => ({ conversation: "模型调用", compaction: "压缩调用", title: "旁路 · 标题" }[c.purpose]);
+  const purpose = (c: TraceCall) => ({ conversation: "模型调用", compaction: "压缩调用", title: "旁路 · 标题", prediction: "旁路 · 预测" }[c.purpose]);
   const stateName = (r: TraceRun) => ({ completed: "已完成", interrupted: "已中断", stopped: "用户停止", provider_failed: "调用失败", max_turns: "轮数上限", timed_out: "超时停止" }[r.state] ?? r.state);
   const tokens = (c: TraceCall) => c.usage ? formatTokens(c.usage.input_tokens + c.usage.output_tokens) : "—";
   const toggle = (id: number) => { const next = new Set(folded); next.has(id) ? next.delete(id) : next.add(id); folded = next; };
@@ -244,7 +244,7 @@
   }
   const viewName = (v: View) =>
     v.session !== session ? traceSessions.title(v.session)
-    : "pick" in v ? ("call" in v.pick ? (v.pick.call.purpose === "title" ? "标题调用" : v.pick.call.purpose === "compaction" ? "压缩调用" : "AI 调用") : v.pick.message.tool?.name ?? "消息")
+    : "pick" in v ? ("call" in v.pick ? (v.pick.call.purpose === "title" ? "标题调用" : v.pick.call.purpose === "prediction" ? "预测调用" : v.pick.call.purpose === "compaction" ? "压缩调用" : "AI 调用") : v.pick.message.tool?.name ?? "消息")
     : "run" in v ? `轮次 #${runNumber(v.run)}` : "system" in v ? "系统提示" : "会话";
 
   let systemSelected = $state(false);
@@ -289,6 +289,8 @@
   const isPicked = (call?: TraceCall, message?: TraceMessage) =>
     pick !== null && (call ? "call" in pick && pick.call.id === call.id : "message" in pick && pick.message.id === message!.id);
 
+  /** 旁路调用的概览是输入任务与模型原文。 */
+  const sideCall = (c: TraceCall) => c.purpose === "title" || c.purpose === "prediction";
   // 标题旁路只有概览。
   const tabOk = (p: Pick, t: DetailTab) =>
     t === "overview" || (t === "logs" ? p.run !== null : "call" in p && p.call.purpose !== "title");
@@ -315,7 +317,7 @@
     const request = ++detailRequest;
     const p = pick;
     const key = `${pickKey(p)}:${tab}`;
-    if (tab === "overview" && "call" in p && p.call.purpose !== "title" && outputOf(p.call) === null) return;
+    if (tab === "overview" && "call" in p && !sideCall(p.call) && outputOf(p.call) === null) return;
     detailError = null;
     try {
       let result: typeof detail;
@@ -323,14 +325,14 @@
         const [message, args] = await Promise.all([getTraceMessage(p.message.id), p.message.tool ? toolArgsOf(p.run, p.message) : null]);
         if (request === detailRequest) full = { message, args };
         return;
-      } else if (tab === "overview" && "call" in p && p.call.purpose !== "title") {
+      } else if (tab === "overview" && "call" in p && !sideCall(p.call)) {
         const message = await getTraceMessage(outputOf(p.call)!);
         if (request === detailRequest) full = { message, args: null };
         return;
       } else if (tab === "overview" && "call" in p) {
         const c = p.call;
         const [input, output] = await Promise.all([
-          getTraceCallInput(c.id).then((ms) => ms[0] ?? null, (e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; }),
+          getTraceCallInput(c.id).then((ms) => ms.at(-1) ?? null, (e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; }),
           c.side_id === null ? null : getTraceMessage(c.side_id),
         ]);
         const text = (m: Message | null) => (m && (m.body.kind === "HarnessNote" || m.body.kind === "SideOutput") ? m.body.text : null);
@@ -711,7 +713,7 @@
     {:else if pick}
       <div class="d-head">
         <div><div class="d-type">
-          {#if "call" in pick}<span class={cn("role", pick.call.purpose === "compaction" ? "r-compact" : pick.call.purpose === "title" ? "r-sys" : "r-ai")}>{pick.call.purpose === "conversation" ? "AI" : pick.call.purpose === "compaction" ? "压缩" : "旁路"}</span>
+          {#if "call" in pick}<span class={cn("role", pick.call.purpose === "compaction" ? "r-compact" : sideCall(pick.call) ? "r-sys" : "r-ai")}>{pick.call.purpose === "conversation" ? "AI" : pick.call.purpose === "compaction" ? "压缩" : pick.call.purpose === "prediction" ? "预测" : "旁路"}</span>
           {:else}<span class={cn("role", pick.message.tool ? "r-tool" : pick.message.kind === "UserInput" ? "r-user" : "r-sys")}>{role(pick.message)}</span>{/if}
           <time>{time("call" in pick ? pick.call.started_at : pick.message.created_at)}</time>
         </div>
@@ -757,7 +759,7 @@
           <div class="pad cards">
             {#if "call" in pick}
               {@const c = pick.call}
-              {#if c.purpose === "title"}
+              {#if sideCall(c)}
                 {#if !side}<p class="hint">加载中…</p>
                 {:else if side.input === null && side.output === null}<p class="hint">旧调用，未记录输入与产出</p>
                 {:else}

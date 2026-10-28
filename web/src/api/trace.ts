@@ -4,7 +4,7 @@ import { runStats, type ContextKind, type ReasoningEffort, type RunStats } from 
 
 // 与 docs/blueprints/run-trace.md §六 及 mic-store `trace` 的 serde 形状一一对应。
 
-export type Purpose = "conversation" | "compaction" | "title";
+export type Purpose = "conversation" | "compaction" | "title" | "prediction";
 export type StopReason = "end_turn" | "tool_use" | "max_tokens" | "content_filter" | "stopped";
 export type ToolOutcome = "completed" | "failed" | "cancelled" | "timed_out" | "dispatched";
 
@@ -107,7 +107,7 @@ export type ModelStat = CallStat & { purpose: Purpose; model_id: number | null; 
 export type ToolStat = { name: string; calls: number; errors: number; avg_ms: number | null };
 export type Dashboard = { days: DayStat[]; models: ModelStat[]; tools: ToolStat[] };
 
-const purpose = oneOf<Purpose>("conversation", "compaction", "title");
+const purpose = oneOf<Purpose>("conversation", "compaction", "title", "prediction");
 
 const usage: Decoder<Usage> = obj({
   input_tokens: num,

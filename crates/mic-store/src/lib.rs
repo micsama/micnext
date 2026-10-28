@@ -13,6 +13,7 @@ mod messages;
 mod models;
 mod people;
 mod personas;
+mod prediction;
 mod pushes;
 mod row;
 mod schedules;
@@ -60,9 +61,9 @@ pub use types::{
     CredentialWrite, DeliveryTarget, EndpointId, EndpointView, EndpointWrite, Identity,
     InputDisposition, InterruptedRun, MessagePage, ModelCallContext, ModelCallId, ModelCallOutcome,
     ModelCallPurpose, ModelId, ModelPrice, ModelView, ModelWrite, NewInputPart, NewModelCall,
-    NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId, ReasoningEffort, Resumable,
-    RevocableView, RevocationState, Run, RunId, RunInput, RunSettings, RunState, Schema,
-    SecretColumn, SelectedModel, Session, SessionCursor, SessionKind, SessionPage, SessionSummary,
-    Settings, StopReason, Tag, TagId, TitleCall, TitleOutput, ToolScope, Usage,
-    UtilityModelSelection,
+    NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId, Prediction,
+    ReasoningEffort, Resumable, RevocableView, RevocationState, Run, RunId, RunInput, RunSettings,
+    RunState, Schema, SecretColumn, SelectedModel, Session, SessionCursor, SessionKind,
+    SessionPage, SessionSummary, Settings, StopReason, Tag, TagId, TitleCall, TitleOutput,
+    ToolScope, Usage, UtilityModelSelection,
 };

@@ -289,6 +289,7 @@ pub(crate) enum Event {
         alias = "response.reasoning_summary_text.done",
         alias = "response.reasoning_text.delta",
         alias = "response.reasoning_text.done",
+        alias = "response.metadata",
         alias = "codex.rate_limits"
     )]
     Unused,

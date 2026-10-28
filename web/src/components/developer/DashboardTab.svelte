@@ -39,7 +39,7 @@
     void refresh();
   }
 
-  const PURPOSE = { conversation: "对话", compaction: "压缩", title: "标题" } as const;
+  const PURPOSE = { conversation: "对话", compaction: "压缩", title: "标题", prediction: "预测" } as const;
   const rate = (n: number, total: number) => (total === 0 ? "—" : `${((n / total) * 100).toFixed(n === total || n === 0 ? 0 : 1)}%`);
   const tokens = (s: CallStat) => atLeast(`${formatTokens(s.input_tokens)} / ${formatTokens(s.output_tokens)}`, s.unknown_usage, s.calls);
 

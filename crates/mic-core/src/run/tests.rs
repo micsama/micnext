@@ -174,6 +174,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         channel_prompts: Arc::new(HashMap::new()),
         control: Default::default(),
         schedules: None,
+        predictions: None,
         skills: crate::skills::Skills::new(Default::default()),
     });
     store
@@ -404,6 +405,7 @@ impl Fixture {
             channel_prompts: Arc::default(),
             control: Default::default(),
             schedules: None,
+            predictions: None,
             skills: crate::skills::Skills::new(Default::default()),
         });
         let (titles, _worker) = crate::title::TitleRuntime::new(

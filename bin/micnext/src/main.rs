@@ -315,7 +315,8 @@ impl Render {
             | KernelEventKind::JobsChanged
             | KernelEventKind::PushCreated { .. }
             | KernelEventKind::PushDeliveryChanged { .. }
-            | KernelEventKind::ScheduleChanged { .. } => {}
+            | KernelEventKind::ScheduleChanged { .. }
+            | KernelEventKind::PredictionReady { .. } => {}
         }
     }
 

@@ -125,9 +125,10 @@ async fn feed(
     let state = tokio::try_join!(
         app.kernel.executing_run(session_id),
         app.kernel.queued_inputs(session_id),
-        app.kernel.resumable_run(session_id)
+        app.kernel.resumable_run(session_id),
+        app.kernel.current_prediction(session_id)
     );
-    let (executing_run, queued, resume) = match state {
+    let (executing_run, queued, resume, prediction) = match state {
         Ok(state) => state,
         Err(e) => return tracing::error!(error = %crate::error::chain(&e), "gateway replay failed"),
     };
@@ -136,6 +137,10 @@ async fn feed(
         queued: queued.into_iter().map(|id| id.0).collect(),
         has_earlier,
         resume: resume.map(ResumeView::from),
+        prediction: prediction.map(|p| PredictionView {
+            run_id: p.run_id.0,
+            text: p.text,
+        }),
     };
     if !send(&app, &tx, json_event("ready", &ready)).await {
         return;
@@ -199,6 +204,13 @@ async fn feed(
                     inputs: inputs.into_iter().map(|id| id.0).collect(),
                 },
             ),
+            KernelEventKind::PredictionReady { run_id, text } => json_event(
+                "prediction",
+                &PredictionView {
+                    run_id: run_id.0,
+                    text,
+                },
+            ),
             KernelEventKind::RunFinished {
                 run_id,
                 state,
@@ -234,6 +246,14 @@ struct Ready {
     /// 首次回放之前是否还有消息；重连续传时为 null。
     has_earlier: Option<bool>,
     resume: Option<ResumeView>,
+    /// 最新 run 的输入预测。
+    prediction: Option<PredictionView>,
+}
+
+#[derive(Serialize)]
+struct PredictionView {
+    run_id: i64,
+    text: String,
 }
 
 /// 可原地接续的 run。

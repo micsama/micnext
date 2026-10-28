@@ -52,6 +52,8 @@ pub(crate) struct Engine {
     pub(crate) control: Arc<RunControl>,
     /// 常驻时才有；`-p` 不建定时任务。
     pub(crate) schedules: Option<Arc<Schedules>>,
+    /// 常驻时才有。
+    pub(crate) predictions: Option<crate::prediction::PredictionHandle>,
     pub(crate) skills: Skills,
 }
 
@@ -120,6 +122,10 @@ impl Engine {
             input,
         } = claimed;
         slot.set_run(run.id);
+        if let Some(predictions) = &self.predictions {
+            predictions.cancel(session.id);
+        }
+        let conversation = matches!(input, RunInput::Conversation { .. });
         let stop = slot.token();
         let parent = match session.kind {
             SessionKind::Task => Some(session.parent_session_id.expect("Task 会话必有父会话")),
@@ -337,6 +343,11 @@ impl Engine {
                 resume,
             },
         );
+        if let (Some(predictions), true, RunState::Completed) =
+            (&self.predictions, conversation, state)
+        {
+            predictions.submit(session, run.id);
+        }
         if let Some(tree) = &tree {
             self.jobs.changed(tree);
         }

@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -48,6 +48,7 @@ pub struct Assembly {
     agent_tools: BTreeSet<String>,
     channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
     channel_prompts: Arc<HashMap<&'static str, &'static str>>,
+    prediction_channels: Arc<HashSet<&'static str>>,
 }
 
 /// `-p` 的一次性输入。
@@ -135,6 +136,7 @@ impl Assembly {
             tools: Vec::new(),
             channel_setups: Vec::new(),
             channel_prompts: Vec::new(),
+            prediction_channels: Vec::new(),
         };
         for m in &modules {
             let module = m.name();
@@ -215,6 +217,7 @@ impl Assembly {
             tools: reg.tools.into_iter().map(|(_, t)| t).collect(),
             channel_setups: Arc::new(channel_setups),
             channel_prompts: Arc::new(channel_prompts),
+            prediction_channels: Arc::new(reg.prediction_channels.into_iter().collect()),
         })
     }
 
@@ -234,13 +237,21 @@ impl Assembly {
             started.factories.clone(),
             events.clone(),
         );
-        let engine = Arc::new(self.engine(
+        let (prediction_handle, predictions) = crate::prediction::PredictionRuntime::new(
+            started.store.clone(),
+            started.factories.clone(),
+            events.clone(),
+            self.prediction_channels.clone(),
+        );
+        let mut engine = self.engine(
             started.store.clone(),
             started.factories.clone(),
             events.clone(),
             Some(wake_tx.clone()),
             started.owner,
-        ));
+        );
+        engine.predictions = Some(prediction_handle);
+        let engine = Arc::new(engine);
         let jobs = engine.jobs.clone();
         let kernel = Kernel::new(
             started.owner,
@@ -253,6 +264,7 @@ impl Assembly {
         let mut schedules = Box::pin(crate::schedule::run(engine.clone(), started.boot));
         let mut scheduler = Box::pin(scheduler::run(engine, wake_rx));
         let mut titles = Box::pin(titles.run());
+        let mut predictions = Box::pin(predictions.run());
 
         let shutdown = stop.child_token();
         let mut tasks = JoinSet::new();
@@ -276,6 +288,11 @@ impl Assembly {
                     failure = Some(error);
                     break;
                 }
+                error = &mut predictions => {
+                    shutdown.cancel();
+                    failure = Some(error);
+                    break;
+                }
                 error = &mut schedules => {
                     shutdown.cancel();
                     failure = Some(error);
@@ -295,6 +312,7 @@ impl Assembly {
         drop(schedules);
         drop(scheduler);
         drop(titles);
+        drop(predictions);
         jobs.shutdown().await;
         while let Some(joined) = tasks.join_next_with_id().await {
             settle(joined, &owners, &shutdown, &mut failure);
@@ -511,6 +529,7 @@ impl Assembly {
             tools,
             channel_prompts: self.channel_prompts.clone(),
             control,
+            predictions: None,
             schedules,
             skills,
         }

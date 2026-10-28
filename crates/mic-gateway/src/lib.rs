@@ -73,6 +73,7 @@ impl Module for GatewayModule {
             WEB_CHANNEL,
             "Web: Markdown is supported; tool activity is visible live.",
         );
+        reg.input_prediction(WEB_CHANNEL);
         reg.service(Gateway {
             config,
             logs: self.logs.clone(),

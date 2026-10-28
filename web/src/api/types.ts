@@ -90,7 +90,7 @@ export type MessageBody =
   | { kind: "Attachment"; files: FileRef[] }
   | { kind: "Boundary"; boundary: ContextBoundary }
   /** 旁路调用的模型原文，只在 trace 出现。 */
-  | { kind: "SideOutput"; purpose: "title"; text: string };
+  | { kind: "SideOutput"; purpose: "title" | "prediction"; text: string };
 
 export type Message = {
   id: number;
@@ -279,7 +279,11 @@ export type StreamEvent =
   | { event: "draft_discarded"; data: Record<string, never> }
   | { event: "inputs_claimed"; data: { run_id: number; inputs: number[] } }
   | { event: "run_finished"; data: { run_id: number; state: RunState; resume: Resumable | null } }
-  | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null; resume: Resumable | null } };
+  | { event: "prediction"; data: Prediction }
+  | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null; resume: Resumable | null; prediction: Prediction | null } };
+
+/** 最新 run 的输入预测；会话开始新 run 即作废。 */
+export type Prediction = { run_id: number; text: string };
 
 /** 可原地接续的意外结束 run。 */
 export type Resumable = { run_id: number; state: RunState };
@@ -360,7 +364,7 @@ const messageBody: Decoder<MessageBody> = kinded({
   Notification: { source: str, text: str, files: arr(fileRef) },
   Attachment: { files: arr(fileRef) },
   Boundary: { boundary },
-  SideOutput: { purpose: oneOf<"title">("title"), text: str },
+  SideOutput: { purpose: oneOf<"title" | "prediction">("title", "prediction"), text: str },
 });
 
 const message: Decoder<Message> = obj({
@@ -476,6 +480,7 @@ const created: Decoder<Created> = obj({ session_id: num });
 const delta = obj({ text: str });
 
 const resumable: Decoder<Resumable> = obj({ run_id: num, state: runState });
+const prediction: Decoder<Prediction> = obj({ run_id: num, text: str });
 const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { event: E }>["data"]> } = {
   message,
   text_delta: delta,
@@ -490,7 +495,8 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
     state: runState,
     resume: nullable(resumable),
   }),
-  ready: obj({ executing_run: nullable(num), queued: arr(num), has_earlier: nullable(bool), resume: nullable(resumable) }),
+  prediction,
+  ready: obj({ executing_run: nullable(num), queued: arr(num), has_earlier: nullable(bool), resume: nullable(resumable), prediction: nullable(prediction) }),
 };
 
 export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入限额").input_limits;

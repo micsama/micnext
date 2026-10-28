@@ -23,6 +23,7 @@
     onstop,
     stopping = false,
     reply = $bindable(null),
+    prediction = null,
   }: {
     onsend: (parts: InputPart[]) => Promise<void>;
     placeholder?: string;
@@ -46,6 +47,8 @@
     stopping?: boolean;
     /** 回复引用；发送成功后清空。 */
     reply?: ComposerReply | null;
+    /** 预测的下一句：输入框为空时代替占位文字，Tab 或「填入」采用。 */
+    prediction?: string | null;
   } = $props();
 
   const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
@@ -80,6 +83,14 @@
   let error = $state<string | null>(null);
   let input: HTMLTextAreaElement;
   const MAX_HEIGHT_PX = 240;
+
+  const guess = $derived(readonly === null && text === "" && attachments.length === 0 ? prediction : null);
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  function accept() {
+    if (guess === null) return;
+    text = guess;
+    input.focus();
+  }
 
   const canSend = $derived((text.trim() !== "" || attachments.length > 0) && !posting && !blocked);
   const stopMode = $derived(!!onstop && text.trim() === "" && attachments.length === 0 && !posting);
@@ -204,6 +215,11 @@
       }
       if (e.key === "Tab") { e.preventDefault(); complete(suggestions[commandIndex % suggestions.length]!); return; }
     }
+    if (e.key === "Tab" && guess !== null && !e.isComposing && !e.shiftKey) {
+      e.preventDefault();
+      accept();
+      return;
+    }
     if (e.key === "Escape" && stopMode) {
       e.preventDefault();
       void stop();
@@ -322,16 +338,21 @@
         {/each}
       </div>
     {/if}
-    <textarea
-      bind:this={input}
-      bind:value={text}
-      {onkeydown}
-      {onpaste}
-      placeholder={readonly ?? placeholder}
-      disabled={posting || readonly !== null}
-      rows="1"
-      class="block max-h-60 min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base outline-none placeholder:text-muted-foreground {posting ? 'opacity-60' : ''}"
-    ></textarea>
+    <div class="relative">
+      <textarea
+        bind:this={input}
+        bind:value={text}
+        {onkeydown}
+        {onpaste}
+        placeholder={readonly ?? (guess !== null ? `✦ ${guess}` : placeholder)}
+        disabled={posting || readonly !== null}
+        rows="1"
+        class="block max-h-60 min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base outline-none placeholder:text-muted-foreground {posting ? 'opacity-60' : ''} {guess !== null && coarse ? 'pr-14' : ''}"
+      ></textarea>
+      {#if guess !== null && coarse}
+        <button type="button" onclick={accept} class="absolute top-2 right-2 rounded-full bg-muted px-2.5 py-1 text-xs text-foreground hover:bg-accent">填入</button>
+      {/if}
+    </div>
     <div class="flex items-center gap-1">
       <input
         bind:this={picker}

@@ -1,6 +1,6 @@
 import { ApiError, generateTitle, getContext, listJobs, getMessages, markSessionSeen, resumeRun, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
-import { ProtocolError, jobActive, type ContextView, type JobView, type Message, type Resumable, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
+import { ProtocolError, jobActive, type ContextView, type JobView, type Message, type Prediction, type Resumable, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
 import { sessionsSync } from "./sessions.svelte";
@@ -154,6 +154,10 @@ export class SessionView {
       if (!(error instanceof ApiError && error.status === 409)) throw error;
     }
   }
+  /** 输入预测；有新输入或新 run 即作废。 */
+  prediction = $state<Prediction | null>(null);
+  /** 已知最新的 run，用来丢弃迟到的旧预测。 */
+  #lastRun: number | null = null;
   /** 可原地接续的 run；认领或有新输入即失效。 */
   resume = $state<Resumable | null>(null);
   resuming = $state(false);
@@ -317,7 +321,7 @@ export class SessionView {
         if (["Reply", "Boundary", "Notification"].includes(e.data.body.kind)) this.modelRetry = null;
         if (e.data.body.kind === "Reply") this.draft = null;
         if (e.data.body.kind === "UserInput") this.notice = null;
-        if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") { this.#queued.add(e.data.id); this.resume = null; }
+        if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") { this.#queued.add(e.data.id); this.resume = null; this.prediction = null; }
         break;
       case "text_delta":
         (this.draft ??= { reasoning: "", text: "", afterId: this.lastId ?? 0 }).text += e.data.text;
@@ -337,12 +341,16 @@ export class SessionView {
         if (e.data.has_earlier !== null) this.earlier = e.data.has_earlier ? "idle" : "none";
         this.executingRun = e.data.executing_run;
         this.resume = e.data.resume;
+        this.prediction = e.data.prediction;
+        this.#lastRun = e.data.executing_run ?? e.data.prediction?.run_id ?? null;
         if (e.data.resume) this.notice = FINISH_NOTICE[e.data.resume.state] ?? null;
         this.#queued.clear();
         for (const id of e.data.queued) this.#queued.add(id);
         break;
       case "inputs_claimed":
         this.executingRun = e.data.run_id;
+        this.#lastRun = e.data.run_id;
+        this.prediction = null;
         this.claimedAt = Date.now();
         this.notice = null;
         this.resume = null;
@@ -355,6 +363,10 @@ export class SessionView {
         this.stopping = null;
         this.notice = FINISH_NOTICE[e.data.state] ?? null;
         this.resume = e.data.resume;
+        this.#lastRun = e.data.run_id;
+        break;
+      case "prediction":
+        if (this.executingRun === null && (this.#lastRun === null || e.data.run_id >= this.#lastRun)) this.prediction = e.data;
         break;
     }
     if (e.event === "ready" || e.event === "message") this.#reportSeen();

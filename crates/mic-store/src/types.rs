@@ -60,6 +60,13 @@ pub struct TitleCall {
     pub output: Option<String>,
 }
 
+/// 会话当前的输入预测：来源 run 仍是该会话最新的 run。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Prediction {
+    pub run_id: RunId,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UtilityModelSelection {
     pub model_id: Option<ModelId>,
@@ -501,6 +508,7 @@ pub enum ModelCallPurpose {
     Conversation,
     Compaction,
     Title,
+    Prediction,
 }
 
 #[derive(Debug, Clone, PartialEq)]

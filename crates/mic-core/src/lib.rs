@@ -16,6 +16,7 @@ mod jobs;
 mod kernel;
 mod limits;
 mod module;
+mod prediction;
 mod provider;
 mod push;
 mod recovery;

@@ -425,12 +425,17 @@ fn run_stats(
     calls: &[TraceCall],
     messages: &[TraceMessage],
 ) -> RunStats {
+    // 预测在 run 结束后才发起，不算 run 的执行。
+    let calls: Vec<&TraceCall> = calls
+        .iter()
+        .filter(|c| c.purpose != ModelCallPurpose::Prediction)
+        .collect();
     // 每步以其最后一次尝试为准；工具结果按回复引用归属。
     let step_ends: Vec<&TraceCall> = calls
         .iter()
         .enumerate()
         .filter(|(i, _)| calls.get(i + 1).is_none_or(|next| next.attempt == 1))
-        .map(|(_, c)| c)
+        .map(|(_, c)| *c)
         .collect();
     let tool_ms = step_ends
         .iter()

@@ -259,6 +259,7 @@ pub enum MessageBody {
 #[serde(rename_all = "snake_case")]
 pub enum SidePurpose {
     Title,
+    Prediction,
 }
 
 /// 排序依据是 `id`；`created_at`（unix millis）是发生时间，只用于展示与诊断。

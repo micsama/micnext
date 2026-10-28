@@ -45,6 +45,7 @@ pub struct Registry {
     pub(crate) tools: Vec<(&'static str, ToolHandle)>,
     pub(crate) channel_setups: Vec<(&'static str, Arc<dyn ChannelSetup>)>,
     pub(crate) channel_prompts: Vec<(&'static str, &'static str)>,
+    pub(crate) prediction_channels: Vec<&'static str>,
 }
 
 impl Registry {
@@ -55,6 +56,11 @@ impl Registry {
     /// 本渠道 Root 会话的呈现说明，进入 system prompt `context` 块；同一渠道只能声明一次。
     pub fn channel_prompt(&mut self, channel: &'static str, prompt: &'static str) {
         self.channel_prompts.push((channel, prompt));
+    }
+
+    /// 本渠道 Root 会话在对话 run 正常完成后预测用户的下一句输入。
+    pub fn input_prediction(&mut self, channel: &'static str) {
+        self.prediction_channels.push(channel);
     }
 
     pub fn schemas(&mut self, m: &'static [Schema]) {

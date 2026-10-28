@@ -196,12 +196,8 @@
 
   <div bind:this={pane} class="flex min-h-0 min-w-0 flex-1 flex-col">
     <!-- 透明文字的 textarea 叠在高亮层上，两层字体、内边距、换行与滚动须一致。 -->
-    {#if write}
-      <p class="shrink-0 border-b border-destructive bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
-        写入模式：每次执行前先备份整个数据库，再直接改主库。改动立即生效，已打开的页面不会自动刷新，部分设置可能要重启才生效。改错时，停服务后用备份文件替换 micnext.db。
-      </p>
-    {/if}
-    <div class={["relative shrink-0 bg-background font-mono text-sm", write && "border-4 border-destructive"]} style:height="{editorHeight}px">
+    <!-- 切换写入模式只换颜色、不增减行，避免布局跳动；完整提醒放在把关卡片里。 -->
+    <div class={["relative shrink-0 bg-background font-mono text-sm", write && "ring-4 ring-destructive ring-inset"]} style:height="{editorHeight}px">
       <pre
         bind:this={backdrop}
         aria-hidden="true"
@@ -222,7 +218,7 @@
       aria-label="拖动调整输入框高度"
       class="h-1.5 shrink-0 cursor-row-resize touch-none border-y bg-muted hover:bg-accent"
       onpointerdown={startResize}></div>
-    <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1.5 text-xs text-muted-foreground">
+    <div class={["flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1.5 text-xs", write ? "bg-destructive/10 text-destructive" : "text-muted-foreground"]}>
       <button
         type="button"
         disabled={running || sql.trim() === ""}
@@ -259,7 +255,7 @@
           onclick={() => result && downloadCsv(result)}><Icon name="arrowDown" class="size-3.5" />下载 CSV</button>
         {#if copyNote}<span>{copyNote}</span>{/if}
       {/if}
-      <span class="ml-auto">{write ? "主库；先试运行与 AI 把关，确认后备份再执行；凭据列读作 NULL 且不可写" : "只读连接；凭据列读作 NULL"}</span>
+      <span class="ml-auto">{write ? "写入主库：先把关，确认后备份再执行" : "只读连接；凭据列读作 NULL"}</span>
     </div>
     {#if pending}
       {@const risk = pending.risk ? RISK[pending.risk] : null}
@@ -271,6 +267,7 @@
         </p>
         {#if pending.reason}<p class="whitespace-pre-wrap">{pending.reason}</p>{/if}
         {#if pending.ai_error}<p class="text-xs text-muted-foreground">{pending.ai_error}</p>{/if}
+        <p class="text-xs text-destructive">确认后先备份整个数据库，再直接改主库。改动立即生效，已打开的页面不会自动刷新，部分设置可能要重启才生效；凭据列不可写。改错时，停服务后用备份文件替换 micnext.db。</p>
         <div class="flex gap-2">
           <button
             type="button"

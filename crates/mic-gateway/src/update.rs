@@ -443,7 +443,7 @@ pub(crate) async fn status(State(app): State<Arc<App>>) -> Response {
 pub(crate) async fn start(State(app): State<Arc<App>>) -> Result<StatusCode, ApiError> {
     let updater = app.updater.as_ref().ok_or_else(|| {
         ApiError::Unavailable(
-            "未启用更新：在配置 [gateway] 里加 update_repo = \"<部署仓库绝对路径>\" 后重启".into(),
+            "未启用更新：在配置 [gateway] 里加 update_repo = \"~/workspace/micnext\"（部署仓库路径，支持绝对路径或 ~/）后重启".into(),
         )
     })?;
     updater.start()?;

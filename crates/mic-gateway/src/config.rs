@@ -37,19 +37,32 @@ impl RawConfig {
         if self.token.as_deref().is_some_and(|t| t.trim().is_empty()) {
             return Err("[gateway] token 不能为空：删掉这一行则每次启动随机生成".into());
         }
-        if let Some(repo) = &self.update_repo {
-            if !repo.is_absolute() {
-                return Err(format!(
-                    "[gateway] update_repo 必须是绝对路径，当前为 \"{}\"",
-                    repo.display()
-                )
-                .into());
-            }
-        }
+        let update_repo = self
+            .update_repo
+            .map(|repo| -> Result<PathBuf, BoxError> {
+                let repo = match repo.strip_prefix("~") {
+                    Ok(rest) if repo.to_str().is_some_and(|path| path.starts_with("~/")) => {
+                        let home = std::env::var_os("HOME")
+                            .filter(|home| !home.is_empty())
+                            .ok_or("环境变量 HOME 未设置，无法展开 [gateway] update_repo")?;
+                        PathBuf::from(home).join(rest)
+                    }
+                    _ => repo,
+                };
+                if !repo.is_absolute() {
+                    return Err(format!(
+                        "[gateway] update_repo 必须是绝对路径或以 ~/ 开头，展开后为 \"{}\"",
+                        repo.display()
+                    )
+                    .into());
+                }
+                Ok(repo)
+            })
+            .transpose()?;
         Ok(Config {
             listen,
             token: self.token,
-            update_repo: self.update_repo,
+            update_repo,
         })
     }
 }

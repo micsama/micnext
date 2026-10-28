@@ -56,7 +56,10 @@
 .trace-layout .lat { --lv: 0; --h: calc(42 - 38 * var(--lv)); --s: min(1, calc(var(--lv) * 1.8));
   background: hsl(var(--h) calc(88% * var(--s)) var(--lat-bg)); color: hsl(var(--h) calc(78% * var(--s)) var(--lat-fg)); }
 .trace-layout .signal { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; line-height: 18px; white-space: nowrap; background: none; }
-.trace-layout .guess { cursor: pointer; padding: 0 4px; }
+.trace-layout .guess { cursor: pointer; margin-left: 4px; padding: 0 8px 0 6px; border-radius: 999px; font-weight: 500; }
+.trace-layout .guess:not(.c-warn) { color: #7c3aed; background: color-mix(in srgb, #7c3aed 11%, transparent); }
+.trace-layout .guess:hover { filter: brightness(.92); }
+.trace-layout .guess i { font-style: normal; font-size: 15px; line-height: 1; }
 .trace-layout .signal b { font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .trace-layout .tags { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
 .trace-layout .role { display: inline-block; font-size: 11px; font-weight: 600; text-align: center; border-radius: 5px; line-height: 20px; white-space: nowrap; }

@@ -504,7 +504,7 @@
       {/if}
       {#if r && guess}
         {@const open = (e: Event) => { e.stopPropagation(); choose({ run: r, call: guess }); }}
-        <span role="button" tabindex="-1" class={cn("signal guess", failed(guess) ? "c-warn" : "c-ai")} title={guess.error ? `输入预测失败：${guess.error}` : "输入预测，点击查看"} onclick={open} onkeydown={(e) => e.key === "Enter" && open(e)}>✦</span>
+        <span role="button" tabindex="-1" class={cn("signal guess", failed(guess) && "c-warn")} title={guess.error ? `输入预测失败：${guess.error}` : "输入预测，点击查看"} onclick={open} onkeydown={(e) => e.key === "Enter" && open(e)}><i>✦</i>预测</span>
       {/if}
     </span>
     <span class="track" class:track-empty={!r || (!step.tools.length && step.calls.length < 2)} title="本步 {step.unknown ? '≥ ' : ''}{formatDuration(step.known)} · 模型 {formatDuration(step.model)}{step.wait ? ` · 重试等待 ${formatDuration(step.wait)}` : ''}（条按段压缩，短段放大）">

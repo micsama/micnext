@@ -31,9 +31,13 @@ export function heat(ms: number, kind: keyof typeof SOFT, peer?: { median_ms: nu
 export const toolMs = (m: TraceMessage) =>
   m.tool && m.tool.started_at !== null && m.tool.outcome !== "cancelled" && m.tool.outcome !== "dispatched" ? m.created_at - m.tool.started_at : null;
 
+/** 预测挂在收尾回复上，不算步骤。 */
+export const stepCalls = (run: TraceRun) => run.calls.filter((c) => c.purpose !== "prediction");
+export const predictionOf = (run: TraceRun) => run.calls.find((c) => c.purpose === "prediction");
+
 export function attempts(run: TraceRun | null, call: TraceCall): TraceCall[] {
-  if (!run) return [call];
-  const ordered = [...run.calls].sort((a, b) => a.started_at - b.started_at || a.id - b.id);
+  if (!run || call.purpose === "prediction") return [call];
+  const ordered = stepCalls(run).sort((a, b) => a.started_at - b.started_at || a.id - b.id);
   const index = ordered.findIndex((c) => c.id === call.id);
   let start = index;
   while (start > 0 && ordered[start]!.attempt > 1) start--;
@@ -42,7 +46,7 @@ export function attempts(run: TraceRun | null, call: TraceCall): TraceCall[] {
   return ordered.slice(start, end);
 }
 
-export const steps = (run: TraceRun) => run.calls.filter((c) => attempts(run, c).at(-1)!.id === c.id);
+export const steps = (run: TraceRun) => stepCalls(run).filter((c) => attempts(run, c).at(-1)!.id === c.id);
 
 // 归属直接来自调用发生位置。
 export function owner(run: TraceRun, message: TraceMessage) {

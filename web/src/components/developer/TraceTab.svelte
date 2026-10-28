@@ -11,7 +11,7 @@
   import { settingsStore } from "../../state/settings.svelte";
   import { router } from "../../state/route.svelte";
   import { issues, traceSessions } from "../../state/trace-sessions.svelte";
-  import { attempts, steps, owner, toolsFor, stepOf, bar, usageOf, heat, toolMs, jsonHtml, isLong } from "./trace-presentation";
+  import { attempts, steps, stepCalls, predictionOf, owner, toolsFor, stepOf, bar, usageOf, heat, toolMs, jsonHtml, isLong } from "./trace-presentation";
   import TraceUsage from "./TraceUsage.svelte";
   import TraceContent from "./TraceContent.svelte";
   import TraceSystem from "./TraceSystem.svelte";
@@ -50,7 +50,7 @@
   const tokens = (c: TraceCall) => c.usage ? formatTokens(c.usage.input_tokens + c.usage.output_tokens) : "—";
   const toggle = (id: number) => { const next = new Set(folded); next.has(id) ? next.delete(id) : next.add(id); folded = next; };
   const callPreview = (r: TraceRun | null, c: TraceCall) => c.error ?? r?.messages.find((m) => m.id === (c.reply_id ?? c.boundary_id))?.preview ?? c.model;
-  const badRun = (r: TraceRun) => runBad(r) || r.calls.some((c) => c.error) || r.messages.some((m) => (m.tool?.outcome === "failed" || m.tool?.outcome === "timed_out"));
+  const badRun = (r: TraceRun) => runBad(r) || stepCalls(r).some((c) => c.error) || r.messages.some((m) => (m.tool?.outcome === "failed" || m.tool?.outcome === "timed_out"));
 
   type Pick = { run: TraceRun | null; call: TraceCall } | { run: TraceRun; message: TraceMessage };
   type DetailTab = "overview" | "input" | "logs";
@@ -492,6 +492,7 @@
 {#snippet callRow(c: TraceCall, r: TraceRun | null)}
   {@const step = stepOf(r, c)}
   {@const preview = callPreview(r, c)}
+  {@const guess = r && steps(r).at(-1)?.id === c.id ? predictionOf(r) : undefined}
   <button type="button" class={cn("row cols", c.purpose === "compaction" ? "k-compact" : "k-ai", r === null && "side", isPicked(c) && selected)} title="{c.model}{c.reasoning_effort ? ` · ${c.reasoning_effort} 档` : ''}" onclick={() => choose({ run: r, call: c })}>
     <span class={cn("role", r === null ? "r-side" : c.purpose === "conversation" ? "r-ai" : c.purpose === "compaction" ? "r-compact" : "r-sys")}>{r === null ? "旁路" : c.purpose === "compaction" ? "压缩" : "AI"}</span>
     <span class="sum" class:bad={failed(c)}>{r === null ? c.error ?? "标题生成" : preview === c.model ? purpose(c) : preview}</span>
@@ -500,6 +501,10 @@
       {:else}
         {#if c.purpose === "conversation" && !step.tools.length}<span class="signal c-ai" title="直接回复"><Icon name="reply" class="size-[13px]" /></span>{/if}
         {#if c.attempt > 1}<span class="signal c-warn" title="重试 {c.attempt - 1} 次"><Icon name="refresh" class="size-[13px]" /><b>{c.attempt - 1}</b></span>{/if}
+      {/if}
+      {#if r && guess}
+        {@const open = (e: Event) => { e.stopPropagation(); choose({ run: r, call: guess }); }}
+        <span role="button" tabindex="-1" class={cn("signal guess", failed(guess) ? "c-warn" : "c-ai")} title={guess.error ? `输入预测失败：${guess.error}` : "输入预测，点击查看"} onclick={open} onkeydown={(e) => e.key === "Enter" && open(e)}>✦</span>
       {/if}
     </span>
     <span class="track" class:track-empty={!r || (!step.tools.length && step.calls.length < 2)} title="本步 {step.unknown ? '≥ ' : ''}{formatDuration(step.known)} · 模型 {formatDuration(step.model)}{step.wait ? ` · 重试等待 ${formatDuration(step.wait)}` : ''}（条按段压缩，短段放大）">
@@ -570,7 +575,7 @@
                   {#if runBad(r)}<span class={cn("signal", r.state === "interrupted" ? "c-warn" : "c-bad")} title={r.state === "interrupted" ? "已中断 · 恢复只补记未知结果，不重跑工具" : stateName(r)}><Icon name={r.state === "interrupted" ? "pause" : "error"} class="size-[13px]" />{stateName(r)}</span>{:else if r.state === "stopped"}<span class="signal c-ghost" title="用户停止"><Icon name="stop" class="size-[13px]" />{stateName(r)}</span>{/if}
                 </span>
                 <span class="track track-empty"></span>
-                <span class="cap c-ghost tk">{tokensOf(r.calls)} tok</span>
+                <span class="cap c-ghost tk">{tokensOf(stepCalls(r))} tok</span>
                 {@render durCap(runMs(r), "run")}
                 <time title={time(r.created_at)}>{hm(r.created_at)}</time>
               </button>
@@ -701,7 +706,7 @@
           {#if r.state === "interrupted"}<div class="alert c-warn"><Icon name="pause" class="size-[15px]" /><div><b>本轮中断</b><div>恢复只补记结果，不重跑工具</div></div></div>
           {:else if r.state === "stopped"}<div class="alert c-warn"><Icon name="stop" class="size-[15px]" /><div><b>用户停止</b><div>已输出的正文保留，未完成的工具记为已取消</div></div></div>
           {:else if runBad(r)}<div class="alert c-bad"><Icon name="error" class="size-[15px]" /><div><b>{stateName(r)}</b></div></div>{/if}
-          <div class="metrics">{@render runTime(r)}<TraceUsage calls={r.calls} /></div>
+          <div class="metrics">{@render runTime(r)}<TraceUsage calls={stepCalls(r)} /></div>
           <details open class="d-sec"><summary class="fold"><Icon name="chevron" class="size-[13px]" />执行记录</summary><div class="sec-body rels">
             {#each items(r).filter((it) => it.call || it.message?.kind === "UserInput") as it}
               {#if it.call}{@render callRel(r, it.call)}

@@ -171,7 +171,7 @@ fn sources(messages: Vec<Message>) -> Option<Vec<Message>> {
         .then_some(kept)
 }
 
-/// 生成与 trace 重建共用：每条只留文字结尾，末尾附任务。
+/// 生成与 trace 重建共用：把取材整理成一段对话记录，请模型以用户身份接下一句。
 pub(crate) fn prediction_messages(session: SessionId, sources: &[Message]) -> Vec<Message> {
     let tail = |text: &str| {
         let len = text.chars().count();
@@ -179,58 +179,40 @@ pub(crate) fn prediction_messages(session: SessionId, sources: &[Message]) -> Ve
             .skip(len.saturating_sub(PREDICTION_SOURCE_CHARS))
             .collect::<String>()
     };
-    let mut messages: Vec<Message> = sources
+    let transcript = sources
         .iter()
-        .filter_map(|message| {
-            let body = match &message.body {
-                MessageBody::UserInput { person, parts } => MessageBody::UserInput {
-                    person: *person,
-                    parts: vec![ContentPart::Text {
-                        text: tail(
-                            &parts
-                                .iter()
-                                .filter_map(|part| match part {
-                                    ContentPart::Text { text } => Some(text.as_str()),
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>()
-                                .join("\n\n"),
-                        ),
-                    }],
-                },
-                MessageBody::Reply {
-                    model,
-                    blocks,
-                    stats,
-                } => MessageBody::Reply {
-                    model: model.clone(),
-                    stats: stats.clone(),
-                    blocks: vec![ReplyBlock::Text {
-                        text: tail(&reply_answer(blocks)?),
-                        phase: None,
-                    }],
-                },
-                _ => return None,
-            };
-            Some(Message {
-                body,
-                ..message.clone()
-            })
+        .filter_map(|message| match &message.body {
+            MessageBody::UserInput { parts, .. } => {
+                let text = parts
+                    .iter()
+                    .filter_map(|part| match part {
+                        ContentPart::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                Some(format!("用户：{}", tail(&text)))
+            }
+            MessageBody::Reply { blocks, .. } => {
+                Some(format!("AI：{}", tail(&reply_answer(blocks)?)))
+            }
+            _ => None,
         })
-        .collect();
-    messages.push(Message {
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    vec![Message {
         id: mic_message::MessageId(0),
         session_id: session,
         body: MessageBody::HarnessNote {
             text: format!(
-                "根据以上对话，预测用户接下来最可能发送的一条消息，使用用户的语言和口吻。\
-                 只输出这条消息本身：一行纯文本，最多 {PREDICTION_CHARS} 字，不带引号、前缀或解释。猜不出就什么都不输出。"
+                "<对话记录>\n{transcript}\n</对话记录>\n\n\
+                 写出用户接下来最可能发的一句话，口吻和记录里的用户一致。\
+                 只输出这句话本身，一行，最多 {PREDICTION_CHARS} 字；猜不出就什么都不输出。"
             ),
         },
         created_at: now_ms(),
         delivered_at: None,
-    });
-    messages
+    }]
 }
 
 async fn generate(

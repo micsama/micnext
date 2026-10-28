@@ -10,7 +10,7 @@
   - 杂活模型没配好时跳过，不记调用。
 - **取材**：
   - 用 `messages_page` 取最近 `PREDICTION_ROUNDS` 轮，按现有口径以 `UserInput`/`Trigger` 计轮；
-  - 最多 `PREDICTION_MESSAGES` 条；只保留文字输入和最终回答，去掉工具调用和思考过程，每条只留末尾 `PREDICTION_SOURCE_CHARS` 字；
+  - 最多 `PREDICTION_MESSAGES` 条；只保留文字输入和最终回答，去掉工具调用和思考过程，每条只留末尾 `PREDICTION_SOURCE_CHARS` 字，整理成一段「用户：/AI：」对话记录放进一条消息，请模型以用户口吻接下一句；
   - 凭据脱敏沿用 Provider 层已有的处理。
 - **输出**：
   - 一行纯文本，最多 `PREDICTION_CHARS` 字；
@@ -52,9 +52,9 @@
   - `async fn Kernel::current_prediction(session) -> Result<Option<Prediction>, KernelError>`。
   - Trace 重建预测调用的输入时，和标题一样走 `context.instruction`。
   - `limits.rs` 新增：
-    - `PREDICTION_ROUNDS = 3`
-    - `PREDICTION_MESSAGES = 40`
-    - `PREDICTION_SOURCE_CHARS = 1000`
+    - `PREDICTION_ROUNDS = 5`
+    - `PREDICTION_MESSAGES = 60`
+    - `PREDICTION_SOURCE_CHARS = 1500`
     - `PREDICTION_CHARS = 60`
     - `PREDICTION_TIMEOUT = 20s`
 - **Gateway**：

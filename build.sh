@@ -15,7 +15,7 @@ build() {
     command -v python3 >/dev/null 2>&1 || { echo "请先手动安装 Python 3" >&2; exit 1; }
 
     bun install --cwd web --frozen-lockfile
-    bun run --cwd web --bun build
+    (cd web && bun ./node_modules/vite/bin/vite.js build)
     case "$profile" in
         release)
             # 确保本轮生成的全部页面资源重新嵌入二进制。

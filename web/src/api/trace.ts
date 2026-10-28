@@ -49,6 +49,7 @@ export type TraceCall = {
   boundary_id: number | null;
   /** 旁路调用的模型原文（`SideOutput` 消息）。 */
   side_id: number | null;
+  side_preview: string | null;
 };
 
 export type TraceTool = {
@@ -147,6 +148,7 @@ const traceCall: Decoder<TraceCall> = obj({
   reply_id: nullable(num),
   boundary_id: nullable(num),
   side_id: nullable(num),
+  side_preview: nullable(str),
 });
 
 const traceTool: Decoder<TraceTool> = obj({

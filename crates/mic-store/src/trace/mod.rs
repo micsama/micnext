@@ -55,6 +55,8 @@ pub struct TraceCall {
     pub reply_id: Option<MessageId>,
     pub boundary_id: Option<MessageId>,
     pub side_id: Option<MessageId>,
+    /// 旁路输出原文的开头，列表里直接展示。
+    pub side_preview: Option<String>,
     #[serde(skip)]
     key: (Option<i64>, Option<i64>),
 }
@@ -310,7 +312,8 @@ const CALL_EXTRA: &str = "c.id, c.reasoning_effort, c.first_output_at,
         (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'Reply'),
         (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'Boundary'),
         (SELECT id FROM core_messages WHERE model_call_id = c.id AND kind = 'SideOutput'),
-        c.context_boundary_id, c.context_through_id";
+        c.context_boundary_id, c.context_through_id,
+        (SELECT json_extract(payload, '$.text') FROM core_messages WHERE model_call_id = c.id AND kind = 'SideOutput')";
 
 /// 用量聚合需要的调用事实。
 struct CallUsage {
@@ -383,6 +386,7 @@ fn call(r: &Row<'_>) -> rusqlite::Result<TraceCall> {
         boundary_id: r.get::<_, Option<i64>>(20)?.map(MessageId),
         side_id: r.get::<_, Option<i64>>(21)?.map(MessageId),
         key: (r.get(22)?, r.get(23)?),
+        side_preview: r.get::<_, Option<String>>(24)?.map(|text| clip(&text)),
     })
 }
 

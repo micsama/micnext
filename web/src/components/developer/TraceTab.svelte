@@ -204,6 +204,7 @@
   });
 
   const failed = (c: TraceCall) => c.error !== null;
+  const guessText = (c: TraceCall) => (c.error ? `预测失败：${c.error}` : c.side_preview ? `预测：${c.side_preview}` : "预测：猜不出");
   const runBad = (r: TraceRun) => !["completed", "executing", "stopped"].includes(r.state);
 
   type Item = { at: number; call?: TraceCall; message?: TraceMessage };
@@ -332,7 +333,7 @@
       } else if (tab === "overview" && "call" in p) {
         const c = p.call;
         const [input, output] = await Promise.all([
-          getTraceCallInput(c.id).then((ms) => ms.at(-1) ?? null, (e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; }),
+          c.purpose === "prediction" ? null : getTraceCallInput(c.id).then((ms) => ms.at(-1) ?? null, (e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; }),
           c.side_id === null ? null : getTraceMessage(c.side_id),
         ]);
         const text = (m: Message | null) => (m && (m.body.kind === "HarnessNote" || m.body.kind === "SideOutput") ? m.body.text : null);
@@ -493,7 +494,7 @@
   {@const step = stepOf(r, c)}
   {@const preview = callPreview(r, c)}
   {@const guess = r && steps(r).at(-1)?.id === c.id ? predictionOf(r) : undefined}
-  <button type="button" class={cn("row cols", c.purpose === "compaction" ? "k-compact" : "k-ai", r === null && "side", isPicked(c) && selected)} title="{c.model}{c.reasoning_effort ? ` · ${c.reasoning_effort} 档` : ''}" onclick={() => choose({ run: r, call: c })}>
+  <button type="button" class={cn("row cols", c.purpose === "compaction" ? "k-compact" : "k-ai", r === null && "side", isPicked(c) && selected)} title="{c.model}{c.reasoning_effort ? ` · ${c.reasoning_effort} 档` : ''}{guess ? `\n✦ ${guessText(guess)}` : ''}" onclick={() => choose({ run: r, call: c })}>
     <span class={cn("role", r === null ? "r-side" : c.purpose === "conversation" ? "r-ai" : c.purpose === "compaction" ? "r-compact" : "r-sys")}>{r === null ? "旁路" : c.purpose === "compaction" ? "压缩" : "AI"}</span>
     <span class="sum" class:bad={failed(c)}>{r === null ? c.error ?? "标题生成" : preview === c.model ? purpose(c) : preview}</span>
     <span class="tags">
@@ -504,7 +505,7 @@
       {/if}
       {#if r && guess}
         {@const open = (e: Event) => { e.stopPropagation(); choose({ run: r, call: guess }); }}
-        <span role="button" tabindex="-1" class={cn("signal guess", failed(guess) && "c-warn")} title={guess.error ? `输入预测失败：${guess.error}` : "输入预测，点击查看"} onclick={open} onkeydown={(e) => e.key === "Enter" && open(e)}><i>✦</i>预测</span>
+        <span role="button" tabindex="-1" class={cn("signal guess", failed(guess) && "c-warn")} onclick={open} onkeydown={(e) => e.key === "Enter" && open(e)}><i>✦</i><span>{guess.error ? "预测失败" : guess.side_preview || "猜不出"}</span></span>
       {/if}
     </span>
     <span class="track" class:track-empty={!r || (!step.tools.length && step.calls.length < 2)} title="本步 {step.unknown ? '≥ ' : ''}{formatDuration(step.known)} · 模型 {formatDuration(step.model)}{step.wait ? ` · 重试等待 ${formatDuration(step.wait)}` : ''}（条按段压缩，短段放大）">
@@ -718,7 +719,7 @@
     {:else if pick}
       <div class="d-head">
         <div><div class="d-type">
-          {#if "call" in pick}<span class={cn("role", pick.call.purpose === "compaction" ? "r-compact" : sideCall(pick.call) ? "r-sys" : "r-ai")}>{pick.call.purpose === "conversation" ? "AI" : pick.call.purpose === "compaction" ? "压缩" : pick.call.purpose === "prediction" ? "预测" : "旁路"}</span>
+          {#if "call" in pick}<span class={cn("role", pick.call.purpose === "compaction" ? "r-compact" : pick.call.purpose === "prediction" ? "r-guess" : sideCall(pick.call) ? "r-sys" : "r-ai")}>{pick.call.purpose === "conversation" ? "AI" : pick.call.purpose === "compaction" ? "压缩" : pick.call.purpose === "prediction" ? "✦ 预测" : "旁路"}</span>
           {:else}<span class={cn("role", pick.message.tool ? "r-tool" : pick.message.kind === "UserInput" ? "r-user" : "r-sys")}>{role(pick.message)}</span>{/if}
           <time>{time("call" in pick ? pick.call.started_at : pick.message.created_at)}</time>
         </div>
@@ -764,7 +765,11 @@
           <div class="pad cards">
             {#if "call" in pick}
               {@const c = pick.call}
-              {#if sideCall(c)}
+              {#if c.purpose === "prediction"}
+                {#if !side}<p class="hint">加载中…</p>
+                {:else if side.output === null || !side.output.trim()}<p class="hint">{c.error ? "没有收到模型输出" : "模型没有给出预测（猜不出）"}</p>
+                {:else}<TraceCard icon="text" title="预测" tone={c.error ? "bad" : "ai"} meta={c.error ? `未采用 · ${side.output.length} 字` : `${side.output.length} 字`} long={isLong(side.output)} copy={side.output}><pre>{side.output}</pre></TraceCard>{/if}
+              {:else if sideCall(c)}
                 {#if !side}<p class="hint">加载中…</p>
                 {:else if side.input === null && side.output === null}<p class="hint">旧调用，未记录输入与产出</p>
                 {:else}

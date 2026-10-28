@@ -44,6 +44,7 @@
     - `run_stats` 的模型耗时、步数和请求数都不计入 `Prediction` 调用，run 的总耗时和结束时间不变；
     - 预测调用仍然列在该 run 的调用里，耗时、用量和费用照常可见；
     - 会话用量和看板照常计入。
+    - `TraceCall` 新增 `side_preview: Option<String>`：旁路输出原文的开头，Trace 列表直接展示。
 - **mic-core**：
   - 新增 `prediction.rs`，handle 加 runtime 的结构沿用 `title.rs`。不复制手动生成、标题错误和 `SessionChanged` 这些标题特有的逻辑，也不抽象通用的杂活框架。
   - `Registry::input_prediction(channel)`：渠道声明自己的 Root 会话要预测；mic-core 不认识具体渠道，Gateway 为 `web` 声明。
@@ -67,7 +68,7 @@
     - 满足三个条件时 Tab 或 → 填入候选：有灰字、不在输入法组合输入中、不在指令补全中；其余情况 Tab 保持原有行为；
     - 触屏设备在灰字末尾显示「填入」按钮；
     - 迟到的 `prediction` 事件，如果 `run_id` 不是当前最新的 run，直接忽略。
-  - Trace 与看板：调用用途显示为「预测」，概览展示任务与模型原文。
+  - Trace 与看板：调用用途显示为「预测」，概览展示任务与模型原文；预测挂在收尾回复行上，直接显示预测内容，点开看详情。
 
 ## 验收
 

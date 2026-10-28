@@ -1,0 +1,112 @@
+{
+  "sqlite": "3.50.4",
+  "session": 25,
+  "active_boundary": 35883,
+  "keep_from": 35762,
+  "session_messages": 35465,
+  "original": {
+    "samples": [
+      {
+        "ms": 7.622,
+        "rows": 1530,
+        "approx_vm_steps": 970000
+      },
+      {
+        "ms": 7.869,
+        "rows": 1530,
+        "approx_vm_steps": 970100
+      },
+      {
+        "ms": 7.234,
+        "rows": 1530,
+        "approx_vm_steps": 970000
+      }
+    ],
+    "plan": [
+      "SEARCH m USING INDEX idx_messages_session (session_id=? AND id<?)",
+      "SCALAR SUBQUERY 2",
+      "SEARCH core_messages USING INTEGER PRIMARY KEY (rowid=?)",
+      "CORRELATED SCALAR SUBQUERY 3",
+      "SEARCH b USING COVERING INDEX sqlite_autoindex_core_boundary_inputs_1 (boundary_id=? AND message_id=?)",
+      "SEARCH c USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH h USING INTEGER PRIMARY KEY (rowid=?)",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ]
+  },
+  "range_union_without_index": {
+    "samples": [
+      {
+        "ms": 5.21,
+        "rows": 1530,
+        "approx_vm_steps": 576600
+      },
+      {
+        "ms": 5.093,
+        "rows": 1530,
+        "approx_vm_steps": 576600
+      },
+      {
+        "ms": 5.143,
+        "rows": 1530,
+        "approx_vm_steps": 576700
+      }
+    ],
+    "plan": [
+      "CO-ROUTINE chosen",
+      "COMPOUND QUERY",
+      "LEFT-MOST SUBQUERY",
+      "SEARCH m USING INDEX idx_messages_session (session_id=? AND id<?)",
+      "SCALAR SUBQUERY 1",
+      "SEARCH core_messages USING INTEGER PRIMARY KEY (rowid=?)",
+      "UNION USING TEMP B-TREE",
+      "SEARCH b USING COVERING INDEX sqlite_autoindex_core_boundary_inputs_1 (boundary_id=? AND message_id<?)",
+      "SEARCH m USING COVERING INDEX idx_messages_session (session_id=? AND id=? AND rowid=?)",
+      "SCAN chosen",
+      "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)",
+      "SEARCH c USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN",
+      "CORRELATED SCALAR SUBQUERY 4",
+      "SEARCH h USING INTEGER PRIMARY KEY (rowid=?)",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ]
+  },
+  "range_union_with_time_index": {
+    "samples": [
+      {
+        "ms": 2.225,
+        "rows": 1530,
+        "approx_vm_steps": 137000
+      },
+      {
+        "ms": 2.097,
+        "rows": 1530,
+        "approx_vm_steps": 137000
+      },
+      {
+        "ms": 2.075,
+        "rows": 1530,
+        "approx_vm_steps": 137000
+      }
+    ],
+    "plan": [
+      "CO-ROUTINE chosen",
+      "COMPOUND QUERY",
+      "LEFT-MOST SUBQUERY",
+      "SEARCH m USING COVERING INDEX probe_context_position (session_id=? AND created_at>?)",
+      "SCALAR SUBQUERY 1",
+      "SEARCH core_messages USING INTEGER PRIMARY KEY (rowid=?)",
+      "REUSE SUBQUERY 1",
+      "UNION USING TEMP B-TREE",
+      "SEARCH b USING COVERING INDEX sqlite_autoindex_core_boundary_inputs_1 (boundary_id=? AND message_id<?)",
+      "SEARCH m USING COVERING INDEX idx_messages_session (session_id=? AND id=? AND rowid=?)",
+      "SCAN chosen",
+      "SEARCH m USING INTEGER PRIMARY KEY (rowid=?)",
+      "SEARCH c USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN",
+      "CORRELATED SCALAR SUBQUERY 4",
+      "SEARCH h USING INTEGER PRIMARY KEY (rowid=?)",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ]
+  },
+  "rows_order_and_flags_equal": true,
+  "source_unchanged": true
+}

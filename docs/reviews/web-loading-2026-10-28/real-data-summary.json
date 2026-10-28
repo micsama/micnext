@@ -1,0 +1,136 @@
+{
+  "database_bytes": 16748544,
+  "schema_versions": [
+    [
+      "core",
+      29
+    ],
+    [
+      "wechat",
+      6
+    ]
+  ],
+  "counts": {
+    "core_sessions": 37,
+    "core_runs": 9169,
+    "core_messages": 37365,
+    "core_model_calls": 18662,
+    "core_jobs": 28,
+    "core_images": 11
+  },
+  "hot_session": 25,
+  "hot_session_runs_by_state": [
+    [
+      "completed",
+      8868
+    ],
+    [
+      "interrupted",
+      1
+    ]
+  ],
+  "hot_session_messages_by_kind": [
+    [
+      "Boundary",
+      15
+    ],
+    [
+      "Command",
+      15
+    ],
+    [
+      "Notification",
+      16
+    ],
+    [
+      "Reply",
+      17709
+    ],
+    [
+      "ToolResult",
+      8856
+    ],
+    [
+      "Trigger",
+      8854
+    ]
+  ],
+  "hot_session_usage": {
+    "calls": 17730,
+    "input_tokens": 938913266,
+    "output_tokens": 836202,
+    "cache_read_tokens": 935041662,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 1033,
+    "unknown_usage_calls": 6
+  },
+  "hot_schedule": {
+    "id": 2,
+    "cron": "* * * * *",
+    "next_run_at": null,
+    "paused_reason": "连续 3 次运行失败",
+    "last_updated_utc8": "2026-10-28 14:48:38"
+  },
+  "hot_schedule_fires": {
+    "total_records": 8863,
+    "actual_trigger_messages": 8854,
+    "skipped_records": 9,
+    "first_due_utc8": "2026-10-22 09:51:00",
+    "last_due_utc8": "2026-10-28 14:43:00"
+  },
+  "last_fires_utc8": [
+    [
+      "2026-10-28 14:43:00",
+      "missed",
+      4,
+      null
+    ],
+    [
+      "2026-10-28 14:39:00",
+      "busy",
+      null,
+      null
+    ],
+    [
+      "2026-10-28 14:38:00",
+      "missed",
+      10,
+      null
+    ],
+    [
+      "2026-10-28 14:28:00",
+      "missed",
+      14,
+      null
+    ],
+    [
+      "2026-10-28 14:14:00",
+      null,
+      null,
+      "completed"
+    ],
+    [
+      "2026-10-28 14:13:00",
+      null,
+      null,
+      "completed"
+    ],
+    [
+      "2026-10-28 14:12:00",
+      null,
+      null,
+      "completed"
+    ],
+    [
+      "2026-10-28 14:11:00",
+      null,
+      null,
+      "completed"
+    ]
+  ],
+  "known_price_calls": 0,
+  "quick_check": [
+    "ok"
+  ],
+  "foreign_key_violations": 0
+}

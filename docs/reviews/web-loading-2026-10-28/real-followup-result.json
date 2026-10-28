@@ -1,0 +1,117 @@
+{
+  "sqlite": "3.50.4",
+  "python": "3.12.12",
+  "os": "Darwin",
+  "architecture": "arm64",
+  "repetitions": 3,
+  "projection_costs": {
+    "indexed_original_call_rows": [
+      {
+        "status": "completed",
+        "ms": 931.721,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 935.378,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 928.635,
+        "rows": 17730,
+        "statements_completed": 1
+      }
+    ],
+    "indexed_without_unused_day": [
+      {
+        "status": "completed",
+        "ms": 48.077,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 47.94,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 47.882,
+        "rows": 17730,
+        "statements_completed": 1
+      }
+    ],
+    "usage_fields_only": [
+      {
+        "status": "completed",
+        "ms": 15.41,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 14.574,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 14.553,
+        "rows": 17730,
+        "statements_completed": 1
+      }
+    ],
+    "calendar_localtime_only": [
+      {
+        "status": "completed",
+        "ms": 882.816,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 907.456,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 907.394,
+        "rows": 17730,
+        "statements_completed": 1
+      }
+    ],
+    "calendar_utc_only": [
+      {
+        "status": "completed",
+        "ms": 7.813,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 7.55,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      {
+        "status": "completed",
+        "ms": 7.803,
+        "rows": 17730,
+        "statements_completed": 1
+      }
+    ]
+  },
+  "narrow_usage_counts_and_cost_equal": true,
+  "full_unindexed_session_query": {
+    "status": "completed",
+    "ms": 96297.371,
+    "rows": 17730,
+    "statements_completed": 1
+  },
+  "source_unchanged": true
+}

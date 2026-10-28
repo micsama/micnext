@@ -1,0 +1,294 @@
+{
+  "sqlite": "3.50.4",
+  "deadline_ms": 5000,
+  "variants": {
+    "baseline": {
+      "settings": {
+        "status": "completed",
+        "ms": 0.027,
+        "rows": 1,
+        "statements_completed": 1
+      },
+      "trace_tree": {
+        "status": "completed",
+        "ms": 16.253,
+        "rows": 35,
+        "statements_completed": 1
+      },
+      "trace_page_call_queries_20_runs": {
+        "status": "completed",
+        "ms": 254.251,
+        "rows": 40,
+        "statements_completed": 20
+      },
+      "trace_page_message_queries_20_runs": {
+        "status": "completed",
+        "ms": 0.304,
+        "rows": 80,
+        "statements_completed": 20
+      },
+      "session_usage_call_rows": {
+        "status": "deadline_exceeded",
+        "ms": 5000.083,
+        "rows": 1147,
+        "statements_completed": 0
+      },
+      "session_usage_without_message_correlations": {
+        "status": "completed",
+        "ms": 938.519,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      "dashboard_7_days_call_rows": {
+        "status": "deadline_exceeded",
+        "ms": 5000.052,
+        "rows": 1208,
+        "statements_completed": 0
+      },
+      "peers_sql_only": {
+        "status": "completed",
+        "ms": 31.455,
+        "rows": 27997,
+        "statements_completed": 2
+      },
+      "web_list_summary_sql": {
+        "status": "completed",
+        "ms": 3.001,
+        "rows": 16,
+        "statements_completed": 1
+      },
+      "subscription_full_replay_sql": {
+        "status": "completed",
+        "ms": 73.341,
+        "rows": 35465,
+        "statements_completed": 1
+      },
+      "subscription_last_id_sql": {
+        "status": "completed",
+        "ms": 0.079,
+        "rows": 1,
+        "statements_completed": 1
+      }
+    },
+    "call_index": {
+      "settings": {
+        "status": "completed",
+        "ms": 0.026,
+        "rows": 1,
+        "statements_completed": 1
+      },
+      "trace_tree": {
+        "status": "completed",
+        "ms": 16.272,
+        "rows": 35,
+        "statements_completed": 1
+      },
+      "trace_page_call_queries_20_runs": {
+        "status": "completed",
+        "ms": 2.454,
+        "rows": 40,
+        "statements_completed": 20
+      },
+      "trace_page_message_queries_20_runs": {
+        "status": "completed",
+        "ms": 0.215,
+        "rows": 80,
+        "statements_completed": 20
+      },
+      "session_usage_call_rows": {
+        "status": "completed",
+        "ms": 931.841,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      "session_usage_without_message_correlations": {
+        "status": "completed",
+        "ms": 922.977,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      "dashboard_7_days_call_rows": {
+        "status": "completed",
+        "ms": 1864.611,
+        "rows": 18170,
+        "statements_completed": 1
+      },
+      "peers_sql_only": {
+        "status": "completed",
+        "ms": 30.519,
+        "rows": 27997,
+        "statements_completed": 2
+      },
+      "web_list_summary_sql": {
+        "status": "completed",
+        "ms": 2.151,
+        "rows": 16,
+        "statements_completed": 1
+      },
+      "subscription_full_replay_sql": {
+        "status": "completed",
+        "ms": 73.033,
+        "rows": 35465,
+        "statements_completed": 1
+      },
+      "subscription_last_id_sql": {
+        "status": "completed",
+        "ms": 0.048,
+        "rows": 1,
+        "statements_completed": 1
+      }
+    },
+    "three_indexes": {
+      "settings": {
+        "status": "completed",
+        "ms": 0.028,
+        "rows": 1,
+        "statements_completed": 1
+      },
+      "trace_tree": {
+        "status": "completed",
+        "ms": 15.244,
+        "rows": 35,
+        "statements_completed": 1
+      },
+      "trace_page_call_queries_20_runs": {
+        "status": "completed",
+        "ms": 2.277,
+        "rows": 40,
+        "statements_completed": 20
+      },
+      "trace_page_message_queries_20_runs": {
+        "status": "completed",
+        "ms": 0.22,
+        "rows": 80,
+        "statements_completed": 20
+      },
+      "session_usage_call_rows": {
+        "status": "completed",
+        "ms": 944.048,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      "session_usage_without_message_correlations": {
+        "status": "completed",
+        "ms": 916.635,
+        "rows": 17730,
+        "statements_completed": 1
+      },
+      "dashboard_7_days_call_rows": {
+        "status": "completed",
+        "ms": 1899.858,
+        "rows": 18170,
+        "statements_completed": 1
+      },
+      "peers_sql_only": {
+        "status": "completed",
+        "ms": 30.803,
+        "rows": 27997,
+        "statements_completed": 2
+      },
+      "web_list_summary_sql": {
+        "status": "completed",
+        "ms": 2.326,
+        "rows": 16,
+        "statements_completed": 1
+      },
+      "subscription_full_replay_sql": {
+        "status": "completed",
+        "ms": 72.432,
+        "rows": 35465,
+        "statements_completed": 1
+      },
+      "subscription_last_id_sql": {
+        "status": "completed",
+        "ms": 0.054,
+        "rows": 1,
+        "statements_completed": 1
+      }
+    }
+  },
+  "plans": {
+    "baseline": [
+      "SEARCH c USING INDEX idx_model_calls_session (session_id=?)",
+      "SEARCH m USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SCAN core_messages",
+      "CORRELATED SCALAR SUBQUERY 2",
+      "SCAN core_messages",
+      "CORRELATED SCALAR SUBQUERY 3",
+      "SCAN core_messages"
+    ],
+    "call_index": [
+      "SEARCH c USING INDEX idx_model_calls_session (session_id=?)",
+      "SEARCH m USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH core_messages USING INDEX probe_call_messages (model_call_id=? AND kind=?)",
+      "CORRELATED SCALAR SUBQUERY 2",
+      "SEARCH core_messages USING INDEX probe_call_messages (model_call_id=? AND kind=?)",
+      "CORRELATED SCALAR SUBQUERY 3",
+      "SEARCH core_messages USING INDEX probe_call_messages (model_call_id=? AND kind=?)"
+    ],
+    "three_indexes": [
+      "SEARCH c USING INDEX idx_model_calls_session (session_id=?)",
+      "SEARCH m USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH core_messages USING INDEX probe_call_messages (model_call_id=? AND kind=?)",
+      "CORRELATED SCALAR SUBQUERY 2",
+      "SEARCH core_messages USING INDEX probe_call_messages (model_call_id=? AND kind=?)",
+      "CORRELATED SCALAR SUBQUERY 3",
+      "SEARCH core_messages USING INDEX probe_call_messages (model_call_id=? AND kind=?)"
+    ]
+  },
+  "mixed": {
+    "baseline": [
+      {
+        "separate_reader": false,
+        "heavy": {
+          "status": "deadline_exceeded",
+          "ms": 5000.032,
+          "rows": 1145,
+          "statements_completed": 0
+        },
+        "settings_total_ms": 5000.126,
+        "settings_execution_ms": 0.058
+      },
+      {
+        "separate_reader": true,
+        "heavy": {
+          "status": "deadline_exceeded",
+          "ms": 5000.045,
+          "rows": 1151,
+          "statements_completed": 0
+        },
+        "settings_total_ms": 0.042,
+        "settings_execution_ms": 0.02
+      }
+    ],
+    "call_index": [
+      {
+        "separate_reader": false,
+        "heavy": {
+          "status": "completed",
+          "ms": 937.852,
+          "rows": 17730,
+          "statements_completed": 1
+        },
+        "settings_total_ms": 937.957,
+        "settings_execution_ms": 0.062
+      },
+      {
+        "separate_reader": true,
+        "heavy": {
+          "status": "completed",
+          "ms": 941.876,
+          "rows": 17730,
+          "statements_completed": 1
+        },
+        "settings_total_ms": 0.047,
+        "settings_execution_ms": 0.035
+      }
+    ]
+  },
+  "completed_query_results_equal_across_variants": true,
+  "source_unchanged": true
+}

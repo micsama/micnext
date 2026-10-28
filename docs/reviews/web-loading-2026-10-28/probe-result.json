@@ -1,0 +1,41 @@
+{
+  "sqlite": "3.50.4",
+  "messages": 20000,
+  "calls": 1000,
+  "selected_calls": 100,
+  "payload_text_bytes": 2048,
+  "before_plan": [
+    "SEARCH c USING INDEX idx_model_calls_session (session_id=?)",
+    "SEARCH m USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN",
+    "CORRELATED SCALAR SUBQUERY 1",
+    "SCAN core_messages",
+    "CORRELATED SCALAR SUBQUERY 2",
+    "SCAN core_messages",
+    "CORRELATED SCALAR SUBQUERY 3",
+    "SCAN core_messages"
+  ],
+  "before_ms": 2515.559,
+  "after_plan": [
+    "SEARCH c USING INDEX idx_model_calls_session (session_id=?)",
+    "SEARCH m USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN",
+    "CORRELATED SCALAR SUBQUERY 1",
+    "SEARCH core_messages USING INDEX probe_call_message (model_call_id=? AND kind=?)",
+    "CORRELATED SCALAR SUBQUERY 2",
+    "SEARCH core_messages USING INDEX probe_call_message (model_call_id=? AND kind=?)",
+    "CORRELATED SCALAR SUBQUERY 3",
+    "SEARCH core_messages USING INDEX probe_call_message (model_call_id=? AND kind=?)"
+  ],
+  "after_ms": 5.274,
+  "contention_with_index": [
+    {
+      "separate_reader": false,
+      "heavy_read_ms": 107.569,
+      "settings_read_and_write_ms": 108.04
+    },
+    {
+      "separate_reader": true,
+      "heavy_read_ms": 81.889,
+      "settings_read_and_write_ms": 0.088
+    }
+  ]
+}

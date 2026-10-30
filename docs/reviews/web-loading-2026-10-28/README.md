@@ -91,6 +91,41 @@
 
 存储引擎、分表和多租户的取舍见 [B1 storage-concurrency](../../brainstorm/storage-concurrency.md)。结论是先不换 SQLite，也不按压缩边界做物理分表。
 
+## 下一步怎样观测和验收（候选，未实现）
+
+不新建性能平台或独立 crate；沿现有职责放置，复用开发者日志链路。
+
+| 位置 | 记录或验证什么 |
+|---|---|
+| `mic-store/src/store.rs::blocking` | 固定业务操作标签；提交到阻塞闭包开始的调度等待、获得连接锁前的等待、持锁工作的耗时。锁释放后发完成事件。持锁工作包含 SQL、取行、解码和汇总，不能标成纯 SQL 时间；热点再单独分段 |
+| Gateway 内部请求中间件 | 请求关联 id、方法、路由模板、状态、响应构建耗时；关联 id 显式带入 Store 的阻塞任务。第一版 SSE 只记录响应准备完成，首事件阶段留待有需要时补充，正常长连接存续不算慢请求。服务端耗时不包含浏览器下载和渲染 |
+| Store 显式启用的性能测试 | 先测轻读/轻写基线，再并发叠加看板、Trace、搜索；限制并发和提交间隔，记录样本数、实际吞吐、p50/p95/p99、最大耗时、错误和超过 300ms 的次数。仅用真实库临时副本，经 Store 写入后检查结果，退出前等待阻塞任务结束；不启动模型、定时任务或外部 Channel |
+
+现有 `mic-gateway/src/logs.rs` 已有有界缓冲、独立落盘线程和日志页面：项目 DEBUG 入内存，INFO 及以上落盘，**不记录 span**。因此只添加 `#[instrument]` 不会自动在页面显示耗时和父 span 的关联字段。首版发显式结构化 event，正常明细使用 DEBUG，慢操作才持久化；需要观察尚未完成的操作时，诊断模式增加配对开始事件。不要记录原始 URL/query（含 stream ticket）、Authorization 或正文，也不要把并发子操作的耗时之和当作请求墙钟时间。
+
+浏览器 Network 继续负责网络分阶段与传输诊断，服务端日志补上排队和持锁信息；无需重做 Network 面板。HTTP 路径的并发验收另做，Store 测量不能冒充端到端结果。
+
+`mic-store` 当前没有 `tracing` 依赖。正式落地需先按 B2 写清依赖、观测字段及取消语义；Store 只依赖通用 tracing，不反向依赖 Gateway。第一版不必新增 HTTP 响应头或跨 crate 的观测服务。只读连接隔离作为后续独立变更，由混合负载结果确定优先级。
+
+### 首轮混合负载结果（2026-10-28）
+
+已新增 `trace::tests::real_database_mixed_load`（ignored）。本机 Darwin arm64、Rust 1.96、release，运行代码基于 `c587b6d`，同一服务器备份的独立临时副本转换到 core=31。测试未改变生产运行逻辑，没有修改原下载库；结束核对原文件与先前只读基准副本的 SHA-256 一致。
+
+每阶段约 3 秒，每种操作一个 worker、最多一个请求在途，两次起始间隔至少 10ms；慢时不追赶，因此是有界闭环负载，并非保证固定 QPS 的到达率测试。基线与恢复阶段为 settings + append；混合阶段另外运行 dashboard(366)、trace_runs(20) 和不存在词的 Root 会话搜索。消息追加到临时副本里的独立测试会话，不启动内核、模型或任务。
+
+| 操作 | 基线 p95 / 样本数 | 混合负载 p95 / 样本数 | 恢复阶段 p95 / 样本数 |
+|---|---:|---:|---:|
+| settings | 0.141ms / 254 | 105.940ms / 30 | 0.333ms / 256 |
+| append | 0.542ms / 253 | 105.744ms / 30 | 0.598ms / 253 |
+
+混合阶段全部操作的最大耗时为 151.992ms；没有失败，没有超过 300ms，成功返回的 536 条追加全部存在，quick_check 和外键检查通过。混合阶段轻请求吞吐从每类约 84 次/秒下降到约 10 次/秒，恢复阶段回到约 84–85 次/秒。原始样本未入库，复测方法见下。
+
+**新结论**：优化后这份库在本次有界混合负载下没有卡死，但重读对轻读/轻写的干扰仍可测得，且停止重读后恢复。当前只测 Store 调用总时间，不能把增加的全部时间直接归为锁等待；下一步分阶段观测正用于区分调度、锁及 CPU/磁盘工作。每项混合负载只有约 30 个样本，p99 几乎就是最大值，不能当作稳定的尾延迟承诺。没有验证固定到达率下的积压、HTTP 并发、取消、长期 WAL 增长或服务器容量，也没有证明新增只读连接后的改善程度。
+
+复测：先按上方方法准备**可丢弃副本**，再运行 `MICNEXT_PERF_WRITABLE_DB=<副本> cargo test -p mic-store --release real_database_mixed_load -- --ignored --nocapture`。该测试会写入新测试会话与消息，并在副本旁写 `.mixed-results.json`；不能指向原备份或服务正在使用的库。观察阈值不是取消期限，测试等待已发出的操作完成。
+
+运行时观测已细化到 [B2 请求与数据库耗时](../../blueprints/storage-request-timing.md)，新增依赖和日志字段契约待批准。先行代码通过 `cargo fmt`、`cargo clippy -- -D warnings`、`cargo clippy -p mic-store --tests -- -D warnings`；Store 普通测试 19 项通过，真实库混合测试单独通过。运行时日志尚未实施。
+
 ## 实验脚本
 
 - 真实库 SQL 计时：[real_probe.py](real_probe.py)、[real_followup.py](real_followup.py)，结果在 [real-probe-result.json](real-probe-result.json)、[real-followup-result.json](real-followup-result.json)。

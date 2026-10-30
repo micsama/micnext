@@ -286,3 +286,173 @@ async fn real_database() {
     timed!("dashboard_30", store.dashboard(30));
     timed!("dashboard_366", store.dashboard(366));
 }
+
+/// 会写入测试会话；环境变量必须指向已转换、清空凭据的可丢弃副本。
+#[test]
+#[ignore]
+fn real_database_mixed_load() {
+    use std::sync::{Arc, Barrier};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+    }
+    let path = std::path::PathBuf::from(std::env::var("MICNEXT_PERF_WRITABLE_DB").unwrap());
+    let rt = runtime();
+    let store = rt
+        .block_on(Store::open(
+            &path,
+            &[],
+            crate::SecretKeyFile(path.with_extension("key")),
+        ))
+        .unwrap();
+    let session = rt.block_on(store.call(|conn| {
+        Ok(SessionId(conn.query_row(
+            "SELECT session_id FROM core_messages GROUP BY session_id ORDER BY count(*) DESC LIMIT 1",
+            [], |r| r.get(0),
+        )?))
+    })).unwrap();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let scratch = rt
+        .block_on(store.create_session(crate::NewSession {
+            kind: crate::SessionKind::Root {
+                channel: "perf".into(),
+                chat: now.to_string(),
+            },
+            parent_session_id: None,
+            delivery_target: None,
+            pwd: "/tmp".into(),
+            tool_scope: crate::ToolScope::All,
+            created_at: now,
+            persona: None,
+            model: None,
+            reasoning_effort: None,
+        }))
+        .unwrap()
+        .id;
+    let mut reports = Vec::new();
+    let mut writes = 0;
+    for (phase, operations) in [
+        ("baseline", vec!["settings", "append"]),
+        (
+            "mixed",
+            vec!["settings", "append", "dashboard", "trace_runs", "search"],
+        ),
+        ("recovery", vec!["settings", "append"]),
+    ] {
+        let barrier = Arc::new(Barrier::new(operations.len()));
+        let results = std::thread::scope(|scope| {
+            let handles: Vec<_> = operations
+                .into_iter()
+                .map(|operation| {
+                    let store = store.clone();
+                    let barrier = barrier.clone();
+                    scope.spawn(move || {
+                        let rt = runtime();
+                        let mut samples = Vec::new();
+                        let mut errors = 0;
+                        barrier.wait();
+                        let start = Instant::now();
+                        while start.elapsed() < Duration::from_secs(3) {
+                            let at = Instant::now();
+                            let result = rt.block_on(async {
+                                match operation {
+                                    "settings" => store.settings().await.map(|_| ()),
+                                    "append" => store
+                                        .append(
+                                            scratch,
+                                            None,
+                                            MessageBody::Notification {
+                                                source: "perf".into(),
+                                                text: "storage mixed-load probe".into(),
+                                                files: Vec::new(),
+                                            },
+                                            now + start.elapsed().as_millis() as i64,
+                                        )
+                                        .await
+                                        .map(|_| ()),
+                                    "dashboard" => store.dashboard(366).await.map(|_| ()),
+                                    "trace_runs" => {
+                                        store.trace_runs(session, None, 20).await.map(|_| ())
+                                    }
+                                    "search" => store
+                                        .search_sessions(
+                                            crate::SearchTerms::parse(
+                                                "micnext_perf_absent_827ea91d",
+                                            )
+                                            .unwrap(),
+                                            None,
+                                            std::num::NonZeroU32::new(30).unwrap(),
+                                        )
+                                        .await
+                                        .map(|_| ()),
+                                    _ => unreachable!(),
+                                }
+                            });
+                            samples.push(at.elapsed().as_micros() as u64);
+                            errors += usize::from(result.is_err());
+                            std::thread::sleep(
+                                Duration::from_millis(10).saturating_sub(at.elapsed()),
+                            );
+                        }
+                        (operation, samples, errors, start.elapsed().as_secs_f64())
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        for (operation, samples, errors, seconds) in results {
+            assert!(!samples.is_empty());
+            let mut sorted = samples.clone();
+            sorted.sort_unstable();
+            let percentile =
+                |p: usize| sorted[(sorted.len() * p).div_ceil(100) - 1] as f64 / 1000.0;
+            let report = serde_json::json!({
+                "phase": phase, "operation": operation, "samples": samples.len(),
+                "errors": errors, "over_300ms": samples.iter().filter(|&&v| v >= 300_000).count(),
+                "p50_ms": percentile(50), "p95_ms": percentile(95), "p99_ms": percentile(99),
+                "max_ms": sorted.last().unwrap().to_owned() as f64 / 1000.0,
+                "seconds": seconds, "requests_per_second": samples.len() as f64 / seconds,
+            });
+            println!("{report}");
+            reports.push(serde_json::json!({"summary": report, "samples_us": samples}));
+            if operation == "append" {
+                writes += sorted.len() - errors;
+            }
+        }
+    }
+    rt.block_on(store.call(move |conn| {
+        let count: i64 = conn.query_row(
+            "SELECT count(*) FROM core_messages WHERE session_id = ?1",
+            [scratch.0],
+            |r| r.get(0),
+        )?;
+        assert_eq!(count, writes as i64, "已成功返回的消息写入必须全部存在");
+        let check: String = conn.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
+        assert_eq!(check, "ok");
+        assert!(conn
+            .prepare("PRAGMA foreign_key_check")?
+            .query([])?
+            .next()?
+            .is_none());
+        Ok(())
+    }))
+    .unwrap();
+    std::fs::write(
+        path.with_extension("mixed-results.json"),
+        serde_json::to_vec_pretty(&reports).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        reports.iter().all(|r| r["summary"]["errors"] == 0),
+        "部分请求失败，见统计结果"
+    );
+}

@@ -4,7 +4,7 @@ use mic_message::{
 };
 use mic_store::{
     ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
-    SessionKind, SkillReload, StoreError,
+    SessionKind, StoreError,
 };
 use serde::Serialize;
 
@@ -200,15 +200,18 @@ impl Exec<'_> {
 
     /// 自动压缩与 `/compact` 共用：附加文字取本步待处理输入。
     /// 按总结清单重新加载 skill；仍原样可见的跳过，加载失败的记下原因交给压缩通知。
-    async fn reload_skills(&self, names: Vec<String>, kept: &[String]) -> SkillReload {
-        let mut reload = SkillReload::default();
+    /// 清单是模型的判断，加载不了的直接略过，之后需要时模型会自己加载。
+    async fn reload_skills(&self, names: Vec<String>, kept: &[String]) -> Vec<(String, String)> {
+        let mut loaded = Vec::new();
         for name in names.into_iter().filter(|n| !kept.contains(n)) {
             match self.engine.skills.load(&name).await {
-                Ok(text) => reload.loaded.push((name, text)),
-                Err(error) => reload.skipped.push((name, error.to_string())),
+                Ok(text) => loaded.push((name, text)),
+                Err(error) => {
+                    tracing::warn!(skill = name, %error, "skip reloading skill after compaction")
+                }
             }
         }
-        reload
+        loaded
     }
 
     pub(crate) async fn compact(

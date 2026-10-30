@@ -709,7 +709,7 @@ async fn compaction_reloads_listed_skills_after_the_boundary() {
     let MessageBody::Notification { text, .. } = bodies[boundary + 2] else {
         panic!("通知紧跟重载消息");
     };
-    assert!(text.contains("重新加载 1 个 skill") && text.contains("skill nope 未带上"));
+    assert!(text.contains("重新加载 1 个 skill"));
     exec.call_model(&provider, &[]).await.unwrap().unwrap();
     let requests = provider.requests.lock().unwrap();
     let last = format!("{:?}", requests.last().unwrap().messages);

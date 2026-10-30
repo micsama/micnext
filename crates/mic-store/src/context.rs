@@ -8,7 +8,7 @@ use crate::messages::{insert_message, read_messages};
 use crate::row::{self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, UNCLAIMED};
 use crate::{
     ContextCommandError, ContextUsage, ContextView, ContextWindow, ModelCallId, ModelCallOutcome,
-    NewModelCall, RevocableView, RevocationState, RunId, SkillReload, Store, StoreError,
+    NewModelCall, RevocableView, RevocationState, RunId, Store, StoreError,
 };
 
 impl Store {
@@ -155,7 +155,7 @@ impl Store {
         &self,
         run: RunId,
         result: Compaction,
-        skills: SkillReload,
+        skills: Vec<(String, String)>,
         unanswered: Vec<MessageId>,
         call: NewModelCall,
         now: i64,
@@ -182,15 +182,12 @@ impl Store {
             if !quoted.is_empty() {
                 text += &format!("，带回 {} 条用户原话", quoted.len());
             }
-            if !skills.loaded.is_empty() {
-                text += &format!("，重新加载 {} 个 skill", skills.loaded.len());
+            if !skills.is_empty() {
+                text += &format!("，重新加载 {} 个 skill", skills.len());
             }
             text += "。";
-            for (name, reason) in &skills.skipped {
-                text += &format!("\nskill {name} 未带上：{reason}");
-            }
             let mut messages = vec![boundary];
-            for (name, text) in skills.loaded {
+            for (name, text) in skills {
                 messages.push(append(&tx, session, run, MessageBody::SkillLoad { name, text }, now)?);
             }
             messages.push(append(&tx, session, run, notice(text), now)?);

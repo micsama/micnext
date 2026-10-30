@@ -273,7 +273,7 @@
 <svelte:window {ondragenter} {ondragover} {ondragleave} {ondrop} />
 
 {#if dragging}
-  <div transition:fade={{ duration: 120 }} class="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-background/60 p-6 backdrop-blur-sm">
+  <div in:fade={{ duration: 120 }} class="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-background/60 p-6 backdrop-blur-sm">
     <div class={["flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed bg-card/90 px-12 py-10 text-center shadow-lg", readonly === null ? "border-primary" : "border-border"]}>
       <div class={["flex gap-2", readonly === null ? "text-primary" : "text-muted-foreground"]}><Icon name="image" class="size-8" /><Icon name="file" class="size-8" /></div>
       {#if readonly === null}
@@ -306,7 +306,7 @@
         {#each attachments as a, i (a.id)}
           <div class="relative">
             {#if a.url}
-              <img src={a.url} alt={a.file.name} class="size-16 rounded-lg object-cover" />
+              <img src={a.url} alt={a.file.name} decoding="async" class="size-16 rounded-lg object-cover" />
             {:else}
               <FileCard name={a.file.name} size={a.file.size} />
             {/if}

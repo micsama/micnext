@@ -2,6 +2,8 @@
 
 单进程个人 Rust agent：常驻 Gateway（Web）+ Channel，`-p` 一次性调试。按独立变化轴建模，一个概念只承载一股语义。
 
+@docs/web-features.md
+
 ## 流程
 
 Human 定方向和公开契约，AI 探索、起草、实现。

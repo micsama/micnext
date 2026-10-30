@@ -23,6 +23,7 @@ async fn held_first_text_is_eligible_but_commands_old_text_and_failed_first_are_
         predictions: None,
         skills: crate::skills::Skills::new(Default::default()),
         env: Default::default(),
+        python: None,
     });
     let kernel = Kernel::new(
         owner,
@@ -385,6 +386,7 @@ async fn manual_title_records_sources_and_side_output() {
         predictions: None,
         skills: crate::skills::Skills::new(Default::default()),
         env: Default::default(),
+        python: None,
     });
     let (handle, _runtime) = TitleRuntime::new(store.clone(), factories, Events::new());
     let kernel = crate::Kernel::new(

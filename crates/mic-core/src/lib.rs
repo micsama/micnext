@@ -20,6 +20,7 @@ mod module;
 mod prediction;
 mod provider;
 mod push;
+mod python_env;
 mod recovery;
 mod redact;
 mod request;

@@ -28,4 +28,4 @@
 | B1 待定 | 统一「轮」的口径 | [B1](docs/brainstorm/rounds.md) |
 | 实现完成，待验收 | 压缩后重新加载仍在用的 skill | [B2](docs/blueprints/skills-after-compaction.md)；[B1](docs/brainstorm/skills-after-compaction.md) |
 | 实现完成，待验收 | 设置里的环境变量 | [B2](docs/blueprints/env-vars.md) |
-| B1 待定 | 命令里的 Python 用哪个环境 | [B1](docs/brainstorm/python-env.md) |
+| 实现完成，待验收 | 命令里的 Python 用固定的 uv venv | [B2](docs/blueprints/python-env.md)；[B1](docs/brainstorm/python-env.md) |

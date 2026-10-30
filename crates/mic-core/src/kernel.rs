@@ -958,6 +958,7 @@ impl Kernel {
             self.engine.channel_prompt(s),
             skills.as_deref(),
             &self.engine.env.current(),
+            self.engine.python_dir(),
             &window,
         ))
     }

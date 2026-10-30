@@ -10,6 +10,10 @@ pub(crate) const MAX_MODEL_ATTEMPTS: u32 = 3;
 /// 上游没给 `retry_after` 时的首次退避，之后逐次翻倍。
 pub(crate) const RETRY_BASE: Duration = Duration::from_secs(2);
 pub(crate) const MAX_RETRY_WAIT: Duration = Duration::from_secs(60);
+/// 建共享 venv 的上限；机器上没有 python 时 uv 会先下载一个。
+pub(crate) const PYTHON_ENV_TIMEOUT: Duration = Duration::from_secs(120);
+/// 命令里 uv 的默认包源；服务进程已设 `UV_DEFAULT_INDEX` 时沿用进程的。
+pub(crate) const UV_DEFAULT_INDEX: &str = "https://mirrors.cloud.tencent.com/pypi/simple/";
 pub(crate) const EVENT_CAPACITY: usize = 1024;
 pub(crate) const WAKE_CHANNEL_CAPACITY: usize = 256;
 pub(crate) const DEFAULT_CONTEXT_WINDOW: u32 = 200_000;

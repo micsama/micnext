@@ -83,6 +83,7 @@ struct Started {
     factories: Arc<Factories>,
     /// 崩溃收尾开始的时刻；此后结束的触发即被本次收尾中断。
     boot: i64,
+    python: Option<Arc<crate::python_env::PythonEnv>>,
     _lock: File,
 }
 
@@ -243,13 +244,7 @@ impl Assembly {
             events.clone(),
             self.prediction_channels.clone(),
         );
-        let mut engine = self.engine(
-            started.store.clone(),
-            started.factories.clone(),
-            events.clone(),
-            Some(wake_tx.clone()),
-            started.owner,
-        );
+        let mut engine = self.engine(&started, events.clone(), Some(wake_tx.clone()));
         engine.predictions = Some(prediction_handle);
         let engine = Arc::new(engine);
         let jobs = engine.jobs.clone();
@@ -381,7 +376,7 @@ impl Assembly {
             .await?
             .expect("刚写入的输入必然可认领");
 
-        let engine = Arc::new(self.engine(store, started.factories, events, None, started.owner));
+        let engine = Arc::new(self.engine(&started, events, None));
         let jobs = engine.jobs.clone();
         let outcome = tokio::select! {
             outcome = Self::drive_once(engine, session, claimed, rx, on_event, stop) => outcome,
@@ -471,23 +466,28 @@ impl Assembly {
         let held_sessions = store.hold_unclaimed_inputs(now_ms()).await?.len();
         let owner = store.ensure_person(&self.owner, now_ms()).await?;
         tracing::info!(db = %db.display(), interrupted, held_sessions, "store ready");
+        let python = crate::python_env::prepare(data_dir).await.map(Arc::new);
         Ok(Started {
             store,
             owner,
             factories: Arc::new(factories),
             boot,
+            python,
             _lock: lock,
         })
     }
 
     fn engine(
         &self,
-        store: Store,
-        factories: Arc<Factories>,
+        started: &Started,
         events: Events,
         wake: Option<mpsc::Sender<SessionId>>,
-        owner: PersonId,
     ) -> Engine {
+        let (store, factories, owner) = (
+            started.store.clone(),
+            started.factories.clone(),
+            started.owner,
+        );
         let control = Arc::new(RunControl::default());
         let pushes = Arc::new(Pushes::new(
             store.clone(),
@@ -533,6 +533,7 @@ impl Assembly {
             schedules,
             skills,
             env: factories.env_vars(),
+            python: started.python.clone(),
             factories,
         }
     }

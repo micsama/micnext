@@ -98,6 +98,7 @@ impl Exec<'_> {
             self.engine.channel_prompt(self.session),
             self.skills.as_deref(),
             &self.engine.env.current(),
+            self.engine.python_dir(),
             &window,
         );
         let req = request::build(self.session, window, images, system, &self.tools);

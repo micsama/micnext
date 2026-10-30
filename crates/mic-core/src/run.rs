@@ -1,7 +1,7 @@
 //! 一个 run 的执行。契约：docs/blueprints/run-execution.md §4.3～4.5、§4.7、§4.8。
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,12 +58,27 @@ pub(crate) struct Engine {
     pub(crate) skills: Skills,
     /// 与出站脱敏共用的快照；工具执行时注入。
     pub(crate) env: Arc<EnvVars>,
+    /// 共享 venv；回退系统 python 时为空。
+    pub(crate) python: Option<Arc<crate::python_env::PythonEnv>>,
 }
 
 impl Engine {
     /// 停该会话执行中的 run（给定 `run` 则只停它）；没有匹配返回 false。
     pub(crate) fn stop(&self, session: SessionId, run: Option<RunId>) -> bool {
         self.control.stop(session, run)
+    }
+
+    /// 注入命令的额外环境：venv 在前，设置里的变量在后（同名以设置为准）。
+    fn command_env(&self) -> Arc<[(String, String)]> {
+        let user = self.env.current();
+        match &self.python {
+            None => user,
+            Some(python) => python.vars.iter().chain(user.iter()).cloned().collect(),
+        }
+    }
+
+    pub(crate) fn python_dir(&self) -> Option<&Path> {
+        self.python.as_deref().map(|p| p.dir.as_path())
     }
 
     /// 会话可用的工具：登记工具加绑定本会话的 core 工具，按工具范围过滤。
@@ -513,6 +528,7 @@ impl Exec<'_> {
             self.engine.channel_prompt(self.session),
             self.skills.as_deref(),
             &self.engine.env.current(),
+            self.engine.python_dir(),
             &window,
         );
         let req = request::build(self.session, window, images, system, tools);
@@ -725,7 +741,7 @@ impl Exec<'_> {
             let ctx = ToolContext::new(
                 PathBuf::from(&self.session.pwd),
                 port.clone(),
-                self.engine.env.current(),
+                self.engine.command_env(),
             );
             let running_ctx = ctx.clone();
             let (name, args) = (call.name.clone(), call.args.clone());

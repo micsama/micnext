@@ -156,6 +156,7 @@ pub(crate) fn system_prompt(
     channel_prompt: Option<&str>,
     skills: Option<&str>,
     env: &[(String, String)],
+    python: Option<&std::path::Path>,
     window: &ContextWindow,
 ) -> SystemPrompt {
     use PromptPartKind::*;
@@ -182,6 +183,15 @@ pub(crate) fn system_prompt(
             format!(
                 "Environment variables the user set for commands: {}. Use them directly; their values reach you masked as `<NAME>`.",
                 names.join(", ")
+            ),
+        ));
+    }
+    if let Some(dir) = python {
+        context.push(part(
+            Environment,
+            format!(
+                "Python: `python` is a shared uv venv at {}. Install missing packages with `uv pip install <pkg>`; they persist across sessions. For conflicting dependencies, create a separate venv and run its interpreter by path.",
+                dir.display()
             ),
         ));
     }

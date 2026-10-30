@@ -180,6 +180,7 @@ impl Harness {
             predictions: Some(handle),
             skills: crate::skills::Skills::new(Default::default()),
             env: Default::default(),
+            python: None,
         });
         Self {
             store,

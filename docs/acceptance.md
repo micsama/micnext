@@ -13,6 +13,7 @@
 - [ ] `/name` 加载 skill；上下文构成里有「Skill 目录」；`/compact` 后 skill 正文变成占位（skills）
 - [ ] 任务做到一半 `/compact`，出现「压缩后重新加载 skill」且模型接着做；已做完的任务再压缩不重新加载（skills-after-compaction）
 - [ ] 设置「环境变量」里配好钉钉 token，让模型用 skill 列表格：命令里直接用 `$NAME`，不再去 `env` 里找；Trace 实际输入里只见 `<NAME>`（env-vars）
+- [ ] 启动后数据目录下有 `python/`；让模型 `uv pip install` 一个包（走腾讯云镜像），新会话里直接 `import`；系统提示有 Python 一行。拿掉 uv 再启动，服务照常，开发者诊断有 warn（python-env）
 - [ ] 让模型搜一条最新消息，结果可读，没有滥搜（web-search）
 - [ ] 让模型 `send_file` 一个 HTML 泳道图：预览里脚本能跑、拿不到登录态；图片和 PDF 能预览；能下载（send-file）
 - [ ] 分别发大照片、截图、GIF，页面可见，模型能描述（image-normalize）

@@ -8,7 +8,7 @@ use crate::messages::{insert_message, read_messages};
 use crate::row::{self, HELD_INPUT, MESSAGE_COLS, MESSAGE_FROM, UNCLAIMED};
 use crate::{
     ContextCommandError, ContextUsage, ContextView, ContextWindow, ModelCallId, ModelCallOutcome,
-    NewModelCall, RevocableView, RevocationState, RunId, Store, StoreError,
+    NewModelCall, RevocableView, RevocationState, RunId, SkillReload, Store, StoreError,
 };
 
 impl Store {
@@ -153,15 +153,16 @@ impl Store {
 
     pub async fn commit_compaction(
         &self,
-        session: SessionId,
         run: RunId,
         result: Compaction,
+        skills: SkillReload,
         unanswered: Vec<MessageId>,
         call: NewModelCall,
         now: i64,
     ) -> Result<Vec<Message>, StoreError> {
         self.call(move |conn| {
             let tx = conn.transaction()?;
+            let session = call.session_id;
             let call_id = insert_call(&tx, &call)?;
             let (elided, quoted) = (result.elided.clone(), result.quoted.clone());
             let kept: u32 = match result.keep_from {
@@ -181,9 +182,20 @@ impl Store {
             if !quoted.is_empty() {
                 text += &format!("，带回 {} 条用户原话", quoted.len());
             }
-            let notice = append(&tx, session, run, notice(text + "。"), now)?;
+            if !skills.loaded.is_empty() {
+                text += &format!("，重新加载 {} 个 skill", skills.loaded.len());
+            }
+            text += "。";
+            for (name, reason) in &skills.skipped {
+                text += &format!("\nskill {name} 未带上：{reason}");
+            }
+            let mut messages = vec![boundary];
+            for (name, text) in skills.loaded {
+                messages.push(append(&tx, session, run, MessageBody::SkillLoad { name, text }, now)?);
+            }
+            messages.push(append(&tx, session, run, notice(text), now)?);
             tx.commit()?;
-            Ok(vec![boundary, notice])
+            Ok(messages)
         }).await
     }
 

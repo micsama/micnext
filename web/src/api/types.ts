@@ -85,6 +85,8 @@ export type MessageBody =
   /** 定时任务到点发给 bot 的指令。 */
   | { kind: "Trigger"; source: string; text: string }
   | { kind: "HarnessNote"; text: string }
+  /** 压缩后框架代为重新加载的 skill。 */
+  | { kind: "SkillLoad"; name: string; text: string }
   | { kind: "Notification"; source: string; text: string; files: FileRef[] }
   /** 模型用 send_file 交给用户的文件快照。 */
   | { kind: "Attachment"; files: FileRef[] }
@@ -361,6 +363,7 @@ const messageBody: Decoder<MessageBody> = kinded({
   JobNotice: { person: num, tool_name: str, exec_id: str, text: str },
   Trigger: { source: str, text: str },
   HarnessNote: { text: str },
+  SkillLoad: { name: str, text: str },
   Notification: { source: str, text: str, files: arr(fileRef) },
   Attachment: { files: arr(fileRef) },
   Boundary: { boundary },

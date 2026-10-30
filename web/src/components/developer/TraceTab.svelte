@@ -44,7 +44,7 @@
   // 运行日志里这两个字段与所在运行重复，不再显示。
   const LOG_CONTEXT = new Set(["session", "run"]);
   const hm = (at: number) => new Date(at).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
-  const role = (m: TraceMessage) => m.tool ? "工具" : ({ UserInput: "用户", Reply: "AI", Command: "指令", Boundary: "压缩", Notification: "通知", Trigger: "定时", HarnessNote: "系统", Completion: "完成", JobNotice: "后台通知", Attachment: "文件" }[m.kind] ?? m.kind);
+  const role = (m: TraceMessage) => m.tool ? "工具" : ({ UserInput: "用户", Reply: "AI", Command: "指令", Boundary: "压缩", Notification: "通知", Trigger: "定时", HarnessNote: "系统", SkillLoad: "系统", Completion: "完成", JobNotice: "后台通知", Attachment: "文件" }[m.kind] ?? m.kind);
   const purpose = (c: TraceCall) => ({ conversation: "模型调用", compaction: "压缩调用", title: "旁路 · 标题", prediction: "旁路 · 预测" }[c.purpose]);
   const stateName = (r: TraceRun) => ({ completed: "已完成", interrupted: "已中断", stopped: "用户停止", provider_failed: "调用失败", max_turns: "轮数上限", timed_out: "超时停止" }[r.state] ?? r.state);
   const tokens = (c: TraceCall) => c.usage ? formatTokens(c.usage.input_tokens + c.usage.output_tokens) : "—";

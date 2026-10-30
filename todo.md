@@ -1,6 +1,6 @@
 # todo 蓝图索引
 
-仅列未关闭的 B2，每个主题一行；契约、细节与验收记录见蓝图。
+仅列未关闭的 B2，每个主题一行；契约、细节与验收记录见蓝图。待人工验收的条目汇总在[验收清单](docs/acceptance.md)。
 已关闭项见 [归档](todo-archive.md)，蓝图存于 `docs/blueprints/archive/`。
 产品现状与后续方向见[产品路线](docs/brainstorm/product-roadmap.md)；待定与未形成蓝图的事项见[产品路线](docs/brainstorm/product-roadmap.md#五从-todo-移入的待定与延期事项2026-10-16)。
 
@@ -26,3 +26,4 @@
 | 实现完成，待验收 | 标题模型改名为杂活模型 | [B2](docs/blueprints/utility-model.md) |
 | 实现完成，待验收 | 预测用户的下一句输入 | [B2](docs/blueprints/input-prediction.md)；[B1](docs/brainstorm/input-prediction.md) |
 | B1 待定 | 统一「轮」的口径 | [B1](docs/brainstorm/rounds.md) |
+| 实现完成，待验收 | 压缩后重新加载仍在用的 skill | [B2](docs/blueprints/skills-after-compaction.md)；[B1](docs/brainstorm/skills-after-compaction.md) |

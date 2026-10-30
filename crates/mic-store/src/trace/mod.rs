@@ -594,6 +594,7 @@ fn trace_message(m: Message) -> TraceMessage {
         MessageBody::JobNotice { text, .. } => ("JobNotice", text.clone(), None),
         MessageBody::Trigger { text, .. } => ("Trigger", text.clone(), None),
         MessageBody::HarnessNote { text } => ("HarnessNote", text.clone(), None),
+        MessageBody::SkillLoad { name, .. } => ("SkillLoad", name.clone(), None),
         MessageBody::Notification { text, files, .. } => {
             ("Notification", files_text(text.clone(), files), None)
         }

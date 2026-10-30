@@ -383,6 +383,13 @@ pub struct Run {
     pub finished_at: Option<i64>,
 }
 
+/// 压缩后按总结清单重新加载的 skill：（名字，加载结果）与（名字，失败原因）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SkillReload {
+    pub loaded: Vec<(String, String)>,
+    pub skipped: Vec<(String, String)>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextWindow {
     pub boundary_id: Option<MessageId>,

@@ -43,6 +43,15 @@
   </div>
 {/snippet}
 
+{#snippet skillBlock(name: string, text: string, label: string, cls: unknown[], align: string)}
+  <details class={["group/skill w-full rounded-lg border border-border text-xs", ...cls]}>
+    <summary class="{STEP_ROW} {align} rounded-lg text-muted-foreground hover:bg-muted">
+      <Icon name="zap" class="size-3.5 shrink-0" />{label} skill <span class="font-mono text-foreground">{name}</span><Icon name="chevron" class="size-3 transition-transform group-open/skill:rotate-90" />
+    </summary>
+    <pre class="max-h-80 overflow-auto border-t border-border px-2.5 py-2 font-mono whitespace-pre-wrap break-words">{text}</pre>
+  </details>
+{/snippet}
+
 {#snippet queuedTag()}
   <span class="inline-flex items-center gap-1 text-xs text-muted-foreground"><Icon name="clock" class="size-3" />排队中</span>
 {/snippet}
@@ -65,12 +74,7 @@
       </div>
     {/if}
     {#each skills as skill, i (i)}
-      <details class={["group/skill w-full max-w-[85%] rounded-lg border border-border text-xs", queued && "opacity-60"]}>
-        <summary class="{STEP_ROW} justify-end rounded-lg text-muted-foreground hover:bg-muted">
-          <Icon name="zap" class="size-3.5 shrink-0" />已加载 skill <span class="font-mono text-foreground">{skill.name}</span><Icon name="chevron" class="size-3 transition-transform group-open/skill:rotate-90" />
-        </summary>
-        <pre class="max-h-80 overflow-auto border-t border-border px-2.5 py-2 font-mono whitespace-pre-wrap break-words">{skill.text}</pre>
-      </details>
+      {@render skillBlock(skill.name, skill.text, "已加载", ["max-w-[85%]", queued && "opacity-60"], "justify-end")}
     {/each}
     {#if text}
       <!-- 复制放在气泡左侧：下方只留时间，悬停不压住下一条。 -->
@@ -94,6 +98,8 @@
     </summary>
     <p class="mx-auto mt-2 max-w-[85%] rounded-lg bg-muted/50 px-3 py-2 text-sm whitespace-pre-wrap break-words text-muted-foreground">{body.text}</p>
   </details>
+{:else if body.kind === "SkillLoad"}
+  {@render skillBlock(body.name, body.text, "压缩后重新加载", [], "")}
 {:else if body.kind === "Command"}
   <p class={["flex items-center gap-2 text-sm text-muted-foreground", queued && "opacity-60"]} title={time}>
     <span>

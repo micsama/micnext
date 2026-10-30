@@ -110,20 +110,18 @@ fn newest_step_is_kept_even_over_budget_and_earlier_steps_only_whole() {
 }
 
 #[test]
-fn required_files_only_read_from_the_trailing_block() {
-    let response = |text: &str| ModelResponse {
+fn required_lists_only_read_from_trailing_blocks_in_any_order() {
+    let s = parse_summary(&ModelResponse {
         blocks: vec![ReplyBlock::Text {
-            text: text.into(),
+            text: "提到 <required_files> 而已\n<required_skills>\npdf\n</required_skills>\n<required_files>\na.rs\na.rs\n</required_files>\n".into(),
             phase: None,
         }],
         stop: StopReason::EndTurn,
-    };
-    let text = "提到 `<required_files>` 块。\n## 纪要\n正文\n<required_files>\na.rs\nb.rs\na.rs\n</required_files>\n";
-    let (summary, paths) = parse_summary(&response(text)).unwrap();
-    assert_eq!(summary, "提到 `<required_files>` 块。\n## 纪要\n正文");
-    assert_eq!(paths, ["a.rs", "b.rs"]);
-
-    let (summary, paths) = parse_summary(&response("正文里提到 <required_files> 而已")).unwrap();
-    assert_eq!(summary, "正文里提到 <required_files> 而已");
-    assert!(paths.is_empty());
+    })
+    .unwrap();
+    assert_eq!(s.text, "提到 <required_files> 而已");
+    assert_eq!(
+        (s.files, s.skills),
+        (vec!["a.rs".to_owned()], vec!["pdf".to_owned()])
+    );
 }

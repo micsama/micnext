@@ -241,6 +241,8 @@ pub enum MessageBody {
     Trigger { source: String, text: String },
     /// 给模型看的框架备注，不投递。
     HarnessNote { text: String },
+    /// 压缩后框架代为重新加载的 skill，`text` 同点名加载结果；不投递。
+    SkillLoad { name: String, text: String },
     /// 投递给用户的通知；`files` 为推送附带的文件快照。
     Notification {
         source: String,

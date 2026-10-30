@@ -24,7 +24,7 @@
   const text = $derived.by(() => {
     switch (body.kind) {
       case "UserInput": return partsText(body.parts);
-      case "HarnessNote": case "Notification": case "JobNotice": case "Trigger": return body.text;
+      case "HarnessNote": case "Notification": case "JobNotice": case "Trigger": case "SkillLoad": return body.text;
       case "ToolResult": return "Terminal" in body.outcome ? outcomeText(body.outcome.Terminal) : `已派发：${body.outcome.Dispatched.exec_id}`;
       case "Completion": return outcomeText(body.outcome);
       case "Boundary": return body.boundary === "UserClear" ? "清空上下文" : "Trim" in body.boundary ? `省略 ${body.boundary.Trim.elided.length} 条旧内容` : body.boundary.Compaction.summary;
@@ -75,6 +75,8 @@
       <TraceCard icon="zap" title="Skill · {skill.name}" tone="user" meta={chars(skill.text)} long={isLong(skill.text)} copy={skill.text}><Markdown source={skill.text} /></TraceCard>
     {/each}
     <TraceCard icon="user" title="用户输入" tone="user" meta={chars(t)} long={isLong(t)} copy={t || undefined}>{#if t}<Markdown source={t} />{/if}{@render media(body.parts)}</TraceCard>
+  {:else if body.kind === "SkillLoad"}
+    <TraceCard icon="zap" title="Skill · {body.name}（压缩后重新加载）" tone="user" meta={chars(body.text)} long={isLong(body.text)} copy={body.text}><Markdown source={body.text} /></TraceCard>
   {:else if body.kind === "Trigger"}
     <TraceCard icon="clock" title="定时任务指令" tone="user" meta={chars(text)} long={isLong(text)} copy={text}><Markdown source={text} /></TraceCard>
   {:else if body.kind === "ToolResult"}

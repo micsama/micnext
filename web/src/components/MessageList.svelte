@@ -36,9 +36,9 @@
     let previousBody: MessageBody | undefined;
     for (const message of view.messages) {
       pending = view.loadedAt.get(message.id) ?? pending;
-      // 边界后紧跟的通知与边界同事务写入，是给渠道和模型的文字版，Web 由分隔条呈现。
+      // 边界后紧跟的通知（中间可隔着重新加载的 skill）与边界同事务写入，是给渠道和模型的文字版，Web 由分隔条呈现。
       const echo = message.body.kind === "Notification" && previousBody?.kind === "Boundary";
-      previousBody = message.body;
+      if (message.body.kind !== "SkillLoad") previousBody = message.body;
       if (echo || hidden(message.body)) continue;
       const previous = items.at(-1);
       if (message.body.kind === "Notification" && previous?.[0].body.kind === "Notification" &&

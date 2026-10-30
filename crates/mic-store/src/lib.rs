@@ -64,6 +64,6 @@ pub use types::{
     NewNotice, NewSession, PendingDelivery, Person, Persona, PersonaId, Prediction,
     ReasoningEffort, Resumable, RevocableView, RevocationState, Run, RunId, RunInput, RunSettings,
     RunState, Schema, SecretColumn, SelectedModel, Session, SessionCursor, SessionKind,
-    SessionPage, SessionSummary, Settings, StopReason, Tag, TagId, TitleCall, TitleOutput,
-    ToolScope, Usage, UtilityModelSelection,
+    SessionPage, SessionSummary, Settings, SkillReload, StopReason, Tag, TagId, TitleCall,
+    TitleOutput, ToolScope, Usage, UtilityModelSelection,
 };

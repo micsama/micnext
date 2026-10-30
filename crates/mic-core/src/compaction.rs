@@ -4,7 +4,7 @@ use mic_message::{
 };
 use mic_store::{
     ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
-    SessionKind, StoreError,
+    SessionKind, SkillReload, StoreError,
 };
 use serde::Serialize;
 
@@ -18,10 +18,10 @@ use crate::run::{now_ms, Engine, Exec};
 use crate::skills::SKILL;
 use crate::{request, ModelRequest, ModelResponse, Provider, StopReason, ToolChoice};
 
-const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Output only the summary itself, without analysis or preamble. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Copy hard facts verbatim: file paths, exact error messages, explicit user constraints, unfinished tasks. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to continuing the current task. The additional user input is for focus; it will be processed after compaction.";
+const SUMMARY_PROMPT: &str = "Summarize the earlier conversation for continuing the work. Do not continue the task or call tools. Output only the summary itself, without analysis or preamble. Include: 用户诉求、关键结论与决定、涉及文件、错误与修正、未完成事项、当前进度. Copy hard facts verbatim: file paths, exact error messages, explicit user constraints, unfinished tasks. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Skill bodies (<skill> blocks) are reference instructions, not conversation: do not copy or paraphrase them; only note which skill was used for what. Finish with up to two optional blocks, one item per line: <required_files>…</required_files> for files essential to continuing the current task, and <required_skills>…</required_skills> for catalog skill names that an unfinished task still depends on. Listed skills are reloaded in full after compaction, so leave out any skill whose work is done or that you are unsure about; it can be loaded again when needed. The additional user input is for focus; it will be processed after compaction.";
 
 /// 定时任务会话：每次触发都重读历史，摘要按事项而非按次记录。
-const SCHEDULE_SUMMARY_PROMPT: &str = "Summarize the earlier runs of this scheduled task for its next runs. Do not continue the task or call tools. Output only the summary itself, without analysis or preamble. Include: 任务目标、用户在此会话中给过的修正与约束、已经推送或报告过的事项（后续不再重复）、待跟进的状态. Merge runs that found nothing new into one line giving only the latest check time and conclusion. Copy hard facts verbatim: identifiers, links, file paths, exact error messages, explicit user constraints. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Finish with an optional <required_files> block, one file path per line, closed by </required_files>. List only files essential to the next runs. The additional user input is for focus; it will be processed after compaction.";
+const SCHEDULE_SUMMARY_PROMPT: &str = "Summarize the earlier runs of this scheduled task for its next runs. Do not continue the task or call tools. Output only the summary itself, without analysis or preamble. Include: 任务目标、用户在此会话中给过的修正与约束、已经推送或报告过的事项（后续不再重复）、待跟进的状态. Merge runs that found nothing new into one line giving only the latest check time and conclusion. Copy hard facts verbatim: identifiers, links, file paths, exact error messages, explicit user constraints. Incorporate the earlier summary cumulatively. The user's messages will be quoted verbatim after compaction; do not restate them word for word. Skill bodies (<skill> blocks) are reference instructions, not run history: do not copy or paraphrase them; only note which skill was used for what. Finish with up to two optional blocks, one item per line: <required_files>…</required_files> for files essential to the next runs, and <required_skills>…</required_skills> for catalog skill names the next runs depend on. Listed skills are reloaded in full after compaction, so leave out any skill you are unsure about; it can be loaded again when needed. The additional user input is for focus; it will be processed after compaction.";
 
 /// 当前上下文占用，口径同自动压缩判定。契约：docs/blueprints/chat-run-stats.md §二。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -199,6 +199,18 @@ impl Exec<'_> {
     }
 
     /// 自动压缩与 `/compact` 共用：附加文字取本步待处理输入。
+    /// 按总结清单重新加载 skill；仍原样可见的跳过，加载失败的记下原因交给压缩通知。
+    async fn reload_skills(&self, names: Vec<String>, kept: &[String]) -> SkillReload {
+        let mut reload = SkillReload::default();
+        for name in names.into_iter().filter(|n| !kept.contains(n)) {
+            match self.engine.skills.load(&name).await {
+                Ok(text) => reload.loaded.push((name, text)),
+                Err(error) => reload.skipped.push((name, error.to_string())),
+            }
+        }
+        reload
+    }
+
     pub(crate) async fn compact(
         &self,
         provider: &dyn Provider,
@@ -235,6 +247,18 @@ impl Exec<'_> {
             .messages_by_ids(self.pending_inputs.clone())
             .await?;
         context.instruction = pending.iter().map(|m| m.id).collect();
+        // 最新一步与待处理输入里的 skill 正文压缩后仍原样可见，不再重复加载。
+        let newest = req
+            .messages
+            .iter()
+            .rposition(|m| matches!(m.body, MessageBody::Reply { .. }))
+            .unwrap_or(req.messages.len());
+        let kept_skills = loaded_skills(
+            req.messages[newest..]
+                .iter()
+                .filter(|m| !carried.contains(&m.id))
+                .chain(&pending),
+        );
         context.keep_from = retention.keep_from;
         context.elide = retention.elide.iter().map(|m| m.id).collect();
         req.messages.push(instruction_note(
@@ -271,8 +295,8 @@ impl Exec<'_> {
                 Ok(response) => {
                     let stop = Some(response.stop);
                     match parse_summary(&response) {
-                        Ok((summary, paths)) => {
-                            let files = paths;
+                        Ok(summary) => {
+                            let skills = self.reload_skills(summary.skills, &kept_skills).await;
                             let call = facts.row(
                                 &caller,
                                 ModelCallPurpose::Compaction,
@@ -285,15 +309,15 @@ impl Exec<'_> {
                                 .engine
                                 .store
                                 .commit_compaction(
-                                    self.session.id,
                                     self.run.id,
                                     Compaction {
-                                        summary,
+                                        summary: summary.text,
                                         keep_from: retention.keep_from,
-                                        files,
+                                        files: summary.files,
                                         elided: retention.elided,
                                         quoted: retention.quoted,
                                     },
+                                    skills,
                                     self.pending_inputs.clone(),
                                     call,
                                     now_ms(),
@@ -544,11 +568,52 @@ pub(crate) fn elidable(message: &Message) -> Option<Elidable> {
             .iter()
             .any(|p| matches!(p, ContentPart::Skill { .. }))
             .then_some(Elidable::Skill),
+        MessageBody::SkillLoad { .. } => Some(Elidable::Skill),
         _ => None,
     }
 }
 
-fn parse_summary(response: &ModelResponse) -> Result<(String, Vec<String>), String> {
+/// 消息里原样可见的 skill 正文名：点名、框架重载，以及能在同批消息里找到调用参数的 `skill` 工具结果。
+fn loaded_skills<'a>(messages: impl Iterator<Item = &'a Message> + Clone) -> Vec<String> {
+    let mut names = Vec::new();
+    for message in messages.clone() {
+        match &message.body {
+            MessageBody::UserInput { parts, .. } => {
+                names.extend(parts.iter().filter_map(|p| match p {
+                    ContentPart::Skill { name, .. } => Some(name.clone()),
+                    _ => None,
+                }))
+            }
+            MessageBody::SkillLoad { name, .. } => names.push(name.clone()),
+            MessageBody::ToolResult {
+                tool_name,
+                tool_call_id,
+                outcome: ToolResultOutcome::Terminal(ExecOutcome::Completed { .. }),
+                ..
+            } if tool_name == SKILL => names.extend(messages.clone().find_map(|m| match &m.body {
+                MessageBody::Reply { blocks, .. } => blocks.iter().find_map(|b| match b {
+                    ReplyBlock::ToolCall { id, args, .. } if id == tool_call_id => {
+                        args["name"].as_str().map(|n| n.trim().to_owned())
+                    }
+                    _ => None,
+                }),
+                _ => None,
+            })),
+            _ => {}
+        }
+    }
+    names
+}
+
+/// 摘要正文与末尾的清单块（所需文件、所需 skill）。
+#[derive(Debug, PartialEq, Eq)]
+struct Summary {
+    text: String,
+    files: Vec<String>,
+    skills: Vec<String>,
+}
+
+fn parse_summary(response: &ModelResponse) -> Result<Summary, String> {
     match response.stop {
         StopReason::MaxTokens | StopReason::ContentFilter | StopReason::Stopped => {
             return Err("总结被上游截断，内容不完整".into())
@@ -565,36 +630,44 @@ fn parse_summary(response: &ModelResponse) -> Result<(String, Vec<String>), Stri
             ReplyBlock::Reasoning(_) => {}
         }
     }
-    if text.trim().is_empty() {
-        return Err("总结正文为空".into());
-    }
-    // 清单只认结尾的那一块；正文里提到标签名不算。
-    let body = text.trim_end();
-    let paths = match body
-        .strip_suffix("</required_files>")
-        .and_then(|head| head.rfind("<required_files>").map(|start| (head, start)))
-    {
-        Some((head, start)) => {
-            let mut paths = Vec::new();
-            for path in head[start + "<required_files>".len()..]
-                .lines()
-                .map(str::trim)
-                .filter(|p| !p.is_empty())
-            {
-                if !paths.iter().any(|p| p == path) {
-                    paths.push(path.to_owned());
-                }
+    // 清单只认结尾连续的块，顺序不限；正文里提到标签名不算。
+    let (mut files, mut skills) = (None, None);
+    loop {
+        let body = text.trim_end();
+        let Some((tag, list)) = [
+            ("required_files", &mut files),
+            ("required_skills", &mut skills),
+        ]
+        .into_iter()
+        .find(|(tag, list)| list.is_none() && body.ends_with(&format!("</{tag}>"))) else {
+            break;
+        };
+        let head = &body[..body.len() - tag.len() - 3];
+        let Some(start) = head.rfind(&format!("<{tag}>")) else {
+            break;
+        };
+        let mut items: Vec<String> = Vec::new();
+        for item in head[start + tag.len() + 2..]
+            .lines()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
+            if !items.iter().any(|p| p == item) {
+                items.push(item.to_owned());
             }
-            text.truncate(start);
-            paths
         }
-        None => Vec::new(),
-    };
-    let summary = text.trim().to_owned();
-    if summary.is_empty() {
+        *list = Some(items);
+        text.truncate(start);
+    }
+    let text = text.trim().to_owned();
+    if text.is_empty() {
         return Err("总结正文为空".into());
     }
-    Ok((summary, paths))
+    Ok(Summary {
+        text,
+        files: files.unwrap_or_default(),
+        skills: skills.unwrap_or_default(),
+    })
 }
 
 #[cfg(test)]

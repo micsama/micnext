@@ -406,7 +406,7 @@ impl Fixture {
             control: Default::default(),
             schedules: None,
             predictions: None,
-            skills: crate::skills::Skills::new(Default::default()),
+            skills: crate::skills::Skills::new(skills_dir()),
         });
         let (titles, _worker) = crate::title::TitleRuntime::new(
             store.clone(),
@@ -671,6 +671,49 @@ async fn compaction_can_trim_every_message_and_rebuild_instruction_only() {
     let record = f.store.call_record(calls[1].id).await.unwrap().unwrap();
     assert!(record.context.skip > 0);
     assert_eq!(provider.requests.lock().unwrap()[1].messages.len(), 1);
+}
+
+/// 夹具共用的 skill 目录；只有需要 skill 的测试往里写。
+fn skills_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("mic-run-skills-{}", std::process::id()))
+}
+
+#[tokio::test]
+async fn compaction_reloads_listed_skills_after_the_boundary() {
+    let dir = skills_dir().join("pdf");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("SKILL.md"),
+        "---\nname: pdf\ndescription: d\n---\nPDF 步骤\n",
+    )
+    .unwrap();
+    let f = Fixture::new().await;
+    let provider = scripted(vec![
+        reply("reply"),
+        reply("summary\n<required_skills>\npdf\nnope\n</required_skills>"),
+        reply("continued"),
+    ]);
+    let mut exec = f.exec();
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    exec.compact(&provider).await.unwrap().unwrap();
+    let window = f.store.context_window(f.session.id).await.unwrap();
+    let bodies: Vec<_> = window.messages.iter().map(|m| &m.body).collect();
+    let boundary = bodies
+        .iter()
+        .position(|b| matches!(b, MessageBody::Boundary { .. }))
+        .unwrap();
+    assert!(matches!(
+        bodies[boundary + 1],
+        MessageBody::SkillLoad { name, text } if name == "pdf" && text.contains("PDF 步骤")
+    ));
+    let MessageBody::Notification { text, .. } = bodies[boundary + 2] else {
+        panic!("通知紧跟重载消息");
+    };
+    assert!(text.contains("重新加载 1 个 skill") && text.contains("skill nope 未带上"));
+    exec.call_model(&provider, &[]).await.unwrap().unwrap();
+    let requests = provider.requests.lock().unwrap();
+    let last = format!("{:?}", requests.last().unwrap().messages);
+    assert!(last.contains("PDF 步骤"));
 }
 
 struct TimedTool;

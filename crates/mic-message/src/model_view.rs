@@ -89,6 +89,16 @@ impl Message {
                 "{}\n{note}",
                 Header::RuntimeNote.render()
             ))]),
+            MessageBody::SkillLoad { name, text: body } => ModelView::User(vec![
+                text(format!(
+                    "{}\nReloaded after compaction for the unfinished task:",
+                    Header::RuntimeNote.render()
+                )),
+                user_part(&ContentPart::Skill {
+                    name: name.clone(),
+                    text: body.clone(),
+                }),
+            ]),
             MessageBody::Notification {
                 source,
                 text: note,
@@ -118,6 +128,12 @@ impl Message {
 impl Message {
     /// 换成占位：`Completed` 工具输出整段换掉（原长按字符计），用户输入只换 skill 正文。
     pub fn elide_output(&mut self) {
+        if let MessageBody::SkillLoad { name, .. } = &self.body {
+            self.body = MessageBody::HarnessNote {
+                text: skill_placeholder(name),
+            };
+            return;
+        }
         let (tool_name, output) = match &mut self.body {
             MessageBody::ToolResult {
                 tool_name,
@@ -132,9 +148,7 @@ impl Message {
             MessageBody::UserInput { parts, .. } => {
                 for part in parts {
                     if let ContentPart::Skill { name, .. } = part {
-                        *part = text(format!(
-                            "[Skill {name} was loaded here; its body is omitted. Load it again if needed.]"
-                        ));
+                        *part = text(skill_placeholder(name));
                     }
                 }
                 return;
@@ -152,6 +166,10 @@ impl Message {
             "[Output of {tool_name} omitted ({chars} chars). Call it again if needed.]"
         ))];
     }
+}
+
+fn skill_placeholder(name: &str) -> String {
+    format!("[Skill {name} was loaded here; its body is omitted. Load it again if needed.]")
 }
 
 fn outcome_parts(outcome: &ExecOutcome) -> Vec<ContentPart> {

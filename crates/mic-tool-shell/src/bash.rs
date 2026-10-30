@@ -18,10 +18,13 @@ use watch::{Stream, Watch};
 
 pub(crate) struct Bash;
 
-const DESCRIPTION: &str = "Run `bash -c`. Each call is a fresh shell: cwd and variables do not \
-    carry over, so use `workdir` instead of `cd`. Long output keeps only its tail. In the \
-    background the call returns a job_id at once; output goes to a log read with `job_output`, \
-    and the exit arrives as a completion. Background commands must not daemonize themselves.";
+const DESCRIPTION: &str = "Run `bash -c` in the session's working directory, or in `workdir` \
+    (absolute, or relative to it; a skill's directory works too). Each call is a fresh shell, so \
+    cwd and variables do not carry over. The result shows stdout, stderr and any non-zero exit \
+    code, signal or timeout; `timeoutMs` stops the whole command. Long output keeps only its \
+    tail. In the background the call returns a job_id at once; output goes to a log read with \
+    `job_output`, and the exit arrives as a completion. Background commands must not daemonize \
+    themselves.";
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

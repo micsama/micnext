@@ -10,6 +10,7 @@ pub(crate) struct Write;
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
+    /// Absolute, or relative to the working directory.
     file_path: String,
     content: String,
 }
@@ -25,7 +26,7 @@ impl Tool for Write {
     }
 
     fn description(&self) -> &str {
-        "Create or overwrite a UTF-8 file."
+        "Create or overwrite a UTF-8 file; missing parent directories are created."
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

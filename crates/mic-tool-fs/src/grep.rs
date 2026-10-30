@@ -32,7 +32,7 @@ impl Tool for Grep {
     }
 
     fn description(&self) -> &str {
-        "Search file contents with ripgrep. Returns matching lines with line numbers, grouped by file; at most 250 matches, with the total if capped."
+        "Search file contents with ripgrep. Returns matching lines with line numbers, grouped by file; at most 250 matches, with the total if capped. Like rg, it skips hidden and gitignored files."
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

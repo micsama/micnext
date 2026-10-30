@@ -50,7 +50,7 @@ impl Tool for WebFetch {
     }
 
     fn description(&self) -> &str {
-        "Fetch an HTTP(S) URL and return its content as text."
+        "Fetch an HTTP(S) URL and return its content as text: HTML arrives as Markdown, redirects are followed, and an overlong page is cut with a note."
     }
 
     async fn execute(&self, args: Args, _: &ToolContext) -> Result<ToolOutput, ToolError> {

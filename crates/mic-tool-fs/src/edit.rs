@@ -10,6 +10,7 @@ pub(crate) struct Edit;
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
+    /// Absolute, or relative to the working directory.
     file_path: String,
     old_string: String,
     /// Empty deletes the match.

@@ -15,6 +15,7 @@ pub(crate) struct Read;
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Args {
+    /// Absolute, or relative to the working directory.
     file_path: String,
     /// First line, 1-based.
     offset: Option<u64>,
@@ -30,7 +31,7 @@ impl Tool for Read {
     }
 
     fn description(&self) -> &str {
-        "Read a UTF-8 file with line numbers."
+        "Read a UTF-8 file with line numbers. A long file comes in pages, each ending with the offset to continue from."
     }
 
     async fn execute(&self, args: Args, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

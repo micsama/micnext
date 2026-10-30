@@ -1,6 +1,7 @@
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
 use mic_message::{ContentPart, ExecOutcome};
@@ -74,7 +75,7 @@ impl Tool for Bash {
         }
         if !args.background {
             let timeout_ms = timeout.expect("前台必有超时");
-            let run = run(&args.command, workdir, timeout_ms).await?;
+            let run = run(&args.command, workdir, ctx.env(), timeout_ms).await?;
             let output = vec![ContentPart::Text {
                 text: run.render(timeout_ms),
             }];
@@ -85,12 +86,15 @@ impl Tool for Bash {
             }));
         }
         let command = args.command;
+        let env = ctx.env().clone();
         let exec_id = ctx
             .background()
             .dispatch(BackgroundTask {
                 description: args.description,
                 timeout: timeout.map(Duration::from_millis),
-                run: Box::new(move |sink| Box::pin(run_background(command, workdir, watch, sink))),
+                run: Box::new(move |sink| {
+                    Box::pin(run_background(command, workdir, env, watch, sink))
+                }),
             })
             .await?;
         Ok(ToolOutput::Dispatched { exec_id })
@@ -138,11 +142,12 @@ struct Spawned {
     stderr: ChildStderr,
 }
 
-fn spawn(command: &str, workdir: PathBuf) -> Result<Spawned, ToolError> {
+fn spawn(command: &str, workdir: PathBuf, env: &[(String, String)]) -> Result<Spawned, ToolError> {
     let mut child = Command::new("bash")
         .arg("-c")
         .arg(command)
         .current_dir(workdir)
+        .envs(env.iter().map(|(k, v)| (k, v)))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -184,13 +189,18 @@ async fn wait(
     result
 }
 
-async fn run(command: &str, workdir: PathBuf, timeout_ms: u64) -> Result<Run, ToolError> {
+async fn run(
+    command: &str,
+    workdir: PathBuf,
+    env: &[(String, String)],
+    timeout_ms: u64,
+) -> Result<Run, ToolError> {
     let Spawned {
         mut child,
         group,
         stdout,
         stderr,
-    } = spawn(command, workdir)?;
+    } = spawn(command, workdir, env)?;
     let (waited, stdout, stderr) = tokio::join!(
         wait(&mut child, &group, Some(timeout_ms)),
         read_tail(stdout, Stream::Stdout),
@@ -211,6 +221,7 @@ async fn run(command: &str, workdir: PathBuf, timeout_ms: u64) -> Result<Run, To
 async fn run_background(
     command: String,
     workdir: PathBuf,
+    env: Arc<[(String, String)]>,
     watch: Option<Watch>,
     mut sink: Box<dyn OutputSink>,
 ) -> ExecOutcome {
@@ -219,7 +230,7 @@ async fn run_background(
         group,
         stdout,
         stderr,
-    } = match spawn(&command, workdir) {
+    } = match spawn(&command, workdir, &env) {
         Ok(spawned) => spawned,
         Err(e) => return failed(e),
     };

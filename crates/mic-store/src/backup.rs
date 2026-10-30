@@ -18,6 +18,8 @@ pub struct SettingsExport {
     pub preferences: ExportPreferences,
     /// 标签词表的名字；导入只补缺少的。
     pub tags: Vec<String>,
+    /// 命令环境变量：名字 → 明文值；导入整体替换。
+    pub env: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -117,8 +119,9 @@ impl Store {
             preferences.utility_model = utility_model.map(|id| model_reference(&tx, id)).transpose()?;
             preferences.push_channels = crate::pushes::read_push_channels(&tx)?;
             let tags = crate::tags::export_names(&tx)?;
+            let env = crate::env_vars::load(&tx, &cipher)?.into_iter().map(|(name, value)| (name, value.expose().to_owned())).collect();
             tx.commit()?;
-            Ok(SettingsExport { endpoints, personas, preferences, tags })
+            Ok(SettingsExport { endpoints, personas, preferences, tags, env })
         }).await
     }
 
@@ -206,6 +209,12 @@ impl Store {
                 crate::TagError::Store(e) => SettingsError::Store(e),
                 e => invalid(&format!("标签：{e}")),
             })?;
+            tx.execute("DELETE FROM core_env_vars", [])?;
+            for (name, value) in s.env {
+                let value = SecretValue::new(value);
+                crate::env_vars::validate(&name, &value).map_err(|e| invalid(&format!("环境变量：{e}")))?;
+                tx.execute("INSERT INTO core_env_vars(name, value_cipher) VALUES (?1, ?2)", params![name, cipher.encrypt_env(&name, &value)])?;
+            }
             tx.execute("UPDATE core_settings SET default_persona_id = ?1, general_prompt = ?2, default_workdir = ?3, max_turns = ?4, compaction_trigger_percent = ?5, compaction_keep_percent = ?6, default_model_id = ?7, utility_model_id = ?8, utility_reasoning_effort = ?9, push_channels = ?10", params![persona, p.general_prompt, p.default_workdir, p.max_turns, p.compaction.trigger_percent, p.compaction.keep_percent, default_model, utility_model, p.utility_reasoning_effort, serde_json::to_string(&p.push_channels).expect("字符串数组可序列化")])?;
             tx.commit()?;
             Ok(())

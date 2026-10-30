@@ -50,15 +50,16 @@ fn alive(pid: i32) -> bool {
 async fn background_merges_output_and_reports_exit() {
     let sink = Captured::default();
     let outcome = run_background(
-        "echo out; echo err >&2; exit 3".into(),
+        "echo out $MIC_TEST_TOKEN; echo err >&2; exit 3".into(),
         std::env::temp_dir(),
+        std::sync::Arc::new([("MIC_TEST_TOKEN".into(), "v1".into())]),
         None,
         Box::new(sink.clone()),
     )
     .await;
     assert_eq!(marker(outcome), "[exit code: 3]");
     let text = sink.text();
-    assert!(text.contains("out\n") && text.contains("err\n"));
+    assert!(text.contains("out v1\n") && text.contains("err\n"));
 }
 
 #[tokio::test]
@@ -67,6 +68,7 @@ async fn dropping_background_kills_the_process_group() {
     let mut run = Box::pin(run_background(
         "sleep 30 & echo $!; wait".into(),
         std::env::temp_dir(),
+        std::sync::Arc::new([]),
         None,
         Box::new(sink.clone()),
     ));
@@ -113,7 +115,11 @@ impl mic_tool::Background for NoBackground {
 
 #[tokio::test]
 async fn foreground_timeout_has_a_terminal_timeout_with_partial_output() {
-    let ctx = ToolContext::new(std::env::temp_dir(), std::sync::Arc::new(NoBackground));
+    let ctx = ToolContext::new(
+        std::env::temp_dir(),
+        std::sync::Arc::new(NoBackground),
+        std::sync::Arc::new([]),
+    );
     let args = Args {
         command: "echo before; sleep 30".into(),
         description: "timeout".into(),
@@ -137,6 +143,7 @@ async fn background_notifies_matching_lines_before_exit() {
     let outcome = run_background(
         "echo starting; echo 'listening on :8080' >&2; printf 'ready'".into(),
         std::env::temp_dir(),
+        std::sync::Arc::new([]),
         parse_pattern(Some("listening|ready".into()), true).unwrap(),
         Box::new(sink.clone()),
     )

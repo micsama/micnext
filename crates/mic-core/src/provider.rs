@@ -10,6 +10,7 @@ pub use mic_store::StopReason;
 use mic_store::{ReasoningEffort, SecretValue, SelectedModel, Usage};
 use mic_tool::ToolSpec;
 
+use crate::env_vars::EnvVars;
 use crate::redact::Redactor;
 
 pub type BoxStream<T> = Pin<Box<dyn futures_core::Stream<Item = T> + Send>>;
@@ -175,6 +176,10 @@ impl Factories {
 
     pub(crate) fn set_redactor(&mut self, redactor: Redactor) {
         self.redactor = Arc::new(redactor);
+    }
+
+    pub(crate) fn env_vars(&self) -> Arc<EnvVars> {
+        self.redactor.env.clone()
     }
 
     /// 已认领模型的本轮实例：解析 key 回退与思考档位后交给工厂。

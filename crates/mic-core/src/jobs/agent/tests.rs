@@ -275,6 +275,7 @@ impl Fixture {
             schedules: None,
             predictions: None,
             skills: crate::skills::Skills::new(Default::default()),
+            env: Default::default(),
         });
         let scheduler = tokio::spawn(crate::scheduler::run(engine.clone(), wakes));
         store

@@ -464,7 +464,8 @@ impl Assembly {
             source,
         })?;
         let mut factories = std::mem::take(&mut self.factories);
-        factories.set_redactor(Redactor::new(&master_key));
+        let env = Arc::new(crate::env_vars::EnvVars::load(&store).await?);
+        factories.set_redactor(Redactor::new(&master_key, env));
         let boot = now_ms();
         let interrupted = recovery::recover(&store, data_dir.clone()).await?;
         let held_sessions = store.hold_unclaimed_inputs(now_ms()).await?.len();
@@ -525,13 +526,14 @@ impl Assembly {
             )),
             store,
             events,
-            factories,
             tools,
             channel_prompts: self.channel_prompts.clone(),
             control,
             predictions: None,
             schedules,
             skills,
+            env: factories.env_vars(),
+            factories,
         }
     }
 }

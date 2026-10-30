@@ -134,14 +134,12 @@ pub(crate) fn build(
     session: &mic_store::Session,
     window: ContextWindow,
     images: HashMap<ImageId, ImageData>,
-    channel_prompt: Option<&str>,
-    skills: Option<&str>,
+    system: SystemPrompt,
     tools: &[ToolHandle],
-    settings: &RunSettings,
 ) -> ModelRequest {
     ModelRequest {
         tool_choice: ToolChoice::Auto,
-        system: system_prompt(settings, session, channel_prompt, skills, &window).render(),
+        system: system.render(),
         messages: order(window.messages),
         tools: tools.iter().map(|t| t.spec().clone()).collect(),
         images,
@@ -157,6 +155,7 @@ pub(crate) fn system_prompt(
     session: &mic_store::Session,
     channel_prompt: Option<&str>,
     skills: Option<&str>,
+    env: &[(String, String)],
     window: &ContextWindow,
 ) -> SystemPrompt {
     use PromptPartKind::*;
@@ -176,6 +175,16 @@ pub(crate) fn system_prompt(
         format!("Working directory: {}", session.pwd),
     )];
     context.extend(channel_prompt.map(|p| part(Environment, p.to_owned())));
+    if !env.is_empty() {
+        let names: Vec<String> = env.iter().map(|(name, _)| format!("`${name}`")).collect();
+        context.push(part(
+            Environment,
+            format!(
+                "Environment variables the user set for commands: {}. Use them directly; their values reach you masked as `<NAME>`.",
+                names.join(", ")
+            ),
+        ));
+    }
     context.push(part(
         Environment,
         if window.plain_after.is_some() {

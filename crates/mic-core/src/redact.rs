@@ -12,6 +12,7 @@ use mic_message::{
 use mic_store::SecretValue;
 use regex::{Captures, Regex};
 
+use crate::env_vars::EnvVars;
 use crate::provider::{BoxStream, ModelEvent, ModelRequest, Provider, ProviderError};
 
 /// 每条规则的 `s` 组是要遮的部分；前缀写在组外，原样保留。
@@ -52,19 +53,22 @@ enum Mask {
 #[derive(Default)]
 pub(crate) struct Redactor {
     master_key: Vec<SecretValue>,
+    /// 设置里的环境变量，命中换成 `<变量名>`。
+    pub(crate) env: Arc<EnvVars>,
 }
 
 const MASTER_KEY: &str = "<MASTER_KEY>";
 const API_KEY: &str = "<API_KEY>";
 
 impl Redactor {
-    pub(crate) fn new(master_key: &[u8]) -> Self {
+    pub(crate) fn new(master_key: &[u8], env: Arc<EnvVars>) -> Self {
         let hex = master_key.iter().map(|b| format!("{b:02x}")).collect();
         Self {
             master_key: vec![
                 SecretValue::new(hex),
                 SecretValue::new(STANDARD.encode(master_key)),
             ],
+            env,
         }
     }
 
@@ -96,9 +100,16 @@ impl Provider for Redacted {
     fn stream(&self, mut req: ModelRequest) -> BoxStream<Result<ModelEvent, ProviderError>> {
         let master = self.redactor.master_key.iter().map(|k| (k, MASTER_KEY));
         let own = self.own_key.iter().map(|k| (k, API_KEY));
+        let env = self.redactor.env.current();
+        let labels: Vec<String> = env.iter().map(|(name, _)| format!("<{name}>")).collect();
         let mut known: Vec<(&str, &str)> = master
             .chain(own)
             .map(|(k, name)| (k.expose(), name))
+            .chain(
+                env.iter()
+                    .zip(&labels)
+                    .map(|((_, v), l)| (v.as_str(), l.as_str())),
+            )
             .filter(|(k, _)| !k.is_empty())
             .collect();
         // 长的先换，免得短值先命中拆坏长值
@@ -217,7 +228,7 @@ impl Scrub<'_> {
 }
 
 /// 16 字符以上留前 2 后 4（`ab…6789`），更短的整段遮住。
-fn ends(secret: &str) -> String {
+pub(crate) fn ends(secret: &str) -> String {
     let chars: Vec<char> = secret.chars().collect();
     if chars.len() < 16 {
         return "***".to_owned();

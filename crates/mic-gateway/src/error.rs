@@ -99,7 +99,9 @@ impl From<KernelError> for ApiError {
                 Self::LocalPath(format!("{e}。{hint}"))
             }
             KernelError::Settings(e) => match e {
-                SettingsError::ImportInvalid(reason) => Self::BadRequest(reason),
+                SettingsError::ImportInvalid(reason) | SettingsError::EnvVarInvalid(reason) => {
+                    Self::BadRequest(reason)
+                }
                 SettingsError::PersonaNotFound => Self::NotFound(PERSONA_NOT_FOUND),
                 SettingsError::Builtin => Self::Forbidden(e.to_string()),
                 SettingsError::IsDefault | SettingsError::NameTaken(_) | SettingsError::Deleted => {

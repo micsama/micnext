@@ -9,6 +9,7 @@ mod command;
 mod compaction;
 mod context_usage;
 mod control;
+mod env_vars;
 mod error;
 mod event;
 mod input;
@@ -41,6 +42,7 @@ pub use channel_setup::{
 pub use command::{parse_command, session_commands, CommandParseError, CommandSpec, ParsedCommand};
 pub use compaction::Occupancy;
 pub use context_usage::{ContextBreakdown, ContextKind, ContextPart};
+pub use env_vars::EnvVarView;
 pub use error::{AssembleError, KernelError, RunError, WorkdirError};
 pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
 pub use input::{IncomingPart, InputError};

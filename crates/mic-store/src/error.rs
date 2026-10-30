@@ -26,6 +26,8 @@ pub enum StoreError {
         "服务商 {endpoint} 的 API key 无法解密：主密钥与库不匹配或数据被改动，请在设置页重填该 key"
     )]
     SecretIntegrity { endpoint: i64 },
+    #[error("环境变量 {0} 无法解密：主密钥与库不匹配或数据被改动，请在设置页重填")]
+    EnvVarIntegrity(String),
     #[error("消息引用的图片 {0} 不在库中")]
     ImageMissing(i64),
 }
@@ -37,6 +39,8 @@ pub enum SettingsError {
     ImportInvalid(String),
     #[error("人设不存在")]
     PersonaNotFound,
+    #[error("{0}")]
+    EnvVarInvalid(String),
     #[error("内置人设不能修改或删除，可以复制后编辑")]
     Builtin,
     #[error("这是默认人设：先在对话偏好里换一个默认，再删除它")]

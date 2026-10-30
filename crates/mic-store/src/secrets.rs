@@ -75,7 +75,7 @@ impl Cipher {
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 if has_ciphertext {
                     return Err(StoreError::SecretKeyInvalid(format!(
-                        "库内已有加密的 API key，但主密钥文件 {} 不存在；请恢复该文件，或清空各模型的 key 后重设",
+                        "库内已有加密的 API key 或环境变量，但主密钥文件 {} 不存在；请恢复该文件，或清空各模型的 key 与环境变量后重设",
                         path.display()
                     )));
                 }
@@ -144,6 +144,17 @@ impl Cipher {
         let nonce = Nonce::try_from(nonce).ok()?;
         let plain = self.0.decrypt(&nonce, Payload { msg: sealed, aad }).ok()?;
         String::from_utf8(plain).ok().map(SecretValue::new)
+    }
+}
+
+impl Cipher {
+    pub(crate) fn encrypt_env(&self, name: &str, value: &SecretValue) -> Vec<u8> {
+        self.encrypt_with_aad(format!("env-var:{name}").as_bytes(), value)
+    }
+
+    pub(crate) fn decrypt_env(&self, name: &str, blob: &[u8]) -> Result<SecretValue, StoreError> {
+        self.decrypt_with_aad(format!("env-var:{name}").as_bytes(), blob)
+            .ok_or_else(|| StoreError::EnvVarIntegrity(name.to_owned()))
     }
 }
 

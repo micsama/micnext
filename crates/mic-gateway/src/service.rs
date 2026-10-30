@@ -15,8 +15,8 @@ use crate::config::Config;
 use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
 use crate::update::{BuildVersion, RestartRequest, Updater};
 use crate::{
-    api, backup, channels, context, global_stream, jobs, log_stream, models, pushes, schedules,
-    search, settings, sql, stream, tags, ticket, trace, update, web, DeveloperLogs,
+    api, backup, channels, context, env_vars, global_stream, jobs, log_stream, models, pushes,
+    schedules, search, settings, sql, stream, tags, ticket, trace, update, web, DeveloperLogs,
 };
 
 pub(crate) struct Gateway {
@@ -93,6 +93,11 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
     let api = Router::new()
         .route("/settings/export", post(backup::export))
         .route("/settings/import", post(backup::import))
+        .route("/settings/env", get(env_vars::list))
+        .route(
+            "/settings/env/{name}",
+            put(env_vars::put).delete(env_vars::delete),
+        )
         .route("/channels/wechat", get(channels::status))
         .route("/channels/wechat/login", post(channels::begin))
         .route("/channels/wechat/login/{id}", delete(channels::cancel))

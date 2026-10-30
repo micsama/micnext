@@ -5,6 +5,7 @@ mod backup;
 mod context;
 mod diagnostic;
 mod endpoints;
+mod env_vars;
 mod error;
 mod images;
 mod jobs;
@@ -40,7 +41,7 @@ pub use diagnostic::{
 };
 pub use error::{ContextCommandError, ModelSettingsError, SettingsError, StoreError};
 pub use jobs::{AgentActivity, Job, JobId, JobKind, JobState, NewAgentJob, NewToolJob};
-pub use limits::{TAGS_PER_SESSION, TAG_CHARS};
+pub use limits::{ENV_VALUE_MIN_CHARS, TAGS_PER_SESSION, TAG_CHARS};
 pub use pushes::{NewPush, PushDelivery, PushDeliveryState, PushId, PushPage, PushRoute, PushView};
 pub use schedules::{
     Fire, FireId, FireOutcome, FireResult, NewSchedule, Schedule, ScheduleEdit, ScheduleId,

@@ -2,6 +2,7 @@
   import ArchiveIcon from "@lucide/svelte/icons/archive";
   import BackupSection from "./BackupSection.svelte";
   import BoxesIcon from "@lucide/svelte/icons/boxes";
+  import KeyRoundIcon from "@lucide/svelte/icons/key-round";
   import SlidersIcon from "@lucide/svelte/icons/sliders-horizontal";
   import SparklesIcon from "@lucide/svelte/icons/sparkles";
   import TagIcon from "@lucide/svelte/icons/tag";
@@ -12,6 +13,7 @@
   import { router } from "../../state/route.svelte";
   import Header from "../Header.svelte";
   import EndpointsSection from "./EndpointsSection.svelte";
+  import EnvVarsSection from "./EnvVarsSection.svelte";
   import PersonasSection from "./PersonasSection.svelte";
   import PrefsSection from "./PrefsSection.svelte";
   import TagsSection from "./TagsSection.svelte";
@@ -21,12 +23,13 @@
     document.title = "设置 · micnext";
   });
 
-  type Tab = "prefs" | "personas" | "tags" | "models" | "wechat" | "backup";
+  type Tab = "prefs" | "personas" | "tags" | "models" | "env" | "wechat" | "backup";
   const tabs: { id: Tab; label: string; icon: Component }[] = [
     { id: "prefs", label: "对话偏好", icon: SlidersIcon },
     { id: "personas", label: "人设", icon: SparklesIcon },
     { id: "tags", label: "标签", icon: TagIcon },
     { id: "models", label: "服务商与模型", icon: BoxesIcon },
+    { id: "env", label: "环境变量", icon: KeyRoundIcon },
     { id: "wechat", label: "微信", icon: QrCodeIcon },
     { id: "backup", label: "设置备份", icon: ArchiveIcon },
   ];
@@ -76,6 +79,8 @@
         <BackupSection />
       {:else if tab === "tags"}
         <TagsSection />
+      {:else if tab === "env"}
+        <EnvVarsSection />
       {:else if tab === "wechat"}
         <WechatSection />
       {:else if !settingsStore.settings}

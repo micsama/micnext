@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 use crate::ask::{ASK_USER, NOT_ALONE};
 use crate::attempt::{stream_attempt, Caller, Facts};
 use crate::control::{RunControl, Slot};
+use crate::env_vars::EnvVars;
 use crate::event::{Events, KernelEventKind};
 use crate::jobs::{self, JobPort, Jobs, Origin};
 use crate::limits::{
@@ -55,6 +56,8 @@ pub(crate) struct Engine {
     /// 常驻时才有。
     pub(crate) predictions: Option<crate::prediction::PredictionHandle>,
     pub(crate) skills: Skills,
+    /// 与出站脱敏共用的快照；工具执行时注入。
+    pub(crate) env: Arc<EnvVars>,
 }
 
 impl Engine {
@@ -504,16 +507,15 @@ impl Exec<'_> {
             ..Default::default()
         };
         let images = self.window_images(&mut window).await?;
-        let channel_prompt = self.engine.channel_prompt(self.session);
-        let req = request::build(
-            self.session,
-            window,
-            images,
-            channel_prompt,
-            self.skills.as_deref(),
-            tools,
+        let system = request::system_prompt(
             self.settings,
+            self.session,
+            self.engine.channel_prompt(self.session),
+            self.skills.as_deref(),
+            &self.engine.env.current(),
+            &window,
         );
+        let req = request::build(self.session, window, images, system, tools);
         let caller = self.caller(provider);
         let mut attempt = 1;
         loop {
@@ -720,7 +722,11 @@ impl Exec<'_> {
                     tool_name: call.name.clone(),
                 },
             ));
-            let ctx = ToolContext::new(PathBuf::from(&self.session.pwd), port.clone());
+            let ctx = ToolContext::new(
+                PathBuf::from(&self.session.pwd),
+                port.clone(),
+                self.engine.env.current(),
+            );
             let running_ctx = ctx.clone();
             let (name, args) = (call.name.clone(), call.args.clone());
             let started_at = now_ms();

@@ -15,7 +15,7 @@ fn current_schema_initializes_and_reopens() {
     init(&mut conn, &[MODULE]).unwrap();
     conn.execute("INSERT INTO demo_t VALUES (1)", []).unwrap();
     init(&mut conn, &[MODULE]).unwrap();
-    assert_eq!(applied_version(&conn, "core").unwrap(), Some(31));
+    assert_eq!(applied_version(&conn, "core").unwrap(), Some(32));
     assert_eq!(applied_version(&conn, "demo").unwrap(), Some(3));
     assert_eq!(
         conn.query_row("SELECT count(*) FROM demo_t", [], |r| r.get::<_, i64>(0))
@@ -31,7 +31,7 @@ fn current_schema_initializes_and_reopens() {
 
 #[test]
 fn different_versions_are_rejected_without_changing_data() {
-    for version in [22, 32] {
+    for version in [22, 33] {
         let mut conn = Connection::open_in_memory().unwrap();
         init(&mut conn, &[]).unwrap();
         conn.execute(
@@ -40,7 +40,7 @@ fn different_versions_are_rejected_without_changing_data() {
         )
         .unwrap();
         assert!(
-            matches!(init(&mut conn, &[MODULE]), Err(StoreError::SchemaMismatch { db, expected: 31, .. }) if db == version)
+            matches!(init(&mut conn, &[MODULE]), Err(StoreError::SchemaMismatch { db, expected: 32, .. }) if db == version)
         );
         assert_eq!(applied_version(&conn, "core").unwrap(), Some(version));
         assert_eq!(applied_version(&conn, "demo").unwrap(), None);

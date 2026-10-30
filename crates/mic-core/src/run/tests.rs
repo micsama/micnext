@@ -176,6 +176,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         schedules: None,
         predictions: None,
         skills: crate::skills::Skills::new(Default::default()),
+        env: Default::default(),
     });
     store
         .append_input(
@@ -407,6 +408,7 @@ impl Fixture {
             schedules: None,
             predictions: None,
             skills: crate::skills::Skills::new(skills_dir()),
+            env: Default::default(),
         });
         let (titles, _worker) = crate::title::TitleRuntime::new(
             store.clone(),
@@ -1772,14 +1774,13 @@ async fn timeline_keeps_late_inputs_after_reply_and_through_compaction() {
             excluded: window.filtered.clone(),
             ..Default::default()
         };
+        let system = request::system_prompt(exec.settings, &f.session, None, None, &[], &window);
         provider.requests.lock().unwrap().push(request::build(
             &f.session,
             window,
             HashMap::new(),
-            None,
-            None,
+            system,
             &[],
-            exec.settings,
         ));
         let completion = f
             .store

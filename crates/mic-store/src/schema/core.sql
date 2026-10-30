@@ -289,5 +289,10 @@ CREATE TABLE core_session_tags (
 
 CREATE INDEX idx_session_tags_tag ON core_session_tags(tag_id);
 
+CREATE TABLE core_env_vars (
+  name        TEXT PRIMARY KEY,
+  value_cipher BLOB NOT NULL
+);
+
 INSERT INTO core_personas (id, name, prompt, builtin, created_at, updated_at) VALUES (1, '默认', '', 1, 0, 0);
 INSERT INTO core_settings (id, default_persona_id, general_prompt, default_workdir, max_turns) VALUES (1, 1, '', '~/workspace/mic', 50);

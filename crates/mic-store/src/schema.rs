@@ -87,6 +87,7 @@ pub(crate) const TABLE_CATALOG: &[(&str, &str, &str)] = &[
     ("core_endpoints", "身份与设置", "模型服务商"),
     ("core_models", "身份与设置", "模型与当前单价"),
     ("core_settings", "身份与设置", "用户设置"),
+    ("core_env_vars", "身份与设置", "命令环境变量（值加密）"),
     ("core_sessions", "会话与执行", "会话"),
     ("core_runs", "会话与执行", "执行轮次"),
     ("core_jobs", "会话与执行", "后台任务"),

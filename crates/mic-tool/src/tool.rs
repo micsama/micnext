@@ -80,16 +80,22 @@ pub trait Background: std::any::Any + Send + Sync {
 pub struct ToolContext {
     cwd: PathBuf,
     background: Arc<dyn Background>,
+    env: Arc<[(String, String)]>,
     stop: CancellationToken,
     commits: TaskTracker,
 }
 
 impl ToolContext {
-    /// `cwd` 为绝对路径（会话 `pwd`），由 core 保证。
-    pub fn new(cwd: PathBuf, background: Arc<dyn Background>) -> Self {
+    /// `cwd` 为绝对路径（会话 `pwd`），由 core 保证；`env` 是用户在设置里配的命令环境变量。
+    pub fn new(
+        cwd: PathBuf,
+        background: Arc<dyn Background>,
+        env: Arc<[(String, String)]>,
+    ) -> Self {
         Self {
             cwd,
             background,
+            env,
             stop: CancellationToken::new(),
             commits: TaskTracker::new(),
         }
@@ -98,6 +104,10 @@ impl ToolContext {
     /// 相对路径的解析基准、`bash` 的默认工作目录。
     pub fn cwd(&self) -> &Path {
         &self.cwd
+    }
+
+    pub fn env(&self) -> &Arc<[(String, String)]> {
+        &self.env
     }
 
     pub fn background(&self) -> &dyn Background {

@@ -6,6 +6,7 @@ mod backup;
 mod channels;
 mod config;
 mod context;
+mod env_vars;
 mod error;
 mod global_stream;
 mod jobs;

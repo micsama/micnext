@@ -141,7 +141,25 @@ impl Kernel {
                     .map_err(|e| KernelError::BackupInvalid(e.to_string()))?;
             }
         }
-        Ok(self.store.import_settings(s, now_ms()).await?)
+        self.store.import_settings(s, now_ms()).await?;
+        Ok(self.engine.env.reload(&self.store).await?)
+    }
+
+    /// 已设置的命令环境变量名；值只写不读。
+    pub fn env_vars(&self) -> Vec<crate::EnvVarView> {
+        self.engine.env.views()
+    }
+
+    pub async fn set_env_var(
+        &self,
+        name: String,
+        value: mic_store::SecretValue,
+    ) -> Result<(), KernelError> {
+        Ok(self.engine.env.set(&self.store, name, value).await?)
+    }
+
+    pub async fn delete_env_var(&self, name: String) -> Result<(), KernelError> {
+        Ok(self.engine.env.delete(&self.store, name).await?)
     }
 
     pub fn seal_backup(&self, b: &SettingsBackup) -> String {
@@ -939,6 +957,7 @@ impl Kernel {
             s,
             self.engine.channel_prompt(s),
             skills.as_deref(),
+            &self.engine.env.current(),
             &window,
         ))
     }

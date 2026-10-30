@@ -223,7 +223,7 @@ pub(crate) fn verify_keys(conn: &Connection, cipher: &Cipher) -> Result<(), Stor
 
 pub(crate) fn has_ciphertext(conn: &Connection) -> rusqlite::Result<bool> {
     conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM core_endpoints WHERE key_cipher IS NOT NULL)",
+        "SELECT EXISTS(SELECT 1 FROM core_endpoints WHERE key_cipher IS NOT NULL) OR EXISTS(SELECT 1 FROM core_env_vars)",
         [],
         |r| r.get(0),
     )

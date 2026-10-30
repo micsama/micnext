@@ -1,5 +1,5 @@
 import { auth } from "../state/auth.svelte";
-import { obj, str } from "./decode";
+import { arr, obj, str } from "./decode";
 import { parseStoredLogs, type StoredLogRecord } from "./developer";
 import {
   parseSessionUsage, type SessionUsageView,
@@ -445,6 +445,20 @@ export async function exportSettings(): Promise<string> {
 
 export async function importSettings(text: string): Promise<void> {
   await request("POST", "/settings/import", { text });
+}
+
+export type EnvVar = { name: string; masked: string };
+
+export async function listEnvVars(): Promise<EnvVar[]> {
+  return arr(obj<EnvVar>({ name: str, masked: str }))(await request("GET", "/settings/env"), "环境变量");
+}
+
+export async function setEnvVar(name: string, value: string): Promise<void> {
+  await request("PUT", `/settings/env/${encodeURIComponent(name)}`, { value });
+}
+
+export async function deleteEnvVar(name: string): Promise<void> {
+  await request("DELETE", `/settings/env/${encodeURIComponent(name)}`);
 }
 
 

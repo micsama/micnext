@@ -179,6 +179,7 @@ impl Harness {
             schedules: None,
             predictions: Some(handle),
             skills: crate::skills::Skills::new(Default::default()),
+            env: Default::default(),
         });
         Self {
             store,

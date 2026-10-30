@@ -24,7 +24,7 @@ fn cancelled_queued_write_never_changes_the_file() {
     runtime.block_on(async {
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("result");
-        let ctx = ToolContext::new(dir.path().to_owned(), Arc::new(NoBackground));
+        let ctx = ToolContext::new(dir.path().to_owned(), Arc::new(NoBackground), Arc::new([]));
         let (entered, ready) = tokio::sync::oneshot::channel();
         let (release, blocked) = std::sync::mpsc::channel();
         let blocker = tokio::task::spawn_blocking(move || {

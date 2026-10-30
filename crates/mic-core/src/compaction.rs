@@ -92,16 +92,15 @@ impl Exec<'_> {
             ..Default::default()
         };
         let images = self.window_images(&mut window).await?;
-        let channel_prompt = self.engine.channel_prompt(self.session);
-        let req = request::build(
-            self.session,
-            window,
-            images,
-            channel_prompt,
-            self.skills.as_deref(),
-            &self.tools,
+        let system = request::system_prompt(
             self.settings,
+            self.session,
+            self.engine.channel_prompt(self.session),
+            self.skills.as_deref(),
+            &self.engine.env.current(),
+            &window,
         );
+        let req = request::build(self.session, window, images, system, &self.tools);
         Ok((req, context, elided))
     }
 

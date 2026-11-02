@@ -42,6 +42,7 @@
 </div>
 <Composer
   onsend={send}
+  draftKey="new"
   placeholder="发送第一条消息开始新会话"
   autofocus
   blocked={persona === null || modelId === null}

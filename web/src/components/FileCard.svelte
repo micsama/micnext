@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import * as Dialog from "$lib/components/ui/dialog";
   import { fileIconUrl } from "../lib/file-icon.svelte";
   import { formatBytes } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import { theme } from "../state/theme.svelte";
+  import FilePreview from "./FilePreview.svelte";
 
   /** `load` 缺省为只展示（如待发送的附件）；有则可预览与下载，`onProgress` 收到已读字节数。 */
   let { name, size, title = name, load }: { name: string; size: number; title?: string; load?: (onProgress: (received: number) => void) => Promise<Blob> } = $props();
@@ -90,19 +90,5 @@
 {/if}
 
 {#if url && (kind === "image" || kind === "html")}
-  <Dialog.Root bind:open={previewing}>
-    <Dialog.Content showCloseButton={false} class="flex h-[90vh] w-[min(96vw,80rem)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
-      <div class="flex items-center gap-2 border-b px-4 py-2">
-        <Dialog.Title class="min-w-0 flex-1 truncate text-sm font-medium">{name}</Dialog.Title>
-        <button type="button" aria-label="下载" title="下载" class="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onclick={download}><Icon name="download" class="size-4" /></button>
-        <Dialog.Close aria-label="关闭" title="关闭" class="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Icon name="x" class="size-4" /></Dialog.Close>
-      </div>
-      {#if kind === "html"}
-        <!-- 不给 allow-same-origin：页面脚本可运行，但拿不到本站登录态。 -->
-        <iframe src={url} title={name} sandbox="allow-scripts" class="min-h-0 flex-1 bg-white"></iframe>
-      {:else}
-        <div class="grid min-h-0 flex-1 place-items-center overflow-auto bg-muted/40 p-4"><img src={url} alt={name} class="max-h-full max-w-full" /></div>
-      {/if}
-    </Dialog.Content>
-  </Dialog.Root>
+  <FilePreview bind:open={previewing} {name} {url} {kind} ondownload={download} />
 {/if}

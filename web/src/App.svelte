@@ -14,7 +14,6 @@
   import { auth } from "./state/auth.svelte";
   import { router } from "./state/route.svelte";
   import { SessionView } from "./state/session.svelte";
-  import { pushCenter } from "./state/pushes.svelte";
   import { settingsStore } from "./state/settings.svelte";
 
   let view = $state<SessionView | null>(null);
@@ -25,7 +24,6 @@
     const id = sessionId;
     if (!auth.token || id === null) return;
     const v = new SessionView(id);
-    v.reply = untrack(() => pushCenter.takeReply(id));
     view = v;
     return () => {
       v.close();

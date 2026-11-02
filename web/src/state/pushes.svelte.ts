@@ -1,7 +1,7 @@
 import { listPushes, markPushesRead } from "../api/client";
 import { SvelteSet } from "svelte/reactivity";
 import { type PushView } from "../api/pushes";
-import type { ComposerReply } from "./session.svelte";
+import { composerDrafts } from "./composer-drafts.svelte";
 
 /** 通知中心：登录后常驻，新推送到达即重拉首页。 */
 class PushCenter {
@@ -21,8 +21,6 @@ class PushCenter {
   arrivals = $state(0);
   /** 已见过的最大推送 id；首次加载前为 null，首屏历史不提醒。 */
   #seen: number | null = null;
-  /** 【去会话里问】带过去的引用，目标会话打开时取走。 */
-  #reply: { session: number; reply: ComposerReply } | null = null;
 
   #refresh: Promise<void> | null = null;
   #dirty = false;
@@ -116,17 +114,7 @@ class PushCenter {
 
   askIn(push: PushView): void {
     const firstLine = push.text.split("\n", 1)[0]!;
-    this.#reply = {
-      session: push.source_session_id,
-      reply: { label: `关于推送：${firstLine}`, quote: `关于你推送的消息：\n${push.text}` },
-    };
-  }
-
-  takeReply(session: number): ComposerReply | null {
-    if (this.#reply?.session !== session) return null;
-    const { reply } = this.#reply;
-    this.#reply = null;
-    return reply;
+    composerDrafts.get(push.source_session_id).reply = { label: `关于推送：${firstLine}`, quote: `关于你推送的消息：\n${push.text}` };
   }
 
 }

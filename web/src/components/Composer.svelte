@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, type Snippet } from "svelte";
+  import { onMount, untrack, type Snippet } from "svelte";
   import { listCommands, listSkills } from "../api/client";
   import type { CommandSpec, SkillList } from "../api/types";
   import type { InputPart } from "../api/types";
@@ -8,7 +8,8 @@
   import { theme } from "../state/theme.svelte";
   import Icon from "../lib/Icon.svelte";
   import { settingsStore } from "../state/settings.svelte";
-  import type { ComposerReply } from "../state/session.svelte";
+  import { ComposerDraft, composerDrafts, type Attachment } from "../state/composer-drafts.svelte";
+  import FilePreview from "./FilePreview.svelte";
 
   let {
     onsend,
@@ -23,7 +24,7 @@
     danger = false,
     onstop,
     stopping = false,
-    reply = $bindable(null),
+    draftKey,
     prediction = null,
   }: {
     onsend: (parts: InputPart[]) => Promise<void>;
@@ -46,32 +47,30 @@
     /** 有一轮在执行时传入：输入为空时发送键变为停止，Esc 同效。 */
     onstop?: () => Promise<void>;
     stopping?: boolean;
-    /** 回复引用；发送成功后清空。 */
-    reply?: ComposerReply | null;
+    /** 草稿归属；缺省时不保留（只读实例）。 */
+    draftKey?: number | "new";
     /** 预测的下一句：输入框为空时代替占位文字，Tab 或「填入」采用。 */
     prediction?: string | null;
   } = $props();
 
   const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
-  /** 支持的图片带预览 `url`，按图片发送；其余按文件发送。 */
-  type Attachment = { id: number; file: File; url: string | null };
-  let nextId = 0;
-
-  let text = $state("");
+  // 每个会话页各自挂载 Composer，draftKey 不会在实例内变化。
+  const draft = untrack(() => (draftKey === undefined ? new ComposerDraft() : composerDrafts.get(draftKey)));
+  let previewed = $state<Attachment | null>(null);
+  let previewOpen = $state(false);
   /** `/` 补全项：内置指令与 skill 同列；不合法的 skill 带原因，不可选。 */
   type Suggestion = { key: string; usage: string; description: string; skill: boolean; invalid: string | null };
   let commands = $state<CommandSpec[]>([]);
   let skills = $state<SkillList>({ skills: [], invalid: [] });
   let commandIndex = $state(0);
   onMount(() => { void listCommands().then((items) => { commands = items; }).catch((e: Error) => { error = e.message; }); });
-  function complete(s: Suggestion) { if (s.invalid !== null || !picking) return; text = `${s.usage.split(" ")[0]} `; commandIndex = 0; input.focus(); }
+  function complete(s: Suggestion) { if (s.invalid !== null || !picking) return; draft.text = `${s.usage.split(" ")[0]} `; commandIndex = 0; input.focus(); }
 
-  let attachments = $state<Attachment[]>([]);
-  const slash = $derived(text.trim().startsWith("/") && attachments.length === 0);
+  const slash = $derived(draft.text.trim().startsWith("/") && draft.attachments.length === 0);
   /** 输入的指令名；后面跟了参数时补全框只留匹配项作提示，不再响应选择键。 */
-  const head = $derived(text.trim().split(/\s/, 1)[0]!);
-  const picking = $derived(head === text.trim());
+  const head = $derived(draft.text.trim().split(/\s/, 1)[0]!);
+  const picking = $derived(head === draft.text.trim());
   // skill 可能随时被增删，每次打开补全时重新拉取。
   $effect(() => { if (slash) void listSkills().then((list) => { skills = list; }).catch((e: Error) => { error = e.message; }); });
   const entries = $derived<Suggestion[]>([
@@ -84,22 +83,21 @@
   let dragging = $state(false);
   let dragDepth = 0;
   const limits = $derived(settingsStore.inputLimits);
-  let posting = $state(false);
-  const acceptsFiles = $derived(!!limits && readonly === null && !posting);
+  const acceptsFiles = $derived(!!limits && readonly === null && !draft.sending);
   let error = $state<string | null>(null);
   let input: HTMLTextAreaElement;
   const MAX_HEIGHT_PX = 240;
 
-  const guess = $derived(readonly === null && text === "" && attachments.length === 0 ? prediction : null);
+  const guess = $derived(readonly === null && draft.text === "" && draft.attachments.length === 0 ? prediction : null);
   const coarse = window.matchMedia("(pointer: coarse)").matches;
   function accept() {
     if (guess === null) return;
-    text = guess;
+    draft.text = guess;
     input.focus();
   }
 
-  const canSend = $derived((text.trim() !== "" || attachments.length > 0) && !posting && !blocked);
-  const stopMode = $derived(!!onstop && text.trim() === "" && attachments.length === 0 && !posting);
+  const canSend = $derived((draft.text.trim() !== "" || draft.attachments.length > 0) && !draft.sending && !blocked);
+  const stopMode = $derived(!!onstop && draft.text.trim() === "" && draft.attachments.length === 0 && !draft.sending);
 
   async function stop() {
     if (!onstop || stopping) return;
@@ -109,23 +107,20 @@
   }
 
   $effect(() => {
-    void text;
+    void draft.text;
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, MAX_HEIGHT_PX)}px`;
   });
   $effect(() => {
-    if (autofocus || reply) input.focus();
+    if (autofocus || draft.reply) input.focus();
   });
-
-  const release = (a: Attachment) => a.url && URL.revokeObjectURL(a.url);
-  $effect(() => () => attachments.forEach(release));
 
   function attach(files: File[]) {
     if (!limits || !acceptsFiles || files.length === 0) return;
     error = null;
     for (const f of files) {
       const image = IMAGE_TYPES.includes(f.type);
-      const count = attachments.filter((a) => (a.url !== null) === image).length;
+      const count = draft.attachments.filter((a) => (a.url !== null) === image).length;
       if (image && f.size > limits.max_image_bytes) {
         error = `图片不能超过 ${limits.max_image_bytes / 1024 / 1024} MB`;
       } else if (image && count >= limits.max_images) {
@@ -135,15 +130,10 @@
       } else if (!image && count >= limits.max_files) {
         error = `一条消息最多带 ${limits.max_files} 个文件`;
       } else {
-        attachments.push({ id: nextId++, file: f, url: image ? URL.createObjectURL(f) : null });
+        draft.attach(f, image);
       }
     }
     input.focus();
-  }
-
-  function detach(i: number) {
-    release(attachments[i]!);
-    attachments.splice(i, 1);
   }
 
   async function toBase64(file: File): Promise<string> {
@@ -212,24 +202,22 @@
 
   async function send() {
     if (!canSend) return;
-    posting = true;
+    draft.sending = true;
     error = null;
     try {
       const parts: InputPart[] = [];
+      const { text, reply } = draft;
       if (text.trim() !== "") parts.push({ kind: "text", text: reply ? `${reply.quote.replace(/^/gm, "> ")}\n\n${text}` : text });
-      for (const a of attachments) {
+      for (const a of draft.attachments) {
         const base64 = await toBase64(a.file);
         parts.push(a.url ? { kind: "image", base64 } : { kind: "file", name: a.file.name, base64 });
       }
       await onsend(parts);
-      attachments.forEach(release);
-      attachments = [];
-      text = "";
-      reply = null;
+      draft.clear();
     } catch (e) {
       error = (e as Error).message;
     } finally {
-      posting = false;
+      draft.sending = false;
       queueMicrotask(() => input?.focus());
     }
   }
@@ -274,8 +262,8 @@
   function listItem(): { start: number; marker: RegExpExecArray } | null {
     const caret = input.selectionStart;
     if (caret !== input.selectionEnd) return null;
-    const start = text.lastIndexOf("\n", caret - 1) + 1;
-    const marker = LIST_ITEM.exec(text.slice(start, caret));
+    const start = draft.text.lastIndexOf("\n", caret - 1) + 1;
+    const marker = LIST_ITEM.exec(draft.text.slice(start, caret));
     return marker ? { start, marker } : null;
   }
 
@@ -287,8 +275,8 @@
       return;
     }
     const [whole, indent, bullet, num, delim, space] = item.marker;
-    const end = text.indexOf("\n", item.start);
-    if (text.slice(item.start + whole.length, end === -1 ? text.length : end).trim() === "") {
+    const end = draft.text.indexOf("\n", item.start);
+    if (draft.text.slice(item.start + whole.length, end === -1 ? draft.text.length : end).trim() === "") {
       input.setSelectionRange(item.start, item.start + whole.length);
       document.execCommand("delete");
       return;
@@ -322,12 +310,14 @@
         </div>
       </div>
     {/if}
-    {#if attachments.length > 0}
+    {#if draft.attachments.length > 0}
       <div class="flex gap-2 overflow-x-auto px-1 pt-1 pb-2" aria-label="待发送附件">
-        {#each attachments as a, i (a.id)}
+        {#each draft.attachments as a, i (a.id)}
           <div class="flex h-[72px] w-56 shrink-0 items-center gap-2.5 rounded-2xl border border-border/70 bg-muted/40 p-2">
             {#if a.url}
-              <img src={a.url} alt={a.file.name} class="size-12 shrink-0 rounded-lg object-cover" />
+              <button type="button" aria-label={`预览 ${a.file.name}`} title="预览" class="size-12 shrink-0 overflow-hidden rounded-lg focus-visible:outline-2 focus-visible:outline-ring" onclick={() => { previewed = a; previewOpen = true; }}>
+                <img src={a.url} alt={a.file.name} class="size-full object-cover" />
+              </button>
             {:else}
               <span class="grid size-12 shrink-0 place-items-center rounded-lg bg-background">
                 <img src={fileIconUrl(a.file.name, theme.dark)} alt="" class="size-7" />
@@ -339,8 +329,8 @@
             </div>
             <button
               type="button"
-              onclick={() => detach(i)}
-              disabled={posting}
+              onclick={() => draft.detach(i)}
+              disabled={draft.sending}
               aria-label={`移除 ${a.file.name}`}
               title="移除附件"
               class="grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-30">
@@ -350,11 +340,11 @@
         {/each}
       </div>
     {/if}
-    {#if reply}
+    {#if draft.reply}
       <div class="mx-2 mt-1 flex items-center gap-1.5 rounded-lg bg-muted py-1 pr-1 pl-2 text-xs text-muted-foreground">
         <Icon name="reply" class="size-3.5 shrink-0" />
-        <span class="min-w-0 flex-1 truncate" title={reply.quote}>{reply.label}</span>
-        <button type="button" aria-label="取消回复" title="取消回复" disabled={posting} class="grid size-5 shrink-0 place-items-center rounded hover:bg-accent hover:text-foreground" onclick={() => (reply = null)}><Icon name="x" class="size-3" /></button>
+        <span class="min-w-0 flex-1 truncate" title={draft.reply.quote}>{draft.reply.label}</span>
+        <button type="button" aria-label="取消回复" title="取消回复" disabled={draft.sending} class="grid size-5 shrink-0 place-items-center rounded hover:bg-accent hover:text-foreground" onclick={() => (draft.reply = null)}><Icon name="x" class="size-3" /></button>
       </div>
     {/if}
     {#if suggestions.length > 0}
@@ -369,13 +359,13 @@
     <div class="relative">
       <textarea
         bind:this={input}
-        bind:value={text}
+        bind:value={draft.text}
         {onkeydown}
         {onpaste}
         placeholder={readonly ?? (guess !== null ? `✦ ${guess}` : placeholder)}
-        disabled={posting || readonly !== null}
+        disabled={draft.sending || readonly !== null}
         rows="1"
-        class="block max-h-60 min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base outline-none placeholder:text-muted-foreground {posting ? 'opacity-60' : ''} {guess !== null && coarse ? 'pr-14' : ''}"
+        class="block max-h-60 min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base outline-none placeholder:text-muted-foreground {draft.sending ? 'opacity-60' : ''} {guess !== null && coarse ? 'pr-14' : ''}"
       ></textarea>
       {#if guess !== null && coarse}
         <button type="button" onclick={accept} class="absolute top-2 right-2 rounded-full bg-muted px-2.5 py-1 text-xs text-foreground hover:bg-accent">填入</button>
@@ -395,7 +385,7 @@
         <button
           type="button"
           onclick={() => picker.click()}
-          disabled={posting}
+          disabled={draft.sending}
           aria-label="添加图片或文件"
           title="添加图片或文件"
           class="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-foreground hover:bg-accent disabled:opacity-30">
@@ -422,9 +412,13 @@
           disabled={!canSend}
           aria-label="发送"
           class="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30">
-          <Icon name={posting ? "loader" : "arrowUp"} class={posting ? "size-5 animate-spin" : "size-5"} />
+          <Icon name={draft.sending ? "loader" : "arrowUp"} class={draft.sending ? "size-5 animate-spin" : "size-5"} />
         </button>
       {/if}
     </div>
   </div>
 </div>
+
+{#if previewed?.url}
+  <FilePreview bind:open={previewOpen} name={previewed.file.name} url={previewed.url} kind="image" />
+{/if}

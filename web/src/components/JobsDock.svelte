@@ -4,6 +4,7 @@
   import { ApiError, jobOutput, stopJob } from "../api/client";
   import { jobActive, type AgentJobView, type JobOutput, type JobView } from "../api/types";
   import type { SessionView } from "../state/session.svelte";
+  import { composerDrafts } from "../state/composer-drafts.svelte";
   import { confirm } from "../state/confirm.svelte";
   import { formatDuration } from "../lib/format";
   import { router } from "../state/route.svelte";
@@ -164,7 +165,7 @@
   }
 
   function replyTo(j: AgentJobView) {
-    view.reply = { label: `回复 agent #${j.id} · ${j.description}`, quote: `回复子 agent #${j.id}（${j.description}）` };
+    composerDrafts.get(view.id).reply = { label: `回复 agent #${j.id} · ${j.description}`, quote: `回复子 agent #${j.id}（${j.description}）` };
   }
 
   const fullJob = $derived(full === null ? undefined : view.jobs.find((j) => j.id === full));

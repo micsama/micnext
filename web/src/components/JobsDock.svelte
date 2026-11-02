@@ -240,7 +240,14 @@
       aria-expanded={view.jobsOpen}
       class="flex h-8 w-full items-center gap-2 rounded-[inherit] px-3 text-left text-xs text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       onclick={() => (view.jobsOpen = !view.jobsOpen)}>
-      <Icon name={running.length ? "loader" : freshBad ? "alert" : "layers"} class="size-3.5 shrink-0 {running.length ? 'animate-spin motion-reduce:animate-none' : ''} {freshBad ? 'text-destructive' : running.length ? 'text-primary' : ''}" />
+      {#if running.length}
+        <span class="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span class="absolute size-2 rounded-full bg-primary/50 animate-[ping_2.4s_cubic-bezier(0,0,0.2,1)_infinite] motion-reduce:hidden"></span>
+          <span class="size-2 rounded-full bg-primary"></span>
+        </span>
+      {:else}
+        <Icon name={freshBad ? "alert" : "layers"} class="size-3.5 shrink-0 {freshBad ? 'text-destructive' : ''}" />
+      {/if}
       <span class="shrink-0 font-medium {view.jobsOpen ? 'text-foreground' : ''}">后台任务</span>
       {#if current}<span class="rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none tabular-nums">{current}</span>{/if}
       {#if !view.jobsOpen && lead.length}

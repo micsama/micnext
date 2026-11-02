@@ -3,7 +3,9 @@
   import { listCommands, listSkills } from "../api/client";
   import type { CommandSpec, SkillList } from "../api/types";
   import type { InputPart } from "../api/types";
-  import FileCard from "./FileCard.svelte";
+  import { fileIconUrl } from "../lib/file-icon.svelte";
+  import { formatBytes } from "../lib/format";
+  import { theme } from "../state/theme.svelte";
   import Icon from "../lib/Icon.svelte";
   import { settingsStore } from "../state/settings.svelte";
   import type { ComposerReply } from "../state/session.svelte";
@@ -77,8 +79,10 @@
   const suggestions = $derived(slash ? entries.filter((e) => e.usage.startsWith(text.trim())) : []);
   let picker: HTMLInputElement;
   let dragging = $state(false);
+  let dragDepth = 0;
   const limits = $derived(settingsStore.inputLimits);
   let posting = $state(false);
+  const acceptsFiles = $derived(!!limits && readonly === null && !posting);
   let error = $state<string | null>(null);
   let input: HTMLTextAreaElement;
   const MAX_HEIGHT_PX = 240;
@@ -114,7 +118,7 @@
   $effect(() => () => attachments.forEach(release));
 
   function attach(files: File[]) {
-    if (!limits || readonly !== null || files.length === 0) return;
+    if (!limits || !acceptsFiles || files.length === 0) return;
     error = null;
     for (const f of files) {
       const image = IMAGE_TYPES.includes(f.type);
@@ -131,6 +135,7 @@
         attachments.push({ id: nextId++, file: f, url: image ? URL.createObjectURL(f) : null });
       }
     }
+    input.focus();
   }
 
   function detach(i: number) {
@@ -156,8 +161,51 @@
   function ondrop(e: DragEvent) {
     e.preventDefault();
     dragging = false;
+    dragDepth = 0;
     attach([...(e.dataTransfer?.files ?? [])]);
   }
+
+  onMount(() => {
+    const area = input.closest("main");
+    if (!area) return;
+    const isFile = (e: DragEvent) => e.dataTransfer?.types.includes("Files");
+    const enter = (e: DragEvent) => {
+      if (!isFile(e)) return;
+      e.preventDefault();
+      dragDepth += 1;
+      dragging = acceptsFiles;
+    };
+    const over = (e: DragEvent) => {
+      if (!isFile(e)) return;
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = acceptsFiles ? "copy" : "none";
+      dragging = acceptsFiles;
+    };
+    const leave = (e: DragEvent) => {
+      if (!isFile(e)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0 || !e.relatedTarget || (e.relatedTarget instanceof Node && !area.contains(e.relatedTarget))) reset();
+    };
+    const reset = () => { dragging = false; dragDepth = 0; };
+    const drop = (e: DragEvent) => {
+      if (!isFile(e)) return;
+      ondrop(e);
+    };
+    area.addEventListener("dragenter", enter);
+    area.addEventListener("dragover", over);
+    area.addEventListener("dragleave", leave);
+    area.addEventListener("drop", drop);
+    window.addEventListener("dragend", reset);
+    window.addEventListener("blur", reset);
+    return () => {
+      area.removeEventListener("dragenter", enter);
+      area.removeEventListener("dragover", over);
+      area.removeEventListener("dragleave", leave);
+      area.removeEventListener("drop", drop);
+      window.removeEventListener("dragend", reset);
+      window.removeEventListener("blur", reset);
+    };
+  });
 
   async function send() {
     if (!canSend) return;
@@ -257,33 +305,43 @@
   <div
     role="group"
     data-composer-input
-    ondragover={(e) => {
-      e.preventDefault();
-      dragging = true;
-    }}
-    ondragleave={() => (dragging = false)}
-    {ondrop}
     class="relative z-20 rounded-3xl border bg-card p-2 shadow-sm transition-colors {dragging
       ? 'border-primary'
       : danger
         ? 'border-destructive'
         : 'border-border focus-within:border-ring'}">
+    {#if dragging}
+      <div class="pointer-events-none absolute inset-1 z-30 flex items-center justify-center gap-3 rounded-[20px] border border-dashed border-primary/50 bg-card/95 px-4 text-primary">
+        <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10"><Icon name="download" class="size-5" /></span>
+        <div>
+          <p class="text-sm font-medium">松开以添加附件</p>
+          <p class="mt-0.5 text-xs text-muted-foreground">图片或文件 · 添加后可继续输入消息</p>
+        </div>
+      </div>
+    {/if}
     {#if attachments.length > 0}
-      <div class="flex flex-wrap gap-2 px-2 pt-2">
+      <div class="flex gap-2 overflow-x-auto px-1 pt-1 pb-2" aria-label="待发送附件">
         {#each attachments as a, i (a.id)}
-          <div class="relative">
+          <div class="flex h-[72px] w-56 shrink-0 items-center gap-2.5 rounded-2xl border border-border/70 bg-muted/40 p-2">
             {#if a.url}
-              <img src={a.url} alt={a.file.name} class="size-16 rounded-lg object-cover" />
+              <img src={a.url} alt={a.file.name} class="size-12 shrink-0 rounded-lg object-cover" />
             {:else}
-              <FileCard name={a.file.name} size={a.file.size} />
+              <span class="grid size-12 shrink-0 place-items-center rounded-lg bg-background">
+                <img src={fileIconUrl(a.file.name, theme.dark)} alt="" class="size-7" />
+              </span>
             {/if}
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-xs font-medium" title={a.file.name}>{a.file.name}</p>
+              <p class="mt-1 text-xs text-muted-foreground tabular-nums">{formatBytes(a.file.size)}</p>
+            </div>
             <button
               type="button"
               onclick={() => detach(i)}
               disabled={posting}
-              aria-label="移除附件"
-              class="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-foreground text-background">
-              <Icon name="x" class="size-3" />
+              aria-label={`移除 ${a.file.name}`}
+              title="移除附件"
+              class="grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-30">
+              <Icon name="x" class="size-3.5" />
             </button>
           </div>
         {/each}

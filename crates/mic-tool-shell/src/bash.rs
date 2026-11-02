@@ -40,7 +40,7 @@ pub(crate) struct Args {
     workdir: Option<String>,
     #[serde(default)]
     background: bool,
-    /// Background only. Rust regex (no lookaround or backreferences) matched per output line; a match arrives early as a job-notice. Each notice wakes you for a model turn, so match only lines worth acting on; for noisy output (samples, retries, routine errors) have the script aggregate and print a dedicated line such as `ALERT: ...`, and match that. At most one notice per 60 s and 10 per job; matches during the cooldown arrive together when it ends (latest 5 lines), matches after the last notice or the exit are not reported; the full log stays in `job_output`.
+    /// Background only. Rust regex (no lookaround or backreferences) matched per output line; a match arrives early as a job-notice. Each notice wakes you for a model turn, so match only lines worth acting on; for noisy output (samples, retries, routine errors) have the script aggregate and print a dedicated line such as `ALERT: ...`, and match that. The exit already arrives as a completion, so never match end-of-run or summary lines. At most one notice per 60 s and 10 per job; matches during the cooldown arrive together when it ends (latest 5 lines), matches after the last notice or the exit are not reported; the full log stays in `job_output`.
     notify_pattern: Option<String>,
 }
 

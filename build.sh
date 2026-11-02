@@ -56,6 +56,9 @@ case "$mode" in
         [ "$1" = -- ] || { echo '数据库路径后需要 --' >&2; exit 1; }
         shift
         python3 scripts/db/convert.py --db "$db" --apply
+        # 服务进程的 PATH 常缺用户目录（如 uv 装在 ~/.local/bin）：重启时取登录 shell 的 PATH，只带标记行防 profile 输出混入。
+        login_path=$(sh -lc 'printf "\n__MICNEXT_PATH__=%s\n" "$PATH"' </dev/null 2>/dev/null | sed -n 's/^__MICNEXT_PATH__=//p') || true
+        if [ -n "$login_path" ]; then PATH=$login_path; export PATH; fi
         cd "${MICNEXT_RUN_CWD-$repo_dir}"
         unset MICNEXT_RUN_CWD
         exec "$repo_dir/target/$profile/micnext" "$@"

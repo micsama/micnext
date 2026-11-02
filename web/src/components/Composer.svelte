@@ -65,10 +65,13 @@
   let skills = $state<SkillList>({ skills: [], invalid: [] });
   let commandIndex = $state(0);
   onMount(() => { void listCommands().then((items) => { commands = items; }).catch((e: Error) => { error = e.message; }); });
-  function complete(s: Suggestion) { if (s.invalid !== null) return; text = `${s.usage.split(" ")[0]} `; commandIndex = 0; input.focus(); }
+  function complete(s: Suggestion) { if (s.invalid !== null || !picking) return; text = `${s.usage.split(" ")[0]} `; commandIndex = 0; input.focus(); }
 
   let attachments = $state<Attachment[]>([]);
-  const slash = $derived(text.trim().startsWith("/") && !/\s/.test(text.trim()) && attachments.length === 0);
+  const slash = $derived(text.trim().startsWith("/") && attachments.length === 0);
+  /** 输入的指令名；后面跟了参数时补全框只留匹配项作提示，不再响应选择键。 */
+  const head = $derived(text.trim().split(/\s/, 1)[0]!);
+  const picking = $derived(head === text.trim());
   // skill 可能随时被增删，每次打开补全时重新拉取。
   $effect(() => { if (slash) void listSkills().then((list) => { skills = list; }).catch((e: Error) => { error = e.message; }); });
   const entries = $derived<Suggestion[]>([
@@ -76,7 +79,7 @@
     ...skills.skills.map((s) => ({ key: s.name, usage: `/${s.name}`, description: s.description, skill: true, invalid: null })),
     ...skills.invalid.map((s) => ({ key: s.dir, usage: `/${s.dir}`, description: "不可用", skill: true, invalid: s.reason })),
   ]);
-  const suggestions = $derived(slash ? entries.filter((e) => e.usage.startsWith(text.trim())) : []);
+  const suggestions = $derived(!slash ? [] : picking ? entries.filter((e) => e.usage.startsWith(head)) : entries.filter((e) => e.usage.split(" ")[0] === head));
   let picker: HTMLInputElement;
   let dragging = $state(false);
   let dragDepth = 0;
@@ -232,7 +235,7 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (suggestions.length > 0 && !e.isComposing) {
+    if (picking && suggestions.length > 0 && !e.isComposing) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         commandIndex = (commandIndex + (e.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length;

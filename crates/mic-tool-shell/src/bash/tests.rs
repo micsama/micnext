@@ -149,9 +149,9 @@ async fn background_notifies_matching_lines_before_exit() {
     )
     .await;
     assert_eq!(marker(outcome), "[exit code: 0]");
-    // 第二次命中落在冷却内被丢弃。
+    // 第二次命中落在冷却内，进程已退出，由完成结果接替。
     assert_eq!(
         sink.notices(),
-        ["stderr matched notify_pattern (notice 1/10):\nlistening on :8080"]
+        ["notify_pattern matched (notice 1/10):\nstderr: listening on :8080"]
     );
 }

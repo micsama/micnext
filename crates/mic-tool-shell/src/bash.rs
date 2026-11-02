@@ -13,6 +13,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
+use tokio::time::Instant;
 
 use crate::limits::{BACKGROUND_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, MAX_OUTPUT_BYTES, MAX_TIMEOUT_MS};
 use watch::{Stream, Watch};
@@ -39,7 +40,7 @@ pub(crate) struct Args {
     workdir: Option<String>,
     #[serde(default)]
     background: bool,
-    /// Background only. Rust regex (no lookaround or backreferences) matched per output line; a match arrives early as a job-notice. At most one notice per 10 s and 10 per job; matches during the cooldown are dropped, so no notice does not mean no match.
+    /// Background only. Rust regex (no lookaround or backreferences) matched per output line; a match arrives early as a job-notice. Each notice wakes you for a model turn, so match only lines worth acting on; for noisy output (samples, retries, routine errors) have the script aggregate and print a dedicated line such as `ALERT: ...`, and match that. At most one notice per 60 s and 10 per job; matches during the cooldown arrive together when it ends (latest 5 lines), matches after the last notice or the exit are not reported; the full log stays in `job_output`.
     notify_pattern: Option<String>,
 }
 
@@ -268,7 +269,7 @@ fn failed(e: ToolError) -> ExecOutcome {
     }
 }
 
-/// 读错误视同 EOF，同前台。先写日志再匹配；通知落盘后才继续读。
+/// 读错误视同 EOF，同前台。先写日志再匹配；通知落盘后才继续读。退出时尚未合发的命中由完成结果接替。
 async fn pump(
     mut stdout: ChildStdout,
     mut stderr: ChildStderr,
@@ -278,9 +279,16 @@ async fn pump(
     let (mut out_buf, mut err_buf) = ([0u8; 8192], [0u8; 8192]);
     let (mut out_open, mut err_open) = (true, true);
     while out_open || err_open {
+        let due = watch.as_ref().and_then(Watch::due);
         let (stream, read) = tokio::select! {
             r = stdout.read(&mut out_buf), if out_open => (Stream::Stdout, r),
             r = stderr.read(&mut err_buf), if err_open => (Stream::Stderr, r),
+            () = tokio::time::sleep_until(due.unwrap_or_else(Instant::now)), if due.is_some() => {
+                if let Some(text) = watch.as_mut().and_then(Watch::flush) {
+                    sink.notify(&text).await?;
+                }
+                continue;
+            }
         };
         let (buf, open) = match stream {
             Stream::Stdout => (&out_buf, &mut out_open),

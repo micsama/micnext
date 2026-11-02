@@ -1,9 +1,11 @@
-//! 后台 `notify_pattern`：stdout、stderr 各自逐行匹配，命中按冷却与次数上限转成中途通知。
+//! 后台 `notify_pattern`：stdout、stderr 各自逐行匹配；首个命中立即通知，冷却内的命中攒到冷却结束合成一条。
+
+use std::collections::VecDeque;
 
 use regex::Regex;
 use tokio::time::Instant;
 
-use crate::limits::{NOTIFY_COOLDOWN, NOTIFY_LINE_BYTES, NOTIFY_MAX};
+use crate::limits::{NOTIFY_BATCH_LINES, NOTIFY_COOLDOWN, NOTIFY_LINE_BYTES, NOTIFY_MAX};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Stream {
@@ -26,6 +28,14 @@ pub(super) struct Watch {
     stderr: Lines,
     sent: u32,
     last: Option<Instant>,
+    /// 冷却内攒下的命中：只留最近 [`NOTIFY_BATCH_LINES`] 行，`held` 计总数。
+    pending: VecDeque<Hit>,
+    held: usize,
+}
+
+struct Hit {
+    stream: Stream,
+    line: Line,
 }
 
 impl Watch {
@@ -36,10 +46,12 @@ impl Watch {
             stderr: Lines::default(),
             sent: 0,
             last: None,
+            pending: VecDeque::new(),
+            held: 0,
         }
     }
 
-    /// 喂入一块读到的输出，返回要发出的通知。同一时刻至多一条能越过冷却。
+    /// 喂入一块读到的输出，返回可立即发出的通知；其余命中留待 [`Self::flush`]。
     pub(super) fn feed(&mut self, stream: Stream, bytes: &[u8]) -> Option<String> {
         let mut notice = None;
         let lines = self.lines(stream);
@@ -56,6 +68,22 @@ impl Watch {
         self.check(stream, line)
     }
 
+    /// 攒有命中时，冷却结束的时刻。
+    pub(super) fn due(&self) -> Option<Instant> {
+        let last = self.last?;
+        (!self.pending.is_empty()).then(|| last + NOTIFY_COOLDOWN)
+    }
+
+    /// 冷却结束：把攒下的命中合成一条通知。
+    pub(super) fn flush(&mut self) -> Option<String> {
+        if self.pending.is_empty() {
+            return None;
+        }
+        let held = std::mem::take(&mut self.held);
+        let hits: Vec<Hit> = self.pending.drain(..).collect();
+        Some(self.emit(held, hits))
+    }
+
     fn lines(&mut self, stream: Stream) -> &mut Lines {
         match stream {
             Stream::Stdout => &mut self.stdout,
@@ -67,25 +95,48 @@ impl Watch {
         if self.sent >= NOTIFY_MAX || !self.pattern.is_match(&line.text) {
             return None;
         }
-        let now = Instant::now();
-        if self.last.is_some_and(|at| now - at < NOTIFY_COOLDOWN) {
+        let hit = Hit { stream, line };
+        let cooling = self
+            .last
+            .is_some_and(|at| Instant::now() - at < NOTIFY_COOLDOWN);
+        if cooling || !self.pending.is_empty() {
+            if self.pending.len() == NOTIFY_BATCH_LINES {
+                self.pending.pop_front();
+            }
+            self.pending.push_back(hit);
+            self.held += 1;
             return None;
         }
-        self.last = Some(now);
+        Some(self.emit(1, vec![hit]))
+    }
+
+    fn emit(&mut self, held: usize, hits: Vec<Hit>) -> String {
+        self.last = Some(Instant::now());
         self.sent += 1;
-        let mut notes = vec![format!("notice {}/{NOTIFY_MAX}", self.sent)];
-        if line.fragment {
-            notes.push(format!("a {NOTIFY_LINE_BYTES}-byte piece of a long line"));
-        }
+        let mut head = if held == 1 {
+            "notify_pattern matched".to_owned()
+        } else if held == hits.len() {
+            format!("notify_pattern matched {held} lines during cooldown")
+        } else {
+            format!(
+                "notify_pattern matched {held} lines during cooldown, latest {} shown",
+                hits.len()
+            )
+        };
+        head.push_str(&format!(" (notice {}/{NOTIFY_MAX}", self.sent));
         if self.sent == NOTIFY_MAX {
-            notes.push("further matches will not be reported".to_owned());
+            head.push_str("; further matches will not be reported");
         }
-        Some(format!(
-            "{} matched notify_pattern ({}):\n{}",
-            stream.as_str(),
-            notes.join("; "),
-            line.text
-        ))
+        head.push_str("):");
+        for Hit { stream, line } in hits {
+            let piece = if line.fragment {
+                format!(" ({NOTIFY_LINE_BYTES}-byte piece of a long line)")
+            } else {
+                String::new()
+            };
+            head.push_str(&format!("\n{}{piece}: {}", stream.as_str(), line.text));
+        }
+        head
     }
 }
 

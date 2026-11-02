@@ -26,6 +26,7 @@
   let { activeSession, executingRun }: { activeSession: SessionItem | null; executingRun: number | null } = $props();
 
   const groups = $derived(groupSessions(webSessions.items));
+  let earlierOpen = $state(false);
   // 分组标题不参与交替，所有已展示的会话共用一个顺序。
   const stripeIndex = $derived(new Map([
     ...pinnedSessions.items,
@@ -339,15 +340,26 @@
       {/each}
     {/if}
     {#each groups as group (group.label)}
-      <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">{group.label}</p>
-      {#each group.items as s (s.id)}
-        {@render entry(s)}
-      {/each}
+      {#if group.label === "更早"}
+        <button type="button" aria-expanded={earlierOpen} onclick={() => (earlierOpen = !earlierOpen)} class="mt-2 flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
+          <Icon name="chevron" class="size-3 transition-transform {earlierOpen ? 'rotate-90' : ''}" />
+          <span>更早</span>
+        </button>
+      {:else}
+        <p class="px-3 pt-3 pb-1 text-xs text-muted-foreground">{group.label}</p>
+      {/if}
+      {#if group.label !== "更早" || earlierOpen}
+        {#each group.items as s (s.id)}
+          {@render entry(s)}
+        {/each}
+      {/if}
     {/each}
     {#if webSessions.loaded && webSessions.items.length === 0 && pinnedSessions.items.length === 0}
       <p class="px-3 pt-3 text-xs text-muted-foreground">还没有会话</p>
     {/if}
-    {@render list(webSessions)}
+    {#if earlierOpen || !groups.some((group) => group.label === "更早")}
+      {@render list(webSessions)}
+    {/if}
 
     {#each otherSessions.filter((o) => o.items.length > 0 || o.error) as other (other.channel)}
       <p class="mt-3 border-t border-border px-3 pt-3 pb-1 text-xs text-muted-foreground">{channelName(other.channel)}</p>

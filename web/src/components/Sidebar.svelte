@@ -205,9 +205,15 @@
   {@const running = s.running || (activeId === id && executingRun !== null)}
   {@const unread = s.unread && !running}
   {@const shown = s.tag_ids.filter((t) => t !== tags.filter).flatMap((t) => tags.byId(t) ?? [])}
-  <div class="session-entry group relative flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={(stripeIndex.get(id) ?? 0) % 2 === 1} data-selected={activeId === id} data-state={running ? "running" : unread ? "unread" : undefined}>
-    <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && "md:opacity-0"]}>
-      <PinIcon class="size-3" />
+  <div class="session-entry group relative flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={(stripeIndex.get(id) ?? 0) % 2 === 1} data-selected={activeId === id} data-state={running ? "running" : undefined}>
+    <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && !unread && "md:opacity-0"]}>
+      {#if unread}
+        <!-- 有新回复时占用置顶位显示消息点，悬停仍可置顶。 -->
+        <span class="size-2 rounded-full bg-primary group-hover:hidden group-focus-within:hidden"></span>
+        <PinIcon class="hidden size-3 group-hover:block group-focus-within:block" />
+      {:else}
+        <PinIcon class="size-3" />
+      {/if}
     </button>
     <a
       href="/s/{id}"
@@ -419,9 +425,6 @@
   .session-entry[data-selected="true"] {
     box-shadow: inset 0 0 0 2px var(--primary);
     background-color: color-mix(in srgb, var(--primary) 10%, var(--muted));
-  }
-  .session-entry[data-state="unread"] {
-    border-color: color-mix(in srgb, var(--primary) 32%, transparent);
   }
   /* 运行中：一段主色光沿边框绕行，行内不占位。 */
   .session-entry[data-state="running"] {

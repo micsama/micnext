@@ -45,7 +45,7 @@ pub use compaction::Occupancy;
 pub use context_usage::{ContextBreakdown, ContextKind, ContextPart};
 pub use env_vars::EnvVarView;
 pub use error::{AssembleError, KernelError, RunError, WorkdirError};
-pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged};
+pub use event::{EventReceiver, KernelEvent, KernelEventKind, Lagged, ReplyDraft};
 pub use input::{IncomingPart, InputError};
 pub use jobs::{JobAccessError, JobOutput, JobView, StopJobOutcome};
 pub use kernel::{

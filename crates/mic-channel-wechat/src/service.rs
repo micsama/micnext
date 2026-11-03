@@ -390,7 +390,7 @@ async fn start_connection(
         ChannelConnection::Connected => {}
     }
     let state = account::state(&kernel, &account.credentials.user_id).await?;
-    let (events, cut) = kernel.subscribe_from_now(account.view.session_id).await?;
+    let (events, cut, _) = kernel.subscribe_from_now(account.view.session_id).await?;
     let account = Arc::new(account);
     let connection_stop = stop.child_token();
     let connection = Connection {

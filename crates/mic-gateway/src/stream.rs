@@ -6,8 +6,8 @@ use axum::extract::{Path, Query, State};
 use axum::response::sse::{Event, Sse};
 use axum::Json;
 use futures_util::stream::Stream;
-use mic_core::{EventReceiver, KernelEventKind};
-use mic_message::{Message, MessageBody, MessageId, SessionId};
+use mic_core::{EventReceiver, KernelEventKind, ReplyDraft};
+use mic_message::{Message, MessageId, SessionId};
 use mic_store::Resumable;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -36,10 +36,15 @@ pub(crate) async fn stream(
     app.tickets
         .redeem(q.ticket.as_deref(), StreamTarget::Session(id))?;
     let session = session(&app, Ok(Path(id))).await?;
-    // 先订阅再回放：回放期间发生的事件留在订阅里，交接时按 id 去重。
-    let events = app.kernel.subscribe();
+    let (events, cut, draft) = app.kernel.subscribe_from_now(session.id).await?;
     let (tx, rx) = mpsc::channel(STREAM_BUFFER);
-    tokio::spawn(feed(app, session.id, q.after.map(MessageId), events, tx));
+    tokio::spawn(feed(
+        app,
+        session.id,
+        q.after.map(MessageId),
+        Cut { events, cut, draft },
+        tx,
+    ));
     Ok(sse::respond(rx))
 }
 
@@ -90,24 +95,45 @@ pub(crate) async fn page(
     }))
 }
 
+/// 订阅时刻的交接：切点及之前的消息由回放给出，之后的事件全在 `events` 里；`draft` 是那一刻的草稿。
+struct Cut {
+    events: EventReceiver,
+    cut: Option<MessageId>,
+    draft: Option<ReplyDraft>,
+}
+
 /// 客户端断开（发送失败）、订阅落后、进程停止或出错时返回，流随之结束。
 async fn feed(
     app: Arc<App>,
     session_id: SessionId,
     after: Option<MessageId>,
-    mut events: EventReceiver,
+    Cut {
+        mut events,
+        cut,
+        draft,
+    }: Cut,
     tx: mpsc::Sender<Event>,
 ) {
-    // 首次只回放最近一页并告知是否还有更早的，更早的经 `page` 取；重连从 `after` 续传。
-    let replayed = match after {
-        Some(_) => app
+    // 首次只回放切点前最近一页并告知是否还有更早的，更早的经 `page` 取；重连从 `after` 续传到切点。
+    let replayed = match (cut, after) {
+        (None, _) => Ok((Vec::new(), after.is_none().then_some(false))),
+        (Some(cut), Some(_)) => {
+            app.kernel
+                .messages_after(session_id, after)
+                .await
+                .map(|mut messages| {
+                    messages.retain(|m| m.id <= cut);
+                    (messages, None)
+                })
+        }
+        (Some(cut), None) => app
             .kernel
-            .messages_after(session_id, after)
-            .await
-            .map(|messages| (messages, None)),
-        None => app
-            .kernel
-            .messages_page(session_id, None, PAGE_ROUNDS, PAGE_MESSAGES)
+            .messages_page(
+                session_id,
+                Some(MessageId(cut.0 + 1)),
+                PAGE_ROUNDS,
+                PAGE_MESSAGES,
+            )
             .await
             .map(|page| (page.messages, Some(page.has_earlier))),
     };
@@ -115,9 +141,7 @@ async fn feed(
         Ok(replayed) => replayed,
         Err(e) => return tracing::error!(error = %crate::error::chain(&e), "gateway replay failed"),
     };
-    let mut last = after;
     for message in replayed {
-        last = Some(message.id);
         if !send(&app, &tx, message_event(&message)).await {
             return;
         }
@@ -141,13 +165,16 @@ async fn feed(
             run_id: p.run_id.0,
             text: p.text,
         }),
+        draft: draft.map(|d| DraftView {
+            context_at: d.context_at,
+            reasoning: d.reasoning,
+            text: d.text,
+        }),
     };
     if !send(&app, &tx, json_event("ready", &ready)).await {
         return;
     }
 
-    // 已转发增量、尚未以 `Reply` 或 `draft_discarded` 结束的草稿。
-    let mut draft_open = false;
     loop {
         let event = tokio::select! {
             () = app.stop.cancelled() => return,
@@ -166,37 +193,16 @@ async fn feed(
             KernelEventKind::PushCreated { .. }
             | KernelEventKind::PushDeliveryChanged { .. }
             | KernelEventKind::ScheduleChanged { .. } => continue,
-            KernelEventKind::MessageAppended(message) => {
-                let is_reply = matches!(message.body, MessageBody::Reply { .. });
-                if last.is_some_and(|n| message.id <= n) {
-                    // 这份草稿已作为稳定消息回放过，收掉接入后转发的那部分。
-                    if !(is_reply && draft_open) {
-                        continue;
-                    }
-                    draft_open = false;
-                    json_event("draft_discarded", &Empty {})
-                } else {
-                    if is_reply {
-                        draft_open = false;
-                    }
-                    message_event(&message)
-                }
+            KernelEventKind::MessageAppended(message) => message_event(&message),
+            KernelEventKind::DraftStarted { context_at } => {
+                json_event("draft_started", &DraftStarted { context_at })
             }
             KernelEventKind::ModelRetrying { attempt, delay_ms } => {
                 json_event("model_retry", &ModelRetry { attempt, delay_ms })
             }
-            KernelEventKind::TextDelta(text) => {
-                draft_open = true;
-                json_event("text_delta", &Delta { text })
-            }
-            KernelEventKind::ReasoningDelta(text) => {
-                draft_open = true;
-                json_event("reasoning_delta", &Delta { text })
-            }
-            KernelEventKind::DraftDiscarded => {
-                draft_open = false;
-                json_event("draft_discarded", &Empty {})
-            }
+            KernelEventKind::TextDelta(text) => json_event("text_delta", &Delta { text }),
+            KernelEventKind::ReasoningDelta(text) => json_event("reasoning_delta", &Delta { text }),
+            KernelEventKind::DraftDiscarded => json_event("draft_discarded", &Empty {}),
             KernelEventKind::InputsClaimed { run_id, inputs } => json_event(
                 "inputs_claimed",
                 &InputsClaimed {
@@ -248,6 +254,20 @@ struct Ready {
     resume: Option<ResumeView>,
     /// 最新 run 的输入预测。
     prediction: Option<PredictionView>,
+    /// 切点时正在生成的回复，之后的增量接着到达。
+    draft: Option<DraftView>,
+}
+
+#[derive(Serialize)]
+struct DraftView {
+    context_at: i64,
+    reasoning: String,
+    text: String,
+}
+
+#[derive(Serialize)]
+struct DraftStarted {
+    context_at: i64,
 }
 
 #[derive(Serialize)]

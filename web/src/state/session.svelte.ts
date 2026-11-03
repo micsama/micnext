@@ -5,7 +5,8 @@ import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
 import { sessionsSync } from "./sessions.svelte";
 
-export type Draft = { reasoning: string; text: string; afterId: number };
+/** 正在生成的回复；排在 `created_at <= at` 的消息之后，与落盘后的 `Reply` 同位。 */
+export type Draft = { reasoning: string; text: string; at: number };
 
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 10_000;
@@ -262,7 +263,7 @@ export class SessionView {
     let delay = RETRY_MIN_MS;
     let failures = 0;
     while (!signal.aborted) {
-      // 接入后只收到剩余增量，保留旧半截会拼出缺段的文字。
+      // 草稿以 `ready` 的快照为准。
       this.draft = null;
       let ready = false;
       try {
@@ -318,11 +319,14 @@ export class SessionView {
         if (e.data.body.kind === "UserInput") this.notice = null;
         if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") { this.#queued.add(e.data.id); this.resume = null; this.prediction = null; }
         break;
+      case "draft_started":
+        this.draft = { reasoning: "", text: "", at: e.data.context_at };
+        break;
       case "text_delta":
-        (this.draft ??= { reasoning: "", text: "", afterId: this.lastId ?? 0 }).text += e.data.text;
+        if (this.draft) this.draft.text += e.data.text;
         break;
       case "reasoning_delta":
-        (this.draft ??= { reasoning: "", text: "", afterId: this.lastId ?? 0 }).reasoning += e.data.text;
+        if (this.draft) this.draft.reasoning += e.data.text;
         break;
       case "model_retry":
         this.modelRetry = { attempt: e.data.attempt, until: Date.now() + e.data.delay_ms };
@@ -333,6 +337,7 @@ export class SessionView {
       case "ready":
         this.ready = true;
         this.reconnecting = false;
+        this.draft = e.data.draft && { reasoning: e.data.draft.reasoning, text: e.data.draft.text, at: e.data.draft.context_at };
         if (e.data.has_earlier !== null) this.earlier = e.data.has_earlier ? "idle" : "none";
         this.executingRun = e.data.executing_run;
         this.resume = e.data.resume;

@@ -278,11 +278,15 @@ export type StreamEvent =
   | { event: "text_delta"; data: { text: string } }
   | { event: "reasoning_delta"; data: { text: string } }
   | { event: "model_retry"; data: { attempt: number; delay_ms: number } }
+  | { event: "draft_started"; data: { context_at: number } }
   | { event: "draft_discarded"; data: Record<string, never> }
   | { event: "inputs_claimed"; data: { run_id: number; inputs: number[] } }
   | { event: "run_finished"; data: { run_id: number; state: RunState; resume: Resumable | null } }
   | { event: "prediction"; data: Prediction }
-  | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null; resume: Resumable | null; prediction: Prediction | null } };
+  | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null; resume: Resumable | null; prediction: Prediction | null; draft: ReplyDraft | null } };
+
+/** 订阅时正在生成的回复；`context_at` 即落盘后 `Reply` 的 `created_at`。 */
+export type ReplyDraft = { context_at: number; reasoning: string; text: string };
 
 /** 最新 run 的输入预测；会话开始新 run 即作废。 */
 export type Prediction = { run_id: number; text: string };
@@ -489,6 +493,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
   text_delta: delta,
   reasoning_delta: delta,
   model_retry: obj({ attempt: num, delay_ms: num }),
+  draft_started: obj({ context_at: num }),
   draft_discarded: obj({}),
   session_changed: obj({}),
   jobs_changed: obj({}),
@@ -499,7 +504,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
     resume: nullable(resumable),
   }),
   prediction,
-  ready: obj({ executing_run: nullable(num), queued: arr(num), has_earlier: nullable(bool), resume: nullable(resumable), prediction: nullable(prediction) }),
+  ready: obj({ executing_run: nullable(num), queued: arr(num), has_earlier: nullable(bool), resume: nullable(resumable), prediction: nullable(prediction), draft: nullable(obj({ context_at: num, reasoning: str, text: str })) }),
 };
 
 export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入限额").input_limits;

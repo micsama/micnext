@@ -28,6 +28,8 @@
   /** 同属 agent 一侧的连续条目收紧间距。 */
   const AGENT_SIDE = new Set<MessageBody["kind"]>(["Reply", "ToolResult", "Completion", "JobNotice", "Attachment"]);
   const startedAt = $derived(view.messages[0]?.created_at);
+  /** 有内容才显示；在此之前由运行指示占位。 */
+  const draft = $derived(view.draft && (view.draft.text || view.draft.reasoning) ? view.draft : null);
   // `loaded`：组首条 id → 在这组之前刚加载进来的条数，交界落在被跳过或并入的消息上时顺延到下一组。
   const grouped = $derived.by(() => {
     const items: [Message, ...Message[]][] = [];
@@ -42,7 +44,7 @@
       if (echo || hidden(message.body)) continue;
       const previous = items.at(-1);
       if (message.body.kind === "Notification" && previous?.[0].body.kind === "Notification" &&
-          (!view.draft || (message.id > view.draft.afterId) === (previous[0].id > view.draft.afterId))) {
+          (!draft || (message.created_at > draft.at) === (previous[0].created_at > draft.at))) {
         previous.push(message);
       } else {
         items.push([message]);
@@ -52,7 +54,7 @@
     }
     return { items, loaded };
   });
-  const draftIndex = $derived(view.draft ? grouped.items.findIndex((messages) => messages.some((m) => m.id > view.draft!.afterId)) : -1);
+  const draftIndex = $derived(draft ? grouped.items.findIndex((messages) => messages.some((m) => m.created_at > draft.at)) : -1);
   // 滚动容器 column-reverse：scrollTop 从底部起算（0 为底，向上为负）。贴底时内容变高仍停在底部，
   // 上方插入旧页、工具结果归并、图片加载都不移动视口，无需写 scrollTop——惯性滚动中写它会被 Safari 打断。
   // 只有不贴底时下方变高（实时消息）才把视口内首条消息放回原位。
@@ -216,8 +218,8 @@
         {/if}
       </div>
       {#each grouped.items as messages, i (messages[0].id)}
-        {#if view.draft && i === draftIndex}
-          <div><DraftView draft={view.draft} /></div>
+        {#if draft && i === draftIndex}
+          <div><DraftView {draft} /></div>
         {/if}
         {@const loaded = grouped.loaded.get(messages[0].id)}
         {@const prev = grouped.items[i - 1]?.[0].body.kind}
@@ -244,10 +246,10 @@
           </div>
         {/if}
       {/each}
-      {#if view.draft && draftIndex === -1}
-        <div><DraftView draft={view.draft} /></div>
+      {#if draft && draftIndex === -1}
+        <div><DraftView {draft} /></div>
       {/if}
-      {#if running && !view.draft}
+      {#if running && !draft}
         <RunIndicator {view} />
       {/if}
       {#if view.contextError}<p class="text-sm text-destructive">上下文状态加载失败：{view.contextError}</p>{/if}

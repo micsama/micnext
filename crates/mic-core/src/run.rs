@@ -537,6 +537,7 @@ impl Exec<'_> {
         loop {
             let mut facts = Facts::start();
             facts.context_at = context_at;
+            self.emit(KernelEventKind::DraftStarted { context_at });
             let mut partial = String::new();
             let streamed = tokio::select! {
                 result = stream_attempt(provider, req.clone(), &mut facts, |event| {

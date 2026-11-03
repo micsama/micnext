@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 
 use crate::compaction::{self, Occupancy};
 use crate::context_usage::{self, ContextBreakdown};
-use crate::event::{EventReceiver, Events};
+use crate::event::{EventReceiver, Events, ReplyDraft};
 use crate::input::{validate, IncomingPart};
 use crate::jobs::{JobOutput, JobView, StopJobOutcome};
 use crate::limits::JOB_READ_DEFAULT;
@@ -1382,18 +1382,19 @@ impl Kernel {
         self.events.subscribe()
     }
 
-    /// 订阅与历史切点同受发布锁保护；切点之后的稳定消息全部留在接收器中。
+    /// 订阅、草稿快照与历史切点同受发布锁保护：切点之后的稳定消息与快照之后的草稿事件全部留在接收器中，
+    /// 草稿的 `Reply` 要么在切点内、要么在接收器中。
     pub async fn subscribe_from_now(
         &self,
         session: SessionId,
-    ) -> Result<(EventReceiver, Option<MessageId>), KernelError> {
+    ) -> Result<(EventReceiver, Option<MessageId>, Option<ReplyDraft>), KernelError> {
         let _publish = self.events.publisher().await;
         if self.store.session(session).await?.is_none() {
             return Err(KernelError::SessionNotFound);
         }
-        let receiver = self.events.subscribe();
+        let (receiver, draft) = self.events.subscribe_with_draft(session);
         let latest = self.store.last_message_id(session).await?;
-        Ok((receiver, latest))
+        Ok((receiver, latest, draft))
     }
 
     /// 只许访问本模块 `{name}_` 前缀的表；由模块单元测试把关。

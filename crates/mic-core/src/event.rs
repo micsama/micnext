@@ -1,5 +1,6 @@
-use mic_message::{Message, MessageId, SessionId};
+use mic_message::{Message, MessageBody, MessageId, SessionId};
 use mic_store::{PushId, Resumable, RunId, RunState, ScheduleId};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
@@ -35,6 +36,10 @@ pub enum KernelEventKind {
     ModelRetrying {
         attempt: u32,
         delay_ms: u64,
+    },
+    /// 一次调用尝试开始，新草稿取代旧的；`context_at` 即成功时 `Reply` 的 `created_at`。
+    DraftStarted {
+        context_at: i64,
     },
     /// 当前草稿的正文增量。
     TextDelta(String),
@@ -89,11 +94,21 @@ impl EventReceiver {
 #[error("事件订阅落后，丢失了 {0} 条事件")]
 pub struct Lagged(pub u64);
 
+/// 正在生成、尚未落盘的回复，由草稿事件折叠而来。
+#[derive(Debug, Clone)]
+pub struct ReplyDraft {
+    pub context_at: i64,
+    pub reasoning: String,
+    pub text: String,
+}
+
 /// 事件总线的发送端。
 #[derive(Clone)]
 pub(crate) struct Events {
     tx: broadcast::Sender<KernelEvent>,
     order: Arc<Mutex<()>>,
+    /// 各会话当前草稿；与发送同锁更新，订阅时取快照不重不漏。
+    drafts: Arc<std::sync::Mutex<HashMap<SessionId, ReplyDraft>>>,
 }
 
 impl Events {
@@ -101,11 +116,45 @@ impl Events {
         Self {
             tx: broadcast::channel(EVENT_CAPACITY).0,
             order: Arc::default(),
+            drafts: Arc::default(),
         }
     }
 
     /// 没有订阅者时即丢弃。`MessageAppended` 只经 [`Publisher`] 发。
     pub(crate) fn emit(&self, session_id: SessionId, channel: &str, kind: KernelEventKind) {
+        let mut drafts = self.drafts.lock().expect("草稿表锁未中毒");
+        match &kind {
+            KernelEventKind::DraftStarted { context_at } => {
+                drafts.insert(
+                    session_id,
+                    ReplyDraft {
+                        context_at: *context_at,
+                        reasoning: String::new(),
+                        text: String::new(),
+                    },
+                );
+            }
+            KernelEventKind::TextDelta(text) => {
+                if let Some(d) = drafts.get_mut(&session_id) {
+                    d.text.push_str(text);
+                }
+            }
+            KernelEventKind::ReasoningDelta(text) => {
+                if let Some(d) = drafts.get_mut(&session_id) {
+                    d.reasoning.push_str(text);
+                }
+            }
+            KernelEventKind::DraftDiscarded => {
+                drafts.remove(&session_id);
+            }
+            KernelEventKind::MessageAppended(Message {
+                body: MessageBody::Reply { .. },
+                ..
+            }) => {
+                drafts.remove(&session_id);
+            }
+            _ => {}
+        }
         let _ = self.tx.send(KernelEvent {
             session_id,
             channel: channel.to_owned(),
@@ -123,6 +172,15 @@ impl Events {
 
     pub(crate) fn subscribe(&self) -> EventReceiver {
         EventReceiver(self.tx.subscribe())
+    }
+
+    /// 订阅并取该会话当前草稿；之后的草稿事件全部留在接收器中。
+    pub(crate) fn subscribe_with_draft(
+        &self,
+        session_id: SessionId,
+    ) -> (EventReceiver, Option<ReplyDraft>) {
+        let drafts = self.drafts.lock().expect("草稿表锁未中毒");
+        (self.subscribe(), drafts.get(&session_id).cloned())
     }
 }
 

@@ -584,6 +584,8 @@ async fn all_failed_attempts_keep_usage_without_reply() {
         }
     }
     assert_eq!(retries, vec![(1, 0), (2, 0)]);
+    let (_, _, draft) = f.kernel.subscribe_from_now(f.session.id).await.unwrap();
+    assert!(draft.is_none());
     let calls = f.verify(&provider).await;
     assert_eq!(calls.len(), 3);
     assert!(calls
@@ -1363,6 +1365,43 @@ async fn stop_mid_stream_keeps_partial_text_only() {
     assert_eq!(page.runs[0].state, "stopped");
     assert_eq!(page.runs[0].calls[0].stop, Some(StopReason::Stopped));
     assert!(page.runs[0].calls[0].usage.is_none());
+}
+
+#[tokio::test]
+async fn subscribe_cut_splits_draft_and_its_reply() {
+    let f = Fixture::new().await;
+    let provider = hanging(vec![
+        Ok(ModelEvent::ReasoningDelta("thinking".into())),
+        Ok(ModelEvent::TextDelta("half".into())),
+    ]);
+    let mut exec = f.exec();
+    let stop = exec.stop.clone();
+    let mid = async {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let cut = f.kernel.subscribe_from_now(f.session.id).await.unwrap();
+        stop.cancel();
+        cut
+    };
+    let (state, (mut events, cut, draft)) = tokio::join!(exec.execute(&provider), mid);
+    assert_eq!(state.unwrap(), RunState::Stopped);
+    let draft = draft.expect("生成中有草稿");
+    assert_eq!(
+        (draft.reasoning.as_str(), draft.text.as_str()),
+        ("thinking", "half")
+    );
+    let mut reply = None;
+    while let Some(event) = events.try_recv() {
+        if let KernelEventKind::MessageAppended(m) = event.unwrap().kind {
+            if matches!(m.body, MessageBody::Reply { .. }) {
+                reply = Some(m);
+            }
+        }
+    }
+    let reply = reply.expect("草稿的 Reply 在切点之后到达");
+    assert!(cut.is_none_or(|cut| reply.id > cut));
+    assert_eq!(reply.created_at, draft.context_at);
+    let (_, _, after) = f.kernel.subscribe_from_now(f.session.id).await.unwrap();
+    assert!(after.is_none());
 }
 
 #[tokio::test]

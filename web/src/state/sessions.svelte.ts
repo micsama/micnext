@@ -24,8 +24,9 @@ class Tags {
   select(id: number | null): void {
     if (this.filter === id) return;
     this.filter = id;
-    for (const list of allLists()) list.reset();
-    sessionsSync.request();
+    // 不进刷新队列，立即按新标签拉取；结果回来前保留旧列表。
+    for (const list of [webSessions, ...otherSessions]) list.reset();
+    for (const list of allLists()) void list.refresh();
   }
 }
 
@@ -45,11 +46,9 @@ export class SessionList {
 
   constructor(readonly channel: string) {}
 
-  /** 换筛选后从头加载。 */
+  /** 换筛选后从首页重新加载；旧条目留到新结果替换。 */
   reset(): void {
-    this.items = [];
     this.next = null;
-    this.loaded = false;
     this.#pages = 1;
   }
 
@@ -97,10 +96,6 @@ export class SessionList {
 class PinnedList {
   items = $state<SessionItem[]>([]);
   error = $state<string | null>(null);
-
-  reset(): void {
-    this.items = [];
-  }
 
   async refresh(): Promise<void> {
     try {

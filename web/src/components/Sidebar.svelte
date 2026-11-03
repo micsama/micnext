@@ -204,7 +204,7 @@
   {@const current = activeSession?.id === id ? activeSession : s}
   {@const running = s.running || (activeId === id && executingRun !== null)}
   {@const unread = s.unread && !running}
-  {@const shown = s.tag_ids.filter((t) => t !== tags.filter).flatMap((t) => tags.byId(t) ?? [])}
+  {@const shown = s.tag_ids.flatMap((t) => tags.byId(t) ?? [])}
   <div class="session-entry group relative flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={(stripeIndex.get(id) ?? 0) % 2 === 1} data-selected={activeId === id} data-state={running ? "running" : undefined}>
     <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && !unread && "md:opacity-0"]}>
       {#if unread}

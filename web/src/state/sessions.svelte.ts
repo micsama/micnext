@@ -24,7 +24,7 @@ class Tags {
   select(id: number | null): void {
     if (this.filter === id) return;
     this.filter = id;
-    // 不进刷新队列，立即按新标签拉取；结果回来前保留旧列表。
+    // 交互不进节流队列，立即按新标签拉取；新一轮使旧请求失效，结果回来前保留旧列表。
     for (const list of [webSessions, ...otherSessions]) list.reset();
     for (const list of allLists()) void list.refresh();
   }
@@ -43,52 +43,45 @@ export class SessionList {
   loading = $state(false);
   error = $state<string | null>(null);
   #pages = 1;
+  #round = 0;
 
   constructor(readonly channel: string) {}
 
-  /** 换筛选后从首页重新加载；旧条目留到新结果替换。 */
+  /** 换筛选后只拉首页。 */
   reset(): void {
-    this.next = null;
     this.#pages = 1;
   }
 
-  /** 从首页起重拉已加载的页数，整体替换。 */
+  /** 从首页起重拉已加载的页数，整体替换；只有最新一轮能提交。 */
   async refresh(): Promise<void> {
+    const round = ++this.#round;
     const tag = tags.filter;
+    const pages = this.#pages;
     try {
       let page = await listSessions(this.channel, tag, null);
       const items = [...page.items];
-      for (let n = 1; n < this.#pages && page.next; n++) {
+      for (let n = 1; n < pages && page.next; n++) {
         page = await listSessions(this.channel, tag, page.next);
         items.push(...page.items);
       }
-      if (tag !== tags.filter) return;
+      if (round !== this.#round) return;
       this.items = items;
       this.next = page.next;
       this.loaded = true;
       this.error = null;
     } catch (e) {
-      this.error = (e as Error).message;
+      if (round === this.#round) this.error = (e as Error).message;
+    } finally {
+      if (round === this.#round) this.loading = false;
     }
   }
 
-  async loadMore(): Promise<void> {
+  /** 多加载一页：页数加一后整体重拉，与刷新共用一条提交路径。 */
+  loadMore(): void {
     if (!this.next || this.loading) return;
     this.loading = true;
-    try {
-      const tag = tags.filter;
-      const page = await listSessions(this.channel, tag, this.next);
-      if (tag !== tags.filter) return;
-      const ids = new Set(this.items.map((s) => s.id));
-      this.items = [...this.items, ...page.items.filter((s) => !ids.has(s.id))];
-      this.next = page.next;
-      this.#pages++;
-      this.error = null;
-    } catch (e) {
-      this.error = (e as Error).message;
-    } finally {
-      this.loading = false;
-    }
+    this.#pages++;
+    void this.refresh();
   }
 }
 
@@ -96,16 +89,17 @@ export class SessionList {
 class PinnedList {
   items = $state<SessionItem[]>([]);
   error = $state<string | null>(null);
+  #round = 0;
 
   async refresh(): Promise<void> {
+    const round = ++this.#round;
     try {
-      const tag = tags.filter;
-      const items = await listPinnedSessions(tag);
-      if (tag !== tags.filter) return;
+      const items = await listPinnedSessions(tags.filter);
+      if (round !== this.#round) return;
       this.items = items;
       this.error = null;
     } catch (e) {
-      this.error = (e as Error).message;
+      if (round === this.#round) this.error = (e as Error).message;
     }
   }
 }
@@ -117,7 +111,7 @@ const allLists = () => [pinnedSessions, webSessions, ...otherSessions];
 
 const THROTTLE_MS = 500;
 
-/** 侧栏刷新只此一处：事件合并节流，同时只跑一轮，期间的新请求在结束后补一轮。 */
+/** 后台事件触发的侧栏刷新：合并节流，同时只跑一轮，期间的新请求在结束后补一轮。 */
 class SessionsSync {
   #dirty = false;
   #running: Promise<void> | null = null;

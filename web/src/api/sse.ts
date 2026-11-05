@@ -18,9 +18,11 @@ export async function readSse(
   if (signal.aborted) return;
   query.set("ticket", ticket);
   const source = new EventSource(`/api${path}?${query}`);
+  let onAbort: (() => void) | undefined;
   try {
     await new Promise<void>((resolve, reject) => {
-      signal.addEventListener("abort", () => resolve(), { once: true });
+      onAbort = () => resolve();
+      signal.addEventListener("abort", onAbort, { once: true });
       source.onerror = () => resolve();
       source.onopen = () => onOpen?.();
       for (const event of events)
@@ -33,6 +35,7 @@ export async function readSse(
         });
     });
   } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
     source.close();
   }
 }

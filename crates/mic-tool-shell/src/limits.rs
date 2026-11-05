@@ -2,12 +2,12 @@
 
 use std::time::Duration;
 
-/// 前台 `timeoutMs` 缺省值。
-pub(crate) const DEFAULT_TIMEOUT_MS: u64 = 120_000;
-/// 前台 `timeoutMs` 上限；超过按此执行。
-pub(crate) const MAX_TIMEOUT_MS: u64 = 600_000;
-/// 后台 `timeoutMs` 缺省值；后台不设上限。
-pub(crate) const BACKGROUND_TIMEOUT_MS: u64 = 600_000;
+/// 前台 `timeout` 缺省值。
+pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
+/// 前台 `timeout` 上限；超过按此执行。
+pub(crate) const MAX_TIMEOUT: Duration = Duration::from_secs(600);
+/// 后台 `timeout` 缺省值；后台不设上限。
+pub(crate) const BACKGROUND_TIMEOUT: Duration = Duration::from_secs(600);
 /// 前台 stdout、stderr 各自保留的尾部字节数。
 pub(crate) const MAX_OUTPUT_BYTES: usize = 64_000;
 /// 后台 `notify_pattern`：每路按行匹配，超过此字节数的行按片段匹配；通知正文即该行或片段，控制上下文占用。

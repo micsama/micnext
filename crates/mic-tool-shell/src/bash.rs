@@ -15,7 +15,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::time::Instant;
 
-use crate::limits::{BACKGROUND_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, MAX_OUTPUT_BYTES, MAX_TIMEOUT_MS};
+use crate::limits::{BACKGROUND_TIMEOUT, DEFAULT_TIMEOUT, MAX_OUTPUT_BYTES, MAX_TIMEOUT};
 use watch::{Stream, Watch};
 
 pub(crate) struct Bash;
@@ -23,7 +23,7 @@ pub(crate) struct Bash;
 const DESCRIPTION: &str = "Run `bash -c` in the session's working directory, or in `workdir` \
     (absolute, or relative to it; a skill's directory works too). Each call is a fresh shell, so \
     cwd and variables do not carry over. The result shows stdout, stderr and any non-zero exit \
-    code, signal or timeout; `timeoutMs` stops the whole command. Long output keeps only its \
+    code, signal or timeout; `timeout` stops the whole command. Long output keeps only its \
     tail. In the background the call returns a job_id at once; output goes to a log read with \
     `job_output`, and the exit arrives as a completion. Background commands must not daemonize \
     themselves.";
@@ -34,9 +34,8 @@ pub(crate) struct Args {
     command: String,
     /// Short label shown to the user, in their language.
     description: String,
-    /// Foreground: default 120000, max 600000. Background: default 600000, 0 = none.
-    #[serde(rename = "timeoutMs")]
-    timeout_ms: Option<u64>,
+    /// Seconds. Foreground: default 120, max 600. Background: default 600, 0 = none.
+    timeout: Option<u64>,
     workdir: Option<String>,
     #[serde(default)]
     background: bool,
@@ -62,7 +61,7 @@ impl Tool for Bash {
         if args.description.trim().is_empty() {
             return Err(ToolError::input("description must be a non-empty string"));
         }
-        let timeout = parse_timeout(args.timeout_ms, args.background)?;
+        let timeout = parse_timeout(args.timeout, args.background)?;
         let watch = parse_pattern(args.notify_pattern, args.background)?;
         let workdir = match args.workdir {
             Some(dir) => ctx.cwd().join(dir),
@@ -75,10 +74,10 @@ impl Tool for Bash {
             )));
         }
         if !args.background {
-            let timeout_ms = timeout.expect("前台必有超时");
-            let run = run(&args.command, workdir, ctx.env(), timeout_ms).await?;
+            let timeout = timeout.expect("前台必有超时");
+            let run = run(&args.command, workdir, ctx.env(), timeout).await?;
             let output = vec![ContentPart::Text {
-                text: run.render(timeout_ms),
+                text: run.render(timeout),
             }];
             return Ok(ToolOutput::Terminal(if run.timed_out {
                 ExecOutcome::TimedOut { output }
@@ -92,7 +91,7 @@ impl Tool for Bash {
             .background()
             .dispatch(BackgroundTask {
                 description: args.description,
-                timeout: timeout.map(Duration::from_millis),
+                timeout,
                 run: Box::new(move |sink| {
                     Box::pin(run_background(command, workdir, env, watch, sink))
                 }),
@@ -102,15 +101,15 @@ impl Tool for Bash {
     }
 }
 
-/// 毫秒；`None` = 不限时（只有后台允许）。
-fn parse_timeout(timeout_ms: Option<u64>, background: bool) -> Result<Option<u64>, ToolError> {
-    Ok(match (timeout_ms, background) {
-        (None, false) => Some(DEFAULT_TIMEOUT_MS),
-        (None, true) => Some(BACKGROUND_TIMEOUT_MS),
-        (Some(0), false) => return Err(ToolError::input("timeoutMs must be a positive integer")),
+/// 入参为秒；`None` = 不限时（只有后台允许）。
+fn parse_timeout(secs: Option<u64>, background: bool) -> Result<Option<Duration>, ToolError> {
+    Ok(match (secs, background) {
+        (None, false) => Some(DEFAULT_TIMEOUT),
+        (None, true) => Some(BACKGROUND_TIMEOUT),
+        (Some(0), false) => return Err(ToolError::input("timeout must be a positive integer")),
         (Some(0), true) => None,
-        (Some(ms), false) => Some(ms.min(MAX_TIMEOUT_MS)),
-        (Some(ms), true) => Some(ms),
+        (Some(s), false) => Some(Duration::from_secs(s).min(MAX_TIMEOUT)),
+        (Some(s), true) => Some(Duration::from_secs(s)),
     })
 }
 
@@ -174,11 +173,11 @@ fn spawn(command: &str, workdir: PathBuf, env: &[(String, String)]) -> Result<Sp
 async fn wait(
     child: &mut Child,
     group: &ProcessGroup,
-    timeout_ms: Option<u64>,
+    timeout: Option<Duration>,
 ) -> std::io::Result<(ExitStatus, bool)> {
-    let result = match timeout_ms {
+    let result = match timeout {
         None => child.wait().await.map(|s| (s, false)),
-        Some(ms) => match tokio::time::timeout(Duration::from_millis(ms), child.wait()).await {
+        Some(limit) => match tokio::time::timeout(limit, child.wait()).await {
             Ok(status) => status.map(|s| (s, false)),
             Err(_) => {
                 group.kill();
@@ -194,7 +193,7 @@ async fn run(
     command: &str,
     workdir: PathBuf,
     env: &[(String, String)],
-    timeout_ms: u64,
+    timeout: Duration,
 ) -> Result<Run, ToolError> {
     let Spawned {
         mut child,
@@ -203,7 +202,7 @@ async fn run(
         stderr,
     } = spawn(command, workdir, env)?;
     let (waited, stdout, stderr) = tokio::join!(
-        wait(&mut child, &group, Some(timeout_ms)),
+        wait(&mut child, &group, Some(timeout)),
         read_tail(stdout, Stream::Stdout),
         read_tail(stderr, Stream::Stderr)
     );
@@ -386,7 +385,7 @@ impl Tail {
 }
 
 impl Run {
-    fn render(&self, timeout_ms: u64) -> String {
+    fn render(&self, timeout: Duration) -> String {
         let mut body = self.stdout.text();
         let stderr = self.stderr.text();
         if !stderr.is_empty() {
@@ -402,7 +401,7 @@ impl Run {
 
         let mut markers = Vec::new();
         if self.timed_out {
-            markers.push(format!("[timed out after {timeout_ms}ms]"));
+            markers.push(format!("[timed out after {}s]", timeout.as_secs()));
         }
         markers.extend(exit_marker(self.status));
         if !markers.is_empty() {

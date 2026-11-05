@@ -59,5 +59,5 @@ Jev（TypeSafe AI，2026-09 发布）是只做分类的云端模型，返回带�
 不在 micnext 里做端口映射：网关子路径转发会让 Vite、Jupyter 这类用绝对路径和 WebSocket 的服务出错，还会把网关变成任意端口的入口。网络层交给 Tailscale，服务器、Mac、iPhone 互通，直接打开 `http://<服务器名>:<端口>`。
 
 - 人设或记忆里写规则：起服务时监听 Tailscale 地址或 `0.0.0.0`，完成后回复可点开的链接。
-- 临时开发服务用 bash 后台任务（`timeout_ms: 0`）；它归 micnext 管，重启时进程组会被杀掉。要长期运行的服务让 agent 写成 systemd user unit 或 docker compose。
+- 临时开发服务用 bash 后台任务（`timeout: 0`）；它归 micnext 管，重启时进程组会被杀掉。要长期运行的服务让 agent 写成 systemd user unit 或 docker compose。
 - 以后常要找「agent 起过哪些服务」时，再考虑在侧栏列出正在运行的后台任务。

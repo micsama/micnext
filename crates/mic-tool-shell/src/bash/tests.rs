@@ -89,19 +89,16 @@ async fn dropping_background_kills_the_process_group() {
 
 #[test]
 fn background_timeout_defaults_and_unlimited() {
-    assert_eq!(
-        parse_timeout(None, true).unwrap(),
-        Some(BACKGROUND_TIMEOUT_MS)
-    );
+    assert_eq!(parse_timeout(None, true).unwrap(), Some(BACKGROUND_TIMEOUT));
     assert_eq!(parse_timeout(Some(0), true).unwrap(), None);
     assert_eq!(
-        parse_timeout(Some(3_600_000), true).unwrap(),
-        Some(3_600_000)
+        parse_timeout(Some(3_600), true).unwrap(),
+        Some(Duration::from_secs(3_600))
     );
     assert!(parse_timeout(Some(0), false).is_err());
     assert_eq!(
-        parse_timeout(Some(3_600_000), false).unwrap(),
-        Some(MAX_TIMEOUT_MS)
+        parse_timeout(Some(3_600), false).unwrap(),
+        Some(MAX_TIMEOUT)
     );
 }
 
@@ -123,7 +120,7 @@ async fn foreground_timeout_has_a_terminal_timeout_with_partial_output() {
     let args = Args {
         command: "echo before; sleep 30".into(),
         description: "timeout".into(),
-        timeout_ms: Some(100),
+        timeout: Some(1),
         workdir: None,
         background: false,
         notify_pattern: None,
@@ -133,7 +130,7 @@ async fn foreground_timeout_has_a_terminal_timeout_with_partial_output() {
         panic!("timeout expected")
     };
     assert!(
-        matches!(&output[..], [ContentPart::Text { text }] if text.contains("before") && text.contains("timed out after 100ms"))
+        matches!(&output[..], [ContentPart::Text { text }] if text.contains("before") && text.contains("timed out after 1s"))
     );
 }
 

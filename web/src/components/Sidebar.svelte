@@ -4,6 +4,8 @@
   import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
   import ArchiveIcon from "@lucide/svelte/icons/archive";
   import PinIcon from "@lucide/svelte/icons/pin";
+  import PencilLineIcon from "@lucide/svelte/icons/pencil-line";
+  import { composerDrafts } from "../state/composer-drafts.svelte";
   import { listJobs, archiveSession, pinSession } from "../api/client";
   import { jobActive } from "../api/types";
   import { confirm } from "../state/confirm.svelte";
@@ -204,12 +206,16 @@
   {@const current = activeSession?.id === id ? activeSession : s}
   {@const running = s.running || (activeId === id && executingRun !== null)}
   {@const unread = s.unread && !running}
+  {@const drafted = !unread && activeId !== id && composerDrafts.filled(id)}
   {@const shown = s.tag_ids.flatMap((t) => tags.byId(t) ?? [])}
   <div class="session-entry group relative flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={(stripeIndex.get(id) ?? 0) % 2 === 1} data-selected={activeId === id} data-state={running ? "running" : undefined}>
-    <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && !unread && "md:opacity-0"]}>
+    <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && !unread && !drafted && "md:opacity-0"]}>
       {#if unread}
-        <!-- 有新回复时占用置顶位显示消息点，悬停仍可置顶。 -->
+        <!-- 新回复、未发草稿依次占用置顶位，悬停仍可置顶。 -->
         <span class="size-2 rounded-full bg-primary group-hover:hidden group-focus-within:hidden"></span>
+        <PinIcon class="hidden size-3 group-hover:block group-focus-within:block" />
+      {:else if drafted}
+        <span title="有未发送的草稿" class="group-hover:hidden group-focus-within:hidden"><PencilLineIcon class="size-3" /></span>
         <PinIcon class="hidden size-3 group-hover:block group-focus-within:block" />
       {:else}
         <PinIcon class="size-3" />
@@ -228,6 +234,7 @@
       {/if}
       {#if running}<span role="status" class="sr-only">运行中</span>
       {:else if unread}<span class="sr-only">有新回复</span>{/if}
+      {#if drafted}<span class="sr-only">有未发送的草稿</span>{/if}
     </a>
     <Popover.Root>
       <!-- 宽屏悬停时浮在行尾标签上，平时不占宽。 -->

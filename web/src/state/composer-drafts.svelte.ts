@@ -1,3 +1,5 @@
+import { SvelteMap } from "svelte/reactivity";
+
 /** 输入框的回复引用：`label` 显示在输入框内，发送时 `quote` 以引用块前置到正文。 */
 export type ComposerReply = { label: string; quote: string };
 /** 支持的图片带预览 `url`，按图片发送；其余按文件发送。 */
@@ -11,6 +13,11 @@ export class ComposerDraft {
   attachments = $state<Attachment[]>([]);
   reply = $state<ComposerReply | null>(null);
   sending = $state(false);
+
+  /** 有任何待发送内容；只有空白的文字不算。 */
+  get filled(): boolean {
+    return this.text.trim() !== "" || this.attachments.length > 0 || this.reply !== null;
+  }
 
   attach(file: File, image: boolean): void {
     this.attachments.push({ id: nextId++, file, url: image ? URL.createObjectURL(file) : null });
@@ -29,7 +36,7 @@ export class ComposerDraft {
   }
 }
 
-const drafts = new Map<number | "new", ComposerDraft>();
+const drafts = new SvelteMap<number | "new", ComposerDraft>();
 
 /** 按会话保留草稿；`"new"` 是新会话页的草稿。 */
 export const composerDrafts = {
@@ -37,5 +44,9 @@ export const composerDrafts = {
     let draft = drafts.get(key);
     if (!draft) drafts.set(key, (draft = new ComposerDraft()));
     return draft;
+  },
+  /** 只查询不建草稿，供侧栏标记。 */
+  filled(key: number): boolean {
+    return drafts.get(key)?.filled ?? false;
   },
 };

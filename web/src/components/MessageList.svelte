@@ -5,21 +5,50 @@
   import { fly } from "svelte/transition";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
-  import type { SessionView } from "../state/session.svelte";
+  import type { Draft, SessionView } from "../state/session.svelte";
   import DraftView from "./DraftView.svelte";
   import MessageItem from "./MessageItem.svelte";
   import RunIndicator from "./RunIndicator.svelte";
 
   let { view }: { view: SessionView } = $props();
 
-  const results = $derived(toolResults(view.messages));
+  // 滚动容器 column-reverse：scrollTop 从底部起算（0 为底，向上为负）。贴底时内容变高仍停在底部，
+  // 上方插入旧页、工具结果归并、图片加载都不移动视口，无需写 scrollTop——惯性滚动中写它会被 Safari 打断。
+  // 离开底部即冻结尾部：新到的消息、草稿和运行状态暂不进列表，下方不变高，上方历史就不被推动。
+  let scroller: HTMLDivElement;
+  let content: HTMLDivElement;
+  let sentinel: HTMLDivElement;
+  let lastTop = 0;
+  const STICK_PX = 48;
+  let frozen = $state<{ lastId: number; draft: Draft | null; running: boolean } | null>(null);
+  function freeze() {
+    frozen ??= { lastId: view.lastId ?? 0, draft: view.draft && { ...view.draft }, running: view.executingRun !== null };
+  }
+  /** 读到冻结处的底部：展开新内容并按增高量拨回视口，接着往下读；增高不足贴底距离即视为已到最新。 */
+  async function readOn() {
+    const before = scroller.scrollHeight;
+    frozen = null;
+    await tick();
+    const grown = scroller.scrollHeight - before;
+    if (grown < STICK_PX) return;
+    freeze();
+    scroller.scrollTop -= grown;
+  }
+  const messages = $derived(frozen ? view.messages.filter((m) => m.id <= frozen!.lastId) : view.messages);
+  const liveDraft = $derived(frozen ? frozen.draft : view.draft);
+  const running = $derived(frozen ? frozen.running : view.executingRun !== null);
+  const fresh = $derived(
+    frozen !== null &&
+      ((view.lastId ?? 0) > frozen.lastId || view.draft?.text !== frozen.draft?.text || (view.executingRun !== null) !== frozen.running),
+  );
+
+  const results = $derived(toolResults(messages));
   const callIds = $derived.by(() => {
     const s = new Set<string>();
-    for (const { id, body } of view.messages)
+    for (const { id, body } of messages)
       if (body.kind === "Reply") body.blocks.forEach((b, index) => { if ("ToolCall" in b) s.add(toolKey({ reply: id, index })); });
     return s;
   });
-  const running = $derived(view.executingRun !== null);
   /** 不渲染任何内容的消息：已并入调用行的工具结果、只有空思考的回复。 */
   const hidden = (body: MessageBody) =>
     body.kind === "HarnessNote" ||
@@ -27,16 +56,16 @@
     (body.kind === "Reply" && body.blocks.every((b) => "Reasoning" in b && "Visible" in b.Reasoning && !b.Reasoning.Visible.text.trim()));
   /** 同属 agent 一侧的连续条目收紧间距。 */
   const AGENT_SIDE = new Set<MessageBody["kind"]>(["Reply", "ToolResult", "Completion", "JobNotice", "Attachment"]);
-  const startedAt = $derived(view.messages[0]?.created_at);
+  const startedAt = $derived(messages[0]?.created_at);
   /** 有内容才显示；在此之前由运行指示占位。 */
-  const draft = $derived(view.draft && (view.draft.text || view.draft.reasoning) ? view.draft : null);
+  const draft = $derived(liveDraft && (liveDraft.text || liveDraft.reasoning) ? liveDraft : null);
   // `loaded`：组首条 id → 在这组之前刚加载进来的条数，交界落在被跳过或并入的消息上时顺延到下一组。
   const grouped = $derived.by(() => {
     const items: [Message, ...Message[]][] = [];
     const loaded = new Map<number, number>();
     let pending: number | undefined;
     let previousBody: MessageBody | undefined;
-    for (const message of view.messages) {
+    for (const message of messages) {
       pending = view.loadedAt.get(message.id) ?? pending;
       // 边界后紧跟的通知（中间可隔着重新加载的 skill）与边界同事务写入，是给渠道和模型的文字版，Web 由分隔条呈现。
       const echo = message.body.kind === "Notification" && previousBody?.kind === "Boundary";
@@ -55,50 +84,17 @@
     return { items, loaded };
   });
   const draftIndex = $derived(draft ? grouped.items.findIndex((messages) => messages.some((m) => m.created_at > draft.at)) : -1);
-  // 滚动容器 column-reverse：scrollTop 从底部起算（0 为底，向上为负）。贴底时内容变高仍停在底部，
-  // 上方插入旧页、工具结果归并、图片加载都不移动视口，无需写 scrollTop——惯性滚动中写它会被 Safari 打断。
-  // 只有不贴底时下方变高（实时消息）才把视口内首条消息放回原位。
-  let scroller: HTMLDivElement;
-  let content: HTMLDivElement;
-  let sentinel: HTMLDivElement;
-  let stuck = $state(true);
-  let lastTop = 0;
-  const STICK_PX = 48;
-  let anchor: { el: Element; top: number } | null = null;
-  // 校正触发的滚动事件异步到达，可能已晚于下一次 DOM 变化；此时重选会选到未校正的位置。
-  let adjustedTop = 1;
-
-  function pickAnchor() {
-    const top = scroller.getBoundingClientRect().top;
-    for (const el of content.children) {
-      if (el === sentinel) continue;
-      const rect = el.getBoundingClientRect();
-      if (rect.bottom > top) return void (anchor = { el, top: rect.top - top });
-    }
-    anchor = null;
-  }
   function onscroll() {
     const top = scroller.scrollTop;
-    if (-top < STICK_PX) stuck = true;
-    else if (top < lastTop) stuck = false;
+    if (-top < STICK_PX) {
+      if (frozen) void readOn();
+    } else if (top < lastTop) freeze();
     lastTop = top;
-    if (!stuck && top !== adjustedTop) pickAnchor();
   }
   function toBottom() {
+    frozen = null;
     scroller.scrollTop = 0;
   }
-  $effect(() => {
-    const ro = new ResizeObserver(() => {
-      if (stuck) return;
-      if (!anchor?.el.isConnected) return pickAnchor();
-      const delta = anchor.el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.top;
-      if (Math.abs(delta) < 1) return;
-      scroller.scrollTop += delta;
-      adjustedTop = scroller.scrollTop;
-    });
-    ro.observe(content);
-    return () => ro.disconnect();
-  });
 
   // 定位：滚到视口中间并闪一下；离开贴底，后续实时消息不把它推走。
   $effect(() => {
@@ -108,7 +104,7 @@
       view.focus = null;
       const el = content.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
       if (!el) return;
-      stuck = false;
+      freeze();
       el.scrollIntoView({ block: "center", behavior: "smooth" });
       el.classList.remove("focus-flash");
       void el.offsetWidth;
@@ -252,8 +248,8 @@
       {#if running && !draft}
         <RunIndicator {view} />
       {/if}
-      {#if view.contextError}<p class="text-sm text-destructive">上下文状态加载失败：{view.contextError}</p>{/if}
-      {#if view.notice}
+      {#if view.contextError && !frozen}<p class="text-sm text-destructive">上下文状态加载失败：{view.contextError}</p>{/if}
+      {#if view.notice && !frozen}
         <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-warning">
           <Icon name="alert" class="size-4" />{view.notice}
           {#if view.resume}
@@ -287,12 +283,12 @@
       </div>
     {/if}
   </div>
-  {#if !stuck}
+  {#if frozen}
     <button
       type="button"
       class="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-background px-4 py-2 text-sm shadow-sm hover:bg-muted"
       onclick={toBottom}>
-      <Icon name="arrowDown" class="size-4" />回到底部
+      <Icon name="arrowDown" class="size-4" />{fresh ? "有新内容" : "回到底部"}
     </button>
   {/if}
 </div>

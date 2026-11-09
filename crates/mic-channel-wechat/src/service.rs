@@ -44,7 +44,7 @@ impl Module for WechatModule {
         reg.channel_setup(Setup { commands, snapshot });
         reg.channel_prompt(
             "wechat",
-            "WeChat: Markdown mostly works (no math, footnotes, collapsibles; code blocks unhighlighted). Tool activity is invisible, but text sent with tool calls reaches the user as messages: keep such updates short and occasional. If the user's intent is unclear, ask.",
+            "微信：Markdown 大多可用（无公式、脚注、折叠块，代码块无高亮）。用户看不到工具活动，随工具调用发的文字会作为消息送达，少发且简短。意图不清先问。",
         );
         reg.service(Coordinator { commands: rx, view });
         Ok(())

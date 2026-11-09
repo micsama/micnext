@@ -127,7 +127,7 @@ impl Skills {
             })
             .collect();
         Some(format!(
-            "Skills: load one with the `{SKILL}` tool before a task that matches its description. Relative paths in a skill resolve against its dir.\n<skills>\n{}\n</skills>",
+            "Skills：任务匹配描述时先用 `{SKILL}` 工具加载；skill 内相对路径以其 dir 为基准。\n<skills>\n{}\n</skills>",
             lines.join("\n")
         ))
     }

@@ -74,8 +74,8 @@ impl Module for GatewayModule {
         reg.channel_prompt(
             WEB_CHANNEL,
             concat!(
-                "Web: Markdown is supported; tool activity is visible live. ",
-                "The user manages micnext through the pages below; point them there for settings, schedules and diagnostics.\n\n",
+                "Web：支持 Markdown，工具活动实时可见。",
+                "用户在以下页面管理 micnext，设置、定时任务、诊断类问题引导去对应页面。\n\n",
                 include_str!("../../../docs/web-features.md"),
             ),
         );

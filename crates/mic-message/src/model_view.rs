@@ -263,28 +263,20 @@ impl<'a> Header<'a> {
     /// 分类语义归 `ExecFailureKind`，改分类时同步 `Failed`。
     fn meaning(self) -> &'static str {
         match self {
-            Self::User { .. } => "a user message.",
-            Self::RuntimeNote => "a framework notice, not the user.",
-            Self::Notification { .. } => "an event from src at that time, not the user; it may no longer hold now.",
-            Self::Trigger { .. } => {
-                "a scheduled instruction from task src, not from the user."
-            }
-            Self::Dispatched { .. } => {
-                "a background job or sub-agent was dispatched; its result arrives as a completion."
-            }
-            Self::Completion { .. } => {
-                "the result of that background job; for a sub-agent, the delivery of one of its runs (each follow-up delivers again)."
-            }
+            Self::User { .. } => "用户消息。",
+            Self::RuntimeNote => "框架通知，非用户。",
+            Self::Notification { .. } => "src 在 at 时的外部事件，非用户；现在可能已不成立。",
+            Self::Trigger { .. } => "定时任务 src 的指令，非用户。",
+            Self::Dispatched { .. } => "已派发后台任务或子 agent，结果以 completion 送达。",
+            Self::Completion { .. } => "后台任务的结果；子 agent 每次跟进都会再送达一次。",
             Self::JobNotice { .. } => {
-                "a notice from that background job while it is still running; the job has not necessarily ended, and its result still arrives as a completion."
+                "后台任务运行中的通知，不代表已结束，结果仍以 completion 送达。"
             }
             Self::Failed { .. } => {
-                "the tool call failed (input: fix the arguments; business: rejected by tool rules; dependency: environment error)."
+                "工具调用失败：input 改参数，business 被规则拒绝，dependency 环境错误。"
             }
-            Self::TimedOut => "the operation reached its time limit; partial output is preserved. Check its effects before retrying.",
-            Self::Cancelled => {
-                "the call was cancelled or interrupted; its effect may be unknown, so check before retrying."
-            }
+            Self::TimedOut => "到达时限，保留部分输出；重试前先检查效果。",
+            Self::Cancelled => "被取消或中断，效果未知；重试前先检查。",
         }
     }
 
@@ -298,9 +290,9 @@ impl<'a> Header<'a> {
     }
 }
 
-/// 全部消息头的说明，供 system prompt 使用；英文，多行，无首尾空行。
+/// 全部消息头的说明，供 system prompt 使用；中文，多行，无首尾空行。
 pub fn header_legend() -> String {
-    let mut out = String::from("Bracketed headers are added by the framework:");
+    let mut out = String::from("方括号头由框架添加：");
     for h in ALL {
         out.push_str(&format!("\n- {}: {}", h.render(), h.meaning()));
     }

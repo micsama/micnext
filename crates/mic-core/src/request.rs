@@ -168,12 +168,12 @@ pub(crate) fn system_prompt(
     if !settings.general_prompt.is_empty() {
         persona.push(part(
             Persona,
-            format!("User preferences:\n{}", settings.general_prompt),
+            format!("用户偏好：\n{}", settings.general_prompt),
         ));
     }
     let mut context = vec![part(
         Environment,
-        format!("Working directory: {}", session.pwd),
+        format!("工作目录：{}（相对路径以此为基准）", session.pwd),
     )];
     context.extend(channel_prompt.map(|p| part(Environment, p.to_owned())));
     if !env.is_empty() {
@@ -181,7 +181,7 @@ pub(crate) fn system_prompt(
         context.push(part(
             Environment,
             format!(
-                "Environment variables the user set for commands: {}. Use them directly; their values reach you masked as `<NAME>`.",
+                "命令环境变量：{}，直接引用；值对你显示为 `<NAME>`。",
                 names.join(", ")
             ),
         ));
@@ -190,7 +190,7 @@ pub(crate) fn system_prompt(
         context.push(part(
             Environment,
             format!(
-                "Python: `python` is a shared uv venv at {}. Install missing packages with `uv pip install <pkg>`; they persist across sessions. For conflicting dependencies, create a separate venv and run its interpreter by path.",
+                "Python：`python` 是共享 uv venv（{}），缺包 `uv pip install <pkg>`，持久保留；依赖冲突另建 venv，按路径调用。",
                 dir.display()
             ),
         ));
@@ -198,18 +198,15 @@ pub(crate) fn system_prompt(
     context.push(part(
         Environment,
         if window.plain_after.is_some() {
-            "Credential masking: the user has temporarily turned it off for new messages, so credentials in them reach you as-is. Earlier content stays masked (e.g. `sk-a***wxyz`), and everything will be masked again once the user turns it back on."
+            "凭据脱敏：用户临时关闭，新消息里的凭据是原文；更早内容仍遮蔽（如 `sk-a***wxyz`），重新开启后恢复。"
         } else {
-            "Credential masking: credentials are masked before reaching you (e.g. `sk-a***wxyz`); the real values stay intact locally, so never write a masked value back as if it were real."
+            "凭据脱敏：凭据对你已遮蔽（如 `sk-a***wxyz`），本地是真实值；勿把遮蔽值当真值写回。"
         }
         .to_owned(),
     ));
     context.extend(skills.map(|s| part(Skills, s.to_owned())));
     if let Some(summary) = &window.summary {
-        context.push(part(
-            Summary,
-            format!("Summary of the earlier conversation:\n{summary}"),
-        ));
+        context.push(part(Summary, format!("此前对话摘要：\n{summary}")));
     }
     if !window.quoted.is_empty() {
         let lines: Vec<String> = window
@@ -220,16 +217,16 @@ pub(crate) fn system_prompt(
             .collect();
         context.push(part(
             Summary,
-            format!(
-                "User messages from the compacted conversation (verbatim, oldest first):\n{}",
-                lines.join("\n")
-            ),
+            format!("压缩前的用户原话（逐字，旧→新）：\n{}", lines.join("\n")),
         ));
     }
     if !window.files.is_empty() {
         context.push(part(
             Summary,
-            format!("Files essential to continuing the work (read them as needed; contents are not saved):\n{}", window.files.join("\n")),
+            format!(
+                "续做必需的文件（按需读取，内容未保存）：\n{}",
+                window.files.join("\n")
+            ),
         ));
     }
     let blocks = [

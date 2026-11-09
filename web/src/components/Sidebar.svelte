@@ -39,11 +39,15 @@
   // 同一侧栏两种展示：聊天按日期列会话；Trace 按渠道列有运行的会话，带异常角标。
   const tracing = $derived(router.current.kind === "trace");
   const traceId = $derived(router.current.kind === "trace" ? router.current.id : null);
-  // 两种展示之间切换时保留当前会话。
+  // 两种展示之间切换时保留当前会话；子 agent 没有聊天视图，回到它所在的最近非子 agent 会话。
+  const chatId = $derived.by(() => {
+    if (traceId === null || traceSessions.byId.get(traceId)?.kind !== "task") return traceId;
+    return traceSessions.ancestors(traceId).filter((s) => s.kind !== "task").at(-1)?.session ?? null;
+  });
   const modes = $derived([
-    { tracing: false, icon: "message", label: "聊天", href: traceId === null ? "/" : `/s/${traceId}` },
-    { tracing: true, icon: "sparkles", label: "Trace", href: activeId === null ? "/trace" : `/s/${activeId}/trace` },
-  ] satisfies { tracing: boolean; icon: IconName; label: string; href: string }[]);
+    { tracing: false, icon: "message", label: "聊天", href: chatId === null ? "/" : `/s/${chatId}`, hint: chatId === traceId ? undefined : "回到父会话" },
+    { tracing: true, icon: "sparkles", label: "Trace", href: activeId === null ? "/trace" : `/s/${activeId}/trace`, hint: undefined },
+  ] satisfies { tracing: boolean; icon: IconName; label: string; href: string; hint: string | undefined }[]);
   const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K";
   let search = $state("");
   const searching = $derived(search.trim() !== "");
@@ -274,6 +278,7 @@
       {@const current = m.tracing === tracing}
       <a
         href={m.href}
+        title={m.hint}
         aria-current={current ? "page" : undefined}
         onclick={(e) => (e.preventDefault(), current || go(m.href))}
         class={["relative flex items-center justify-center gap-1.5 rounded-md py-1.5 transition-colors", current ? "font-medium text-foreground" : "text-muted-foreground hover:bg-background/50 hover:text-foreground"]}>

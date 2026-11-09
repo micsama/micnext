@@ -140,6 +140,29 @@
     stream.scrollTop = stream.scrollHeight;
   }
 
+  // 最新一轮还在执行时定时拉最新一页并入已加载的轮次；Trace 只看已落库的步骤，不接流式输出。
+  const POLL_MS = 5000;
+  const executing = $derived(runs.at(-1)?.state === "executing");
+  $effect(() => {
+    const id = session;
+    if (!active || id === null || !executing) return;
+    const timer = setInterval(() => void poll(id), POLL_MS);
+    return () => clearInterval(timer);
+  });
+  async function poll(id: number) {
+    const request = pageRequest;
+    const page = await guard(() => getTraceRuns(id, null));
+    if (!page || request !== pageRequest) return;
+    const atBottom = !awayFromBottom;
+    const fresh = new Map(page.runs.map((r) => [r.id, r]));
+    runs = [...runs.filter((r) => !fresh.has(r.id)), ...page.runs].sort((a, b) => a.created_at - b.created_at);
+    titleCalls = page.title_calls;
+    total = page.total;
+    if (selectedRun) selectedRun = fresh.get(selectedRun.id) ?? selectedRun;
+    if (pick?.run && fresh.has(pick.run.id)) pick = { ...pick, run: fresh.get(pick.run.id)! } as Pick;
+    if (atBottom) { await tick(); stream.scrollTop = stream.scrollHeight; }
+  }
+
   /** 往前加载一页，保持当前视口内容不动；加载中再调用复用同一次请求。返回是否加载到了。 */
   let inflight: Promise<boolean> | null = null;
   function more(): Promise<boolean> {

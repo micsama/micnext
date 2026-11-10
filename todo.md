@@ -27,6 +27,7 @@
 | 实现完成，待验收 | 缓存冷后整理历史（轻整理 / 提前压缩，并入定时任务规则） | [B2](docs/blueprints/cold-trim.md)；[B1](docs/brainstorm/skills.md) |
 | 实现完成，待验收 | 标题模型改名为杂活模型 | [B2](docs/blueprints/utility-model.md) |
 | 实现完成，待验收 | 预测用户的下一句输入 | [B2](docs/blueprints/input-prediction.md)；[B1](docs/brainstorm/input-prediction.md) |
+| B2 待批准 | 专题：索引与 `topic` 工具（压缩时 fork 整理在 B1 讨论） | [B2](docs/blueprints/topics.md)；[B1](docs/brainstorm/topics.md) |
 | 实现完成，待验收 | 内置 skill（首个 web-guide，功能地图移出 Web channel prompt） | [B2](docs/blueprints/builtin-skills.md) |
 | B1 待定 | 统一「轮」的口径 | [B1](docs/brainstorm/rounds.md) |
 | 实现完成，待验收 | 压缩后重新加载仍在用的 skill | [B2](docs/blueprints/skills-after-compaction.md)；[B1](docs/brainstorm/skills-after-compaction.md) |

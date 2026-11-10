@@ -13,7 +13,7 @@
 
   let {
     onsend,
-    placeholder = "输入消息，回车发送，Shift / Option + 回车换行",
+    placeholder,
     autofocus = false,
     leading,
     trailing,
@@ -356,22 +356,24 @@
         {/each}
       </div>
     {/if}
-    <div class="relative">
+    <!-- 窄屏：附件、输入、发送同一行，本会话设置单独一行在下。 -->
+    <div class="max-sm:grid max-sm:grid-cols-[auto_1fr_auto] max-sm:items-end max-sm:gap-x-1">
+    <div class="relative max-sm:col-start-2 max-sm:row-start-1">
       <textarea
         bind:this={input}
         bind:value={draft.text}
         {onkeydown}
         {onpaste}
-        placeholder={readonly ?? (guess !== null ? `✦ ${guess}` : placeholder)}
+        placeholder={readonly ?? (guess !== null ? `✦ ${guess}` : (placeholder ?? (coarse ? "输入消息" : "输入消息，回车发送，Shift / Option + 回车换行")))}
         disabled={draft.sending || readonly !== null}
         rows="1"
-        class="block max-h-60 min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base outline-none placeholder:text-muted-foreground {draft.sending ? 'opacity-60' : ''} {guess !== null && coarse ? 'pr-14' : ''}"
+        class="block max-h-60 min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base max-sm:min-h-10 max-sm:px-2 max-sm:py-2 outline-none placeholder:text-muted-foreground {draft.sending ? 'opacity-60' : ''} {guess !== null && coarse ? 'pr-14' : ''}"
       ></textarea>
       {#if guess !== null && coarse}
         <button type="button" onclick={accept} class="absolute top-2 right-2 rounded-full bg-muted px-2.5 py-1 text-xs text-foreground hover:bg-accent">填入</button>
       {/if}
     </div>
-    <div class="flex items-center gap-1">
+    <div class="flex items-center gap-1 max-sm:contents">
       <input
         bind:this={picker}
         type="file"
@@ -388,13 +390,17 @@
           disabled={draft.sending}
           aria-label="添加图片或文件"
           title="添加图片或文件"
-          class="grid size-9 shrink-0 place-items-center rounded-full pointer-coarse:size-10 bg-muted text-foreground hover:bg-accent disabled:opacity-30">
+          class="grid size-9 shrink-0 place-items-center rounded-full pointer-coarse:size-10 bg-muted text-foreground hover:bg-accent disabled:opacity-30 max-sm:col-start-1 max-sm:row-start-1">
           <Icon name="plus" class="size-5" />
         </button>
       {/if}
-      {@render leading?.()}
-      <div class="flex-1"></div>
-      {@render trailing?.()}
+      {#if leading || trailing}
+        <div class="contents max-sm:col-span-3 max-sm:row-start-2 max-sm:mt-1 max-sm:flex max-sm:min-w-0 max-sm:items-center max-sm:gap-1">
+          {@render leading?.()}
+          <div class="flex-1"></div>
+          {@render trailing?.()}
+        </div>
+      {/if}
       {#if readonly !== null}{:else if stopMode}
         <button
           type="button"
@@ -402,7 +408,7 @@
           disabled={stopping}
           aria-label="停止"
           title={stopping ? "正在停止" : "停止（Esc）"}
-          class="grid size-9 shrink-0 place-items-center rounded-full pointer-coarse:size-10 bg-foreground text-background transition-opacity disabled:opacity-50">
+          class="grid size-9 shrink-0 place-items-center rounded-full pointer-coarse:size-10 max-sm:col-start-3 max-sm:row-start-1 bg-foreground text-background transition-opacity disabled:opacity-50">
           <Icon name={stopping ? "loader" : "stop"} class={stopping ? "size-5 animate-spin" : "size-4 fill-current"} />
         </button>
       {:else}
@@ -411,10 +417,11 @@
           onclick={send}
           disabled={!canSend}
           aria-label="发送"
-          class="grid size-9 shrink-0 place-items-center rounded-full pointer-coarse:size-10 bg-primary text-primary-foreground transition-opacity disabled:opacity-30">
+          class="grid size-9 shrink-0 place-items-center rounded-full pointer-coarse:size-10 max-sm:col-start-3 max-sm:row-start-1 bg-primary text-primary-foreground transition-opacity disabled:opacity-30">
           <Icon name={draft.sending ? "loader" : "arrowUp"} class={draft.sending ? "size-5 animate-spin" : "size-5"} />
         </button>
       {/if}
+    </div>
     </div>
   </div>
 </div>

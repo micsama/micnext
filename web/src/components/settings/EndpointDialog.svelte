@@ -100,7 +100,7 @@
 </script>
 
 <Dialog.Root bind:open={() => editing !== null, (o) => !o && void close()}>
-  <Dialog.Content class="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-xl">
+  <Dialog.Content class="flex max-h-[85dvh] flex-col gap-0 p-0 sm:max-w-xl">
     {#if editing}
       {@const f = editing.form}
       {@const base = editing.base}
@@ -118,10 +118,10 @@
         <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
           <section class="space-y-3">
             <h3 class="text-xs font-medium text-muted-foreground">服务连接</h3>
-            <div class="grid grid-cols-[1fr_auto] gap-3">
+            <div class="grid gap-3 sm:grid-cols-[1fr_auto]">
               <Input bind:value={f.name} placeholder={`名称（默认 ${presetLabel(f.preset)}）`} aria-label="服务商名称" maxlength={40} />
               <Select.Root type="single" bind:value={() => f.preset, (v) => (f.preset = v as Preset)}>
-                <Select.Trigger class="w-40">{presetLabel(f.preset)}</Select.Trigger>
+                <Select.Trigger class="w-full sm:w-40">{presetLabel(f.preset)}</Select.Trigger>
                 <Select.Content>
                   {#each PRESETS as p (p.value)}
                     <Select.Item value={p.value} label={p.label} />
@@ -132,7 +132,7 @@
             {#if !fixedUrl(f.preset)}
               <Input
                 bind:value={f.base_url}
-                class="font-mono text-xs"
+                class="font-mono text-base sm:text-xs"
                 placeholder={f.preset === "ollama" ? OLLAMA_URL : "http://host:8000/v1"}
                 required={f.preset === "generic"}
               />
@@ -143,7 +143,7 @@
                 autocomplete="off"
                 bind:value={f.key}
                 disabled={f.clear_key}
-                class="font-mono text-xs"
+                class="font-mono text-base sm:text-xs"
                 placeholder={keyPlaceholder(f)}
               />
               {#if f.key_set}
@@ -162,7 +162,7 @@
                 {testing ? "连接中…" : "测试连接"}
               </Button>
               {#if test}
-                <p class="min-w-0 flex-1 truncate text-xs {test.ok ? 'text-success' : 'text-destructive'}" title={test.text}>
+                <p class="min-w-0 flex-1 text-xs max-sm:break-all sm:truncate {test.ok ? 'text-success' : 'text-destructive'}" title={test.text}>
                   {test.text}
                 </p>
               {/if}
@@ -189,11 +189,11 @@
                       >
                         <StarIcon class={r.starred ? "fill-current" : ""} />
                       </Button>
-                      <Input bind:value={r.name} aria-label="模型 ID" class="h-8 font-mono text-xs text-foreground" placeholder="例如 deepseek-flash" />
+                      <Input bind:value={r.name} aria-label="模型 ID" class="h-9 font-mono text-base text-foreground sm:h-8 sm:text-xs" placeholder="例如 deepseek-flash" />
                     </div>
                   </div>
-                  <label class="space-y-1 text-xs text-muted-foreground">上下文 · token<Input class="h-8 text-xs text-foreground" type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="200000" /></label>
-                  <label class="space-y-1 text-xs text-muted-foreground">最大输出<Input class="h-8 text-xs text-foreground" type="number" min="1" value={limitable(f.preset) ? r.max_tokens : ""} oninput={(e) => (r.max_tokens = e.currentTarget.value)} disabled={!limitable(f.preset)} placeholder={limitable(f.preset) ? "默认" : "不支持"} /></label>
+                  <label class="space-y-1 text-xs text-muted-foreground">上下文 · token<Input class="h-9 text-base text-foreground sm:h-8 sm:text-xs" type="number" min="1" value={r.context_window} oninput={(e) => (r.context_window = e.currentTarget.value)} placeholder="200000" /></label>
+                  <label class="space-y-1 text-xs text-muted-foreground">最大输出<Input class="h-9 text-base text-foreground sm:h-8 sm:text-xs" type="number" min="1" value={limitable(f.preset) ? r.max_tokens : ""} oninput={(e) => (r.max_tokens = e.currentTarget.value)} disabled={!limitable(f.preset)} placeholder={limitable(f.preset) ? "默认" : "不支持"} /></label>
                   <div class="space-y-1 text-xs text-muted-foreground">
                     <span class="block">多模态</span>
                     <Button
@@ -218,7 +218,7 @@
                   </summary>
                   <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {#each [["price_input", "输入"], ["price_output", "输出"], ["price_cache_read", "缓存读取"], ["price_cache_write", "缓存写入"]] as const as [key, label]}
-                      <label class="space-y-1 text-xs text-muted-foreground">{label}<Input class="h-8 text-xs text-foreground" type="number" min="0" step="any" value={r[key]} oninput={(e) => (r[key] = e.currentTarget.value)} placeholder={key === "price_cache_write" ? "同输入" : "未设置"} /></label>
+                      <label class="space-y-1 text-xs text-muted-foreground">{label}<Input class="h-9 text-base text-foreground sm:h-8 sm:text-xs" type="number" min="0" step="any" value={r[key]} oninput={(e) => (r[key] = e.currentTarget.value)} placeholder={key === "price_cache_write" ? "同输入" : "未设置"} /></label>
                     {/each}
                   </div>
                 </details>

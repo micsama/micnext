@@ -213,9 +213,9 @@
   {@const drafted = !unread && activeId !== id && composerDrafts.filled(id)}
   {@const shown = s.tag_ids.flatMap((t) => tags.byId(t) ?? [])}
   <div class="session-entry group relative flex items-center rounded-md border border-transparent hover:bg-accent" class:bg-accent={activeId === id} class:striped={(stripeIndex.get(id) ?? 0) % 2 === 1} data-selected={activeId === id} data-state={running ? "running" : undefined}>
-    <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100", s.pinned_at === null && !unread && !drafted && "md:opacity-0"]}>
+    <button type="button" aria-label={s.pinned_at === null ? "置顶会话" : "取消置顶"} title={s.pinned_at === null ? "置顶会话" : "取消置顶"} aria-pressed={s.pinned_at !== null} onclick={() => togglePin(s)} class={["ml-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:pointer-events-none", s.pinned_at === null && !unread && !drafted && "opacity-0"]}>
       {#if unread}
-        <!-- 新回复、未发草稿依次占用置顶位，悬停仍可置顶。 -->
+        <!-- 新回复、未发草稿依次占用置顶位，悬停仍可置顶；触屏只显示状态，置顶走 ⋯ 菜单。 -->
         <span class="size-2 rounded-full bg-primary group-hover:hidden group-focus-within:hidden"></span>
         <PinIcon class="hidden size-3 group-hover:block group-focus-within:block" />
       {:else if drafted}
@@ -228,7 +228,7 @@
     <a
       href="/s/{id}"
       onclick={(e) => (e.preventDefault(), go(`/s/${id}`))}
-      class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-sm">
+      class="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-sm pointer-coarse:py-3">
       <span class={["min-w-0 flex-1 truncate", activeId === id && "font-medium", unread && "font-semibold"]}>{current.title ?? current.preview ?? `会话 ${id}`}</span>
       {#if shown.length > 0}
         <!-- 两个标签上下叠放，只占一个标签宽。 -->
@@ -242,12 +242,15 @@
     </a>
     <Popover.Root>
       <!-- 宽屏悬停时浮在行尾标签上，平时不占宽。 -->
-      <Popover.Trigger aria-label="会话操作" title="会话操作" class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:opacity-100 md:absolute md:top-1/2 md:right-0 md:-translate-y-1/2 md:bg-background md:opacity-0 md:shadow-sm md:group-hover:opacity-100 data-[state=open]:opacity-100">
+      <Popover.Trigger aria-label="会话操作" title="会话操作" class="mr-1 flex size-7 shrink-0 pointer-coarse:size-10 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:opacity-100 md:absolute md:top-1/2 md:right-0 md:-translate-y-1/2 md:bg-background md:opacity-0 md:shadow-sm md:group-hover:opacity-100 data-[state=open]:opacity-100">
         <EllipsisIcon class="size-4" />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content side="bottom" align="end" sideOffset={4} collisionPadding={8} class="z-50 w-36 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none">
-          <button type="button" disabled={archiving !== null} onclick={() => archive(id)} class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50">
+          <button type="button" onclick={() => togglePin(s)} class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent pointer-coarse:py-3">
+            <PinIcon class="size-4" />{s.pinned_at === null ? "置顶会话" : "取消置顶"}
+          </button>
+          <button type="button" disabled={archiving !== null} onclick={() => archive(id)} class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50 pointer-coarse:py-3">
             <ArchiveIcon class="size-4" />{archiving === id ? "正在归档…" : "归档会话"}
           </button>
         </Popover.Content>
@@ -391,7 +394,7 @@
   <button type="button" onclick={() => go("/schedules")} class="mx-2 mb-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent" class:bg-accent={router.current.kind === "schedules"}>
     <Icon name="clock" />定时任务
   </button>
-  <div class="flex items-center gap-1 border-t border-border p-2">
+  <div class="flex items-center gap-1 border-t border-border p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
     <button
       type="button"
       onclick={() => go("/settings")}

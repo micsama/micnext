@@ -25,7 +25,7 @@
     if (!m || !e) return;
     priceOf = m.id;
     open(toForm(e, settingsStore.models));
-    router.replace("/settings");
+    router.replace("/settings/models");
   });
 
   function open(f: EndpointForm) {

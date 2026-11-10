@@ -58,7 +58,7 @@
         : null)}>
   {#snippet leading()}
     {#if persona !== null}
-      <PersonaPicker value={persona.id} onpick={(id) => (picked = id)} />
+      <PersonaPicker value={persona.id} onpick={(id) => (picked = id)} compact />
     {/if}
     <PlaintextToggle checked={plaintext} onchange={() => (plaintext = !plaintext)} />
   {/snippet}

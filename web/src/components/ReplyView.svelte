@@ -33,6 +33,7 @@
     return ms > 0 && u.output_tokens > 0 ? (u.output_tokens * 1000) / ms : null;
   });
   const hit = $derived(u && u.input_tokens > 0 && u.cache_read_tokens !== null ? u.cache_read_tokens / u.input_tokens : null);
+  let detailed = $state(false);
   const RING = 2 * Math.PI * 5;
   const ringColor = (r: number) => (r >= 0.6 ? "text-emerald-500" : r >= 0.2 ? "text-amber-500" : "text-muted-foreground/60");
 
@@ -65,12 +66,17 @@
       {/if}
     {/if}
   {/each}
-  <div class="mt-1 flex h-6 items-center gap-3 overflow-x-auto whitespace-nowrap [scrollbar-width:none] text-xs text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/reply:opacity-100 focus-within:opacity-100">
+  <!-- 触屏没有悬停：复制与耗时常显，其余统计点开再看。 -->
+  <div class="mt-1 flex h-6 items-center gap-3 overflow-x-auto whitespace-nowrap [scrollbar-width:none] text-xs text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/reply:opacity-100 focus-within:opacity-100 pointer-coarse:h-9 pointer-coarse:opacity-100">
     {#if text}<CopyButton {text} />{/if}
+    <button type="button" aria-expanded={detailed} onclick={() => (detailed = !detailed)} class="hidden h-7 shrink-0 items-center gap-1 rounded-full bg-muted px-2.5 pointer-coarse:inline-flex">
+      <TimerIcon class="size-3 text-sky-600 dark:text-sky-400" />{formatDuration(stats.model_ms)}<Icon name="chevron" class="size-3 transition-transform {detailed ? 'rotate-180' : ''}" />
+    </button>
+    <span class={["contents", !detailed && "pointer-coarse:hidden"]}>
     <span class="inline-flex items-center gap-1"><Icon name="clock" class="size-3" />{time}</span>
     <span class="inline-flex items-center gap-1"><Icon name="bot" class="size-3 text-violet-600 dark:text-violet-400" />{model}</span>
     <span class="h-3 w-px bg-border"></span>
-    <span class="inline-flex items-center gap-1" title="模型耗时"><TimerIcon class="size-3 text-sky-600 dark:text-sky-400" />{formatDuration(stats.model_ms)}</span>
+    <span class="inline-flex items-center gap-1 pointer-coarse:hidden" title="模型耗时"><TimerIcon class="size-3 text-sky-600 dark:text-sky-400" />{formatDuration(stats.model_ms)}</span>
     {#if stats.first_output_ms !== null}<span class="inline-flex items-center gap-1" title="首字延迟（TTFT）"><Icon name="zap" class="size-3 text-sky-600 dark:text-sky-400" />{formatDuration(stats.first_output_ms)}</span>{/if}
     {#if tps !== null}<span class="inline-flex items-center gap-1" title="出字速度（TPS，首字之后）"><GaugeIcon class="size-3 text-emerald-600 dark:text-emerald-400" />{tps.toFixed(tps < 10 ? 1 : 0)} tok/s</span>{/if}
     <span class="h-3 w-px bg-border"></span>
@@ -86,5 +92,6 @@
         </span>
       {:else}<span>缓存未知</span>{/if}
     {:else}<span>用量未知</span>{/if}
+    </span>
   </div>
 </div>

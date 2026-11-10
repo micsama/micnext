@@ -23,7 +23,7 @@
       <circle cx="10" cy="10" r={R} fill="none" stroke-width="3" class="stroke-border" />
       <circle cx="10" cy="10" r={R} fill="none" stroke-width="3" stroke-linecap="round" stroke-dasharray={C} stroke-dashoffset={C * (1 - ratio)} class={near ? "stroke-warning" : "stroke-primary"} />
     </svg>
-    <span class={near ? "text-warning" : "text-foreground/80"}>{percent}%</span>
+    <span class={["max-sm:hidden", near ? "text-warning" : "text-foreground/80"]}>{percent}%</span>
   </Popover.Trigger>
   <Popover.Portal>
     <Popover.Content

@@ -286,7 +286,7 @@
   }
 </script>
 
-<div class="mx-auto w-full max-w-chat px-4 pb-4">
+<div class="mx-auto w-full max-w-chat px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
   {#if error}
     <p class="mb-2 text-sm text-destructive">{error}</p>
   {:else if notice}
@@ -388,7 +388,7 @@
           disabled={draft.sending}
           aria-label="添加图片或文件"
           title="添加图片或文件"
-          class="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-foreground hover:bg-accent disabled:opacity-30">
+          class="grid size-9 shrink-0 place-items-center rounded-full pointer-coarse:size-10 bg-muted text-foreground hover:bg-accent disabled:opacity-30">
           <Icon name="plus" class="size-5" />
         </button>
       {/if}
@@ -402,7 +402,7 @@
           disabled={stopping}
           aria-label="停止"
           title={stopping ? "正在停止" : "停止（Esc）"}
-          class="grid size-9 shrink-0 place-items-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-50">
+          class="grid size-9 shrink-0 place-items-center rounded-full pointer-coarse:size-10 bg-foreground text-background transition-opacity disabled:opacity-50">
           <Icon name={stopping ? "loader" : "stop"} class={stopping ? "size-5 animate-spin" : "size-4 fill-current"} />
         </button>
       {:else}
@@ -411,7 +411,7 @@
           onclick={send}
           disabled={!canSend}
           aria-label="发送"
-          class="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30">
+          class="grid size-9 shrink-0 place-items-center rounded-full pointer-coarse:size-10 bg-primary text-primary-foreground transition-opacity disabled:opacity-30">
           <Icon name={draft.sending ? "loader" : "arrowUp"} class={draft.sending ? "size-5 animate-spin" : "size-5"} />
         </button>
       {/if}

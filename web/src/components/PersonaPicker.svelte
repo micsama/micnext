@@ -10,7 +10,16 @@
     disabled = false,
     side = "top",
     align = "start",
-  }: { value: number; onpick: (id: number) => void; disabled?: boolean; side?: "top" | "bottom"; align?: "start" | "end" } = $props();
+    compact = false,
+  }: {
+    value: number;
+    onpick: (id: number) => void;
+    disabled?: boolean;
+    side?: "top" | "bottom";
+    align?: "start" | "end";
+    /** 窄屏只留图标，给输入框工具栏省宽。 */
+    compact?: boolean;
+  } = $props();
 
   let open = $state(false);
   const persona = $derived(settingsStore.persona(value));
@@ -26,9 +35,9 @@
     {disabled}
     aria-label="选择人设"
     title={persona?.name ?? "选择人设"}
-    class="inline-flex h-9 min-w-0 max-w-36 items-center gap-2 rounded-full bg-muted px-3.5 text-sm text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50 data-[state=open]:bg-accent sm:max-w-44">
+    class={["inline-flex h-9 min-w-0 max-w-36 items-center gap-2 rounded-full bg-muted px-3.5 text-sm text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50 data-[state=open]:bg-accent sm:max-w-44", compact && "max-sm:gap-1 max-sm:px-2.5"]}>
     <PersonaIcon {persona} />
-    <span class="truncate">{persona?.name ?? "请选择人设"}</span>
+    <span class={["truncate", compact && "max-sm:hidden"]}>{persona?.name ?? "请选择人设"}</span>
     <Icon name="chevron" class="size-3.5 shrink-0 rotate-90 text-muted-foreground transition-transform {open ? 'rotate-270' : ''}" />
   </Popover.Trigger>
   <Popover.Portal>

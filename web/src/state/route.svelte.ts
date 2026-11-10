@@ -1,10 +1,12 @@
-/** `/` 新会话、`/s/<id>[?m=<消息>]` 某会话（可定位到某条消息）、`/settings[/models/<id>]` 设置（可直达某模型单价）、`/developer[/<页签>]` 开发者诊断。 */
+/** `/` 新会话、`/s/<id>[?m=<消息>]` 某会话（可定位到某条消息）、`/settings[/<分类>]` 设置（`/settings/models/<id>` 直达某模型单价）、`/developer[/<页签>]` 开发者诊断。 */
 export type DeveloperTab = "logs" | "sql" | "update";
+export type SettingsTab = "prefs" | "personas" | "tags" | "models" | "env" | "wechat" | "backup";
 export type Route =
   | { kind: "new" }
   | { kind: "schedules" }
   | { kind: "session"; id: number; message: number | null }
-  | { kind: "settings"; model: number | null }
+  /** `tab` 为空：桌面显示首个分类，手机显示分类目录。 */
+  | { kind: "settings"; tab: SettingsTab | null; model: number | null }
   | { kind: "trace"; id: number | null; run: number | null }
   | { kind: "developer"; tab: DeveloperTab };
 
@@ -12,8 +14,10 @@ function parse(path: string): Route {
   const url = new URL(path, location.origin);
   path = url.pathname;
   if (/^\/schedules\/?$/.test(path)) return { kind: "schedules" };
-  const settings = /^\/settings(?:\/models\/(\d+))?\/?$/.exec(path);
-  if (settings) return { kind: "settings", model: settings[1] ? Number(settings[1]) : null };
+  const priced = /^\/settings\/models\/(\d+)\/?$/.exec(path);
+  if (priced) return { kind: "settings", tab: "models", model: Number(priced[1]) };
+  const settings = /^\/settings(?:\/(prefs|personas|tags|models|env|wechat|backup))?\/?$/.exec(path);
+  if (settings) return { kind: "settings", tab: (settings[1] ?? null) as SettingsTab | null, model: null };
   const trace = /^\/(?:s\/(\d+)\/)?trace\/?$/.exec(path);
   if (trace) {
     const run = url.searchParams.get("run");

@@ -77,14 +77,15 @@
       {@render skillBlock(skill.name, skill.text, "已加载", ["max-w-[85%]", queued && "opacity-60"], "justify-end")}
     {/each}
     {#if text}
-      <!-- 复制放在气泡左侧：下方只留时间，悬停不压住下一条。 -->
+      <!-- 复制放在气泡左侧：下方只留时间，悬停不压住下一条；触屏点气泡显示。 -->
       <div class="relative max-w-[85%]">
-        <div class={["rounded-2xl bg-accent px-4 py-2 whitespace-pre-wrap break-words", queued && "opacity-60"]}>{text}</div>
-        <div class="absolute right-full bottom-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"><CopyButton {text} variant="icon" /></div>
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <div tabindex="0" class={["rounded-2xl bg-accent px-4 py-2 whitespace-pre-wrap break-words outline-none", queued && "opacity-60"]}>{text}</div>
+        <div class="absolute right-full bottom-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"><CopyButton {text} variant="icon" /></div>
       </div>
     {/if}
     {#if queued}{@render queuedTag()}{/if}
-    <span class="pointer-events-none absolute top-full right-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{time}</span>
+    <span class="pointer-events-none absolute top-full right-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">{time}</span>
   </div>
 {:else if body.kind === "Trigger"}
   <!-- 每次触发的指令相同：默认只露分隔条，点开看指令。 -->

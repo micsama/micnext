@@ -347,6 +347,9 @@ pub(crate) struct CreateBody {
     /// 缺省 = 当时的默认模型。
     model_id: Option<ModelId>,
     reasoning_effort: Option<ReasoningEffort>,
+    /// 首条消息起临时关闭凭据脱敏。
+    #[serde(default)]
+    plaintext: bool,
 }
 
 #[derive(Serialize)]
@@ -388,6 +391,9 @@ pub(crate) async fn create_session(
             },
         )
         .await?;
+    if body.plaintext {
+        app.kernel.set_session_plain(session.id, true).await?;
+    }
     append(&app, session.id, parts).await?;
     Ok((
         StatusCode::CREATED,

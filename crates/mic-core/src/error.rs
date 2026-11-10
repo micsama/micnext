@@ -23,6 +23,8 @@ pub enum AssembleError {
     DuplicateChannelSetup { channel: &'static str },
     #[error("Channel `{channel}` 的渠道提示被重复登记")]
     DuplicateChannelPrompt { channel: &'static str },
+    #[error("内置 skill `{name}` 不合法：{reason}")]
+    InvalidBuiltinSkill { name: &'static str, reason: String },
     #[error("工具 `{name}` 被模块 `{first}` 和 `{second}` 重复登记")]
     DuplicateTool {
         name: String,

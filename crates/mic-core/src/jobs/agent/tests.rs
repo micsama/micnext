@@ -274,7 +274,7 @@ impl Fixture {
             control,
             schedules: None,
             predictions: None,
-            skills: crate::skills::Skills::new(Default::default()),
+            skills: crate::skills::Skills::new(Default::default(), Arc::default()),
             env: Default::default(),
             python: None,
         });

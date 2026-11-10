@@ -67,8 +67,28 @@ async fn scan_load_and_expand() {
     ));
     assert_eq!(scan(&tmp.join("missing")).unwrap(), SkillList::default());
 
-    let skills = Skills::new(root.clone());
+    let builtin = Builtin {
+        name: "guide",
+        description: "built in",
+        body: "\nguide body\n",
+    };
+    write(
+        &root,
+        "guide",
+        SKILL_FILE,
+        "---\nname: guide\ndescription: disk\n---\n",
+    );
+    let skills = Skills::new(root.clone(), Arc::from([builtin]));
+    let list = skills.list().await.unwrap();
+    let names: Vec<_> = list.skills.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["alpha", "guide", "zeta"]);
+    assert!(list
+        .invalid
+        .iter()
+        .any(|i| i.dir == "guide" && i.reason == "与内置 skill 重名"));
+    assert_eq!(skills.load("guide").await.unwrap(), "guide body");
     let catalog = skills.catalog(&list).unwrap();
+    assert!(catalog.contains("<skill name=\"guide\">built in</skill>"));
     assert!(catalog.contains(&format!(
         "<skill name=\"zeta\" dir=\"{}\">last one</skill>",
         root.join("zeta").display()

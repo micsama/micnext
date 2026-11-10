@@ -178,7 +178,7 @@ impl Harness {
             control: Default::default(),
             schedules: None,
             predictions: Some(handle),
-            skills: crate::skills::Skills::new(Default::default()),
+            skills: crate::skills::Skills::new(Default::default(), Arc::default()),
             env: Default::default(),
             python: None,
         });

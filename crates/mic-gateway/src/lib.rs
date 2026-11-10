@@ -70,14 +70,15 @@ impl Module for GatewayModule {
 
     fn install(&self, reg: &mut Registry, cfg: ModuleConfig) -> Result<(), BoxError> {
         let config = cfg.parse::<RawConfig>()?.resolve()?;
-        // 功能地图与开发文档同一来源。
         reg.channel_prompt(
             WEB_CHANNEL,
-            concat!(
-                "Web：支持 Markdown，工具活动实时可见。",
-                "用户在以下页面管理 micnext，设置、定时任务、诊断类问题引导去对应页面。\n\n",
-                include_str!("../../../docs/web-features.md"),
-            ),
+            "Web：支持 Markdown，工具活动实时可见。页面有会话、定时任务、设置、Trace、开发者诊断；功能在哪、怎么用先加载 `web-guide`。",
+        );
+        // 功能地图与开发文档同一来源。
+        reg.skill(
+            "web-guide",
+            "micnext 网页功能地图。回答功能在哪、怎么用之前先加载，不凭印象答。",
+            include_str!("../../../docs/web-features.md"),
         );
         reg.input_prediction(WEB_CHANNEL);
         reg.service(Gateway {

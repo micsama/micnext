@@ -7,6 +7,7 @@
   import Header from "./Header.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import PersonaPicker from "./PersonaPicker.svelte";
+  import PlaintextToggle from "./PlaintextToggle.svelte";
 
   $effect(() => {
     document.title = "新会话 · micnext";
@@ -30,8 +31,10 @@
     reasoningEffort = null;
   });
 
+  let plaintext = $state(false);
+
   async function send(parts: InputPart[]) {
-    const created = await createSession(parts, persona!.id, modelId!, reasoningEffort);
+    const created = await createSession({ parts, persona_id: persona!.id, model_id: modelId!, reasoning_effort: reasoningEffort, plaintext });
     router.go(`/s/${created.session_id}`);
   }
 </script>
@@ -46,6 +49,7 @@
   placeholder="发送第一条消息开始新会话"
   autofocus
   blocked={persona === null || modelId === null}
+  danger={plaintext}
   notice={settingsStore.error ??
     (settingsStore.loaded && modelId === null
       ? "还没有可用的模型：先到 设置 → 模型 添加一个"
@@ -56,6 +60,7 @@
     {#if persona !== null}
       <PersonaPicker value={persona.id} onpick={(id) => (picked = id)} />
     {/if}
+    <PlaintextToggle checked={plaintext} onchange={() => (plaintext = !plaintext)} />
   {/snippet}
   {#snippet trailing()}
     {#if modelId !== null}

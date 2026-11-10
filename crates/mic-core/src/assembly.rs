@@ -48,6 +48,7 @@ pub struct Assembly {
     agent_tools: BTreeSet<String>,
     channel_setups: Arc<HashMap<&'static str, Arc<dyn ChannelSetup>>>,
     channel_prompts: Arc<HashMap<&'static str, &'static str>>,
+    builtin_skills: Arc<[crate::skills::Builtin]>,
     prediction_channels: Arc<HashSet<&'static str>>,
 }
 
@@ -137,6 +138,7 @@ impl Assembly {
             tools: Vec::new(),
             channel_setups: Vec::new(),
             channel_prompts: Vec::new(),
+            skills: Vec::new(),
             prediction_channels: Vec::new(),
         };
         for m in &modules {
@@ -187,6 +189,8 @@ impl Assembly {
                 return Err(AssembleError::DuplicateChannelPrompt { channel });
             }
         }
+        crate::skills::check_builtins(&reg.skills)
+            .map_err(|(name, reason)| AssembleError::InvalidBuiltinSkill { name, reason })?;
 
         Ok(Self {
             data_dir,
@@ -218,6 +222,7 @@ impl Assembly {
             tools: reg.tools.into_iter().map(|(_, t)| t).collect(),
             channel_setups: Arc::new(channel_setups),
             channel_prompts: Arc::new(channel_prompts),
+            builtin_skills: reg.skills.into(),
             prediction_channels: Arc::new(reg.prediction_channels.into_iter().collect()),
         })
     }
@@ -504,7 +509,10 @@ impl Assembly {
             owner,
         ));
         tools.push(crate::search::handle(store.clone(), factories.clone()));
-        let skills = crate::skills::Skills::new(self.data_dir.join(crate::skills::SKILLS_DIR));
+        let skills = crate::skills::Skills::new(
+            self.data_dir.join(crate::skills::SKILLS_DIR),
+            self.builtin_skills.clone(),
+        );
         tools.push(crate::skills::handle(skills.clone()));
         let schedules = wake.clone().map(|wake| {
             Arc::new(Schedules::new(

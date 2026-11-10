@@ -202,8 +202,14 @@ export async function searchSessions(query: string, before: Cursor | null): Prom
   return parseSearchPage(await request("GET", `/sessions/search?${q}`));
 }
 
-export async function createSession(parts: InputPart[], personaId: number, modelId: number, reasoningEffort: ReasoningEffort | null): Promise<Created> {
-  return parseCreated(await request("POST", "/sessions", { parts, persona_id: personaId, model_id: modelId, reasoning_effort: reasoningEffort }));
+export async function createSession(body: {
+  parts: InputPart[];
+  persona_id: number;
+  model_id: number;
+  reasoning_effort: ReasoningEffort | null;
+  plaintext: boolean;
+}): Promise<Created> {
+  return parseCreated(await request("POST", "/sessions", body));
 }
 
 export async function setSessionPersona(sessionId: number, personaId: number): Promise<void> {

@@ -7,6 +7,7 @@
 | 状态 | 主题 | 蓝图 |
 |---|---|---|
 | 实现完成，待验收 | 流式草稿随重连恢复并按调用时刻定位 | [B2](docs/blueprints/stream-draft-snapshot.md) |
+| 实现完成，待验收 | 新会话发送前可关闭凭据脱敏 | [B2](docs/blueprints/new-chat-settings.md)；[B1](docs/brainstorm/new-chat-reuse.md) |
 | B2 待批准；混合负载测试先行 | 请求与数据库耗时观测 | [B2](docs/blueprints/storage-request-timing.md) |
 | 暂缓 | 推送降级（微信被拒） | [B1](docs/brainstorm/push-fallback.md) |
 | P1 已验收，P2 待验收（调度已修订），P3 已实现、待验收 | 推送与定时任务（P1 推送 / P2 内核 / P3 页面） | [B2](docs/blueprints/scheduled-tasks.md) |
@@ -26,7 +27,7 @@
 | 实现完成，待验收 | 缓存冷后整理历史（轻整理 / 提前压缩，并入定时任务规则） | [B2](docs/blueprints/cold-trim.md)；[B1](docs/brainstorm/skills.md) |
 | 实现完成，待验收 | 标题模型改名为杂活模型 | [B2](docs/blueprints/utility-model.md) |
 | 实现完成，待验收 | 预测用户的下一句输入 | [B2](docs/blueprints/input-prediction.md)；[B1](docs/brainstorm/input-prediction.md) |
-| B2 待批准 | 内置 skill（首个 web-guide，功能地图移出 Web channel prompt） | [B2](docs/blueprints/builtin-skills.md) |
+| 实现完成，待验收 | 内置 skill（首个 web-guide，功能地图移出 Web channel prompt） | [B2](docs/blueprints/builtin-skills.md) |
 | B1 待定 | 统一「轮」的口径 | [B1](docs/brainstorm/rounds.md) |
 | 实现完成，待验收 | 压缩后重新加载仍在用的 skill | [B2](docs/blueprints/skills-after-compaction.md)；[B1](docs/brainstorm/skills-after-compaction.md) |
 | 实现完成，待验收 | 设置里的环境变量 | [B2](docs/blueprints/env-vars.md) |

@@ -1,7 +1,9 @@
-//! Skill：`<data_dir>/skills/<name>/SKILL.md` 的扫描、校验与加载。契约：docs/blueprints/skills.md。
+//! Skill：`<data_dir>/skills/<name>/SKILL.md` 与模块登记的内置 skill 的扫描、校验与加载。
+//! 契约：docs/blueprints/skills.md、docs/blueprints/builtin-skills.md。
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use mic_message::ContentPart;
 use mic_tool::{Tool, ToolContext, ToolError, ToolHandle, ToolOutput};
@@ -59,26 +61,70 @@ pub(crate) enum LoadError {
     Io(#[from] SkillsError),
 }
 
+/// 模块登记、随二进制发布的 skill；装配时已校验。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Builtin {
+    pub(crate) name: &'static str,
+    pub(crate) description: &'static str,
+    pub(crate) body: &'static str,
+}
+
+/// 内置 skill 的装配校验：名称与描述规则同磁盘 skill，内置之间不得重名。
+pub(crate) fn check_builtins(builtins: &[Builtin]) -> Result<(), (&'static str, String)> {
+    for (i, b) in builtins.iter().enumerate() {
+        check(b.name, b.description).map_err(|reason| (b.name, reason))?;
+        if builtins[..i].iter().any(|o| o.name == b.name) {
+            return Err((b.name, "与另一个内置 skill 重名".into()));
+        }
+    }
+    Ok(())
+}
+
 /// `dir` 是绝对路径（data_dir 启动时已校验为绝对）。
 #[derive(Debug, Clone)]
 pub(crate) struct Skills {
     dir: PathBuf,
+    builtins: Arc<[Builtin]>,
 }
 
 impl Skills {
-    pub(crate) fn new(dir: PathBuf) -> Self {
-        Self { dir }
+    pub(crate) fn new(dir: PathBuf, builtins: Arc<[Builtin]>) -> Self {
+        Self { dir, builtins }
     }
 
+    fn builtin(&self, name: &str) -> Option<&Builtin> {
+        self.builtins.iter().find(|b| b.name == name)
+    }
+
+    /// 磁盘 skill 与内置重名时计入非法。
     pub(crate) async fn list(&self) -> Result<SkillList, SkillsError> {
         let dir = self.dir.clone();
-        tokio::task::spawn_blocking(move || scan(&dir))
+        let mut list = tokio::task::spawn_blocking(move || scan(&dir))
             .await
-            .expect("扫描 skill 不 panic")
+            .expect("扫描 skill 不 panic")?;
+        let (shadowed, kept) = std::mem::take(&mut list.skills)
+            .into_iter()
+            .partition::<Vec<_>, _>(|s| self.builtin(&s.name).is_some());
+        list.skills = kept;
+        list.invalid
+            .extend(shadowed.into_iter().map(|s| InvalidSkill {
+                dir: s.name,
+                reason: "与内置 skill 重名".into(),
+            }));
+        list.skills.extend(self.builtins.iter().map(|b| SkillInfo {
+            name: b.name.to_owned(),
+            description: b.description.to_owned(),
+        }));
+        list.skills.sort_by(|a, b| a.name.cmp(&b.name));
+        list.invalid.sort_by(|a, b| a.dir.cmp(&b.dir));
+        Ok(list)
     }
 
     /// 工具加载与用户点名共用的加载结果。
     pub(crate) async fn load(&self, name: &str) -> Result<String, LoadError> {
+        if let Some(b) = self.builtin(name) {
+            return Ok(b.body.trim().to_owned());
+        }
         let dir = self.dir.clone();
         let name = name.to_owned();
         tokio::task::spawn_blocking(move || load(&dir, &name))
@@ -117,13 +163,14 @@ impl Skills {
         let lines: Vec<String> = list
             .skills
             .iter()
-            .map(|s| {
-                format!(
+            .map(|s| match self.builtin(&s.name) {
+                Some(_) => format!("<skill name=\"{}\">{}</skill>", s.name, s.description),
+                None => format!(
                     "<skill name=\"{}\" dir=\"{}\">{}</skill>",
                     s.name,
                     self.dir.join(&s.name).display(),
                     s.description
-                )
+                ),
             })
             .collect();
         Some(format!(
@@ -208,7 +255,17 @@ fn parse(dir: &str, raw: &str) -> Result<(SkillInfo, String), String> {
     if name != dir {
         return Err(format!("name「{name}」与目录名不一致"));
     }
-    if !valid_name(&name) {
+    let description = fm
+        .description
+        .map(|d| d.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_default();
+    check(&name, &description)?;
+    Ok((SkillInfo { name, description }, body.trim().to_owned()))
+}
+
+/// 磁盘与内置 skill 共用的名称、描述规则。
+fn check(name: &str, description: &str) -> Result<(), String> {
+    if !valid_name(name) {
         return Err(
             "name 只能用小写字母、数字和单个连字符，1–64 个字符，不以连字符开头或结尾".into(),
         );
@@ -216,15 +273,13 @@ fn parse(dir: &str, raw: &str) -> Result<(SkillInfo, String), String> {
     if crate::session_commands().iter().any(|c| c.name == name) {
         return Err(format!("name「{name}」与内置指令重名"));
     }
-    let description = fm
-        .description
-        .map(|d| d.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|d| !d.is_empty())
-        .ok_or("frontmatter 缺少 description")?;
+    if description.is_empty() {
+        return Err("缺少 description".into());
+    }
     if description.chars().count() > SKILL_DESCRIPTION_CHARS {
         return Err(format!("description 超过 {SKILL_DESCRIPTION_CHARS} 字符"));
     }
-    Ok((SkillInfo { name, description }, body.trim().to_owned()))
+    Ok(())
 }
 
 /// frontmatter 结束于独占一行的 `---`。

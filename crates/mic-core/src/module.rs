@@ -45,6 +45,7 @@ pub struct Registry {
     pub(crate) tools: Vec<(&'static str, ToolHandle)>,
     pub(crate) channel_setups: Vec<(&'static str, Arc<dyn ChannelSetup>)>,
     pub(crate) channel_prompts: Vec<(&'static str, &'static str)>,
+    pub(crate) skills: Vec<crate::skills::Builtin>,
     pub(crate) prediction_channels: Vec<&'static str>,
 }
 
@@ -56,6 +57,15 @@ impl Registry {
     /// 本渠道 Root 会话的呈现说明，进入 system prompt `context` 块；同一渠道只能声明一次。
     pub fn channel_prompt(&mut self, channel: &'static str, prompt: &'static str) {
         self.channel_prompts.push((channel, prompt));
+    }
+
+    /// 内置 skill：正文随二进制发布（`include_str!`），与磁盘 skill 同一套目录与加载；名称与描述规则同磁盘 skill。
+    pub fn skill(&mut self, name: &'static str, description: &'static str, body: &'static str) {
+        self.skills.push(crate::skills::Builtin {
+            name,
+            description,
+            body,
+        });
     }
 
     /// 本渠道 Root 会话在对话 run 正常完成后预测用户的下一句输入。

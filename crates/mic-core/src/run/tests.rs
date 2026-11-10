@@ -175,7 +175,7 @@ async fn retries_keep_the_claimed_effort_and_compaction_uses_the_next_selection(
         control: Default::default(),
         schedules: None,
         predictions: None,
-        skills: crate::skills::Skills::new(Default::default()),
+        skills: crate::skills::Skills::new(Default::default(), Arc::default()),
         env: Default::default(),
         python: None,
     });
@@ -408,7 +408,7 @@ impl Fixture {
             control: Default::default(),
             schedules: None,
             predictions: None,
-            skills: crate::skills::Skills::new(skills_dir()),
+            skills: crate::skills::Skills::new(skills_dir(), Arc::default()),
             env: Default::default(),
             python: None,
         });

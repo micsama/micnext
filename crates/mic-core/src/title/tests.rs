@@ -21,7 +21,7 @@ async fn held_first_text_is_eligible_but_commands_old_text_and_failed_first_are_
         control: Default::default(),
         schedules: None,
         predictions: None,
-        skills: crate::skills::Skills::new(Default::default()),
+        skills: crate::skills::Skills::new(Default::default(), Arc::default()),
         env: Default::default(),
         python: None,
     });
@@ -384,7 +384,7 @@ async fn manual_title_records_sources_and_side_output() {
         control: Default::default(),
         schedules: None,
         predictions: None,
-        skills: crate::skills::Skills::new(Default::default()),
+        skills: crate::skills::Skills::new(Default::default(), Arc::default()),
         env: Default::default(),
         python: None,
     });

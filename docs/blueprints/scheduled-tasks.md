@@ -32,7 +32,8 @@
 
 | 参数 | 说明 |
 |---|---|
-| `text` | 推送正文 |
+| `title` | 推送标题，单行不超过 15 字（[push-title](push-title.md)） |
+| `text` | 推送正文，纯文本 |
 | `via?` | 另发的 IM Channel 名数组，如 `["wechat"]`；省略用默认推送 Channel，`[]` 只进 Web 通知中心 |
 
 每条推送都进 Web 通知中心并计未读；Web 不是可选去向（human 2026-10-20）。
@@ -46,8 +47,8 @@
 
 一次推送一个事务：
 
-1. `core_pushes`：`id, person_id, source_session_id, source_run_id?, text, created_at, read_at?`。框架推送（P2 的失败通知）`source_run_id` 为空。
-2. 每个 IM Channel 一行 `core_push_deliveries(push_id, channel, message_id?, failure?)`，`message_id` 与 `failure` 恰有其一：在 person 私聊会话追加 `Notification { source: <来源说明>, text }`，`message_id` 指向它，走现有 `pending_deliveries` 投递。通知中心直接读推送表。
+1. `core_pushes`：`id, person_id, source_session_id, source_run_id?, title, text, created_at, read_at?`。框架推送（P2 的失败通知）`source_run_id` 为空。
+2. 每个 IM Channel 一行 `core_push_deliveries(push_id, channel, message_id?, failure?)`，`message_id` 与 `failure` 恰有其一：在 person 私聊会话追加 `Notification { source: <来源说明>, text: <标题、空行、正文> }`，`message_id` 指向它，走现有 `pending_deliveries` 投递。通知中心直接读推送表。
 3. 发布 `KernelEvent::PushCreated`。
 
 **框架推送**（P2 的失败通知）不走「整条报错」：默认推送 Channel 中不可用的照样建投递行、`failure` 写原因（如「微信未连接」）。推送记录因此总能落库并在通知中心看到。已建 `Notification` 的微信投递沿用现有 `pending_deliveries`，微信恢复后补发。

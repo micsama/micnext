@@ -16,6 +16,7 @@ use serde::Deserialize;
 use crate::event::{Events, KernelEventKind};
 use crate::jobs::JobPort;
 use crate::kernel::session_channel;
+use crate::limits::PUSH_TITLE_CHARS;
 use crate::run::now_ms;
 use crate::send_file::snapshot;
 use crate::{ChannelConnection, ChannelSetup, ChannelSetupError};
@@ -41,6 +42,8 @@ pub enum PushError {
     Unavailable(Vec<(String, String)>),
     #[error("推送正文为空")]
     EmptyText,
+    #[error("推送标题须为不超过 {PUSH_TITLE_CHARS} 字的单行")]
+    InvalidTitle,
     #[error(transparent)]
     Store(#[from] StoreError),
     #[error(transparent)]
@@ -105,10 +108,15 @@ impl Pushes {
     pub(crate) async fn send(
         &self,
         source: PushSource,
+        title: &str,
         text: String,
         files: Vec<FileRef>,
         via: Option<Vec<String>>,
     ) -> Result<Vec<String>, PushError> {
+        let title = title.trim();
+        if title.is_empty() || title.contains('\n') || title.chars().count() > PUSH_TITLE_CHARS {
+            return Err(PushError::InvalidTitle);
+        }
         if text.trim().is_empty() {
             return Err(PushError::EmptyText);
         }
@@ -132,7 +140,8 @@ impl Pushes {
         if !down.is_empty() {
             return Err(PushError::Unavailable(down));
         }
-        self.create(source, text, files, routes).await?;
+        self.create(source, title.to_owned(), text, files, routes)
+            .await?;
         Ok(via)
     }
 
@@ -140,6 +149,7 @@ impl Pushes {
     pub(crate) async fn notify(
         &self,
         session: SessionId,
+        title: String,
         text: String,
     ) -> Result<PushId, StoreError> {
         let chosen = self.store.push_channels().await?;
@@ -164,7 +174,7 @@ impl Pushes {
             }
         }
         let source = PushSource { session, run: None };
-        match self.create(source, text, Vec::new(), routes).await {
+        match self.create(source, title, text, Vec::new(), routes).await {
             Ok(id) => Ok(id),
             Err(PushError::Store(e)) => Err(e),
             Err(e) => unreachable!("建推送只会有存储错误：{e}"),
@@ -208,6 +218,7 @@ impl Pushes {
     async fn create(
         &self,
         source: PushSource,
+        title: String,
         text: String,
         files: Vec<FileRef>,
         routes: Vec<PushRoute>,
@@ -218,7 +229,7 @@ impl Pushes {
             .await?
             .expect("推送来源会话存在（调用方保证）");
         let channel = session_channel(&self.store, &session).await?;
-        let title = self
+        let session_title = self
             .store
             .session_summary(source.session)
             .await?
@@ -227,9 +238,9 @@ impl Pushes {
             SessionKind::Triggered { module, .. } if module == SCHEDULE_MODULE => "scheduled task",
             _ => "session",
         };
-        let source_label = match title {
-            Some(title) => format!(
-                "push from {from} \"{title}\" (session {})",
+        let source_label = match session_title {
+            Some(session_title) => format!(
+                "push from {from} \"{session_title}\" (session {})",
                 source.session.0
             ),
             None => format!("push from session {}", source.session.0),
@@ -243,6 +254,7 @@ impl Pushes {
                     source_session: source.session,
                     source_run: source.run,
                     source_label,
+                    title,
                     text,
                     files,
                     routes,
@@ -284,7 +296,9 @@ struct PushTool {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct PushArgs {
-    /// Self-contained: the user may read it away from this conversation.
+    /// Notification headline, one line, at most 15 characters, e.g. "部署完成".
+    title: String,
+    /// Plain text, no Markdown. Self-contained: the user may read it away from this conversation.
     text: String,
     /// IM channels such as "wechat"; omit for the user's default, [] for Web only.
     via: Option<Vec<String>>,
@@ -322,7 +336,7 @@ impl Tool for PushTool {
         };
         let via = self
             .pushes
-            .send(source, args.text, files, args.via)
+            .send(source, &args.title, args.text, files, args.via)
             .await
             .map_err(|e| match e {
                 PushError::UnknownChannel(c) => ToolError::input(format!(
@@ -330,6 +344,9 @@ impl Tool for PushTool {
                     self.pushes.channels().join(", ")
                 )),
                 PushError::EmptyText => ToolError::input("text must not be empty"),
+                PushError::InvalidTitle => ToolError::input(format!(
+                    "title must be a single non-empty line of at most {PUSH_TITLE_CHARS} characters"
+                )),
                 PushError::Unavailable(down) => ToolError::business(format!(
                     "not sent; unavailable channels: {}",
                     down.iter()

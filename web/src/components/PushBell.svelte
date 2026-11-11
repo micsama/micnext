@@ -73,10 +73,11 @@
             <span class={["mt-1.5 size-2 shrink-0 rounded-full", fresh ? "bg-primary" : "bg-transparent"]} aria-label={fresh ? "新" : undefined}></span>
             <div class="min-w-0 flex-1">
               <div class="flex items-baseline gap-2 text-xs">
-                <button type="button" class="min-w-0 truncate font-medium hover:underline" title="打开来源会话" onclick={() => open(p)}>{p.source_session_title ?? `会话 #${p.source_session_id}`}</button>
+                <button type="button" class="min-w-0 truncate text-muted-foreground hover:text-foreground hover:underline" title="打开来源会话" onclick={() => open(p)}>{p.source_session_title ?? `会话 #${p.source_session_id}`}</button>
                 <time class="ml-auto shrink-0 text-muted-foreground tabular-nums" title={formatTime(p.created_at)}>{formatAgo(p.created_at)}</time>
               </div>
-              <p class={["mt-1 text-sm leading-relaxed break-words whitespace-pre-wrap", !fresh && "text-foreground/80", long && !full && "line-clamp-4"]}>{p.text}</p>
+              <p class="mt-1 text-sm font-semibold break-words">{p.title}</p>
+              <p class={["mt-0.5 text-sm leading-relaxed break-words whitespace-pre-wrap", !fresh && "text-foreground/80", long && !full && "line-clamp-4"]}>{p.text}</p>
               {#if p.files.length > 0}
                 <div class="mt-2 flex flex-wrap gap-2">
                   {#each p.files as file, i (i)}
@@ -118,7 +119,7 @@
     <button type="button" aria-label="打开通知" class="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-3 text-left transition-colors hover:bg-accent focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring" onclick={() => pushCenter.show()}>
       <span class="size-1.5 shrink-0 rounded-full bg-primary"></span>
       <span class="shrink-0 text-xs font-medium">{count > 1 ? `${count} 条新通知` : "新通知"}</span>
-      <span class="min-w-0 truncate text-xs text-muted-foreground">{latest.text}</span>
+      <span class="min-w-0 truncate text-xs text-muted-foreground">{latest.title}</span>
     </button>
     <button type="button" aria-label="收起通知提醒" title="收起" class="mr-1.5 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" onclick={() => pushCenter.dismiss()}><XIcon class="size-3.5" /></button>
   </div>

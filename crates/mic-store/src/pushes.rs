@@ -19,6 +19,7 @@ pub struct NewPush {
     pub source_run: Option<RunId>,
     /// 写入私聊会话的 `Notification.source`。
     pub source_label: String,
+    pub title: String,
     pub text: String,
     pub files: Vec<FileRef>,
     pub routes: Vec<PushRoute>,
@@ -36,6 +37,7 @@ pub struct PushView {
     pub id: PushId,
     pub source_session_id: SessionId,
     pub source_session_title: Option<String>,
+    pub title: String,
     pub text: String,
     pub files: Vec<FileRef>,
     pub created_at: i64,
@@ -90,18 +92,20 @@ impl Store {
             let tx = conn.transaction()?;
             let files = serde_json::to_string(&p.files).expect("FileRef 可序列化");
             tx.execute(
-                "INSERT INTO core_pushes (person_id, source_session_id, source_run_id, text, files, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![p.person.0, p.source_session.0, p.source_run.map(|r| r.0), p.text, files, now],
+                "INSERT INTO core_pushes (person_id, source_session_id, source_run_id, title, text, files, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![p.person.0, p.source_session.0, p.source_run.map(|r| r.0), p.title, p.text, files, now],
             )?;
             let id = PushId(tx.last_insert_rowid());
+            // IM 消息没有标题字段：标题作首行。
+            let im_text = format!("{}\n\n{}", p.title, p.text);
             let mut notices = Vec::new();
             for route in p.routes {
                 let (channel, message, failure) = match route {
                     PushRoute::Session { channel, session } => {
                         let body = MessageBody::Notification {
                             source: p.source_label.clone(),
-                            text: p.text.clone(),
+                            text: im_text.clone(),
                             files: p.files.clone(),
                         };
                         let message = insert_message(&tx, session, None, &body, now)?;
@@ -137,7 +141,7 @@ impl Store {
     ) -> Result<PushPage, StoreError> {
         self.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT p.id, p.source_session_id, s.title, p.text, p.files, p.created_at, p.read_at
+                "SELECT p.id, p.source_session_id, s.title, p.title, p.text, p.files, p.created_at, p.read_at
                  FROM core_pushes p JOIN core_sessions s ON s.id = p.source_session_id
                  WHERE p.person_id = ?1 AND p.id < ?2
                  ORDER BY p.id DESC LIMIT ?3",
@@ -154,10 +158,11 @@ impl Store {
                             id: PushId(r.get(0)?),
                             source_session_id: SessionId(r.get(1)?),
                             source_session_title: r.get(2)?,
-                            text: r.get(3)?,
-                            files: row::json_col(r, 4)?,
-                            created_at: r.get(5)?,
-                            read_at: r.get(6)?,
+                            title: r.get(3)?,
+                            text: r.get(4)?,
+                            files: row::json_col(r, 5)?,
+                            created_at: r.get(6)?,
+                            read_at: r.get(7)?,
                             deliveries: Vec::new(),
                         })
                     },

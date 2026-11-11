@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from convert import convert
+from convert import VERSIONS, convert
 
 SCRIPT = Path(__file__).with_name("convert.py")
 
@@ -20,8 +20,8 @@ class ConversionTests(unittest.TestCase):
             conn.executescript("""
                 CREATE TABLE schema_migrations(module TEXT PRIMARY KEY, version INTEGER NOT NULL);
                 INSERT INTO schema_migrations VALUES ('core', 25), ('wechat', 5);
-                CREATE TABLE core_sessions(id INTEGER PRIMARY KEY);
-                INSERT INTO core_sessions VALUES (1);
+                CREATE TABLE core_sessions(id INTEGER PRIMARY KEY, title TEXT);
+                INSERT INTO core_sessions VALUES (1, '巡检'), (2, NULL);
                 CREATE TABLE core_runs(id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL);
                 CREATE TABLE core_model_calls(id INTEGER PRIMARY KEY, started_at INTEGER NOT NULL);
                 CREATE TABLE core_messages(id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, payload TEXT NOT NULL,
@@ -30,7 +30,8 @@ class ConversionTests(unittest.TestCase):
                 INSERT INTO core_messages(id, session_id, payload) VALUES
                   (10, 1, '{"kind":"Notification","source":"micnext","text":"t"}'), (11, 1, '{"kind":"HarnessNote","text":"n"}');
                 CREATE INDEX idx_messages_undelivered ON core_messages(session_id) WHERE kind IN ('Reply', 'Notification');
-                CREATE TABLE core_pushes(id INTEGER PRIMARY KEY, text TEXT NOT NULL);
+                CREATE TABLE core_pushes(id INTEGER PRIMARY KEY, source_session_id INTEGER NOT NULL, text TEXT NOT NULL);
+                INSERT INTO core_pushes VALUES (1, 1, 'a'), (2, 2, 'b');
                 CREATE TABLE core_models(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
                 INSERT INTO core_models VALUES (1, 'm');
                 CREATE TABLE core_settings(id INTEGER PRIMARY KEY, title_model_id INTEGER REFERENCES core_models(id),
@@ -52,11 +53,12 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(self.version(), 25)
         result = self.run_script("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.version(), 31)
+        self.assertEqual(self.version(), int(VERSIONS["core"].read_text()))
         with sqlite3.connect(self.db) as conn:
             plan = conn.execute("EXPLAIN QUERY PLAN SELECT id FROM core_messages WHERE model_call_id = 1 AND kind = 'Reply'").fetchall()
             self.assertIn("idx_messages_call", plan[0][3])
-            self.assertEqual(conn.execute("SELECT seen_message_id FROM core_sessions").fetchone(), (11,))
+            self.assertEqual(conn.execute("SELECT seen_message_id FROM core_sessions WHERE id = 1").fetchone(), (11,))
+            self.assertEqual(conn.execute("SELECT title FROM core_pushes ORDER BY id").fetchall(), [("巡检",), ("通知",)])
             payloads = conn.execute("SELECT json_extract(payload, '$.files') FROM core_messages ORDER BY id").fetchall()
             self.assertEqual(payloads, [("[]",), (None,)])
             self.assertEqual(conn.execute("SELECT plan FROM wechat_delivery").fetchone(), ('{"chunks":["a"],"files":[]}',))

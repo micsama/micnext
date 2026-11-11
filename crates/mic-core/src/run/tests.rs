@@ -2016,6 +2016,7 @@ async fn schedule_operations_publish_changes_and_delivery_updates() {
                 source_session: task.session_id,
                 source_run: None,
                 source_label: task.name.clone(),
+                title: "巡检".into(),
                 text: "检查完毕".into(),
                 files: Vec::new(),
                 routes: vec![mic_store::PushRoute::Session {

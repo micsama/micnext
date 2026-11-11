@@ -18,8 +18,8 @@ use tokio::sync::{mpsc, Notify};
 
 use crate::event::Events;
 use crate::limits::{
-    SCHEDULE_COMPACT_PERCENT, SCHEDULE_FAIL_PAUSE, SCHEDULE_LATE_GRACE, SCHEDULE_MISSED_SCAN,
-    SCHEDULE_RUN_TIMEOUT, SCHEDULE_TICK_MAX,
+    PUSH_TITLE_CHARS, SCHEDULE_COMPACT_PERCENT, SCHEDULE_FAIL_PAUSE, SCHEDULE_LATE_GRACE,
+    SCHEDULE_MISSED_SCAN, SCHEDULE_RUN_TIMEOUT, SCHEDULE_TICK_MAX,
 };
 use crate::push::Pushes;
 use crate::run::{now_ms, Engine};
@@ -85,11 +85,12 @@ impl Schedules {
         Ok(())
     }
 
-    /// 框架推送「定时任务 X：结局与原因」；连续失败达到上限则一并暂停。
+    /// 框架推送：标题「⏰ 任务名」，正文写全名、结局与原因；连续失败达到上限则一并暂停。
     async fn report(&self, fire: Fire) -> Result<(), StoreError> {
         let Some(schedule) = self.store.schedule(fire.schedule_id).await? else {
             return Ok(());
         };
+        let title = schedule_title(&schedule.name);
         let mut text = format!(
             "定时任务「{}」{}。",
             schedule.name,
@@ -118,7 +119,7 @@ impl Schedules {
                 "已连续 {SCHEDULE_FAIL_PAUSE} 次失败，任务已暂停；排除问题后可在对话里让 agent 重新启用。"
             ));
         }
-        self.pushes.notify(schedule.session_id, text).await?;
+        self.pushes.notify(schedule.session_id, title, text).await?;
         Ok(())
     }
 
@@ -288,4 +289,15 @@ async fn final_paragraph(store: &Store, run: RunId) -> Result<Option<String>, St
             }
             _ => None,
         }))
+}
+
+/// 「⏰ 任务名」，超出推送标题上限时截断任务名并补「…」。
+fn schedule_title(name: &str) -> String {
+    const PREFIX: &str = "⏰ ";
+    let room = PUSH_TITLE_CHARS - PREFIX.chars().count();
+    if name.chars().count() <= room {
+        return format!("{PREFIX}{name}");
+    }
+    let head: String = name.chars().take(room - 1).collect();
+    format!("{PREFIX}{head}…")
 }

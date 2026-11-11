@@ -15,6 +15,8 @@ pub(crate) const PYTHON_ENV_TIMEOUT: Duration = Duration::from_secs(120);
 /// 命令里 uv 的默认包源；服务进程已设 `UV_DEFAULT_INDEX` 时沿用进程的。
 pub(crate) const UV_DEFAULT_INDEX: &str = "https://mirrors.cloud.tencent.com/pypi/simple/";
 pub(crate) const EVENT_CAPACITY: usize = 1024;
+/// 推送标题上限（字符）：iPhone 锁屏标题只占一行。
+pub(crate) const PUSH_TITLE_CHARS: usize = 15;
 pub(crate) const WAKE_CHANNEL_CAPACITY: usize = 256;
 pub(crate) const DEFAULT_CONTEXT_WINDOW: u32 = 200_000;
 pub(crate) const COMPACTION_BUDGET_PERCENT: u64 = 80;

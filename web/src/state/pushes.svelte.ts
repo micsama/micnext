@@ -113,8 +113,7 @@ class PushCenter {
   }
 
   askIn(push: PushView): void {
-    const firstLine = push.text.split("\n", 1)[0]!;
-    composerDrafts.get(push.source_session_id).reply = { label: `关于推送：${firstLine}`, quote: `关于你推送的消息：\n${push.text}` };
+    composerDrafts.get(push.source_session_id).reply = { label: `关于推送：${push.title}`, quote: `关于你推送的「${push.title}」：\n${push.text}` };
   }
 
 }

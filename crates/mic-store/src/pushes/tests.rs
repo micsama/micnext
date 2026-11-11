@@ -41,6 +41,7 @@ fn push(
         source_session: source,
         source_run: None,
         source_label: "push from session".into(),
+        title: "提醒".into(),
         text: "到点了".into(),
         files: vec![mic_message::FileRef {
             path: "/data/files/1/图.html".into(),
@@ -73,7 +74,7 @@ async fn check() {
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].session_id, dm);
     assert!(
-        matches!(&notices[0].body, MessageBody::Notification { files, .. } if files.len() == 1)
+        matches!(&notices[0].body, MessageBody::Notification { text, files, .. } if text == "提醒\n\n到点了" && files.len() == 1)
     );
     store.mark_delivered(notices[0].id, 11).await.unwrap();
 

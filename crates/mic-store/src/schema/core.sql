@@ -203,7 +203,7 @@ CREATE TABLE core_pushes (
   text               TEXT NOT NULL,
   created_at         INTEGER NOT NULL,
   read_at            INTEGER
-, files TEXT NOT NULL DEFAULT '[]');
+, files TEXT NOT NULL DEFAULT '[]', title TEXT NOT NULL DEFAULT '');
 
 CREATE INDEX idx_pushes_person ON core_pushes(person_id, id);
 

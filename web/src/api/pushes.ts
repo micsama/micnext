@@ -14,6 +14,7 @@ export type PushView = {
   id: number;
   source_session_id: number;
   source_session_title: string | null;
+  title: string;
   text: string;
   files: FileRef[];
   created_at: number;
@@ -40,6 +41,7 @@ const pushPage: Decoder<PushPage> = obj({
       id: num,
       source_session_id: num,
       source_session_title: nullable(str),
+      title: str,
       text: str,
       files: arr(fileRef),
       created_at: num,

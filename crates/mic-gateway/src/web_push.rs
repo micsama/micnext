@@ -202,17 +202,8 @@ impl Payload {
         if body.len() < push.text.len() {
             body.push('…');
         }
-        if !push.files.is_empty() {
-            if !body.is_empty() {
-                body.push('\n');
-            }
-            body.push_str(&format!("附 {} 个文件", push.files.len()));
-        }
         Self {
-            title: push
-                .source_session_title
-                .clone()
-                .unwrap_or_else(|| "micnext".to_owned()),
+            title: push.title.clone(),
             body,
             url: format!("/s/{}", push.source_session_id.0),
         }

@@ -29,6 +29,7 @@ mod tags;
 mod trace;
 mod update;
 mod web;
+mod web_push;
 
 use mic_core::{BoxError, Module, ModuleConfig, Registry};
 

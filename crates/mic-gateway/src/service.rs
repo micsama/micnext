@@ -16,7 +16,8 @@ use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE};
 use crate::update::{BuildVersion, RestartRequest, Updater};
 use crate::{
     api, auth, backup, channels, context, env_vars, global_stream, jobs, log_stream, models,
-    pushes, schedules, search, settings, sql, stream, tags, trace, update, web, DeveloperLogs,
+    pushes, schedules, search, settings, sql, stream, tags, trace, update, web, web_push,
+    DeveloperLogs,
 };
 
 pub(crate) struct Gateway {
@@ -77,6 +78,11 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
             )
         })?;
 
+    tokio::spawn(web_push::run(
+        kernel.clone(),
+        web_push::client(),
+        stop.clone(),
+    ));
     let app = Arc::new(App {
         kernel,
         logs,
@@ -212,6 +218,11 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/developer/logs/stream", get(log_stream::stream))
         .route("/stream", get(global_stream::stream))
         .route("/account/password", put(auth::change_password))
+        .route("/web-push/key", get(web_push::key))
+        .route(
+            "/web-push/subscriptions",
+            put(web_push::subscribe).delete(web_push::unsubscribe),
+        )
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(middleware::from_fn_with_state(app.clone(), auth::authorize))
         .route("/login", post(auth::login))

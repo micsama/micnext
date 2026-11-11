@@ -3,6 +3,8 @@
   import { getPushSettings, putPushSettings } from "../../api/client";
   import { channelLabel, type PushSettings } from "../../api/pushes";
   import { cn } from "$lib/utils";
+  import { currentSubscription, disableWebPush, enableWebPush, webPushSupported } from "$lib/webPush";
+  import Switch from "../Switch.svelte";
   import Group from "./Group.svelte";
   import SaveStatus, { type SaveState } from "./SaveStatus.svelte";
 
@@ -16,6 +18,35 @@
       (e: Error) => (status = { kind: "error", message: e.message }),
     );
   });
+
+  /** 本设备的系统通知订阅；`undefined` = 尚未读出。 */
+  let device = $state<PushSubscription | null | undefined>(webPushSupported ? undefined : null);
+  let deviceBusy = $state(false);
+  let deviceError = $state<string | null>(null);
+
+  $effect(() => {
+    if (!webPushSupported) return;
+    currentSubscription().then(
+      (s) => (device = s),
+      (e: Error) => ((device = null), (deviceError = e.message)),
+    );
+  });
+
+  async function toggleDevice() {
+    if (device === undefined || deviceBusy) return;
+    deviceBusy = true;
+    deviceError = null;
+    try {
+      if (device) await disableWebPush(device);
+      else await enableWebPush();
+      device = await currentSubscription();
+    } catch (e) {
+      deviceError = (e as Error).message;
+      device = await currentSubscription().catch(() => null);
+    } finally {
+      deviceBusy = false;
+    }
+  }
 
   async function toggle(channel: string) {
     if (!settings || busy) return;
@@ -33,7 +64,7 @@
   }
 </script>
 
-<Group title="推送" footer="agent 主动通知你（如长任务完成提醒）时，推送总会进 Web 通知中心；未指定渠道时，同时发到这里选的 IM。">
+<Group title="推送" footer="agent 主动通知你（如长任务完成提醒）时，推送总会进 Web 通知中心，开了系统通知的设备同时弹出；未指定渠道时，还会发到这里选的 IM。">
   {#snippet actions()}<SaveStatus state={status} />{/snippet}
   <div class="space-y-2 px-4 py-3.5">
     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -61,6 +92,19 @@
     {#if settings && settings.chosen.length === 0}
       <p class="text-xs text-muted-foreground">未选择：发到所有已连接的 IM。{settings.effective.length > 0 ? `当前发往 ${settings.effective.map(channelLabel).join("、")}。` : "当前没有已连接的 IM，只进 Web 通知中心。"}</p>
     {/if}
+    <div class="flex items-center justify-between gap-3 pt-1">
+      <span class="text-sm">本设备系统通知</span>
+      <Switch
+        checked={!!device}
+        label="本设备系统通知"
+        disabled={!webPushSupported || device === undefined || deviceBusy}
+        onclick={toggleDevice}
+      />
+    </div>
+    {#if !webPushSupported}
+      <p class="text-xs text-muted-foreground">iPhone 需先在 Safari 分享菜单里「添加到主屏幕」，再从主屏幕打开 micnext。</p>
+    {/if}
+    {#if deviceError}<p role="alert" class="text-xs text-destructive">{deviceError}</p>{/if}
     {#if status?.kind === "error"}<p role="alert" class="text-xs text-destructive">{status.message}</p>{/if}
   </div>
 </Group>

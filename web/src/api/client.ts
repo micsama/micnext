@@ -146,6 +146,18 @@ export async function changePassword(current: string, next: string): Promise<voi
   await request("PUT", "/account/password", { current, new: next });
 }
 
+export async function getWebPushKey(): Promise<string> {
+  return ((await request("GET", "/web-push/key")) as { key: string }).key;
+}
+
+export async function putWebPushSubscription(subscription: PushSubscriptionJSON): Promise<void> {
+  await request("PUT", "/web-push/subscriptions", subscription);
+}
+
+export async function deleteWebPushSubscription(endpoint: string): Promise<void> {
+  await request("DELETE", "/web-push/subscriptions", { endpoint });
+}
+
 export async function listSessions(channel: string, tag: number | null, before: Cursor | null): Promise<SessionPage> {
   const q = new URLSearchParams({ channel });
   if (tag !== null) q.set("tag", String(tag));

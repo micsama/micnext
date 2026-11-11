@@ -1,6 +1,6 @@
 # B2：iPhone 系统通知（Web Push）
 
-状态：待批准。
+状态：实现完成，待验收。
 
 来源：微信主动推送经常被拒（`ret=-2`，见 [推送降级 B1](../brainstorm/push-fallback.md)），human 希望 iPhone 能可靠收到提醒。human 2026-11-11 定：系统通知与右上角通知中心保持一致；服务经 HTTPS + IP 访问，iPhone 上无证书警告。
 
@@ -22,7 +22,7 @@
   - 开关通过 `PushManager.subscribe` 订阅，把订阅交给后端；关闭时取消订阅并通知后端。
 - **后端（mic-gateway）**
   - 在 [web-login](web-login.md) 新增的模块 schema `web` 里加两张表（两份 B2 一起上线，schema 版本只升一次）：
-    - `web_push_keys`：VAPID 密钥对，首次使用时生成，私钥按 `SecretColumn` 加密。
+    - `web_push_keys`：VAPID 密钥对，首次使用时生成，私钥标为 `SecretColumn`（诊断 SQL 里不可见）。
     - `web_push_subscriptions`：`endpoint` 为主键，另存 `p256dh`、`auth`、`created_at`。
   - 订阅 kernel 的 `PushCreated` 事件，按事件里的 `push_id` 读出通知中心同一条推送：标题取 `source_session_title`，正文取 `text`，文件数取 `files`，跳转地址为 `/s/<source_session_id>`。然后逐个订阅发送。
     - **最多推一次**：事件只在内存中广播，启动时不回放历史，重启前没发出去的也不补发。所以重启或重连不会重复推送；宕机期间的推送只留在通知中心。

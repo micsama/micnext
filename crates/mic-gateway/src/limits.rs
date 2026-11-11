@@ -92,3 +92,11 @@ pub(crate) const PULL_TIMEOUTS: [Duration; 5] = [
 ];
 /// 一键更新：页面可见的命令输出末尾字节数。
 pub(crate) const UPDATE_OUTPUT_BYTES: usize = 64 * 1024;
+/// 系统通知：单次发送超时，不重试。
+pub(crate) const WEB_PUSH_TIMEOUT: Duration = Duration::from_secs(10);
+/// 系统通知正文截取的字数。
+pub(crate) const WEB_PUSH_BODY_CHARS: usize = 200;
+/// 订阅 endpoint 长度上限。
+pub(crate) const WEB_PUSH_ENDPOINT_MAX: usize = 2048;
+/// VAPID 联系方式；推送服务出问题时据此联系发送方。
+pub(crate) const WEB_PUSH_CONTACT: &str = "https://github.com/micsama/micnext";

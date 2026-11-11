@@ -49,7 +49,7 @@ wechat_delivery_chunk(message_id, chunk_index, client_id, started_at,
 wechat_inbound_batch(id PK, user_id, total, imported, phase, created_at, finished_at)  -- 删掉 snapshot
 ```
 
-迁移（已随[数据库转换移出二进制](database-conversion.md)删除；v5 现为当前 schema，新库直接建表，以下仅记录当时的旧数据处理）：
+迁移（已随[数据库转换移出二进制](archive/database-conversion.md)删除；v5 现为当前 schema，新库直接建表，以下仅记录当时的旧数据处理）：
 - `wechat_delivery_attempt` 每段保留结果那一行：有外部消息 ID 的优先，否则取最后一次尝试。
 - `wechat_delivery` 删列前，把 `outcome='sending'` 且 core 仍待投递的消息补记为失败（同 v4 的做法），不留给运行时。
 - `wechat_inbound_batch` 旧行：`total` 从快照里的消息条数算出；`imported` 无从得知。旧行直接删除（human 同意）：它们只是诊断现场，没有业务消费者。

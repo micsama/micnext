@@ -13,20 +13,13 @@
 | P1 已验收，P2 待验收（调度已修订），P3 已实现、待验收 | 推送与定时任务（P1 推送 / P2 内核 / P3 页面） | [B2](docs/blueprints/scheduled-tasks.md) |
 | 已实现，待验收 | 定时任务限频与到点前压缩 | [B2](docs/blueprints/schedule-limits.md) |
 | 延期 | 服务商分时段计价 | [B2](docs/blueprints/offpeak-pricing.md) |
-| 实现完成，待真实环境验收 | 外部交互错误链日志 | [B2](docs/blueprints/external-error-observability.md) |
 | Web 已验收，微信文件待验收 | Web 上传文件，统一文件消息 | [B2](docs/blueprints/web-file-upload.md) |
 | 实现完成，待验收 | 微信收尾：投递终态归 core、不重试、日志收敛、入站现场精简 | [B2](docs/blueprints/wechat-wrap-up.md) |
 | 实现完成，待验收 | 运行指示显示模型重试次数与等待 | [B2](docs/blueprints/model-retry-indicator.md) |
 | 实现完成，待验收 | 图片入库时统一规整（压缩、动图转静图） | [B2](docs/blueprints/image-normalize.md) |
 | 实现完成，待验收 | 侧栏状态点、后台更新提醒与置顶 | [B2](docs/blueprints/session-sidebar.md)；[B1](docs/brainstorm/session-sidebar.md) |
 | 实现完成，待验收 | 结构化询问用户工具 ask_user | [B2](docs/blueprints/ask-user-question.md)；[B1](docs/brainstorm/ask-user-question.md) |
-| 实现完成，待真实网页更新验收 | 数据库转换移出 Rust 二进制 | [B2](docs/blueprints/database-conversion.md) |
-| 实现完成，待验收 | 联网搜索工具 web_search（DeepSeek Search） | [B2](docs/blueprints/web-search.md) |
 | 实现完成，待验收 | 模型交付文件：send_file 与 push 附件（Web + 微信出站） | [B2](docs/blueprints/send-file.md) |
-| 实现完成，待验收 | Skill 加载（目录、`skill` 工具、`/name` 点名） | [B2](docs/blueprints/skills.md)；[B1](docs/brainstorm/skills.md) |
-| 实现完成，待验收 | 缓存冷后整理历史（轻整理 / 提前压缩，并入定时任务规则） | [B2](docs/blueprints/cold-trim.md)；[B1](docs/brainstorm/skills.md) |
-| 实现完成，待验收 | 标题模型改名为杂活模型 | [B2](docs/blueprints/utility-model.md) |
-| 实现完成，待验收 | 预测用户的下一句输入 | [B2](docs/blueprints/input-prediction.md)；[B1](docs/brainstorm/input-prediction.md) |
 | B2 待批准 | 专题：索引与 `topic` 工具（压缩时 fork 整理在 B1 讨论） | [B2](docs/blueprints/topics.md)；[B1](docs/brainstorm/topics.md) |
 | 实现完成，待验收 | 内置 skill（首个 web-guide，功能地图移出 Web channel prompt） | [B2](docs/blueprints/builtin-skills.md) |
 | B1 待定 | 统一「轮」的口径 | [B1](docs/brainstorm/rounds.md) |

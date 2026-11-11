@@ -1,6 +1,6 @@
 # B2: mic-core 模块装配（Module / Registry / Service / Kernel 句柄）
 
-2026-10-23 修订：数据库结构初始化、独立转换脚本和更新重启契约以[数据库转换移出 Rust](../database-conversion.md)为准；本文的应用内历史迁移/自动换库内容不再适用。
+2026-10-23 修订：数据库结构初始化、独立转换脚本和更新重启契约以[数据库转换移出 Rust](database-conversion.md)为准；本文的应用内历史迁移/自动换库内容不再适用。
 
 2026-10-22 修订：传入 Assembly 的模块一律安装，删除 Activation；见 [公开面收缩](unused-public-surface.md)。
 

@@ -119,7 +119,7 @@ pub trait ProviderFactory: Send + Sync + 'static {
         endpoint_json: &str,
         key: Option<SecretValue>,
     ) -> BoxFuture<Result<Vec<String>, ProbeError>>;
-    /// 联网搜索；`None` = 该服务商不提供。契约：docs/blueprints/web-search.md。
+    /// 联网搜索；`None` = 该服务商不提供。契约：docs/blueprints/archive/web-search.md。
     fn search(
         &self,
         _endpoint_json: &str,

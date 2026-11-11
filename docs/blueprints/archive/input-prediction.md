@@ -1,6 +1,6 @@
 # B2：预测用户的下一句输入
 
-状态：已批准并实现，待人工验收（2026-10-28）。方向见 [B1](../brainstorm/input-prediction.md)，审查见 [input-prediction review](../reviews/input-prediction/README.md)。
+**状态：CLOSED（2026-11-11，human 2026-11-11 依据服务器近 14 天使用数据验收通过）。** 原状态：已批准并实现，待人工验收（2026-10-28）。方向见 [B1](../../brainstorm/input-prediction.md)，审查见 [input-prediction review](../../reviews/input-prediction/README.md)。
 
 ## 行为
 

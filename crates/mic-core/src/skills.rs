@@ -1,5 +1,5 @@
 //! Skill：`<data_dir>/skills/<name>/SKILL.md` 与模块登记的内置 skill 的扫描、校验与加载。
-//! 契约：docs/blueprints/skills.md、docs/blueprints/builtin-skills.md。
+//! 契约：docs/blueprints/archive/skills.md、docs/blueprints/builtin-skills.md。
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};

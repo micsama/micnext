@@ -28,9 +28,9 @@
 [todo](../../todo.md) 是未关闭主题的状态索引；当前已实现项主要剩页面与真实环境验收：
 
 - [定时任务与推送](../blueprints/scheduled-tasks.md)：P1 已验收；P2 内核及调度修订、P3 页面已实现，待完成停机合并补记、恢复触发、页面操作及真实投递终态等剩余验收。
-- 微信与外部交互：[错误链日志](../blueprints/external-error-observability.md)待真实环境验收；[统一文件消息](../blueprints/web-file-upload.md)的 Web 已验收、微信文件待验收；[微信收尾](../blueprints/wechat-wrap-up.md)已实现，待验收。
+- 微信与外部交互：[错误链日志](../blueprints/archive/external-error-observability.md)待真实环境验收；[统一文件消息](../blueprints/web-file-upload.md)的 Web 已验收、微信文件待验收；[微信收尾](../blueprints/wechat-wrap-up.md)已实现，待验收。
 - Web 与对话交互：[模型重试提示](../blueprints/model-retry-indicator.md)、[图片规整](../blueprints/image-normalize.md)、[侧栏状态与置顶](../blueprints/session-sidebar.md)、[ask_user](../blueprints/ask-user-question.md)均已实现，待验收。
-- [数据库转换移出二进制](../blueprints/database-conversion.md)：已实现，待真实网页更新验收。
+- [数据库转换移出二进制](../blueprints/archive/database-conversion.md)：已实现，待真实网页更新验收。
 
 继续延期或暂缓：[分时计价](../blueprints/offpeak-pricing.md)由 human 明确搁置，继续按高峰价计；[推送降级](push-fallback.md)暂缓。
 

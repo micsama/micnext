@@ -1,6 +1,6 @@
 # input-prediction 蓝图审查
 
-日期：2026-10-28。范围：[B2](../../blueprints/input-prediction.md)、[B1](../../brainstorm/input-prediction.md)、todo 索引及现有调用存储、标题 runtime、Trace、会话 SSE / Composer。只审查，不修改蓝图或实现。
+日期：2026-10-28。范围：[B2](../../blueprints/archive/input-prediction.md)、[B1](../../brainstorm/input-prediction.md)、todo 索引及现有调用存储、标题 runtime、Trace、会话 SSE / Composer。只审查，不修改蓝图或实现。
 
 ## 结论
 
@@ -10,7 +10,7 @@
 
 ## R1 · P2：关联来源 run 会把后台预测计入已结束的对话耗时
 
-蓝图位置：`docs/blueprints/input-prediction.md:22`、`:33`。
+蓝图位置：`docs/blueprints/archive/input-prediction.md:22`、`:33`。
 
 当前 `load_run` 按 `c.run_id` 取全部调用，`run_stats` 把全部调用时长相加，并计入步数与请求数（`crates/mic-store/src/trace/mod.rs:422–476`）。Web 把它显示为该轮总耗时的组成部分（`web/src/components/developer/TraceTab.svelte:463`）。标题没有这个问题，因为其调用的 `run_id` 为 `None`。
 
@@ -20,7 +20,7 @@
 
 ## R2 · P2：未区分诊断原文和可用候选，失败输出也可能被恢复
 
-蓝图位置：`docs/blueprints/input-prediction.md:22–26`。
+蓝图位置：`docs/blueprints/archive/input-prediction.md:22–26`。
 
 标题路径先收集模型原文，再校验；校验失败时仍将原文存为 `SideOutput`，调用行记录失败（`crates/mic-core/src/title.rs:313–357`、`crates/mic-store/src/title.rs:48–59`）。因此“和标题一样，有输出就写 SideOutput”不意味着这条输出可供用户接受。
 
@@ -30,7 +30,7 @@
 
 ## R3 · P2：失败仅 warn 与照搬标题 runtime 的失败范围不一致
 
-蓝图位置：`docs/blueprints/input-prediction.md:10`、`:22–27`。
+蓝图位置：`docs/blueprints/archive/input-prediction.md:10`、`:22–27`。
 
 标题 runtime 遇到 `StoreError` 会退出（`crates/mic-core/src/title.rs:172–179`），装配层随后停止整个服务（`crates/mic-core/src/assembly.rs:274–278`）。正常停服则直接 drop runtime，不等待在途调用补记结果（同文件 `:294–297`）。因此“结构和 title.rs 一样”不能替代本功能的失败与停止契约。
 

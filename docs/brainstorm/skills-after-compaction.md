@@ -1,6 +1,6 @@
 # B1：压缩后 skill 怎么接上
 
-状态：已定方案 B（2026-10-30），见 [B2](../blueprints/skills-after-compaction.md)。来源：[skills B2](../blueprints/skills.md)、[cold-trim B2](../blueprints/cold-trim.md)。
+状态：已定方案 B（2026-10-30），见 [B2](../blueprints/skills-after-compaction.md)。来源：[skills B2](../blueprints/archive/skills.md)、[cold-trim B2](../blueprints/archive/cold-trim.md)。
 
 ## 现状
 

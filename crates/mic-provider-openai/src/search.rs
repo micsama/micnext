@@ -1,4 +1,4 @@
-//! DeepSeek 联网搜索：不取正文，不重试。契约：docs/blueprints/web-search.md。
+//! DeepSeek 联网搜索：不取正文，不重试。契约：docs/blueprints/archive/web-search.md。
 
 use mic_core::{SearchError, SearchHit};
 use reqwest::header::HeaderMap;

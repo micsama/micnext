@@ -126,7 +126,7 @@ impl Exec<'_> {
     }
 
     /// 普通对话 run 开始前：闲置超过模型阈值即整理历史，占用过半直接压缩。
-    /// 契约：docs/blueprints/cold-trim.md。
+    /// 契约：docs/blueprints/archive/cold-trim.md。
     pub(crate) async fn tidy_if_idle(
         &self,
         provider: &dyn Provider,

@@ -37,7 +37,7 @@
 | 实现完成（CLOSED，2026-10-15 人工验收） | 旁路调用记录输入与产出：手动标题另带最近 2 条 AI 回复（截断）；标题调用的输入指向原消息，产出存为不进上下文的 `SideOutput` 消息；以后新旁路沿用 | [B2](docs/blueprints/archive/side-call-output.md) |
 | 实现完成（CLOSED，2026-10-15 人工验收） | 流式调用长时间无数据即判挂起、直接失败不重试（起因：DeepSeek 思考模式 + `tool_choice: none` 卡死，已在 provider 规避） | [B2](docs/blueprints/archive/model-stall.md) |
 | 实现完成（CLOSED，2026-10-15 人工验收） | 运行中停止：Web 停止键与 Web/微信 `/stop`；半截回复保留并通知「已停止」，工具记已取消，未并入的消息照常开新一轮；run 新增「用户停止」终态 | [B2](docs/blueprints/archive/run-stop.md)；[B1](docs/brainstorm/run-stop.md) |
-| 实现完成（CLOSED）；遗留两项 2026-10-15 转入 [model-image-support](docs/blueprints/model-image-support.md) 与会话预览修复 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/archive/model-settings.md`](docs/blueprints/archive/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
+| 实现完成（CLOSED）；遗留两项 2026-10-15 转入 [model-image-support](docs/blueprints/archive/model-image-support.md) 与会话预览修复 | 运行期设置阶段二：模型设置/工厂/凭据、图片输入、本轮快照与模型呈现 | [`docs/blueprints/archive/model-settings.md`](docs/blueprints/archive/model-settings.md)；取舍见 [B1](docs/brainstorm/model-settings.md) §九 |
 | 实现完成（CLOSED，2026-10-16 人工验收） | 上下文构成浮层与系统提示结构化：系统提示一处组装，trace 按块展示；构成按上次调用记录查询时重算，不改 schema | [B2](docs/blueprints/archive/context-breakdown.md)；[B1](docs/brainstorm/context-breakdown.md) |
 | B2 CLOSED（2026-10-09） | 构建脚本支持 debug 与 run：默认 release，可构建后 exec 启动，运行参数原样透传 | [build-script-run](docs/blueprints/archive/build-script-run.md) |
 | B2 CLOSED（2026-10-10） | 对话记录与用户所见大致一致：长期记录与系统解释、临时微信媒体打扁；短占位与合并通知省 token；含占位入站只记录 | [B2](docs/blueprints/archive/conversation-parity.md)；[B1](docs/brainstorm/conversation-parity.md) |
@@ -75,3 +75,10 @@
 | 实现完成（CLOSED，2026-10-27） | 会话搜索（⌘K 面板，标题与对话正文） | [B2](docs/blueprints/archive/session-search.md) |
 | 实现完成（CLOSED，2026-10-27） | 模型收藏（选择器只列收藏） | [B2](docs/blueprints/archive/model-favorites.md) |
 | 实现完成（CLOSED，2026-10-28） | 开发者 SQL 写入模式（先备份再执行，AI 把关） | [B2](docs/blueprints/archive/sql-write.md) |
+| 实现完成（CLOSED，2026-11-11） | 外部交互错误链日志 | [B2](docs/blueprints/archive/external-error-observability.md) |
+| 实现完成（CLOSED，2026-11-11） | 数据库转换移出 Rust 二进制 | [B2](docs/blueprints/archive/database-conversion.md) |
+| 实现完成（CLOSED，2026-11-11） | 联网搜索工具 web_search（DeepSeek Search） | [B2](docs/blueprints/archive/web-search.md) |
+| 实现完成（CLOSED，2026-11-11） | Skill 加载（目录、`skill` 工具、`/name` 点名） | [B2](docs/blueprints/archive/skills.md)；[B1](docs/brainstorm/skills.md) |
+| 实现完成（CLOSED，2026-11-11） | 缓存冷后整理历史（轻整理 / 提前压缩，并入定时任务规则） | [B2](docs/blueprints/archive/cold-trim.md)；[B1](docs/brainstorm/skills.md) |
+| 实现完成（CLOSED，2026-11-11） | 标题模型改名为杂活模型 | [B2](docs/blueprints/archive/utility-model.md) |
+| 实现完成（CLOSED，2026-11-11） | 预测用户的下一句输入 | [B2](docs/blueprints/archive/input-prediction.md)；[B1](docs/brainstorm/input-prediction.md) |

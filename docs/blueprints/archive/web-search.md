@@ -1,6 +1,6 @@
 # B2：联网搜索工具 web_search
 
-状态：2026-10-26 批准并实现，本地检查通过，已用真实 key 核对接口返回结构；待 human 真实对话验收。
+**状态：CLOSED（2026-11-11，human 2026-11-11 依据服务器近 14 天使用数据验收通过）。** 原状态：2026-10-26 批准并实现，本地检查通过，已用真实 key 核对接口返回结构；待 human 真实对话验收。
 
 来源：human 2026-10-26 提出，接入 [DeepSeek Search](https://api-docs.deepseek.com/zh-cn/guides/search/)。Fetch 已由 `web_fetch` 覆盖，不接。Search 按成功且有结果的请求计费（每 1000 次 5 元），只靠工具说明让模型谨慎使用，不设次数上限、不默认关闭。
 

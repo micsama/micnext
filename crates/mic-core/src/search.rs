@@ -1,4 +1,4 @@
-//! `web_search`：经服务商的联网搜索，按服务商 id 取第一个提供搜索的。契约：docs/blueprints/web-search.md。
+//! `web_search`：经服务商的联网搜索，按服务商 id 取第一个提供搜索的。契约：docs/blueprints/archive/web-search.md。
 
 use std::sync::Arc;
 

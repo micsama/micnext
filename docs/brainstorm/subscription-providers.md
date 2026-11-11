@@ -41,6 +41,12 @@
   - 最便宜的一档不保证能用；买之前没法验证，只能买月付后马上用 OpenCode 试。
 - 2026-10 推出的新 X Subscription 套餐，文档写的是额度仅供「first-party usage」，第三方 OAuth 还能不能用没有确认。**你的订阅是哪一档，决定了这条路能不能走通。**
 
+**照搬 Codex 的做法：借用官方 CLI 的 token**
+- 官方 CLI 是 Grok Build（`grok`），开源在 xai-org/grok-build。`grok login` 把凭据写进 `~/.grok/auth.json`，以 `https://auth.x.ai::<client_id>` 为键，字段有 `key`（access token）、`refresh_token`、`expires_at`。CLI 会在过期前约 5 分钟后台刷新。
+- wiremux 实测：把这个 token 当作 `XAI_API_KEY` 直接请求 `api.x.ai`，返回 200。所以 micnext 用 generic 预设接 `https://api.x.ai/v1`、把 token 填作 key，不改代码就能先跑起来。
+- 问题是有效期。官方文档只说会自动刷新，没写多长；第三方实现记录的是约 6 小时。照 Codex 那样手动粘贴，一天要粘好几次；要自动刷新，就得用 Grok Build 的 client_id 去换 token，等于冒充官方客户端（wiremux 明确不做这一步）。
+- 2026-11 没有搜到新 Plus（$8）档用第三方 OAuth 的成功或 403 报告。有定价文章说 Plus 包含 Grok Build 和 Grok API，但没有核实。
+
 ## 对 micnext 的改动（如果做 Grok）
 
 和 Codex 最大的区别是 **token 6 小时就过期**，手动粘贴 access_token 的办法行不通，需要新机制：

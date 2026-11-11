@@ -18,7 +18,7 @@
       existing.timer = null;
       return existing;
     }
-    const [, session, image] = JSON.parse(key) as [string | null, number, number];
+    const [session, image] = JSON.parse(key) as [number, number];
     const entry: ImageRequest = {
       users: 1,
       url: null,

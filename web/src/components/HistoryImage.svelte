@@ -1,6 +1,5 @@
 <script module lang="ts">
   import { fetchImage } from "../api/client";
-  import { auth } from "../state/auth.svelte";
 
   const IMAGE_IDLE_MS = 5 * 60_000;
   type ImageRequest = {
@@ -53,7 +52,7 @@
   import { untrack } from "svelte";
 
   let { sessionId, imageId }: { sessionId: number; imageId: number } = $props();
-  const key = $derived(JSON.stringify([auth.token, sessionId, imageId]));
+  const key = $derived(JSON.stringify([sessionId, imageId]));
   let container: HTMLDivElement;
   let url = $state<string | null>(null);
   let failed = $state(false);

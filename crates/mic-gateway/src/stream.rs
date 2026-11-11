@@ -17,12 +17,10 @@ use crate::error::{ApiError, SESSION_NOT_FOUND};
 use crate::limits::{PAGE_MESSAGES, PAGE_ROUNDS, STREAM_BUFFER};
 use crate::service::App;
 use crate::sse;
-use crate::ticket::StreamTarget;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StreamQuery {
-    ticket: Option<String>,
     after: Option<i64>,
 }
 
@@ -33,8 +31,6 @@ pub(crate) async fn stream(
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
     let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
-    app.tickets
-        .redeem(q.ticket.as_deref(), StreamTarget::Session(id))?;
     let session = session(&app, Ok(Path(id))).await?;
     let (events, cut, draft) = app.kernel.subscribe_from_now(session.id).await?;
     let (tx, rx) = mpsc::channel(STREAM_BUFFER);

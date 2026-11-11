@@ -1,32 +1,10 @@
-import { load, save } from "./storage";
-
-const KEY = "micnext.token";
-
-/** 取走地址里的 `#token=`：存下并从地址栏抹掉。 */
-function takeHashToken(): string | null {
-  const m = /(?:^#|&)token=([^&]+)/.exec(location.hash);
-  if (!m?.[1]) return null;
-  const token = decodeURIComponent(m[1]);
-  save(KEY, token);
-  history.replaceState(history.state, "", location.pathname + location.search);
-  return token;
-}
-
+/** 登录态：凭据是服务端下发的 HttpOnly cookie，前端只记是否被拒。 */
 class Auth {
-  token = $state<string | null>(takeHashToken() ?? load(KEY));
+  loggedIn = $state(true);
 
-  constructor() {
-    // 同一标签页粘贴新地址只改 hash，不会重新加载页面。
-    addEventListener("hashchange", () => {
-      const token = takeHashToken();
-      if (token) this.token = token;
-    });
-  }
-
-  /** 服务端返回 401：token 失效（如重启后随机 token 变了）。 */
+  /** 非登录接口返回 401：未登录或已过期，切到登录页并保留当前地址。 */
   expire(): void {
-    save(KEY, null);
-    this.token = null;
+    this.loggedIn = false;
   }
 }
 

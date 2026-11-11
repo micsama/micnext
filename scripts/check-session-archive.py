@@ -70,10 +70,12 @@ with socket.socket() as sock:
     port = sock.getsockname()[1]
 config = directory / "config.toml"
 config.write_text(
-    f'[core]\ndata_dir="{directory}/data"\nowner="test"\n[gateway]\nlisten="127.0.0.1:{port}"\ntoken="archive-check"\n'
+    f'[core]\ndata_dir="{directory}/data"\nowner="test"\n[gateway]\nlisten="127.0.0.1:{port}"\n'
 )
 base = f"http://127.0.0.1:{port}/api"
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+PASSWORD = "check-password\n"
+cookie = ""
 db = directory / "data/micnext.db"
 log = (directory / "server.log").open("w")
 process = None
@@ -85,7 +87,7 @@ def api(method, path, body=None, expected=200):
         data=None if body is None else json.dumps(body).encode(),
         method=method,
         headers={
-            "Authorization": "Bearer archive-check",
+            "Cookie": cookie,
             "Content-Type": "application/json",
         },
     )
@@ -119,6 +121,42 @@ def query(sql, args=()):
         return connection.execute(sql, args).fetchall()
 
 
+
+def login():
+    global cookie
+    if not db.exists() or not query_admin():
+        subprocess.run(
+            [str(ROOT / "target/debug/micnext"), "--config", str(config), "--set-password"],
+            input=PASSWORD * 2,
+            text=True,
+            check=True,
+            capture_output=True,
+        )
+    req = urllib.request.Request(
+        base + "/login",
+        data=json.dumps({"username": "dzmfg", "password": PASSWORD.strip()}).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    response = opener.open(req, timeout=5)
+    cookie = response.headers["Set-Cookie"].split(";")[0]
+
+
+def query_admin():
+    with sqlite3.connect(db) as connection:
+        return connection.execute("SELECT count(*) FROM web_admin").fetchone()[0]
+
+
+def up():
+    try:
+        opener.open(base + "/models", timeout=5)
+    except urllib.error.HTTPError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def boot():
     global process
     env = {
@@ -136,12 +174,10 @@ def boot():
 
     def ready():
         assert process.poll() is None, (directory / "server.log").read_text()
-        try:
-            return api("GET", "/models") is not None
-        except OSError:
-            return False
+        return up()
 
     wait(ready, "startup")
+    login()
 
 
 def stop():
@@ -196,6 +232,8 @@ try:
             "endpoint_id": endpoint,
             "name": "local",
             "context_window": None,
+            "images": False,
+            "starred": False,
             "config": {},
         },
         201,

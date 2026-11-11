@@ -14,7 +14,11 @@ struct ErrorBody {
 
 /// 接口错误；响应体 `{"error": "<中文说明>"}`。
 pub(crate) enum ApiError {
+    /// 未登录或登录已过期。
     Unauthorized,
+    /// 登录接口的用户名或密码不对；前端只在表单上显示。
+    LoginFailed,
+    TooManyRequests(&'static str),
     BadRequest(String),
     /// 413，文案说明哪一项超限。
     TooLarge(String),
@@ -174,7 +178,9 @@ impl From<KernelError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            Self::Unauthorized => (StatusCode::UNAUTHORIZED, "token 缺失或不正确".to_owned()),
+            Self::Unauthorized => (StatusCode::UNAUTHORIZED, "未登录或登录已过期".to_owned()),
+            Self::LoginFailed => (StatusCode::UNAUTHORIZED, "用户名或密码不正确".to_owned()),
+            Self::TooManyRequests(m) => (StatusCode::TOO_MANY_REQUESTS, m.to_owned()),
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             Self::TooLarge(m) => (StatusCode::PAYLOAD_TOO_LARGE, m),
             Self::NotFound(what) => (StatusCode::NOT_FOUND, what.to_owned()),

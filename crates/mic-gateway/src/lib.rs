@@ -1,7 +1,8 @@
-//! 网关：HTTP API、固定 token 鉴权、SSE 实时流与稳定回放的交接。
-//! 契约：docs/blueprints/gateway.md。
+//! 网关：HTTP API、登录鉴权、SSE 实时流与稳定回放的交接。
+//! 契约：docs/blueprints/archive/gateway.md，鉴权见 docs/blueprints/web-login.md。
 
 mod api;
+mod auth;
 mod backup;
 mod channels;
 mod config;
@@ -17,6 +18,7 @@ mod logs;
 mod models;
 mod pushes;
 mod schedules;
+mod schema;
 mod search;
 mod service;
 mod settings;
@@ -24,13 +26,13 @@ mod sql;
 mod sse;
 mod stream;
 mod tags;
-mod ticket;
 mod trace;
 mod update;
 mod web;
 
 use mic_core::{BoxError, Module, ModuleConfig, Registry};
 
+pub use crate::auth::set_password;
 pub use crate::logs::DeveloperLogs;
 pub use crate::update::{BuildVersion, RestartRequest};
 
@@ -81,6 +83,7 @@ impl Module for GatewayModule {
             include_str!("../../../docs/web-features.md"),
         );
         reg.input_prediction(WEB_CHANNEL);
+        reg.schemas(schema::SCHEMAS);
         reg.service(Gateway {
             config,
             logs: self.logs.clone(),

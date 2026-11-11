@@ -4,7 +4,7 @@
 
 use std::ffi::OsString;
 use std::fs::OpenOptions;
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, IsTerminal, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ use tracing_subscriber::Layer;
 const DEFAULT_CONFIG: &str = include_str!("default-config.toml");
 /// 模型 API key 的主密钥文件名，缺省放在配置文件旁。
 const KEY_FILE_NAME: &str = "master.key";
-const USAGE: &str = "用法：micnext [--config <配置文件路径>] [-p <提示词>] | -V";
+const USAGE: &str = "用法：micnext [--config <配置文件路径>] [-p <提示词> | --set-password] | -V";
 
 /// 版本与构建时所在的提交，由 build.rs 从 git 读出；不在 git 仓库里构建为 `None`。
 fn version() -> Option<BuildVersion> {
@@ -47,6 +47,8 @@ enum Mode {
     Serve,
     /// `-p`：一次性执行这段提示词。
     Once(String),
+    /// 设置 Web 登录密码后退出。
+    SetPassword,
 }
 
 struct Args {
@@ -111,7 +113,7 @@ async fn run() -> Result<ExitCode> {
     // `-p` 调低默认级别，免得日志混进过程输出。
     let level = match args.mode {
         Mode::Serve => LevelFilter::INFO,
-        Mode::Once(_) => LevelFilter::WARN,
+        Mode::Once(_) | Mode::SetPassword => LevelFilter::WARN,
     };
     let terminal = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
@@ -125,7 +127,7 @@ async fn run() -> Result<ExitCode> {
     let registry = tracing_subscriber::registry().with(terminal);
     match args.mode {
         Mode::Serve => registry.with(logs.layer()).init(),
-        Mode::Once(_) => registry.init(),
+        Mode::Once(_) | Mode::SetPassword => registry.init(),
     }
     // 替换默认 hook：终端已由日志层输出，再链上默认 hook 会打印两遍。
     let panic_logs = logs.clone();
@@ -166,6 +168,14 @@ async fn run() -> Result<ExitCode> {
     };
     let assembly = Assembly::new(modules, config)
         .with_context(|| format!("配置文件 {} 有误", path.display()))?;
+
+    if let Mode::SetPassword = args.mode {
+        let db = assembly.data_dir().join("micnext.db");
+        let password = read_new_password()?;
+        mic_gateway::set_password(&db, &password).map_err(|e| anyhow::anyhow!(e))?;
+        eprintln!("密码已设置，其他设备需要重新登录。");
+        return Ok(ExitCode::SUCCESS);
+    }
 
     let stop = CancellationToken::new();
     let mut int = signal(SignalKind::interrupt()).context("无法注册 SIGINT 处理")?;
@@ -219,6 +229,7 @@ async fn run() -> Result<ExitCode> {
                 .exec();
             Err(error).with_context(|| format!("无法启动新程序 {}", executable.display()))
         }
+        Mode::SetPassword => unreachable!("已在打开数据目录前处理"),
         Mode::Once(prompt) => {
             let pwd = std::env::current_dir().context("无法读取当前目录")?;
             if pwd.to_str().is_none() {
@@ -251,6 +262,7 @@ async fn run() -> Result<ExitCode> {
 fn parse_args() -> Result<Args> {
     let mut config = None;
     let mut prompt = None;
+    let mut set_password = false;
     let mut args = std::env::args_os().skip(1);
     while let Some(flag) = args.next() {
         let value = |args: &mut dyn Iterator<Item = OsString>| {
@@ -267,14 +279,19 @@ fn parse_args() -> Result<Args> {
                 bail!("-p 的提示词为空。{USAGE}");
             }
             prompt = Some(text);
+        } else if flag == "--set-password" && !set_password {
+            set_password = true;
         } else {
             bail!("参数不对：{}。{USAGE}", flag.to_string_lossy());
         }
     }
-    Ok(Args {
-        config,
-        mode: prompt.map_or(Mode::Serve, Mode::Once),
-    })
+    let mode = match (prompt, set_password) {
+        (Some(_), true) => bail!("-p 与 --set-password 不能同时使用。{USAGE}"),
+        (Some(p), false) => Mode::Once(p),
+        (None, true) => Mode::SetPassword,
+        (None, false) => Mode::Serve,
+    };
+    Ok(Args { config, mode })
 }
 
 /// `-p` 的过程呈现：正文到 stdout，其余到 stderr。
@@ -428,6 +445,38 @@ fn load_config(explicit: Option<PathBuf>) -> Result<(PathBuf, String)> {
         }
         Err(e) => Err(e).with_context(|| format!("无法读取配置文件 {}", path.display())),
     }
+}
+
+/// 输入两次新密码；终端里不回显，非终端（脚本管道）按行读。
+fn read_new_password() -> Result<String> {
+    let first = read_hidden("新密码：")?;
+    let second = read_hidden("再输入一次：")?;
+    if first != second {
+        bail!("两次输入不一致，密码未修改");
+    }
+    Ok(first)
+}
+
+fn read_hidden(prompt: &str) -> Result<String> {
+    let stty = |arg: &str| {
+        std::process::Command::new("stty")
+            .arg(arg)
+            .stdin(std::fs::File::open("/dev/tty")?)
+            .status()
+    };
+    let terminal = std::io::stdin().is_terminal();
+    eprint!("{prompt}");
+    if terminal {
+        stty("-echo").context("无法关闭终端回显")?;
+    }
+    let mut line = String::new();
+    let read = std::io::stdin().read_line(&mut line);
+    if terminal {
+        let _ = stty("echo");
+        eprintln!();
+    }
+    read.context("读取密码失败")?;
+    Ok(line.trim_end_matches(['\r', '\n']).to_owned())
 }
 
 /// 权限 600。

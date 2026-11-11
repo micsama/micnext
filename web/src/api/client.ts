@@ -84,11 +84,7 @@ export class ApiError extends Error {
   }
 }
 
-function authHeaders(): HeadersInit {
-  return { Authorization: `Bearer ${auth.token}` };
-}
-
-/** 非 2xx 转成 `ApiError`；401 同时让 token 失效。 */
+/** 非 2xx 转成 `ApiError`；401 同时切到登录页。 */
 async function ensureOk(res: Response): Promise<Response> {
   if (res.ok) return res;
   if (res.status === 401) auth.expire();
@@ -109,7 +105,7 @@ export async function request(method: string, path: string, body?: unknown): Pro
   try {
     res = await fetch(`/api${path}`, {
       method,
-      headers: body === undefined ? authHeaders() : { ...authHeaders(), "Content-Type": "application/json" },
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -119,9 +115,35 @@ export async function request(method: string, path: string, body?: unknown): Pro
   return res.status === 204 || res.status === 202 ? undefined : res.json();
 }
 
-/** 换一张实时流的一次性票据，`path` 为流路径。 */
-export async function getStreamTicket(path: string): Promise<string> {
-  return obj({ ticket: str })(await request("POST", `${path}-ticket`), "票据").ticket;
+/** 登录成功由服务端下发 cookie；错误只交给表单显示，不触发登录页切换。 */
+export async function login(username: string, password: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    throw new ApiError(0, "连不上服务，请确认 micnext 正在运行");
+  }
+  if (res.ok) return;
+  let message = `登录失败（${res.status}）`;
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (typeof body.error === "string") message = body.error;
+  } catch {
+    // 非 JSON 响应体：保留状态码说明。
+  }
+  throw new ApiError(res.status, message);
+}
+
+export async function logout(): Promise<void> {
+  await request("POST", "/logout");
+}
+
+export async function changePassword(current: string, next: string): Promise<void> {
+  await request("PUT", "/account/password", { current, new: next });
 }
 
 export async function listSessions(channel: string, tag: number | null, before: Cursor | null): Promise<SessionPage> {
@@ -313,11 +335,11 @@ export async function getInputLimits(): Promise<InputLimits> {
   return parseInputLimits(await request("GET", "/model-kinds"));
 }
 
-/** 带 token 取会话内图片原件；token 不进 URL。 */
+/** 取会话内图片原件。 */
 export async function fetchImage(sessionId: number, imageId: number): Promise<Blob> {
   let res: Response;
   try {
-    res = await fetch(`/api/sessions/${sessionId}/images/${imageId}`, { headers: authHeaders() });
+    res = await fetch(`/api/sessions/${sessionId}/images/${imageId}`);
   } catch {
     throw new ApiError(0, "连不上服务，请确认 micnext 正在运行");
   }
@@ -328,7 +350,7 @@ export async function fetchImage(sessionId: number, imageId: number): Promise<Bl
 export async function fetchFile(path: string, onProgress?: (received: number) => void): Promise<Blob> {
   let res: Response;
   try {
-    res = await fetch(`/api${path}`, { headers: authHeaders() });
+    res = await fetch(`/api${path}`);
   } catch {
     throw new ApiError(0, "连不上服务，请确认 micnext 正在运行");
   }

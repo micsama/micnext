@@ -22,3 +22,5 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 rust-embed = "8"
 mime_guess = "2"
 brotli-decompressor = "5"
+argon2 = "0.6.0"
+ring = "0.17"

@@ -12,11 +12,11 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
-use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE, TOKEN_BYTES};
+use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE};
 use crate::update::{BuildVersion, RestartRequest, Updater};
 use crate::{
-    api, backup, channels, context, env_vars, global_stream, jobs, log_stream, models, pushes,
-    schedules, search, settings, sql, stream, tags, ticket, trace, update, web, DeveloperLogs,
+    api, auth, backup, channels, context, env_vars, global_stream, jobs, log_stream, models,
+    pushes, schedules, search, settings, sql, stream, tags, trace, update, web, DeveloperLogs,
 };
 
 pub(crate) struct Gateway {
@@ -29,11 +29,10 @@ pub(crate) struct Gateway {
 /// 各请求共享的只读状态。
 pub(crate) struct App {
     pub(crate) kernel: Kernel,
-    pub(crate) token: String,
     pub(crate) logs: DeveloperLogs,
     /// `None` = 未配置 `update_repo`。
     pub(crate) updater: Option<Arc<Updater>>,
-    pub(crate) tickets: ticket::Tickets,
+    pub(crate) login_failures: auth::LoginFailures,
     /// 进程停止时结束所有 SSE 流。
     pub(crate) stop: CancellationToken,
 }
@@ -69,10 +68,6 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
             Some(Arc::new(Updater::new(repo, restart, version)))
         }
     };
-    let token = match config.token {
-        Some(t) => t,
-        None => random_hex(TOKEN_BYTES),
-    };
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
         .map_err(|e| {
@@ -84,10 +79,9 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
 
     let app = Arc::new(App {
         kernel,
-        token,
         logs,
         updater,
-        tickets: ticket::Tickets::default(),
+        login_failures: auth::LoginFailures::default(),
         stop: stop.clone(),
     });
     let api = Router::new()
@@ -135,7 +129,6 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/sessions/{id}/jobs", get(jobs::list))
         .route("/sessions/{id}/jobs/{job}/output", get(jobs::output))
         .route("/sessions/{id}/jobs/{job}/stop", post(jobs::stop))
-        .route("/sessions/{id}/stream-ticket", post(ticket::session_ticket))
         .route("/commands", get(context::commands))
         .route("/skills", get(context::skills))
         .route("/sessions/{id}/context", get(context::get_context))
@@ -168,7 +161,6 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/pushes", get(pushes::list))
         .route("/pushes/read", post(pushes::read))
         .route("/pushes/{id}/files/{index}", get(pushes::file))
-        .route("/stream-ticket", post(ticket::global_ticket))
         .route("/schedules", get(schedules::list))
         .route(
             "/schedules/{id}",
@@ -212,25 +204,26 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/trace/peers", get(trace::peers))
         .route("/trace/dashboard", get(trace::dashboard))
         .route("/developer/logs/history", get(log_stream::history))
-        .route("/developer/logs/stream-ticket", post(ticket::logs_ticket))
         .route("/developer/sql", post(sql::query))
         .route("/developer/sql/schema", get(sql::schema))
         .route("/developer/sql/review", post(sql::review))
         .route("/developer/update", get(update::status).post(update::start))
-        .fallback(|| async { StatusCode::NOT_FOUND })
-        .layer(middleware::from_fn_with_state(app.clone(), api::authorize))
-        // 实时流由 EventSource 打开，带不了 Bearer，改认取票接口发的一次性票据。
         .route("/sessions/{id}/stream", get(stream::stream))
         .route("/developer/logs/stream", get(log_stream::stream))
         .route("/stream", get(global_stream::stream))
+        .route("/account/password", put(auth::change_password))
+        .fallback(|| async { StatusCode::NOT_FOUND })
+        .layer(middleware::from_fn_with_state(app.clone(), auth::authorize))
+        .route("/login", post(auth::login))
+        .route("/logout", post(auth::logout))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));
     let router = Router::new()
         .nest("/api", api)
         .fallback(get(web::asset))
         .with_state(app.clone());
 
-    // NOTE: 面向用户的提示，含 token，故不走 tracing。
-    eprintln!("Web 已启动：http://{}/#token={}", config.listen, app.token);
+    // NOTE: 面向用户的提示，故不走 tracing。
+    eprintln!("Web 已启动：http://{}", config.listen);
     tracing::info!(listen = %config.listen, version = version.map(|v| v.version), commit = version.map(|v| v.commit), "gateway listening");
     let server = axum::serve(listener, router)
         .with_graceful_shutdown(stop.clone().cancelled_owned())

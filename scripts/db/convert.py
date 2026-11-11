@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 VERSIONS = {
     "core": ROOT / "crates/mic-store/src/schema/version",
     "wechat": ROOT / "crates/mic-channel-wechat/src/schema/version",
+    "web": ROOT / "crates/mic-gateway/src/schema/version",
 }
 
 

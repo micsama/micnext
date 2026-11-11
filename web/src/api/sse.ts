@@ -1,10 +1,8 @@
-import { getStreamTicket } from "./client";
-
 /**
- * 用原生 EventSource 打开实时流（docs/blueprints/web-sse-eventsource.md）：先用 Bearer 换一次性票据再建流。
+ * 用原生 EventSource 打开实时流（docs/blueprints/web-sse-eventsource.md），同源 cookie 自动带上。
  * 不用 fetch 读流：Safari 会压住页面忙时到达的尾段（WebKit 322545）。
- * 浏览器自带重连会拿已作废的票据，出错即关，由调用方重新取票。
- * 取票失败抛 `ApiError`；回调抛错（如 `ProtocolError`）原样抛出；连接中断或被取消时正常返回。
+ * 出错即关，不用浏览器自带重连：由调用方带上续传位置重新打开。
+ * 回调抛错（如 `ProtocolError`）原样抛出；连接中断或被取消时正常返回。
  */
 export async function readSse(
   path: string,
@@ -14,10 +12,9 @@ export async function readSse(
   onFrame: (event: string, data: string) => void,
   onOpen?: () => void,
 ): Promise<void> {
-  const ticket = await getStreamTicket(path);
   if (signal.aborted) return;
-  query.set("ticket", ticket);
-  const source = new EventSource(`/api${path}?${query}`);
+  const qs = query.toString();
+  const source = new EventSource(qs ? `/api${path}?${qs}` : `/api${path}`);
   let onAbort: (() => void) | undefined;
   try {
     await new Promise<void>((resolve, reject) => {

@@ -9,12 +9,10 @@
 # 你的名字：Web 与 -p 的输入都以这个身份写入。
 owner = "dzmfg"
 
-# Web 界面。启动时在终端打印带 token 的访问地址。
+# Web 界面，用户名 dzmfg；首次启动后运行 micnext --set-password 设置登录密码。
 [gateway]
 # 只在本机访问；改成 0.0.0.0:7878 会暴露到局域网，先想清楚。
 # listen = "127.0.0.1:7878"
-# 访问 token：不写则每次启动随机生成；写了就固定用它（地址可收藏）。
-# token = "换成一串足够长的随机字符"
 # 网页一键更新：填部署仓库根目录（绝对路径或 ~/ 开头）；更新后以 <仓库>/target/release/micnext 原参数重启。
 # 需要代理时在启动 shell 里先开好，git/bun/cargo 沿用。
 # update_repo = "~/workspace/micnext"

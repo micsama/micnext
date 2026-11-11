@@ -4,9 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
-use axum::middleware::Next;
 use axum::response::Response;
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -27,26 +26,6 @@ use crate::error::{
 use crate::limits::{CHAT_ID_BYTES, MAX_TEXT_CHARS, PAGE_DEFAULT, PAGE_MAX};
 use crate::service::{random_hex, App};
 use crate::WEB_CHANNEL;
-
-pub(crate) async fn authorize(
-    State(app): State<Arc<App>>,
-    req: Request,
-    next: Next,
-) -> Result<Response, ApiError> {
-    let given = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "));
-    match given {
-        Some(t) if constant_time_eq(t.as_bytes(), app.token.as_bytes()) => Ok(next.run(req).await),
-        _ => Err(ApiError::Unauthorized),
-    }
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

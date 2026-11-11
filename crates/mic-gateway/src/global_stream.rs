@@ -1,24 +1,15 @@
 //! 通知中心、任务页与侧栏共用的全局事件流。
-use crate::error::ApiError;
 use crate::limits::STREAM_BUFFER;
 use crate::service::App;
 use crate::sse;
-use crate::ticket::StreamTarget;
-use axum::extract::rejection::QueryRejection;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::header;
 use axum::response::{sse::Event, IntoResponse};
 use mic_core::KernelEventKind;
 use mic_message::MessageBody;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct StreamQuery {
-    ticket: Option<String>,
-}
 
 #[derive(Serialize)]
 struct Changed {
@@ -26,13 +17,7 @@ struct Changed {
 }
 
 /// 只传变化事实的 id，客户端按需重拉。
-pub(crate) async fn stream(
-    State(app): State<Arc<App>>,
-    query: Result<Query<StreamQuery>, QueryRejection>,
-) -> Result<impl IntoResponse, ApiError> {
-    let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
-    app.tickets
-        .redeem(q.ticket.as_deref(), StreamTarget::Global)?;
+pub(crate) async fn stream(State(app): State<Arc<App>>) -> impl IntoResponse {
     let mut events = app.kernel.subscribe();
     let (tx, rx) = mpsc::channel(STREAM_BUFFER);
     tokio::spawn(async move {
@@ -75,5 +60,5 @@ pub(crate) async fn stream(
             }
         }
     });
-    Ok(([(header::CACHE_CONTROL, "no-store")], sse::respond(rx)))
+    ([(header::CACHE_CONTROL, "no-store")], sse::respond(rx))
 }

@@ -6,7 +6,7 @@
   import PinIcon from "@lucide/svelte/icons/pin";
   import PencilLineIcon from "@lucide/svelte/icons/pencil-line";
   import { composerDrafts } from "../state/composer-drafts.svelte";
-  import { listJobs, archiveSession, pinSession } from "../api/client";
+  import { listJobs, archiveSession, pinSession, logout } from "../api/client";
   import { jobActive } from "../api/types";
   import { confirm } from "../state/confirm.svelte";
   import type { SessionItem } from "../api/types";
@@ -143,6 +143,12 @@
   onMount(() => void updater.refresh());
   const updatable = $derived(updater.status !== null && updater.status.state !== "unavailable");
   const updating = $derived(updater.running || updater.reconnecting);
+
+  async function signOut() {
+    if (!(await confirm.ask({ title: "退出登录？", description: "退出后需要重新输入密码。", action: "退出登录" }))) return;
+    await logout();
+    location.reload();
+  }
 
   async function quickUpdate() {
     if (updating || (await updater.start())) go("/developer/update");
@@ -428,6 +434,14 @@
       onclick={() => theme.cycle()}
       class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground">
       <Icon name={THEME[theme.choice].icon} />
+    </button>
+    <button
+      type="button"
+      title="退出登录"
+      aria-label="退出登录"
+      onclick={signOut}
+      class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground">
+      <Icon name="logout" />
     </button>
   </div>
   </div>

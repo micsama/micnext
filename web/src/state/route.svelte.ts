@@ -1,6 +1,6 @@
 /** `/` 新会话、`/s/<id>[?m=<消息>]` 某会话（可定位到某条消息）、`/settings[/<分类>]` 设置（`/settings/models/<id>` 直达某模型单价）、`/developer[/<页签>]` 开发者诊断。 */
 export type DeveloperTab = "logs" | "sql" | "update";
-export type SettingsTab = "prefs" | "personas" | "tags" | "models" | "env" | "wechat" | "backup";
+export type SettingsTab = "prefs" | "personas" | "tags" | "models" | "env" | "wechat" | "backup" | "account";
 export type Route =
   | { kind: "new" }
   | { kind: "schedules" }

@@ -9,6 +9,8 @@
 | 实现完成，待验收 | 流式草稿随重连恢复并按调用时刻定位 | [B2](docs/blueprints/stream-draft-snapshot.md) |
 | 实现完成，待验收 | 新会话发送前可关闭凭据脱敏 | [B2](docs/blueprints/new-chat-settings.md)；[B1](docs/brainstorm/new-chat-reuse.md) |
 | B2 待批准；混合负载测试先行 | 请求与数据库耗时观测 | [B2](docs/blueprints/storage-request-timing.md) |
+| 实现完成，待验收 | Web 改为登录制，取消 token（用户 dzmfg） | [B2](docs/blueprints/web-login.md) |
+| 已批准，实现中 | iPhone 系统通知（Web Push，镜像通知中心） | [B2](docs/blueprints/web-push.md) |
 | 暂缓 | 推送降级（微信被拒） | [B1](docs/brainstorm/push-fallback.md) |
 | P1 已验收，P2 待验收（调度已修订），P3 已实现、待验收 | 推送与定时任务（P1 推送 / P2 内核 / P3 页面） | [B2](docs/blueprints/scheduled-tasks.md) |
 | 已实现，待验收 | 定时任务限频与到点前压缩 | [B2](docs/blueprints/schedule-limits.md) |

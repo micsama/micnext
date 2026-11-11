@@ -12,6 +12,7 @@
   import SettingsView from "./components/settings/SettingsView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import { auth } from "./state/auth.svelte";
+  import LoginView from "./components/LoginView.svelte";
   import { router } from "./state/route.svelte";
   import { SessionView } from "./state/session.svelte";
   import { settingsStore } from "./state/settings.svelte";
@@ -22,7 +23,7 @@
   const sessionId = $derived(router.current.kind === "session" ? router.current.id : null);
   $effect(() => {
     const id = sessionId;
-    if (!auth.token || id === null) return;
+    if (!auth.loggedIn || id === null) return;
     const v = new SessionView(id);
     view = v;
     return () => {
@@ -43,7 +44,7 @@
   });
 
   $effect(() => {
-    if (!auth.token) return;
+    if (!auth.loggedIn) return;
     const onkey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
         e.preventDefault();
@@ -55,12 +56,12 @@
   });
 
   $effect(() => {
-    if (!auth.token) return;
+    if (!auth.loggedIn) return;
     return globalStream.start();
   });
 
   $effect(() => {
-    if (!auth.token) return;
+    if (!auth.loggedIn) return;
     void settingsStore.refresh();
     const onfocus = () => void settingsStore.refresh();
     addEventListener("focus", onfocus);
@@ -68,15 +69,8 @@
   });
 </script>
 
-{#if !auth.token}
-  <div class="grid h-full place-items-center p-6">
-    <div class="max-w-sm space-y-2 text-center">
-      <p class="text-lg font-medium">需要重新打开</p>
-      <p class="text-sm text-muted-foreground">
-        访问凭据缺失或已失效（服务重启后会变）。请用终端里打印的地址（带 <code>#token=</code>）重新打开本页。
-      </p>
-    </div>
-  </div>
+{#if !auth.loggedIn}
+  <LoginView />
 {:else}
   <div class="flex h-full">
     <Sidebar activeSession={view?.info ?? null} executingRun={view?.executingRun ?? null} />

@@ -1,5 +1,7 @@
 <script lang="ts">
+  import AccountSection from "./AccountSection.svelte";
   import ArchiveIcon from "@lucide/svelte/icons/archive";
+  import UserIcon from "@lucide/svelte/icons/user-round";
   import BackupSection from "./BackupSection.svelte";
   import BoxesIcon from "@lucide/svelte/icons/boxes";
   import KeyRoundIcon from "@lucide/svelte/icons/key-round";
@@ -34,6 +36,7 @@
     { id: "env", label: "环境变量", hint: "命令里可直接引用的变量", icon: KeyRoundIcon, group: "模型与运行" },
     { id: "wechat", label: "微信", hint: "扫码登录", icon: QrCodeIcon, group: "连接与数据" },
     { id: "backup", label: "设置备份", hint: "导出、导入全部设置", icon: ArchiveIcon, group: "连接与数据" },
+    { id: "account", label: "账号", hint: "修改登录密码", icon: UserIcon, group: "连接与数据" },
   ];
   const groups = [...new Set(tabs.map((t) => t.group))];
   /** 手机：未选分类时显示目录。 */
@@ -103,6 +106,8 @@
       {/if}
       {#if tab === "backup"}
         <BackupSection />
+      {:else if tab === "account"}
+        <AccountSection />
       {:else if tab === "tags"}
         <TagsSection />
       {:else if tab === "env"}

@@ -35,12 +35,17 @@ pub(crate) const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
 pub(crate) const STREAM_BUFFER: usize = 256;
 /// 停止后等连接自行关闭的上限，超时直接断开。
 pub(crate) const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
-/// token 与 Web 会话 chat id 的随机字节数。
-pub(crate) const TOKEN_BYTES: usize = 32;
+/// Web 会话 chat id 的随机字节数。
 pub(crate) const CHAT_ID_BYTES: usize = 16;
-/// SSE 连接票据：随机字节数与未兑换时的有效期。
-pub(crate) const TICKET_BYTES: usize = 32;
-pub(crate) const TICKET_TTL: Duration = Duration::from_secs(60);
+/// 唯一的管理员用户名。
+pub(crate) const ADMIN_USERNAME: &str = "dzmfg";
+pub(crate) const PASSWORD_MIN_CHARS: usize = 8;
+/// 登录有效期，从最后一次续期算起；签发超过 `SESSION_RENEW_AFTER` 的 cookie 在下一次请求时续期。
+pub(crate) const SESSION_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+pub(crate) const SESSION_RENEW_AFTER: Duration = Duration::from_secs(24 * 3600);
+/// 全局登录失败限速：窗口内失败满额后，窗口剩余时间里拒绝登录。
+pub(crate) const LOGIN_FAILURES: usize = 10;
+pub(crate) const LOGIN_WINDOW: Duration = Duration::from_secs(10 * 60);
 
 /// 带内容哈希的构建产物（`/assets/*`）。
 pub(crate) const ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";

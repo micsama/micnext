@@ -70,7 +70,7 @@
 </script>
 
 {#if load && kind === "image" && url}
-  <button type="button" class="block overflow-hidden rounded-lg" {title} onclick={open}>
+  <button type="button" class="block cursor-zoom-in overflow-hidden rounded-lg" {title} onclick={open}>
     <img src={url} alt={name} class="block max-h-64 max-w-full" />
   </button>
 {:else}

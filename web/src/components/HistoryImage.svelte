@@ -50,12 +50,14 @@
 
 <script lang="ts">
   import { untrack } from "svelte";
+  import FilePreview from "./FilePreview.svelte";
 
   let { sessionId, imageId }: { sessionId: number; imageId: number } = $props();
   const key = $derived(JSON.stringify([sessionId, imageId]));
   let container: HTMLDivElement;
   let url = $state<string | null>(null);
   let failed = $state(false);
+  let previewing = $state(false);
 
   $effect(() => {
     const identity = key;
@@ -84,7 +86,10 @@
 
 <div bind:this={container}>
   {#if url}
-    <img src={url} alt="图片" class="block max-h-64 max-w-full rounded-lg" />
+    <button type="button" aria-label="放大图片" title="放大图片" class="block cursor-zoom-in overflow-hidden rounded-lg" onclick={() => (previewing = true)}>
+      <img src={url} alt="图片" class="block max-h-64 max-w-full" />
+    </button>
+    <FilePreview bind:open={previewing} name="图片" {url} kind="image" />
   {:else if failed}
     <span class="grid h-16 w-32 place-items-center rounded-lg bg-muted text-xs text-muted-foreground">图片加载失败</span>
   {:else}

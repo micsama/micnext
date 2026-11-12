@@ -65,6 +65,6 @@ pub use push::PushError;
 pub use request::{PromptBlock, PromptBlockKind, PromptPart, PromptPartKind, SystemPrompt};
 pub use skills::{InvalidSkill, SkillInfo, SkillList, SkillsError};
 pub use sql_review::{SqlReview, SqlRisk};
-pub use title::TitleError;
+pub use title::{SessionTitle, TitleError};
 
 pub use schedule::{ScheduleError, ScheduleFirePage, ScheduleUpdate, ScheduleView};

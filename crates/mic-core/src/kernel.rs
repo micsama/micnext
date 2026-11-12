@@ -802,6 +802,20 @@ impl Kernel {
         Ok(())
     }
 
+    /// 手动标题：先取消进行中的生成，免得生成结果随后覆盖它。
+    pub async fn rename_session(
+        &self,
+        id: SessionId,
+        title: crate::SessionTitle,
+    ) -> Result<(), KernelError> {
+        self.store.ensure_session_active(id).await?;
+        let session = self.root_session(id).await?;
+        self.titles.stop(id).await;
+        self.store.set_session_title(id, title.0).await?;
+        self.emit_session_changed(&session);
+        Ok(())
+    }
+
     async fn maybe_title(&self, input: &Message) -> Result<(), KernelError> {
         let summary = self
             .store

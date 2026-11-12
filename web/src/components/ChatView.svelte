@@ -26,6 +26,8 @@
   const title = $derived(scheduled ? `定时任务 · ${item?.schedule?.name ?? item?.title ?? "已删除任务"}` : item?.title ?? item?.preview ?? `会话 ${view.id}`);
   const titleBusy = $derived(view.requestingTitle || !!item?.title_generating);
   const titleError = $derived(view.titleActionError ?? view.titleSyncError ?? (titleBusy ? null : item?.title_error));
+  // 与重新生成同一条件：定时任务会话的标题由任务名决定。
+  const renamable = $derived(!scheduled && view.ready && !view.fatal && item?.archived_at == null);
   const detail = $derived(item ? `${item.workdir} · ${sessionSourceLabel(item.source)}` : undefined);
   $effect(() => {
     document.title = `${title} · micnext`;
@@ -115,7 +117,7 @@
 {/snippet}
 {#snippet jobsDock()}<JobsDock {view} writable={!!item?.writable && item.archived_at === null} />{/snippet}
 
-<Header {title} {detail}>
+<Header {title} {detail} onrename={renamable ? (t) => void view.rename(t) : undefined}>
   {#snippet detailActions()}
     {#if scheduled}<button type="button" class="shrink-0 text-primary hover:underline" onclick={() => router.go("/schedules")}>定时任务</button>{/if}
     <button type="button" class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 text-primary hover:bg-accent" onclick={() => router.go(`/s/${view.id}/trace`)} title="查看当前会话的 Trace"><Icon name="sparkles" class="size-3" />Trace</button>
@@ -129,7 +131,7 @@
     {/if}
   {/snippet}
 </Header>
-{#if titleError}<p role="alert" class="border-b border-border px-4 py-2 text-xs text-destructive">标题生成：{titleError}</p>{/if}
+{#if titleError}<p role="alert" class="border-b border-border px-4 py-2 text-xs text-destructive">标题：{titleError}</p>{/if}
 <div class="flex min-h-0 flex-1 flex-col">
 {#if view.fatal}
   <div class="grid flex-1 place-items-center p-6 text-center">

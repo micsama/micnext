@@ -256,6 +256,24 @@ pub(crate) async fn generate_title(
     Ok(StatusCode::ACCEPTED)
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TitleBody {
+    title: String,
+}
+
+pub(crate) async fn rename_session(
+    State(app): State<Arc<App>>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<TitleBody>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let session = session(&app, id).await?;
+    let title =
+        mic_core::SessionTitle::parse(&json(body)?.title).map_err(mic_core::KernelError::Title)?;
+    app.kernel.rename_session(session.id, title).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub(crate) async fn archive_session(
     State(app): State<Arc<App>>,
     id: Result<Path<i64>, PathRejection>,

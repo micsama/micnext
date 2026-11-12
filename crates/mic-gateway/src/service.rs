@@ -118,7 +118,10 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/tags", get(tags::list).post(tags::create))
         .route("/tags/{id}", put(tags::rename).delete(tags::delete))
         .route("/sessions/{id}/seen", post(api::mark_seen))
-        .route("/sessions/{id}/title", post(api::generate_title))
+        .route(
+            "/sessions/{id}/title",
+            post(api::generate_title).put(api::rename_session),
+        )
         .route("/sessions/{id}/archive", post(api::archive_session))
         .route(
             "/sessions/{id}/messages",

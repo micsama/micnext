@@ -37,6 +37,22 @@ impl Store {
         .await
     }
 
+    /// 手动标题：只改标题并清掉上次生成的错误，标签不动。
+    pub async fn set_session_title(
+        &self,
+        session: SessionId,
+        title: String,
+    ) -> Result<(), StoreError> {
+        self.call(move |conn| {
+            conn.execute(
+                "UPDATE core_sessions SET title = ?1, title_error = NULL WHERE id = ?2",
+                params![title, session.0],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
     pub async fn save_title_result(
         &self,
         session: SessionId,

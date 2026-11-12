@@ -1,4 +1,4 @@
-import { ApiError, generateTitle, getContext, listJobs, getMessages, markSessionSeen, resumeRun, revokeCompaction, getSession, stopRun } from "../api/client";
+import { ApiError, generateTitle, renameSession, getContext, listJobs, getMessages, markSessionSeen, resumeRun, revokeCompaction, getSession, stopRun } from "../api/client";
 import { readStream } from "../api/stream";
 import { ProtocolError, jobActive, type ContextView, type JobView, type Message, type Prediction, type Resumable, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
@@ -38,6 +38,16 @@ export class SessionView {
     try { await generateTitle(this.id); }
     catch (error) { this.titleActionError = (error as Error).message; }
     finally { this.requestingTitle = false; this.#refreshTitle(); }
+  }
+
+  /** 手动改名；成功后先显示新标题，再随刷新与服务端对齐。 */
+  async rename(title: string): Promise<void> {
+    this.titleActionError = null;
+    try {
+      await renameSession(this.id, title);
+      if (this.info) this.info.title = title;
+    } catch (error) { this.titleActionError = (error as Error).message; }
+    finally { this.#refreshTitle(); }
   }
 
   #refreshTitle(): void {

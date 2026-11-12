@@ -176,6 +176,10 @@ export async function generateTitle(id: number): Promise<void> {
   await request("POST", `/sessions/${id}/title`);
 }
 
+export async function renameSession(id: number, title: string): Promise<void> {
+  await request("PUT", `/sessions/${id}/title`, { title });
+}
+
 export async function archiveSession(id: number): Promise<void> {
   await request("POST", `/sessions/${id}/archive`);
 }

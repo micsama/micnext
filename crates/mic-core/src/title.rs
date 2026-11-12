@@ -30,6 +30,27 @@ pub enum TitleError {
     EmptyInput,
     #[error("服务正在停止，无法生成标题")]
     Stopped,
+    #[error("标题不能为空")]
+    Blank,
+    #[error("标题最多 {TITLE_CHARS} 字")]
+    TooLong,
+}
+
+/// 用户手动起的标题：去掉首尾空白、非空、与生成标题同一字数上限。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionTitle(pub(crate) String);
+
+impl SessionTitle {
+    pub fn parse(raw: &str) -> Result<Self, TitleError> {
+        let title = raw.trim();
+        if title.is_empty() {
+            return Err(TitleError::Blank);
+        }
+        if title.chars().count() > TITLE_CHARS {
+            return Err(TitleError::TooLong);
+        }
+        Ok(Self(title.to_owned()))
+    }
 }
 
 pub(crate) struct Job {
@@ -307,7 +328,7 @@ async fn generate(store: &Store, factories: &Factories, job: &Job) -> Result<(),
         response = stream_attempt(provider.as_ref(), request, &mut facts, |_| {}) => response,
         () = job.stop.cancelled() => {
             facts.finished_at = now_ms();
-            Err(ProviderError::Protocol { message: "会话已归档，标题生成已停止".into() })
+            Err(ProviderError::Protocol { message: "标题生成已取消（会话归档或手动改名）".into() })
         }
     };
     let stop = response.as_ref().ok().map(|r| r.stop);

@@ -48,6 +48,12 @@
     }
   }
 
+  const channelHint = $derived.by(() => {
+    if (!settings || settings.chosen.length > 0) return "推送同时发到选中的 IM";
+    if (settings.effective.length === 0) return "未选择；当前没有已连接的 IM";
+    return `未选择，发到所有已连接的 IM（${settings.effective.map(channelLabel).join("、")}）`;
+  });
+
   async function toggle(channel: string) {
     if (!settings || busy) return;
     const chosen = settings.chosen.includes(channel)
@@ -64,36 +70,38 @@
   }
 </script>
 
-<Group title="推送" footer="agent 主动通知你（如长任务完成提醒）时，推送总会进 Web 通知中心，开了系统通知的设备同时弹出；未指定渠道时，还会发到这里选的 IM。">
+<Group title="推送" footer="agent 主动通知你（如长任务完成提醒）时，推送总会进 Web 通知中心。">
   {#snippet actions()}<SaveStatus state={status} />{/snippet}
-  <div class="space-y-2 px-4 py-3.5">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <span class="text-sm">默认推送渠道</span>
-      {#if settings}
-        <div class="flex flex-wrap gap-1.5">
-          {#each settings.channels as c (c)}
-            {@const on = settings.chosen.includes(c)}
-            <button
-              type="button"
-              aria-pressed={on}
-              disabled={busy}
-              class={cn(
-                "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50",
-                on ? "border-primary bg-primary/10 text-foreground" : "text-muted-foreground hover:text-foreground",
-              )}
-              onclick={() => toggle(c)}
-            >
-              {#if on}<CheckIcon class="size-3" />{/if}{channelLabel(c)}
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-    {#if settings && settings.chosen.length === 0}
-      <p class="text-xs text-muted-foreground">未选择：发到所有已连接的 IM。{settings.effective.length > 0 ? `当前发往 ${settings.effective.map(channelLabel).join("、")}。` : "当前没有已连接的 IM，只进 Web 通知中心。"}</p>
+  <div class="space-y-2.5 px-4 py-3.5">
+    {@render label("默认推送渠道", channelHint)}
+    {#if settings}
+      <div class="flex flex-wrap gap-1.5">
+        {#each settings.channels as c (c)}
+          {@const on = settings.chosen.includes(c)}
+          <button
+            type="button"
+            aria-pressed={on}
+            disabled={busy}
+            class={cn(
+              "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50",
+              on ? "border-primary bg-primary/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+            onclick={() => toggle(c)}
+          >
+            {#if on}<CheckIcon class="size-3" />{/if}{channelLabel(c)}
+          </button>
+        {/each}
+      </div>
     {/if}
-    <div class="flex items-center justify-between gap-3 pt-1">
-      <span class="text-sm">本设备系统通知</span>
+    {#if status?.kind === "error"}<p role="alert" class="text-xs text-destructive">{status.message}</p>{/if}
+  </div>
+
+  <div class="space-y-1 px-4 py-3.5">
+    <div class="flex items-center justify-between gap-4">
+      {@render label(
+        "本设备系统通知",
+        webPushSupported ? "推送同时在这台设备弹出系统通知" : "iPhone 需先在 Safari 分享菜单「添加到主屏幕」，再从主屏幕打开",
+      )}
       <Switch
         checked={!!device}
         label="本设备系统通知"
@@ -101,10 +109,13 @@
         onclick={toggleDevice}
       />
     </div>
-    {#if !webPushSupported}
-      <p class="text-xs text-muted-foreground">iPhone 需先在 Safari 分享菜单里「添加到主屏幕」，再从主屏幕打开 micnext。</p>
-    {/if}
     {#if deviceError}<p role="alert" class="text-xs text-destructive">{deviceError}</p>{/if}
-    {#if status?.kind === "error"}<p role="alert" class="text-xs text-destructive">{status.message}</p>{/if}
   </div>
 </Group>
+
+{#snippet label(text: string, hint: string)}
+  <div class="min-w-0 flex-1">
+    <span class="text-sm">{text}</span>
+    <p class="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+  </div>
+{/snippet}

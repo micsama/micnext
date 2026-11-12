@@ -2,6 +2,7 @@ import { ApiError } from "../api/client";
 import { obj, num, ProtocolError } from "../api/decode";
 import { readSse } from "../api/sse";
 import { sleep } from "../lib/sleep";
+import { frontendBuild } from "./frontend-build.svelte";
 import { pushCenter } from "./pushes.svelte";
 import { sessionsSync } from "./sessions.svelte";
 
@@ -35,6 +36,8 @@ class GlobalStream {
           delay = 1000;
           this.error = null;
           this.connected++;
+          // 服务重启必然断开全局流，重连时顺带确认前端有没有更新。
+          if (this.connected > 1) void frontendBuild.check();
           void pushCenter.refresh();
           sessionsSync.request();
         });

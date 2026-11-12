@@ -1,6 +1,8 @@
 <script lang="ts">
   import SchedulesView from "./components/SchedulesView.svelte";
   import { globalStream } from "./state/global-stream.svelte";
+  import { frontendBuild } from "./state/frontend-build.svelte";
+  import Icon from "./lib/Icon.svelte";
   import TraceView from "./components/developer/TraceView.svelte";
   import ChatView from "./components/ChatView.svelte";
   import NewChat from "./components/NewChat.svelte";
@@ -73,25 +75,33 @@
 {#if !auth.loggedIn}
   <LoginView />
 {:else}
-  <div class="flex h-full">
-    <Sidebar activeSession={view?.info ?? null} executingRun={view?.executingRun ?? null} />
-    <main class="flex min-w-0 flex-1 flex-col">
-      {#if router.current.kind === "trace"}
-        <TraceView target={router.current.id} runTarget={router.current.run} />
-      {:else if router.current.kind === "new"}
-        <NewChat />
-      {:else if router.current.kind === "schedules"}
-        <SchedulesView />
-      {:else if router.current.kind === "settings"}
-        <SettingsView />
-      {:else if router.current.kind === "developer"}
-        <DeveloperView />
-      {:else if view}
-        {#key view}
-          <ChatView {view} />
-        {/key}
-      {/if}
-    </main>
+  <div class="flex h-full flex-col">
+    {#if frontendBuild.stale}
+      <div role="status" class="flex shrink-0 items-center justify-center gap-3 border-b border-border bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300">
+        <span>界面已更新，刷新后生效</span>
+        <button type="button" class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-medium hover:bg-amber-500/15" onclick={() => location.reload()}><Icon name="refresh" class="size-3" />刷新</button>
+      </div>
+    {/if}
+    <div class="flex min-h-0 flex-1">
+      <Sidebar activeSession={view?.info ?? null} executingRun={view?.executingRun ?? null} />
+      <main class="flex min-w-0 flex-1 flex-col">
+        {#if router.current.kind === "trace"}
+          <TraceView target={router.current.id} runTarget={router.current.run} />
+        {:else if router.current.kind === "new"}
+          <NewChat />
+        {:else if router.current.kind === "schedules"}
+          <SchedulesView />
+        {:else if router.current.kind === "settings"}
+          <SettingsView />
+        {:else if router.current.kind === "developer"}
+          <DeveloperView />
+        {:else if view}
+          {#key view}
+            <ChatView {view} />
+          {/key}
+        {/if}
+      </main>
+    </div>
   </div>
   <ConfirmDialog />
   <SearchPalette />

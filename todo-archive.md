@@ -82,3 +82,4 @@
 | 实现完成（CLOSED，2026-11-11） | 缓存冷后整理历史（轻整理 / 提前压缩，并入定时任务规则） | [B2](docs/blueprints/archive/cold-trim.md)；[B1](docs/brainstorm/skills.md) |
 | 实现完成（CLOSED，2026-11-11） | 标题模型改名为杂活模型 | [B2](docs/blueprints/archive/utility-model.md) |
 | 实现完成（CLOSED，2026-11-11） | 预测用户的下一句输入 | [B2](docs/blueprints/archive/input-prediction.md)；[B1](docs/brainstorm/input-prediction.md) |
+| 实现完成（免验收，2026-11-12） | 更新后已打开的页面仍跑旧前端（检测与提示） | [B1](docs/brainstorm/stale-frontend.md) |

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { ContentPart, ExecOutcome, FileRef, Message, ToolResultOutcome } from "../api/types";
+  import type { ContentPart, ExecOutcome, FileRef, Message } from "../api/types";
+  import { toolResult, type ToolResult } from "./tool-results";
   import { fetchFile } from "../api/client";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
@@ -22,7 +23,7 @@
   }: {
     message: Message;
     view: SessionView;
-    results: Map<string, ToolResultOutcome>;
+    results: Map<string, ToolResult>;
     running: boolean;
   } = $props();
 
@@ -113,7 +114,7 @@
 {:else if body.kind === "Reply"}
   <ReplyView {view} replyId={message.id} blocks={body.blocks} {results} {running} {time} model={body.model} stats={body.stats} />
 {:else if body.kind === "ToolResult"}
-  <ToolRow name={body.tool_name} result={body.outcome} />
+  <ToolRow name={body.tool_name} result={toolResult(body.outcome, body.started_at, message.created_at)} />
 {:else if body.kind === "Completion"}
   <!-- 后台回报不是本轮调用：虚线框与工具胶囊区分。 -->
   {@const job = view.jobs.find((j) => String(j.id) === body.exec_id)}

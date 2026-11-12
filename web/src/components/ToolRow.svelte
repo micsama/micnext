@@ -5,18 +5,19 @@
 </script>
 
 <script lang="ts">
-  import type { ExecOutcome, ToolResultOutcome } from "../api/types";
-  import { argsPreview, prettyArgs } from "../lib/format";
+  import type { ExecOutcome } from "../api/types";
+  import { argsPreview, formatDuration, prettyArgs } from "../lib/format";
   import Icon, { type IconName } from "../lib/Icon.svelte";
   import JobRef from "./JobRef.svelte";
   import { outcomeText } from "./outcome";
+  import type { ToolResult } from "./tool-results";
 
   let {
     name,
     args,
     result,
     running = false,
-  }: { name: string; args?: unknown; result?: ToolResultOutcome; running?: boolean } = $props();
+  }: { name: string; args?: unknown; result?: ToolResult; running?: boolean } = $props();
 
   const ICONS: Record<string, IconName> = {
     bash: "terminal",
@@ -32,7 +33,7 @@
     job_stop: "layers",
   };
 
-  const terminal: ExecOutcome | undefined = $derived(result && "Terminal" in result ? result.Terminal : undefined);
+  const terminal: ExecOutcome | undefined = $derived(result && "Terminal" in result.outcome ? result.outcome.Terminal : undefined);
   const status = $derived.by(() => {
     if (!result) return running ? "running" : "none";
     if (!terminal) return "dispatched";
@@ -47,6 +48,7 @@
     <span class={STEP_NAME}>{name}</span>
     {#if preview.description}<span class="max-w-[60%] shrink-0 truncate">{preview.description}</span>{/if}
     <span class="min-w-0 flex-1 truncate font-mono text-muted-foreground/80">{preview.detail}</span>
+    {#if result?.ms != null}<span class="shrink-0 text-muted-foreground tabular-nums">{formatDuration(result.ms)}</span>{/if}
     {#if status === "running"}
       <Icon name="loader" class="size-3.5 shrink-0 animate-spin text-muted-foreground" />
     {:else if status === "ok"}
@@ -55,8 +57,8 @@
       <span class="shrink-0 text-warning">超时</span>
     {:else if status === "fail"}
       <Icon name="x" class="size-3.5 shrink-0 text-destructive" />
-    {:else if result && "Dispatched" in result}
-      <JobRef id={result.Dispatched.exec_id} />
+    {:else if result && "Dispatched" in result.outcome}
+      <JobRef id={result.outcome.Dispatched.exec_id} />
     {/if}
   </summary>
   <div class="space-y-2 border-t border-border px-2.5 py-2">
@@ -67,8 +69,8 @@
       <pre
         class="max-h-80 overflow-auto rounded bg-code p-2 font-mono whitespace-pre-wrap"
         class:text-destructive={status === "fail"}>{outcomeText(terminal)}</pre>
-    {:else if result && "Dispatched" in result}
-      <p class="text-muted-foreground">已转入后台（{result.Dispatched.exec_id}），完成后另行通知</p>
+    {:else if result && "Dispatched" in result.outcome}
+      <p class="text-muted-foreground">已转入后台（{result.outcome.Dispatched.exec_id}），完成后另行通知</p>
     {:else}
       <p class="text-muted-foreground">{running ? "执行中…" : "没有结果"}</p>
     {/if}

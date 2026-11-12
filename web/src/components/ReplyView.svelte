@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { toolKey } from "./tool-results";
+  import { toolKey, type ToolResult } from "./tool-results";
   import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
   import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
   import GaugeIcon from "@lucide/svelte/icons/gauge";
   import TimerIcon from "@lucide/svelte/icons/timer";
-  import { parseAskArgs, type ReplyBlock, type ReplyStats, type ToolResultOutcome } from "../api/types";
+  import { parseAskArgs, type ReplyBlock, type ReplyStats } from "../api/types";
   import { formatDuration, formatTokens } from "../lib/format";
   import CopyButton from "./CopyButton.svelte";
   import Markdown from "./Markdown.svelte";
@@ -23,7 +23,7 @@
     time,
     model,
     stats,
-  }: { view: SessionView; replyId: number; blocks: ReplyBlock[]; results: Map<string, ToolResultOutcome>; running: boolean; time: string; model: string; stats: ReplyStats } = $props();
+  }: { view: SessionView; replyId: number; blocks: ReplyBlock[]; results: Map<string, ToolResult>; running: boolean; time: string; model: string; stats: ReplyStats } = $props();
 
   const u = $derived(stats.usage);
   /** 出字速度按首字之后的生成时长算，排除排队与首字等待。 */
@@ -59,7 +59,7 @@
       <Markdown source={block.Text.text} />
     {:else}
       {@const result = results.get(toolKey({ reply: replyId, index: i }))}
-      {#if block.ToolCall.name === "ask_user" && result && "Terminal" in result && "Completed" in result.Terminal}
+      {#if block.ToolCall.name === "ask_user" && result && "Terminal" in result.outcome && "Completed" in result.outcome.Terminal}
         <QuestionCard {view} {replyId} questions={parseAskArgs(block.ToolCall.args)} />
       {:else}
         <ToolRow name={block.ToolCall.name} args={block.ToolCall.args} {result} {running} />

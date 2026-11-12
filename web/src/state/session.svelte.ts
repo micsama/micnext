@@ -334,7 +334,8 @@ export class SessionView {
         if (["Reply", "Boundary", "Notification"].includes(e.data.body.kind)) this.modelRetry = null;
         if (e.data.body.kind === "Reply") this.draft = null;
         if (e.data.body.kind === "UserInput") this.notice = null;
-        if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") { this.#queued.add(e.data.id); this.resume = null; this.prediction = null; }
+        // 回放中的输入是否仍在排队以 `ready.queued` 为准。
+        if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") { if (this.#live) this.#queued.add(e.data.id); this.resume = null; this.prediction = null; }
         break;
       case "draft_started":
         this.draft = { reasoning: "", text: "", at: e.data.context_at };

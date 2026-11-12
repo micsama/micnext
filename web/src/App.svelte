@@ -20,11 +20,12 @@
   let view = $state<SessionView | null>(null);
 
   // 路由决定当前打开的会话；切换时中止旧流。只换定位消息时沿用同一个会话视图。
+  // 视图只随会话 id 和登录状态重建：构造时同步执行的代码读到的其它状态不能成为依赖。
   const sessionId = $derived(router.current.kind === "session" ? router.current.id : null);
   $effect(() => {
     const id = sessionId;
     if (!auth.loggedIn || id === null) return;
-    const v = new SessionView(id);
+    const v = untrack(() => new SessionView(id));
     view = v;
     return () => {
       v.close();

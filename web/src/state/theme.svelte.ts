@@ -1,4 +1,4 @@
-import { load, save } from "./storage";
+import { load, save } from "../lib/storage";
 
 export type ThemeChoice = "system" | "light" | "dark";
 

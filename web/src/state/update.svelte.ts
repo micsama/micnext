@@ -2,28 +2,20 @@ import { ApiError, getUpdateStatus, startUpdate } from "../api/client";
 import { ProtocolError } from "../api/decode";
 import type { UpdateStatus } from "../api/developer";
 import { confirm } from "./confirm.svelte";
+import { loadJson, save } from "../lib/storage";
 
 const POLL_MS = 1000;
-// 目标提交与旧版大小按浏览器记住：随机 token 重启后需重新登录，页面会重新挂载。
+// 目标提交与旧版大小按浏览器记住：重启后页面会重新加载。
 const TARGET_KEY = "micnext.developer.updateTarget";
 
 type Target = { commit: string; fromSize: number | null };
 
 function loadTarget(): Target | null {
-  try {
-    const v = JSON.parse(localStorage.getItem(TARGET_KEY) ?? "null") as Target | null;
-    return typeof v?.commit === "string" ? v : null;
-  } catch {
-    return null;
-  }
+  const v = loadJson(TARGET_KEY) as Target | null;
+  return typeof v?.commit === "string" ? v : null;
 }
 function saveTarget(v: Target | null) {
-  try {
-    if (v === null) localStorage.removeItem(TARGET_KEY);
-    else localStorage.setItem(TARGET_KEY, JSON.stringify(v));
-  } catch {
-    // NOTE: 存储不可用时仅本页有效。
-  }
+  save(TARGET_KEY, v === null ? null : JSON.stringify(v));
 }
 
 /** 一键更新的状态，侧边栏快捷按钮与「更新」页签共用；进行中自动轮询。 */

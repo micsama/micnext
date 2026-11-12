@@ -17,7 +17,7 @@
   import { otherSessions, pinnedSessions, sessionsSync, tags, webSessions, type SessionList } from "../state/sessions.svelte";
   import TagPill from "./TagPill.svelte";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
-  import { load, save } from "../state/storage";
+  import { load, save } from "../lib/storage";
   import type { TraceSession } from "../api/trace";
   import { issues, traceSessions } from "../state/trace-sessions.svelte";
   import { theme, type ThemeChoice } from "../state/theme.svelte";

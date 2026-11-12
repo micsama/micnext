@@ -6,6 +6,7 @@
   import { copyText } from "../../lib/clipboard";
   import Icon from "../../lib/Icon.svelte";
   import { loadRecent, pushRecent } from "../../lib/recent";
+  import { load, save } from "../../lib/storage";
 
   let sql = $state("");
   let running = $state(false);
@@ -41,12 +42,8 @@
   let pane = $state<HTMLElement | null>(null);
 
   function loadHeight(): number {
-    try {
-      const v = Number(localStorage.getItem(HEIGHT_KEY));
-      return v >= HEIGHT_MIN ? v : 200;
-    } catch {
-      return 200;
-    }
+    const v = Number(load(HEIGHT_KEY));
+    return v >= HEIGHT_MIN ? v : 200;
   }
 
   function startResize(e: PointerEvent) {
@@ -60,11 +57,7 @@
     };
     const up = () => {
       handle.removeEventListener("pointermove", move);
-      try {
-        localStorage.setItem(HEIGHT_KEY, String(editorHeight));
-      } catch {
-        // NOTE: 存储不可用时仅本次有效。
-      }
+      save(HEIGHT_KEY, String(editorHeight));
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up, { once: true });

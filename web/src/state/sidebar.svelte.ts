@@ -1,4 +1,4 @@
-import { load, save } from "./storage";
+import { load, save } from "../lib/storage";
 
 const KEY = "micnext.sidebar";
 const desktop = matchMedia("(min-width: 48rem)");

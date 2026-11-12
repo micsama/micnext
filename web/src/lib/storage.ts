@@ -7,6 +7,15 @@ export function load(key: string): string | null {
   }
 }
 
+/** 缺失或内容损坏都视为未记住。 */
+export function loadJson(key: string): unknown {
+  try {
+    return JSON.parse(load(key) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
 export function save(key: string, value: string | null): void {
   try {
     if (value === null) localStorage.removeItem(key);

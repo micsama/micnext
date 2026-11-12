@@ -15,6 +15,7 @@
 - [ ] 新会话页关掉脱敏开关，发一条带示例凭据的消息，Trace 里模型看到的是原文（new-chat-settings）
 - [ ] 问「某某功能在哪」，Trace 里先加载 micnext-guide 再回答；让 agent 排查一个小问题，看它先读 code-map 再定位源码（micnext-guide）
 - [ ] 侧栏：两个标签页各开一个会话，后台跑完亮未读点、切回后消失；一边置顶或归档，另一边随之更新；后台运行时转圈；置顶微信会话、归档已置顶会话；整体观感（session-sidebar）
+- [ ] 连续对话几轮，会话页不再自己重新加载、历史消息不闪「排队中」；快速连续切换几个会话、切到后台标签再切回，显示和未读都正常（session-load-diagnostics 回归修复）
 
 ## 2. 手机
 
@@ -52,3 +53,4 @@
 ## 7. 隔天或碰上再看
 
 - [ ] 链路不稳时，对话和 `/compact` 显示重试次数与倒计时，最终失败仍显示原因（model-retry-indicator）
+- [ ] 运行日志按 `session load slow` 收集慢记录：Safari 完全退出重开后 `protocol` 应为 `h3`；开 Caddy 访问日志后对照慢请求的 `duration`，归因后删除临时诊断（session-load-diagnostics）

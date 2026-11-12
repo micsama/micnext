@@ -77,10 +77,14 @@ export class SessionView {
       while (this.#contextDirty && !this.#abort.signal.aborted) {
         this.#contextDirty = false;
         try {
-          this.context = await getContext(this.id);
+          const context = await getContext(this.id);
+          if (this.#abort.signal.aborted) return;
+          this.context = context;
           this.contextError = null;
           if (this.revoking !== null && this.context.active_boundary !== this.revoking) this.revoking = null;
-        } catch (error) { this.contextError = (error as Error).message; }
+        } catch (error) {
+          if (!this.#abort.signal.aborted) this.contextError = (error as Error).message;
+        }
       }
     })().finally(() => { this.#contextRefresh = null; });
   }
@@ -272,9 +276,13 @@ export class SessionView {
       const reconnect = this.info !== null;
       // 临时诊断（session-load-diagnostics），排查完整体删除：probe 相关各行。
       const probe = new LoadProbe(this.id, reconnect, runningSessions());
+      const finishProbe = () => probe.finish(this.messages.length);
+      signal.addEventListener("abort", finishProbe, { once: true });
       try {
         if (!this.info) {
-          this.info = await getSession(this.id);
+          const info = await getSession(this.id);
+          if (signal.aborted) return;
+          this.info = info;
           probe.mark("session");
         }
         await readStream(this.id, this.lastId, signal, (e, chars) => {
@@ -304,7 +312,8 @@ export class SessionView {
           return;
         }
       } finally {
-        probe.finish(this.messages.length);
+        signal.removeEventListener("abort", finishProbe);
+        finishProbe();
         this.modelRetry = null;
       }
       if (signal.aborted) return;
@@ -324,10 +333,6 @@ export class SessionView {
   #live = false;
 
   #apply(e: StreamEvent): void {
-    if (e.event === "ready") this.#live = true;
-    if (e.event === "session_changed") this.#refreshTitle();
-    if (e.event === "ready" || e.event === "jobs_changed") this.refreshJobs();
-    if (e.event === "ready" || e.event === "run_finished" || (this.#live && e.event === "message" && ["Reply", "Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
     switch (e.event) {
       case "message":
         this.#merge([e.data]);
@@ -335,7 +340,15 @@ export class SessionView {
         if (e.data.body.kind === "Reply") this.draft = null;
         if (e.data.body.kind === "UserInput") this.notice = null;
         // 回放中的输入是否仍在排队以 `ready.queued` 为准。
-        if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") { if (this.#live) this.#queued.add(e.data.id); this.resume = null; this.prediction = null; }
+        if (e.data.body.kind === "UserInput" || e.data.body.kind === "Command") {
+          if (this.#live) this.#queued.add(e.data.id);
+          this.resume = null;
+          this.prediction = null;
+        }
+        if (this.#live) {
+          if (["Reply", "Boundary", "Notification", "Command"].includes(e.data.body.kind)) this.#refreshContext();
+          this.#reportSeen();
+        }
         break;
       case "draft_started":
         this.draft = { reasoning: "", text: "", at: e.data.context_at };
@@ -353,6 +366,7 @@ export class SessionView {
         this.draft = null;
         break;
       case "ready":
+        this.#live = true;
         this.ready = true;
         this.reconnecting = false;
         this.draft = e.data.draft && { reasoning: e.data.draft.reasoning, text: e.data.draft.text, at: e.data.draft.context_at };
@@ -364,6 +378,15 @@ export class SessionView {
         if (e.data.resume) this.notice = FINISH_NOTICE[e.data.resume.state] ?? null;
         this.#queued.clear();
         for (const id of e.data.queued) this.#queued.add(id);
+        this.refreshJobs();
+        this.#refreshContext();
+        this.#reportSeen();
+        break;
+      case "session_changed":
+        this.#refreshTitle();
+        break;
+      case "jobs_changed":
+        this.refreshJobs();
         break;
       case "inputs_claimed":
         this.executingRun = e.data.run_id;
@@ -376,6 +399,7 @@ export class SessionView {
         for (const id of e.data.inputs) this.#queued.delete(id);
         break;
       case "run_finished":
+        this.#refreshContext();
         this.modelRetry = null;
         this.executingRun = null;
         this.stopping = null;
@@ -387,7 +411,6 @@ export class SessionView {
         if (this.executingRun === null && (this.#lastRun === null || e.data.run_id >= this.#lastRun)) this.prediction = e.data;
         break;
     }
-    if (e.event === "ready" || (this.#live && e.event === "message")) this.#reportSeen();
   }
 }
 

@@ -31,6 +31,7 @@ export class LoadProbe {
   #visibilityChanged = false;
   readonly #onVisibility = () => { this.#visibilityChanged = true; };
   #done = false;
+  #frame: number | null = null;
 
   constructor(readonly sessionId: number, readonly reconnect: boolean, readonly running: number) {
     // 缓冲满了就不再记新条目，每次清空，保证取得到本次的 `getSession`。
@@ -66,15 +67,19 @@ export class LoadProbe {
   /** `ready` 已归约进状态：等列表画出来再收尾。 */
   async painted(messages: () => number): Promise<void> {
     await tick();
-    await new Promise(requestAnimationFrame);
-    this.mark("painted");
-    this.finish(messages());
+    if (this.#done) return;
+    this.#frame = requestAnimationFrame(() => {
+      this.#frame = null;
+      this.mark("painted");
+      this.finish(messages());
+    });
   }
 
   /** 画出来、连接结束或离开时调用，只生效一次。 */
   finish(messages: number): void {
     if (this.#done) return;
     this.#done = true;
+    if (this.#frame !== null) cancelAnimationFrame(this.#frame);
     clearInterval(this.#timer);
     document.removeEventListener("visibilitychange", this.#onVisibility);
     const elapsed = performance.now() - this.#t0;

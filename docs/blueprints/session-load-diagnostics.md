@@ -108,6 +108,10 @@ Safari 下 EventSource 正常首屏 140–383ms；有一次建连就花了 241ms
 - 开 Caddy 访问日志：慢请求的 `duration` 是毫秒级就说明卡在途中，约等于前端 ttfb 就说明卡在服务端，后者转到存储耗时观测。
 - 继续收集，按协议分开看 h2 / h3 的慢记录。
 
+### 生命周期复查（2026-11-12）
+
+诊断现在随会话取消立即结算，并取消尚未执行的渲染帧；已结束的诊断不会在 `tick` 返回后继续排帧。会话信息请求完成后的取消检查为常驻保护。审查及验证见 [会话生命周期审查](../reviews/session-lifecycle/review.md)。
+
 ## 移除
 
 所有临时代码都带「临时诊断（session-load-diagnostics）」注释，`grep -rn 临时诊断 crates web/src` 即可列全：

@@ -12,6 +12,7 @@ mod error;
 mod global_stream;
 mod jobs;
 mod limits;
+mod load_report;
 mod log_store;
 mod log_stream;
 mod logs;

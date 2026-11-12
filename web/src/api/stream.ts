@@ -2,15 +2,16 @@ import { logEvents, parseLogEvent, type LogEvent } from "./developer";
 import { readSse } from "./sse";
 import { parseStreamEvent, streamEvents, type StreamEvent } from "./types";
 
-/** 打开会话的 SSE 流，逐个回调事件，流结束时返回。 */
+/** 打开会话的 SSE 流，逐个回调事件，流结束时返回。`chars`、`onOpen` 供临时诊断（session-load-diagnostics），排查完整体删除。 */
 export async function readStream(
   sessionId: number,
   after: number | null,
   signal: AbortSignal,
-  onEvent: (e: StreamEvent) => void,
+  onEvent: (e: StreamEvent, chars: number) => void,
+  onOpen?: () => void,
 ): Promise<void> {
   const q = new URLSearchParams(after === null ? {} : { after: String(after) });
-  await readSse(`/sessions/${sessionId}/stream`, q, streamEvents, signal, (event, data) => onEvent(parseStreamEvent(event, data)));
+  await readSse(`/sessions/${sessionId}/stream`, q, streamEvents, signal, (event, data) => onEvent(parseStreamEvent(event, data), data.length), onOpen);
 }
 
 /** 打开开发者日志流：先回放保留窗口再跟随，流结束时返回。 */

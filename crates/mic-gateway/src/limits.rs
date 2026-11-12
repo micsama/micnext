@@ -65,6 +65,10 @@ pub(crate) const ENDPOINT_NAME_MAX_CHARS: usize = 40;
 /// API key 最大字符数；需容纳 JWT 形式的 access_token。
 pub(crate) const API_KEY_MAX_CHARS: usize = 8192;
 
+/// 临时诊断（session-load-diagnostics），排查完整体删除。慢加载上报的请求体上限与其中 User-Agent 保留的字数。
+pub(crate) const LOAD_REPORT_BYTES: usize = 4096;
+pub(crate) const LOAD_REPORT_UA_CHARS: usize = 200;
+
 /// 开发者日志：保留条数、文本总字节、单条文本字节、单条字段数。
 pub(crate) const LOG_RECORDS: usize = 10_000;
 pub(crate) const LOG_TOTAL_BYTES: usize = 16 * 1024 * 1024;

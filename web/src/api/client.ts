@@ -411,6 +411,33 @@ export async function startUpdate(): Promise<void> {
   await request("POST", "/developer/update");
 }
 
+/** 临时诊断（session-load-diagnostics），排查完整体删除。慢的会话加载：各阶段相对打开时刻的 ms，未到达为 null；字段含义见 session-load-diagnostics 蓝图。 */
+export type SessionLoadReport = {
+  session_id: number;
+  reconnect: boolean;
+  elapsed: number;
+  session: number | null;
+  open: number | null;
+  first: number | null;
+  ready: number | null;
+  painted: number | null;
+  server: { replay_ms: number; state_ms: number; total_ms: number } | null;
+  net: { dns: number; connect: number; tls: number; ttfb: number; download: number; protocol: string } | null;
+  events: number;
+  chars: number;
+  max_gap: number;
+  lag: number;
+  hidden_at_start: boolean;
+  visibility_changed: boolean;
+  running: number;
+  messages: number;
+  ua: string;
+};
+
+export async function reportSessionLoad(report: SessionLoadReport): Promise<void> {
+  await request("POST", "/developer/session-load", report);
+}
+
 export async function getContext(sessionId: number): Promise<ContextView> {
   return parseContextView(await request("GET", `/sessions/${sessionId}/context`));
 }

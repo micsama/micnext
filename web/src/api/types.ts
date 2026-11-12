@@ -283,7 +283,10 @@ export type StreamEvent =
   | { event: "inputs_claimed"; data: { run_id: number; inputs: number[] } }
   | { event: "run_finished"; data: { run_id: number; state: RunState; resume: Resumable | null } }
   | { event: "prediction"; data: Prediction }
-  | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null; resume: Resumable | null; prediction: Prediction | null; draft: ReplyDraft | null } };
+  | { event: "ready"; data: { executing_run: number | null; queued: number[]; has_earlier: boolean | null; resume: Resumable | null; prediction: Prediction | null; draft: ReplyDraft | null; timing: ReadyTiming } };
+
+/** 临时诊断（session-load-diagnostics），排查完整体删除。服务端从收到流请求到发出 `ready` 的分段耗时（ms）。 */
+export type ReadyTiming = { replay_ms: number; state_ms: number; total_ms: number };
 
 /** 订阅时正在生成的回复；`context_at` 即落盘后 `Reply` 的 `created_at`。 */
 export type ReplyDraft = { context_at: number; reasoning: string; text: string };
@@ -504,7 +507,7 @@ const streamData: { [E in StreamEvent["event"]]: Decoder<Extract<StreamEvent, { 
     resume: nullable(resumable),
   }),
   prediction,
-  ready: obj({ executing_run: nullable(num), queued: arr(num), has_earlier: nullable(bool), resume: nullable(resumable), prediction: nullable(prediction), draft: nullable(obj({ context_at: num, reasoning: str, text: str })) }),
+  ready: obj({ executing_run: nullable(num), queued: arr(num), has_earlier: nullable(bool), resume: nullable(resumable), prediction: nullable(prediction), draft: nullable(obj({ context_at: num, reasoning: str, text: str })), timing: obj({ replay_ms: num, state_ms: num, total_ms: num }) }),
 };
 
 export const parseInputLimits = (v: unknown): InputLimits => kindList(v, "输入限额").input_limits;

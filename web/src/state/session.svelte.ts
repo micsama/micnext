@@ -3,7 +3,8 @@ import { readStream } from "../api/stream";
 import { ProtocolError, jobActive, type ContextView, type JobView, type Message, type Prediction, type Resumable, type RunState, type SessionDetail, type StreamEvent } from "../api/types";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sleep } from "../lib/sleep";
-import { sessionsSync } from "./sessions.svelte";
+import { pinnedSessions, sessionsSync, webSessions } from "./sessions.svelte";
+import { LoadProbe } from "./load-probe";
 
 /** 正在生成的回复；排在 `created_at <= at` 的消息之后，与落盘后的 `Reply` 同位。 */
 export type Draft = { reasoning: string; text: string; at: number };
@@ -265,17 +266,28 @@ export class SessionView {
     while (!signal.aborted) {
       // 草稿以 `ready` 的快照为准。
       this.draft = null;
+      this.#live = false;
       let ready = false;
+      // 重连时会话信息可能已变，`ready` 后补取；首次刚取过。
+      const reconnect = this.info !== null;
+      // 临时诊断（session-load-diagnostics），排查完整体删除：probe 相关各行。
+      const probe = new LoadProbe(this.id, reconnect, runningSessions());
       try {
-        this.info ??= await getSession(this.id);
-        await readStream(this.id, this.lastId, signal, (e) => {
+        if (!this.info) {
+          this.info = await getSession(this.id);
+          probe.mark("session");
+        }
+        await readStream(this.id, this.lastId, signal, (e, chars) => {
+          probe.event(e, chars);
           this.#apply(e);
           if (e.event === "ready") {
             ready = true;
             failures = 0;
             delay = RETRY_MIN_MS;
+            if (reconnect) this.#refreshTitle();
+            void probe.painted(() => this.messages.length);
           }
-        });
+        }, () => probe.mark("open"));
         if (!ready && !signal.aborted && ++failures >= STREAM_FAILURE_LIMIT) {
           this.fatal = "实时连接反复失败，请刷新页面重试";
           return;
@@ -292,6 +304,7 @@ export class SessionView {
           return;
         }
       } finally {
+        probe.finish(this.messages.length);
         this.modelRetry = null;
       }
       if (signal.aborted) return;
@@ -307,10 +320,14 @@ export class SessionView {
     this.messages = [...merged.values()].sort((a, b) => a.created_at - b.created_at || a.id - b.id);
   }
 
+  /** 本次连接已过回放、收到 `ready`；回放中的消息不逐条触发刷新，由 `ready` 统一刷新一次。 */
+  #live = false;
+
   #apply(e: StreamEvent): void {
-    if (e.event === "ready" || e.event === "session_changed") this.#refreshTitle();
+    if (e.event === "ready") this.#live = true;
+    if (e.event === "session_changed") this.#refreshTitle();
     if (e.event === "ready" || e.event === "jobs_changed") this.refreshJobs();
-    if (e.event === "ready" || e.event === "run_finished" || (e.event === "message" && ["Reply", "Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
+    if (e.event === "ready" || e.event === "run_finished" || (this.#live && e.event === "message" && ["Reply", "Boundary", "Notification", "Command"].includes(e.data.body.kind))) this.#refreshContext();
     switch (e.event) {
       case "message":
         this.#merge([e.data]);
@@ -369,6 +386,11 @@ export class SessionView {
         if (this.executingRun === null && (this.#lastRun === null || e.data.run_id >= this.#lastRun)) this.prediction = e.data;
         break;
     }
-    if (e.event === "ready" || e.event === "message") this.#reportSeen();
+    if (e.event === "ready" || (this.#live && e.event === "message")) this.#reportSeen();
   }
+}
+
+/** 侧栏里正在运行的会话数。 */
+function runningSessions(): number {
+  return new Set([...pinnedSessions.items, ...webSessions.items].filter((s) => s.running).map((s) => s.id)).size;
 }

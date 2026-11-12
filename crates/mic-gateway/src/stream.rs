@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::extract::rejection::{PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
@@ -29,6 +30,7 @@ pub(crate) async fn stream(
     id: Result<Path<i64>, PathRejection>,
     query: Result<Query<StreamQuery>, QueryRejection>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let started = Instant::now();
     let Path(id) = id.map_err(|_| ApiError::NotFound(SESSION_NOT_FOUND))?;
     let Query(q) = query.map_err(|e| ApiError::BadRequest(format!("查询参数不合法：{e}")))?;
     let session = session(&app, Ok(Path(id))).await?;
@@ -39,6 +41,7 @@ pub(crate) async fn stream(
         session.id,
         q.after.map(MessageId),
         Cut { events, cut, draft },
+        started,
         tx,
     ));
     Ok(sse::respond(rx))
@@ -108,8 +111,10 @@ async fn feed(
         cut,
         draft,
     }: Cut,
+    started: Instant,
     tx: mpsc::Sender<Event>,
 ) {
+    let replay_at = Instant::now();
     // 首次只回放切点前最近一页并告知是否还有更早的，更早的经 `page` 取；重连从 `after` 续传到切点。
     let replayed = match (cut, after) {
         (None, _) => Ok((Vec::new(), after.is_none().then_some(false))),
@@ -133,6 +138,7 @@ async fn feed(
             .await
             .map(|page| (page.messages, Some(page.has_earlier))),
     };
+    let replay_ms = ms(replay_at);
     let (replayed, has_earlier) = match replayed {
         Ok(replayed) => replayed,
         Err(e) => return tracing::error!(error = %crate::error::chain(&e), "gateway replay failed"),
@@ -142,12 +148,14 @@ async fn feed(
             return;
         }
     }
+    let state_at = Instant::now();
     let state = tokio::try_join!(
         app.kernel.executing_run(session_id),
         app.kernel.queued_inputs(session_id),
         app.kernel.resumable_run(session_id),
         app.kernel.current_prediction(session_id)
     );
+    let state_ms = ms(state_at);
     let (executing_run, queued, resume, prediction) = match state {
         Ok(state) => state,
         Err(e) => return tracing::error!(error = %crate::error::chain(&e), "gateway replay failed"),
@@ -166,6 +174,11 @@ async fn feed(
             reasoning: d.reasoning,
             text: d.text,
         }),
+        timing: Timing {
+            replay_ms,
+            state_ms,
+            total_ms: ms(started),
+        },
     };
     if !send(&app, &tx, json_event("ready", &ready)).await {
         return;
@@ -252,6 +265,23 @@ struct Ready {
     prediction: Option<PredictionView>,
     /// 切点时正在生成的回复，之后的增量接着到达。
     draft: Option<DraftView>,
+    timing: Timing,
+}
+
+/// 临时诊断（session-load-diagnostics），排查完整体删除。
+/// 服务端从收到流请求到发出 `ready` 的耗时，供前端判断慢在服务端还是途中。
+#[derive(Serialize)]
+struct Timing {
+    /// 查回放页（重连时为续传查询）。
+    replay_ms: u64,
+    /// 查运行状态。
+    state_ms: u64,
+    /// 含鉴权后的会话查询、订阅、回放写入发送队列。
+    total_ms: u64,
+}
+
+fn ms(since: Instant) -> u64 {
+    since.elapsed().as_millis() as u64
 }
 
 #[derive(Serialize)]

@@ -12,11 +12,11 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
-use crate::limits::{MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE};
+use crate::limits::{LOAD_REPORT_BYTES, MAX_BODY_BYTES, MAX_INPUT_BODY_BYTES, SHUTDOWN_GRACE};
 use crate::update::{BuildVersion, RestartRequest, Updater};
 use crate::{
-    api, auth, backup, channels, context, env_vars, global_stream, jobs, log_stream, models,
-    pushes, schedules, search, settings, sql, stream, tags, trace, update, web, web_push,
+    api, auth, backup, channels, context, env_vars, global_stream, jobs, load_report, log_stream,
+    models, pushes, schedules, search, settings, sql, stream, tags, trace, update, web, web_push,
     DeveloperLogs,
 };
 
@@ -213,6 +213,11 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/developer/sql", post(sql::query))
         .route("/developer/sql/schema", get(sql::schema))
         .route("/developer/sql/review", post(sql::review))
+        // 临时诊断（session-load-diagnostics），排查完整体删除。
+        .route(
+            "/developer/session-load",
+            post(load_report::report.layer(DefaultBodyLimit::max(LOAD_REPORT_BYTES))),
+        )
         .route("/developer/update", get(update::status).post(update::start))
         .route("/sessions/{id}/stream", get(stream::stream))
         .route("/developer/logs/stream", get(log_stream::stream))

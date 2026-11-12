@@ -25,7 +25,7 @@
 | 实现完成，待验收 | 结构化询问用户工具 ask_user | [B2](docs/blueprints/ask-user-question.md)；[B1](docs/brainstorm/ask-user-question.md) |
 | 实现完成，待验收 | 模型交付文件：send_file 与 push 附件（Web + 微信出站） | [B2](docs/blueprints/send-file.md) |
 | B2 待批准 | 专题：索引与 `topic` 工具（压缩时 fork 整理在 B1 讨论） | [B2](docs/blueprints/topics.md)；[B1](docs/brainstorm/topics.md) |
-| 实现完成，待验收 | 内置 skill（首个 web-guide，功能地图移出 Web channel prompt） | [B2](docs/blueprints/builtin-skills.md) |
+| 实现完成，待验收 | 内置 skill；web-guide 扩为 micnext-guide（能力、架构、源码索引） | [B2](docs/blueprints/micnext-guide.md)；[前序 B2](docs/blueprints/builtin-skills.md) |
 | B1 待定 | 统一「轮」的口径 | [B1](docs/brainstorm/rounds.md) |
 | 实现完成，待验收 | 压缩后重新加载仍在用的 skill | [B2](docs/blueprints/skills-after-compaction.md)；[B1](docs/brainstorm/skills-after-compaction.md) |
 | 实现完成，待验收 | 设置里的环境变量 | [B2](docs/blueprints/env-vars.md) |

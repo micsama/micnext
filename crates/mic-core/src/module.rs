@@ -60,11 +60,19 @@ impl Registry {
     }
 
     /// 内置 skill：正文随二进制发布（`include_str!`），与磁盘 skill 同一套目录与加载；名称与描述规则同磁盘 skill。
-    pub fn skill(&mut self, name: &'static str, description: &'static str, body: &'static str) {
+    /// `dir` 为附带文件所在目录，加载结果同磁盘 skill 带上目录与文件清单。
+    pub fn skill(
+        &mut self,
+        name: &'static str,
+        description: &'static str,
+        body: &'static str,
+        dir: Option<std::path::PathBuf>,
+    ) {
         self.skills.push(crate::skills::Builtin {
             name,
             description,
             body,
+            dir,
         });
     }
 

@@ -13,7 +13,7 @@
 - [ ] A、B、新会话各写文字、附件、引用，来回切换各自恢复；发送中切走再回来不能重发；待发送图片点开放大；刷新后草稿消失（composer-drafts-preview）
 - [ ] 生成中插入新消息、切页再回来、重试、停止后重连：流式草稿位置在新消息上方，不重复、不残留（stream-draft-snapshot）
 - [ ] 新会话页关掉脱敏开关，发一条带示例凭据的消息，Trace 里模型看到的是原文（new-chat-settings）
-- [ ] 问「某某功能在哪」，Trace 里先加载 web-guide 再回答（builtin-skills）
+- [ ] 问「某某功能在哪」，Trace 里先加载 micnext-guide 再回答；让 agent 排查一个小问题，看它先读 code-map 再定位源码（micnext-guide）
 - [ ] 侧栏：两个标签页各开一个会话，后台跑完亮未读点、切回后消失；一边置顶或归档，另一边随之更新；后台运行时转圈；置顶微信会话、归档已置顶会话；整体观感（session-sidebar）
 
 ## 2. 手机
@@ -28,7 +28,7 @@
 - [ ] 发文件后 Web 会话里显示文件胶囊；引用图片或文件后正常回复（web-file-upload）
 - [ ] 收到 bot 发的图片和文件；引用 bot 发出的文件后正常回复（send-file）
 - [ ] 发原图，模型能描述（image-normalize）
-- [ ] 问「某某功能在哪」，先加载 web-guide 再回答（builtin-skills）
+- [ ] 问「某某功能在哪」，先加载 micnext-guide 再回答（micnext-guide）
 - [ ] `ask_user` 以文字呈现，能作答（ask-user-question）
 
 ## 4. 定时任务

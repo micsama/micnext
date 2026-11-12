@@ -62,11 +62,12 @@ pub(crate) enum LoadError {
 }
 
 /// 模块登记、随二进制发布的 skill；装配时已校验。
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Builtin {
     pub(crate) name: &'static str,
     pub(crate) description: &'static str,
     pub(crate) body: &'static str,
+    pub(crate) dir: Option<PathBuf>,
 }
 
 /// 内置 skill 的装配校验：名称与描述规则同磁盘 skill，内置之间不得重名。
@@ -123,7 +124,13 @@ impl Skills {
     /// 工具加载与用户点名共用的加载结果。
     pub(crate) async fn load(&self, name: &str) -> Result<String, LoadError> {
         if let Some(b) = self.builtin(name) {
-            return Ok(b.body.trim().to_owned());
+            let body = b.body.trim().to_owned();
+            return match b.dir.clone() {
+                None => Ok(body),
+                Some(dir) => tokio::task::spawn_blocking(move || with_files(body, &dir))
+                    .await
+                    .expect("加载 skill 不 panic"),
+            };
         }
         let dir = self.dir.clone();
         let name = name.to_owned();
@@ -163,14 +170,20 @@ impl Skills {
         let lines: Vec<String> = list
             .skills
             .iter()
-            .map(|s| match self.builtin(&s.name) {
-                Some(_) => format!("<skill name=\"{}\">{}</skill>", s.name, s.description),
-                None => format!(
-                    "<skill name=\"{}\" dir=\"{}\">{}</skill>",
-                    s.name,
-                    self.dir.join(&s.name).display(),
-                    s.description
-                ),
+            .map(|s| {
+                let dir = match self.builtin(&s.name) {
+                    Some(b) => b.dir.clone(),
+                    None => Some(self.dir.join(&s.name)),
+                };
+                match dir {
+                    Some(dir) => format!(
+                        "<skill name=\"{}\" dir=\"{}\">{}</skill>",
+                        s.name,
+                        dir.display(),
+                        s.description
+                    ),
+                    None => format!("<skill name=\"{}\">{}</skill>", s.name, s.description),
+                }
             })
             .collect();
         Some(format!(
@@ -312,8 +325,12 @@ fn load(root: &Path, name: &str) -> Result<String, LoadError> {
         name: name.into(),
         reason,
     })?;
-    let dir = root.join(name);
-    let dir = std::fs::canonicalize(&dir).map_err(|e| io_error(&dir, e))?;
+    with_files(body, &root.join(name))
+}
+
+/// 正文后附目录与文件清单（不含 SKILL.md）。
+fn with_files(body: String, dir: &Path) -> Result<String, LoadError> {
+    let dir = std::fs::canonicalize(dir).map_err(|e| io_error(dir, e))?;
     let mut files = Vec::new();
     walk(&dir, &dir, &mut files)?;
     files.retain(|f| f != SKILL_FILE);

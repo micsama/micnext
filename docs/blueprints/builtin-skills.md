@@ -1,6 +1,6 @@
 # B2：内置 skill（首个：web-guide）
 
-状态：已实现，待验收。
+状态：已实现，待验收。`web-guide` 已由 [micnext-guide](micnext-guide.md) 取代，内置 skill 可带附带文件目录。
 
 ## 动机
 

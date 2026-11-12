@@ -71,6 +71,7 @@ async fn scan_load_and_expand() {
         name: "guide",
         description: "built in",
         body: "\nguide body\n",
+        dir: None,
     };
     write(
         &root,
@@ -78,7 +79,7 @@ async fn scan_load_and_expand() {
         SKILL_FILE,
         "---\nname: guide\ndescription: disk\n---\n",
     );
-    let skills = Skills::new(root.clone(), Arc::from([builtin]));
+    let skills = Skills::new(root.clone(), Arc::from([builtin.clone()]));
     let list = skills.list().await.unwrap();
     let names: Vec<_> = list.skills.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names, ["alpha", "guide", "zeta"]);
@@ -87,6 +88,16 @@ async fn scan_load_and_expand() {
         .iter()
         .any(|i| i.dir == "guide" && i.reason == "与内置 skill 重名"));
     assert_eq!(skills.load("guide").await.unwrap(), "guide body");
+    let with_dir = Skills::new(
+        root.clone(),
+        Arc::from([Builtin {
+            dir: Some(root.join("alpha")),
+            ..builtin.clone()
+        }]),
+    );
+    let loaded = with_dir.load("guide").await.unwrap();
+    assert!(loaded.starts_with("guide body\n\nSkill directory: "));
+    assert!(loaded.ends_with("\n- scripts/run.py"));
     let catalog = skills.catalog(&list).unwrap();
     assert!(catalog.contains("<skill name=\"guide\">built in</skill>"));
     assert!(catalog.contains(&format!(

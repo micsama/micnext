@@ -4,7 +4,7 @@ use mic_message::{
 };
 use mic_store::{
     ContextUsage, ModelCallContext, ModelCallOutcome, ModelCallPurpose, RunState, Session,
-    SessionKind, StoreError,
+    SessionKind, Store, StoreError,
 };
 use serde::Serialize;
 
@@ -14,7 +14,7 @@ use crate::limits::{
     COMPACTION_BUDGET_PERCENT, DEFAULT_CONTEXT_WINDOW, ELIDE_TOOL_TOKENS, IDLE_COMPACT_PERCENT,
     IDLE_TRIM_AFTER, IDLE_TRIM_DEFAULT,
 };
-use crate::run::{now_ms, Engine, Exec};
+use crate::run::{now_ms, Exec};
 use crate::skills::SKILL;
 use crate::{request, ModelRequest, ModelResponse, Provider, StopReason, ToolChoice};
 
@@ -33,27 +33,27 @@ pub struct Occupancy {
 
 /// 会话未选模型、所选模型已删除或当前边界后尚无调用时为 `None`。
 pub(crate) async fn occupancy(
-    engine: &Engine,
+    store: &Store,
     session: &Session,
 ) -> Result<Option<Occupancy>, StoreError> {
-    Ok(usage(engine, session).await?.map(|(o, ..)| o))
+    Ok(usage(store, session).await?.map(|(o, ..)| o))
 }
 
 /// 占用连同其来源调用的用量，以及当前模型是否支持图片。
 pub(crate) async fn usage(
-    engine: &Engine,
+    store: &Store,
     session: &Session,
 ) -> Result<Option<(Occupancy, ContextUsage, bool)>, StoreError> {
     let Some(model_id) = session.model_id else {
         return Ok(None);
     };
-    let Some(model) = engine.store.model(model_id).await? else {
+    let Some(model) = store.model(model_id).await? else {
         return Ok(None);
     };
-    let Some(usage) = engine.store.context_usage(session.id).await? else {
+    let Some(usage) = store.context_usage(session.id).await? else {
         return Ok(None);
     };
-    let settings = engine.store.run_settings(session.id).await?;
+    let settings = store.run_settings(session.id).await?;
     let occupancy = Occupancy {
         used_tokens: usage.input_tokens + usage.output_tokens,
         window: model

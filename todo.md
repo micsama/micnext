@@ -14,7 +14,7 @@
 | 实现完成，待验收 | 推送加标题（系统通知、通知中心、IM） | [B2](docs/blueprints/push-title.md) |
 | B1 调研完成，不急 | 让 agent 用本机浏览器（Zigzag MCP + SSH 反向隧道） | [B1](docs/brainstorm/local-browser-mcp.md) |
 | 暂缓 | 推送降级（微信被拒） | [B1](docs/brainstorm/push-fallback.md) |
-| P1 已验收，P2 待验收（调度已修订），P3 已实现、待验收 | 推送与定时任务（P1 推送 / P2 内核 / P3 页面） | [B2](docs/blueprints/scheduled-tasks.md) |
+| P1 已验收，P2 待验收（调度已修订、P2.11 立即执行），P3 已实现、待验收 | 推送与定时任务（P1 推送 / P2 内核 / P3 页面） | [B2](docs/blueprints/scheduled-tasks.md) |
 | 已实现，待验收 | 定时任务限频与到点前压缩 | [B2](docs/blueprints/schedule-limits.md) |
 | 延期 | 服务商分时段计价 | [B2](docs/blueprints/offpeak-pricing.md) |
 | Web 已验收，微信文件待验收 | Web 上传文件，统一文件消息 | [B2](docs/blueprints/web-file-upload.md) |

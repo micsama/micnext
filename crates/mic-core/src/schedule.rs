@@ -11,7 +11,8 @@ use std::time::Duration;
 
 use mic_message::{MessageBody, PersonId, ReplyBlock, SessionId};
 use mic_store::{
-    Fire, FireOutcome, FireResult, RunId, Schedule, Store, StoreError, SCHEDULE_MODULE,
+    Fire, FireKind, FireOutcome, FireResult, RunId, Schedule, ScheduleId, Store, StoreError,
+    SCHEDULE_MODULE,
 };
 use mic_tool::ToolHandle;
 use tokio::sync::{mpsc, Notify};
@@ -70,6 +71,23 @@ impl Schedules {
     /// 任务增改删后唤醒调度循环。
     fn changed(&self) {
         self.changed.notify_one();
+    }
+
+    /// 立即执行一次，不动计划；停用的任务也可执行。`Gone` 表示任务不存在。
+    /// 触发在独立任务里做完：调用方此前取消则不执行，此后取消不影响提交、发布与唤醒。
+    pub(crate) async fn run_now(
+        self: &Arc<Self>,
+        id: ScheduleId,
+    ) -> Result<FireResult, StoreError> {
+        let this = self.clone();
+        tokio::spawn(async move {
+            match this.store.schedule(id).await? {
+                Some(schedule) => this.fire(&schedule, now_ms(), FireKind::Now).await,
+                None => Ok(FireResult::Gone),
+            }
+        })
+        .await
+        .expect("触发不 panic")
     }
 
     /// 任务会话的 run 收尾后：触发 run 的系统级失败即通知。
@@ -162,33 +180,32 @@ impl Schedules {
         })
     }
 
-    /// 到点：上下文占用高时先压缩；忙则只记一行。`next_run_at` 前移到 `next`。
+    /// 触发：上下文占用高时先压缩；忙则只记一行。计划按 `kind` 推进。
     async fn fire(
         &self,
-        engine: &Engine,
         schedule: &Schedule,
         due: i64,
-        next: Option<i64>,
-    ) -> Result<(), StoreError> {
+        kind: FireKind,
+    ) -> Result<FireResult, StoreError> {
         let session = self
             .store
             .session(schedule.session_id)
             .await?
             .expect("任务会话存在（外键保证）");
-        let compact = crate::compaction::occupancy(engine, &session)
+        let compact = crate::compaction::occupancy(&self.store, &session)
             .await?
             .is_some_and(|o| o.used_tokens * 100 > u64::from(o.window) * SCHEDULE_COMPACT_PERCENT);
         let publish = self.events.publisher().await;
         let result = self
             .store
-            .fire_schedule(schedule.id, due, next, compact, now_ms())
+            .fire_schedule(schedule.id, due, kind, compact, now_ms())
             .await?;
         if !matches!(result, FireResult::Gone) {
             self.publish_changed(schedule);
         }
-        if let FireResult::Fired(messages) = result {
+        if let FireResult::Fired(messages) = &result {
             for message in messages {
-                publish.appended(session.id, SCHEDULE_MODULE, message);
+                publish.appended(session.id, SCHEDULE_MODULE, message.clone());
             }
             drop(publish);
             tracing::info!(
@@ -199,7 +216,7 @@ impl Schedules {
             // 调度循环已退出（停止中）时发送失败，消息下次启动处置为 held。
             let _ = self.wake.send(session.id).await;
         }
-        Ok(())
+        Ok(result)
     }
 }
 
@@ -229,7 +246,9 @@ async fn drive(engine: Arc<Engine>, boot: i64) -> Result<Infallible, StoreError>
             let rule = Rule::parse(&schedule.rule).expect("写入时已校验");
             let next = rule.next_after(now);
             if now - due <= SCHEDULE_LATE_GRACE.as_millis() as i64 {
-                schedules.fire(&engine, &schedule, due, next).await?;
+                schedules
+                    .fire(&schedule, due, FireKind::Due { next })
+                    .await?;
             } else {
                 let (last, count) = missed(&rule, due, now);
                 if let Some(fire) = store
@@ -301,3 +320,6 @@ fn schedule_title(name: &str) -> String {
     let head: String = name.chars().take(room - 1).collect();
     format!("{PREFIX}{head}…")
 }
+
+#[cfg(test)]
+mod tests;

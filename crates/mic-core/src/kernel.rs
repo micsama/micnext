@@ -284,7 +284,7 @@ impl Kernel {
             .ok_or(KernelError::SessionNotFound)?;
         Ok(ContextOverview {
             view: self.store.context_view(session.id).await?,
-            occupancy: compaction::occupancy(&self.engine, &session).await?,
+            occupancy: compaction::occupancy(&self.engine.store, &session).await?,
         })
     }
 
@@ -974,7 +974,8 @@ impl Kernel {
             .session(session)
             .await?
             .ok_or(KernelError::SessionNotFound)?;
-        let Some((occupancy, usage, images)) = compaction::usage(&self.engine, &s).await? else {
+        let Some((occupancy, usage, images)) = compaction::usage(&self.engine.store, &s).await?
+        else {
             return Ok(None);
         };
         let Some(record) = self.store.call_record(usage.call).await? else {

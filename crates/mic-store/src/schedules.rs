@@ -116,12 +116,19 @@ pub struct Fire {
     pub run_id: Option<RunId>,
 }
 
+/// 触发方式：到点把 `next_run_at` 从 `due_at` 移到 `next`（一次性规则为空，即停用）；立即执行不动计划。
+#[derive(Debug, Clone, Copy)]
+pub enum FireKind {
+    Due { next: Option<i64> },
+    Now,
+}
+
 pub enum FireResult {
     /// 到点时会话有执行中的 run 或待处理输入，已记 `busy`。
     Busy,
     /// 已写入的消息（可能先有 `/compact`，最后是 `Trigger`），按 id 升序。
     Fired(Vec<Message>),
-    /// 任务已删除，或 `next_run_at` 已被改动。
+    /// 任务已删除；到点触发时也可能是 `next_run_at` 已被改动。
     Gone,
 }
 
@@ -425,13 +432,12 @@ impl Store {
         .await
     }
 
-    /// 到点：检查忙、按需先追加 `/compact`、追加 `Trigger` 并写触发行，同事务把
-    /// `next_run_at` 从 `due_at` 移到 `next`（一次性规则为空，即停用）。
+    /// 触发：检查忙、按需先追加 `/compact`、追加 `Trigger` 并写触发行，同事务按 `kind` 推进计划。
     pub async fn fire_schedule(
         &self,
         id: ScheduleId,
         due_at: i64,
-        next: Option<i64>,
+        kind: FireKind,
         compact: bool,
         at: i64,
     ) -> Result<FireResult, StoreError> {
@@ -440,8 +446,10 @@ impl Store {
             let Some(s) = read_schedule(&tx, id)? else {
                 return Ok(FireResult::Gone);
             };
-            if !advance(&tx, id, due_at, next)? {
-                return Ok(FireResult::Gone);
+            if let FireKind::Due { next } = kind {
+                if !advance(&tx, id, due_at, next)? {
+                    return Ok(FireResult::Gone);
+                }
             }
             let result = if busy(&tx, s.session_id)? {
                 tx.execute(

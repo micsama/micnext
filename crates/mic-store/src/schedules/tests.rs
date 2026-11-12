@@ -1,6 +1,8 @@
 use mic_message::{ContentPart, MessageBody};
 
-use crate::{FireOutcome, FireResult, NewSchedule, RunInput, RunState, ScheduleEdit, Store};
+use crate::{
+    FireKind, FireOutcome, FireResult, NewSchedule, RunInput, RunState, ScheduleEdit, Store,
+};
 
 #[test]
 fn fire_claims_exclusive_runs_and_derives_outcome() {
@@ -36,13 +38,13 @@ async fn check() {
     // next_run_at 已不是该时刻（被改动）则不触发。
     assert!(matches!(
         store
-            .fire_schedule(s.id, 99, None, false, 100)
+            .fire_schedule(s.id, 99, FireKind::Due { next: None }, false, 100)
             .await
             .unwrap(),
         FireResult::Gone
     ));
     let FireResult::Fired(messages) = store
-        .fire_schedule(s.id, 100, None, true, 100)
+        .fire_schedule(s.id, 100, FireKind::Due { next: None }, true, 100)
         .await
         .unwrap()
     else {
@@ -91,11 +93,20 @@ async fn check() {
     assert_eq!(enabled.enabled_at, 105, "重新启用记启用时刻");
     assert!(matches!(
         store
-            .fire_schedule(s.id, 106, Some(166), false, 106)
+            .fire_schedule(s.id, 106, FireKind::Due { next: Some(166) }, false, 106)
             .await
             .unwrap(),
         FireResult::Busy
     ));
+    assert!(matches!(
+        store
+            .fire_schedule(s.id, 107, FireKind::Now, false, 107)
+            .await
+            .unwrap(),
+        FireResult::Busy
+    ));
+    let planned = store.schedule(s.id).await.unwrap().unwrap();
+    assert_eq!(planned.next_run_at, Some(166), "立即执行不动计划");
     let missed = store
         .record_missed(s.id, 166, 286, 3, Some(346))
         .await
@@ -121,7 +132,24 @@ async fn check() {
         [
             FireOutcome::Missed { count: 3 },
             FireOutcome::Busy,
+            FireOutcome::Busy,
             FireOutcome::Failed
         ]
     );
+
+    // 立即执行：停用的任务也触发，触发后仍停用。
+    let disable = ScheduleEdit {
+        next_run_at: Some(None),
+        ..Default::default()
+    };
+    store.update_schedule(s.id, disable, 108).await.unwrap();
+    assert!(matches!(
+        store
+            .fire_schedule(s.id, 109, FireKind::Now, false, 109)
+            .await
+            .unwrap(),
+        FireResult::Fired(_)
+    ));
+    let after = store.schedule(s.id).await.unwrap().unwrap();
+    assert!(!after.enabled(), "立即执行不启用任务");
 }

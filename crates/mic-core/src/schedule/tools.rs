@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use mic_message::{ContentPart, SessionId};
-use mic_store::{FireOutcome, Schedule, ScheduleId, StoreError};
+use mic_store::{FireOutcome, FireResult, Schedule, ScheduleId, StoreError};
 use mic_tool::{Tool, ToolContext, ToolError, ToolHandle, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -86,6 +86,9 @@ struct EditArgs {
     enabled: Option<bool>,
     #[serde(default)]
     delete: bool,
+    /// With id only: run the task once now, also when disabled; its schedule is unchanged.
+    #[serde(default)]
+    run_now: bool,
 }
 
 impl Tool for Edit {
@@ -96,7 +99,7 @@ impl Tool for Edit {
     }
 
     fn description(&self) -> &str {
-        "Create (name, when and prompt required), update (id; omitted fields stay unchanged) or delete (id and delete only) a scheduled task. Runs happen in the task's own session, which starts with this session's working directory and model. A one-off task disables itself after its run; a run due while the previous one is still going is skipped; runs missed while the server is down are recorded, not caught up."
+        "Create (name, when and prompt required), update (id; omitted fields stay unchanged), delete (id and delete only) or run once now (id and run_now only) a scheduled task. Runs happen in the task's own session, which starts with this session's working directory and model. A one-off task disables itself after its run; a run due while the previous one is still going is skipped; runs missed while the server is down are recorded, not caught up."
     }
 
     async fn execute(&self, args: EditArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {
@@ -106,10 +109,14 @@ impl Tool for Edit {
             prompt: args.prompt,
             enabled: args.enabled,
         };
+        let only_id = edit.name.is_none()
+            && edit.rule.is_none()
+            && edit.prompt.is_none()
+            && edit.enabled.is_none();
         let schedule = match args.id.map(ScheduleId) {
             None => {
-                if args.delete || edit.enabled.is_some() {
-                    return Err(ToolError::input("delete and enabled need an id"));
+                if args.delete || args.run_now || edit.enabled.is_some() {
+                    return Err(ToolError::input("delete, run_now and enabled need an id"));
                 }
                 let (Some(name), Some(rule), Some(prompt)) = (edit.name, edit.rule, edit.prompt)
                 else {
@@ -122,12 +129,27 @@ impl Tool for Edit {
                     .await
                     .map_err(operation_error)?
             }
+            Some(_) if args.delete && args.run_now => {
+                return Err(ToolError::input("choose one of delete and run_now"));
+            }
+            Some(id) if args.run_now => {
+                if !only_id {
+                    return Err(ToolError::input("run_now takes only id"));
+                }
+                let result = self.schedules.run_now(id).await.map_err(store_error)?;
+                return match result {
+                    FireResult::Fired(_) => Ok(text(format!(
+                        "Task #{} started in its own session; the outcome shows in its recent runs.",
+                        id.0
+                    ))),
+                    FireResult::Busy => Err(ToolError::input(
+                        "the task's session is still busy with an earlier run; recorded as skipped",
+                    )),
+                    FireResult::Gone => Err(ToolError::input("no such task")),
+                };
+            }
             Some(id) if args.delete => {
-                if edit.name.is_some()
-                    || edit.rule.is_some()
-                    || edit.prompt.is_some()
-                    || edit.enabled.is_some()
-                {
+                if !only_id {
                     return Err(ToolError::input("delete takes only id"));
                 }
                 self.schedules.delete(id).await.map_err(operation_error)?;

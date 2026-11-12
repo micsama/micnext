@@ -44,8 +44,8 @@ pub use jobs::{AgentActivity, Job, JobId, JobKind, JobState, NewAgentJob, NewToo
 pub use limits::{ENV_VALUE_MIN_CHARS, TAGS_PER_SESSION, TAG_CHARS};
 pub use pushes::{NewPush, PushDelivery, PushDeliveryState, PushId, PushPage, PushRoute, PushView};
 pub use schedules::{
-    Fire, FireId, FireOutcome, FireResult, NewSchedule, Schedule, ScheduleEdit, ScheduleId,
-    SCHEDULE_MODULE,
+    Fire, FireId, FireKind, FireOutcome, FireResult, NewSchedule, Schedule, ScheduleEdit,
+    ScheduleId, SCHEDULE_MODULE,
 };
 pub use search::{MessageHit, SearchPage, SearchTerms, SessionHit};
 pub use secrets::{SecretKeyFile, SecretValue};

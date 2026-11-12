@@ -1,6 +1,6 @@
 # B2：推送与定时任务
 
-**状态：已批准（human 2026-10-20），P1 已验收（human 2026-10-20）；P2 修订已批准（human 2026-10-20），已实现；P2 调度修订已批准（human 2026-10-21）并实现，待 human 验收（见 P2.10）。**
+**状态：已批准（human 2026-10-20），P1 已验收（human 2026-10-20）；P2 修订已批准（human 2026-10-20），已实现；P2 调度修订已批准（human 2026-10-21）并实现，待 human 验收（见 P2.10）；P2.11 立即执行（human 2026-11-12 定方向）已实现，待验收。**
 
 依据：[B1](../brainstorm/scheduled-tasks.md)。一份文档分三期，各自实现、各自验收：P1 推送与通知中心（独立可用：长任务做完提醒我）；P2 定时任务内核与工具；P3 定时任务页面。
 
@@ -181,7 +181,7 @@ core 内一个 tokio 任务，状态只在库里：
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `schedule` | `id?`、`name?`、`when?`、`prompt?`、`enabled?`、`delete?` | 无 `id`：新建，`name`/`when`/`prompt` 必填（`when` 存为 `rule` 列），新任务默认启用；有 `id`：只改给出字段，`enabled: true` 同时清 `paused_reason`，一个字段都没给报错；`delete: true` 删除，不得带其他字段。返回任务 id 与下次运行时刻（带 UTC 偏移） |
+| `schedule` | `id?`、`name?`、`when?`、`prompt?`、`enabled?`、`delete?`、`run_now?` | 无 `id`：新建，`name`/`when`/`prompt` 必填（`when` 存为 `rule` 列），新任务默认启用；有 `id`：只改给出字段，`enabled: true` 同时清 `paused_reason`，一个字段都没给报错；`delete: true` 删除，`run_now: true` 立即执行一次（P2.11），二者都不得带其他字段。返回任务 id 与下次运行时刻（带 UTC 偏移） |
 | `schedules` | `id?` | 无 `id`：全部任务的名字、规则、启停（含暂停原因）、下次运行、最近一次结局；有 `id`：该任务最近 N 次触发的时刻、结局、是否推送、最终回复首段 |
 
 工具描述的标签用户语言规则同 `agent` 的 `description`。
@@ -216,6 +216,15 @@ core 内一个 tokio 任务，状态只在库里：
 本地冒烟（临时库，无模型）：准点任务在整分 +3ms 触发；迟到超过 30 秒合并为一条错过并推送；一次性任务错过后停用；停机 2 分多钟重启立即补记「错过 2 次」；连续 3 次失败自动暂停并清空下次时刻。
 
 验收：每分钟任务连续跑十几分钟无缺漏；停服务几分钟再启动只记一条「错过 N 次」；停用一段时间再启用、改规则后不误记错过。
+
+### P2.11 立即执行
+
+human 2026-11-12：先只给 `schedule` 工具加选项，Web 暂不加入口。
+
+- **语义**：`schedule { id, run_now: true }` 以当前时刻为 `due_at` 走 `fire_schedule` 同一事务，只是不推进计划——`next_run_at` 不变，停用任务照样执行且仍停用。忙则照常写 `busy` 触发行，工具报错说明；任务不存在报错。结局、失败通知、连续失败计数与到点触发一致，运行记录不区分手动与到点。
+- **契约**：`mic-store` 新增 `FireKind { Due { next }, Now }`，`Store::fire_schedule(id, due_at, kind, compact, at)` 以 `kind` 取代原 `next` 参数；到点触发为 `Due`，仍按 `next_run_at` 比对推进。到点前压缩的占用判定 `compaction::occupancy` 改为只依赖 `Store`，工具与调度循环共用 `Schedules::fire`。
+- **提交点与取消**：工具调用里先派出独立任务完成「读任务 → 触发事务 → 发布 → 唤醒」。派出之前停止当前轮则不执行；派出之后该次触发归任务会话，照常执行（可在任务会话里停止），即使工具回执为已停止，结果以任务运行记录为准。保证不会出现已提交、未唤醒的触发。
+- **测试**：store 测试覆盖立即执行不动计划、停用任务可执行；core 测试覆盖调用方在派出后被取消，触发仍提交并唤醒任务会话。
 
 ## P3：定时任务页面
 
@@ -300,7 +309,7 @@ core 内一个 tokio 任务，状态只在库里：
 | 位置 | 变化 |
 |---|---|
 | mic-message | 新增 `MessageBody::Trigger` |
-| mic-store | 新增 4 张表与读写；`fire_schedule` 事务；`claim_next` 认 Trigger 独占；`core_settings.push_channels`；`resolve_identity` 新身份归给定 person |
+| mic-store | 新增 4 张表与读写；`fire_schedule` 事务（P2.11 起带 `FireKind`）；`claim_next` 认 Trigger 独占；`core_settings.push_channels`；`resolve_identity` 新身份归给定 person |
 | mic-core | `push` / `schedule` / `schedules` 工具；调度循环；`KernelEventKind::PushCreated`、`PushDeliveryChanged`、`ScheduleChanged`；`Kernel` 增推送与任务读写接口（工具与 HTTP 共用 `Schedules` 的校验）；启用 `SessionKind::Triggered` |
 | mic-gateway | P1.4、P3.2 接口；全局 SSE 改名 `/api/stream`；会话接口接受定时任务会话 |
 | Web | 通知中心、设置页默认推送 Channel、定时任务页；通知中心改订全局流；聊天页支持任务会话 |

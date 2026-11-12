@@ -71,10 +71,20 @@ struct Edit {
     session: SessionId,
 }
 
+#[derive(Clone, Copy, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum Action {
+    Create,
+    Update,
+    Delete,
+    RunNow,
+}
+
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct EditArgs {
-    /// Update or delete this task; omit to create one.
+    action: Action,
+    /// Required except for create.
     id: Option<i64>,
     /// Short name, in the user's language.
     name: Option<String>,
@@ -84,11 +94,6 @@ struct EditArgs {
     prompt: Option<String>,
     /// Update only; new tasks start enabled.
     enabled: Option<bool>,
-    #[serde(default)]
-    delete: bool,
-    /// With id only: run the task once now, also when disabled; its schedule is unchanged.
-    #[serde(default)]
-    run_now: bool,
 }
 
 impl Tool for Edit {
@@ -99,7 +104,7 @@ impl Tool for Edit {
     }
 
     fn description(&self) -> &str {
-        "Create (name, when and prompt required), update (id; omitted fields stay unchanged), delete (id and delete only) or run once now (id and run_now only) a scheduled task. Runs happen in the task's own session, which starts with this session's working directory and model. A one-off task disables itself after its run; a run due while the previous one is still going is skipped; runs missed while the server is down are recorded, not caught up."
+        "Manage a scheduled task. create: name, when and prompt required. update: id plus the fields to change. delete: id only; the task's session and history are kept. run_now: id only; runs the task once now, also when disabled, leaving its schedule unchanged. Runs happen in the task's own session, which starts with this session's working directory and model. A one-off task disables itself after its run; a run due while the previous one is still going is skipped; runs missed while the server is down are recorded, not caught up."
     }
 
     async fn execute(&self, args: EditArgs, _: &ToolContext) -> Result<ToolOutput, ToolError> {
@@ -109,19 +114,18 @@ impl Tool for Edit {
             prompt: args.prompt,
             enabled: args.enabled,
         };
-        let only_id = edit.name.is_none()
-            && edit.rule.is_none()
-            && edit.prompt.is_none()
-            && edit.enabled.is_none();
-        let schedule = match args.id.map(ScheduleId) {
-            None => {
-                if args.delete || args.run_now || edit.enabled.is_some() {
-                    return Err(ToolError::input("delete, run_now and enabled need an id"));
-                }
-                let (Some(name), Some(rule), Some(prompt)) = (edit.name, edit.rule, edit.prompt)
+        let fields = edit.name.is_some()
+            || edit.rule.is_some()
+            || edit.prompt.is_some()
+            || edit.enabled.is_some();
+        let schedule = match (args.action, args.id.map(ScheduleId)) {
+            (Action::Create, Some(_)) => return Err(ToolError::input("create takes no id")),
+            (Action::Create, None) => {
+                let (Some(name), Some(rule), Some(prompt), None) =
+                    (edit.name, edit.rule, edit.prompt, edit.enabled)
                 else {
                     return Err(ToolError::input(
-                        "name, when and prompt are required to create a task",
+                        "create takes name, when and prompt, all required",
                     ));
                 };
                 self.schedules
@@ -129,15 +133,24 @@ impl Tool for Edit {
                     .await
                     .map_err(operation_error)?
             }
-            Some(_) if args.delete && args.run_now => {
-                return Err(ToolError::input("choose one of delete and run_now"));
+            (_, None) => return Err(ToolError::input("this action needs an id")),
+            (Action::Update, Some(id)) => self
+                .schedules
+                .update(id, edit)
+                .await
+                .map_err(operation_error)?,
+            (Action::Delete | Action::RunNow, Some(_)) if fields => {
+                return Err(ToolError::input("delete and run_now take only id"));
             }
-            Some(id) if args.run_now => {
-                if !only_id {
-                    return Err(ToolError::input("run_now takes only id"));
-                }
-                let result = self.schedules.run_now(id).await.map_err(store_error)?;
-                return match result {
+            (Action::Delete, Some(id)) => {
+                self.schedules.delete(id).await.map_err(operation_error)?;
+                return Ok(text(format!(
+                    "Deleted task #{}; its session and history are kept.",
+                    id.0
+                )));
+            }
+            (Action::RunNow, Some(id)) => {
+                return match self.schedules.run_now(id).await.map_err(store_error)? {
                     FireResult::Fired(_) => Ok(text(format!(
                         "Task #{} started in its own session; the outcome shows in its recent runs.",
                         id.0
@@ -148,21 +161,6 @@ impl Tool for Edit {
                     FireResult::Gone => Err(ToolError::input("no such task")),
                 };
             }
-            Some(id) if args.delete => {
-                if !only_id {
-                    return Err(ToolError::input("delete takes only id"));
-                }
-                self.schedules.delete(id).await.map_err(operation_error)?;
-                return Ok(text(format!(
-                    "Deleted task #{}; its session and history are kept.",
-                    id.0
-                )));
-            }
-            Some(id) => self
-                .schedules
-                .update(id, edit)
-                .await
-                .map_err(operation_error)?,
         };
         Ok(text(format!("Saved. {}", summary(&schedule))))
     }

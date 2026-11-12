@@ -181,7 +181,7 @@ core 内一个 tokio 任务，状态只在库里：
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `schedule` | `id?`、`name?`、`when?`、`prompt?`、`enabled?`、`delete?`、`run_now?` | 无 `id`：新建，`name`/`when`/`prompt` 必填（`when` 存为 `rule` 列），新任务默认启用；有 `id`：只改给出字段，`enabled: true` 同时清 `paused_reason`，一个字段都没给报错；`delete: true` 删除，`run_now: true` 立即执行一次（P2.11），二者都不得带其他字段。返回任务 id 与下次运行时刻（带 UTC 偏移） |
+| `schedule` | `action`（`create`/`update`/`delete`/`run_now`）、`id?`、`name?`、`when?`、`prompt?`、`enabled?` | `create`：不带 `id`，`name`/`when`/`prompt` 必填（`when` 存为 `rule` 列），新任务默认启用；`update`：`id` 加要改的字段，`enabled: true` 同时清 `paused_reason`，一个字段都没给报错；`delete`：只带 `id`，删除；`run_now`：只带 `id`，立即执行一次（P2.11）。返回任务 id 与下次运行时刻（带 UTC 偏移） |
 | `schedules` | `id?` | 无 `id`：全部任务的名字、规则、启停（含暂停原因）、下次运行、最近一次结局；有 `id`：该任务最近 N 次触发的时刻、结局、是否推送、最终回复首段 |
 
 工具描述的标签用户语言规则同 `agent` 的 `description`。
@@ -221,9 +221,10 @@ core 内一个 tokio 任务，状态只在库里：
 
 human 2026-11-12：先只给 `schedule` 工具加选项，Web 暂不加入口。
 
-- **语义**：`schedule { id, run_now: true }` 以当前时刻为 `due_at` 走 `fire_schedule` 同一事务，只是不推进计划——`next_run_at` 不变，停用任务照样执行且仍停用。忙则照常写 `busy` 触发行，工具报错说明；任务不存在报错。结局、失败通知、连续失败计数与到点触发一致，运行记录不区分手动与到点。
+- **语义**：`schedule { action: "run_now", id }` 以当前时刻为 `due_at` 走 `fire_schedule` 同一事务，只是不推进计划——`next_run_at` 不变，停用任务照样执行且仍停用。忙则照常写 `busy` 触发行，工具报错说明；任务不存在报错。结局、失败通知、连续失败计数与到点触发一致，运行记录不区分手动与到点。
 - **契约**：`mic-store` 新增 `FireKind { Due { next }, Now }`，`Store::fire_schedule(id, due_at, kind, compact, at)` 以 `kind` 取代原 `next` 参数；到点触发为 `Due`，仍按 `next_run_at` 比对推进。到点前压缩的占用判定 `compaction::occupancy` 改为只依赖 `Store`，工具与调度循环共用 `Schedules::fire`。
 - **提交点与取消**：工具调用里先派出独立任务完成「读任务 → 触发事务 → 发布 → 唤醒」。派出之前停止当前轮则不执行；派出之后该次触发归任务会话，照常执行（可在任务会话里停止），即使工具回执为已停止，结果以任务运行记录为准。保证不会出现已提交、未唤醒的触发。
+- **参数形状**：随本节把 `schedule` 的 `delete?` 布尔改为显式 `action`，各动作的必填与不许带的字段见 P2.7；参数仍是扁平对象（根部 `oneOf` 部分服务商不收）。
 - **测试**：store 测试覆盖立即执行不动计划、停用任务可执行；core 测试覆盖调用方在派出后被取消，触发仍提交并唤醒任务会话。
 
 ## P3：定时任务页面

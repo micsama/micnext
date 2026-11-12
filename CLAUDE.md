@@ -11,7 +11,7 @@ Human 定方向和公开契约，AI 探索、起草、实现。
 - **B1**：方向未定 → `docs/brainstorm/<topic>.md` 写候选与权衡，先不实现。
 - **B2**：改公开契约（crate、模块、依赖、公开类型/签名、HTTP 接口）→ `docs/blueprints/<topic>.md` 写清契约和调用方影响，批准后实现；发现契约缺项、方向冲突或需扩大范围时停下报告，局部实现细节自行补齐。不改变公开契约的私有整理与局部重构可随功能修改直接进行。
 - **收尾**：`cargo fmt`、`cargo clippy -- -D warnings`，改前端跑 `web/` 下 `bun run check`。
-- **地图同步**：功能变化同步 `docs/web-features.md`；能力边界或入口变化同步 `docs/guide/capabilities.md` 与 `code-map.md`；跨模块流程变化同步 `architecture.md`。
+- **地图同步**：功能变化同步 `docs/web-features.md`；能力边界变化同步 `docs/guide/capabilities.md`，实现入口或分层变化同步 `docs/guide/code-map.md`。
 - **验收与关闭**：能本地自动验收的自己跑完；页面观感和真实环境交给 human。通过后 B2 标 `CLOSED`，`todo.md` 条目移到 `todo-archive.md`。
 
 `todo.md` 每个主题一行，指向文档。专题审查与审计放 `docs/reviews/<topic>/`。审查以具体缺陷和当前结构摩擦为依据，说明触发场景、影响与证据；架构取舍列候选与收益，交回 human，不将偏好当缺陷。

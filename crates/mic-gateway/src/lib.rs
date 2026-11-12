@@ -45,7 +45,7 @@ use crate::service::Gateway;
 /// Web 会话所属的 Channel。
 pub(crate) const WEB_CHANNEL: &str = "web";
 
-/// micnext-guide 正文：导航在前，网页使用指南在后。契约：docs/blueprints/micnext-guide.md。
+/// micnext-guide 正文：定位与索引链接在前，网页功能地图在后。契约：docs/blueprints/micnext-guide.md。
 const GUIDE: &str = concat!(
     include_str!("../../../docs/guide/SKILL.md"),
     "\n\n",
@@ -87,7 +87,7 @@ impl Module for GatewayModule {
         // 与开发文档同一来源；附带文档只在部署了源码仓库时可读。
         reg.skill(
             "micnext-guide",
-            "micnext 的产品能力、网页使用、系统架构与源码导航。回答功能在哪、怎么用，或做功能对比、开发维护、问题排查之前先加载，不凭印象答。",
+            "micnext 的网页功能、能力边界与实现索引。回答功能在哪、怎么用，或做功能对比、开发维护、问题排查之前先加载，不凭印象答。",
             GUIDE,
             config.update_repo.as_ref().map(|repo| repo.join("docs/guide")),
         );

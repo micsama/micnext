@@ -44,10 +44,11 @@ pub(crate) const TITLE_INPUTS: u32 = 8;
 pub(crate) const TITLE_REPLIES: u32 = 2;
 pub(crate) const TITLE_REPLY_CHARS: usize = 500;
 pub(crate) const TITLE_CHARS: usize = 40;
-/// 输入预测：取最近几轮，每条文字保留结尾；输出上限与整次调用时限。
+/// 输入预测：取最近几轮，每条文字保留结尾，图片只带最近几张；输出上限与整次调用时限。
 pub(crate) const PREDICTION_ROUNDS: NonZeroU32 = NonZeroU32::new(5).unwrap();
 pub(crate) const PREDICTION_MESSAGES: NonZeroU32 = NonZeroU32::new(60).unwrap();
 pub(crate) const PREDICTION_SOURCE_CHARS: usize = 1_500;
+pub(crate) const PREDICTION_IMAGES: usize = 10;
 pub(crate) const PREDICTION_CHARS: usize = 60;
 pub(crate) const PREDICTION_TIMEOUT: Duration = Duration::from_secs(20);
 /// 后台任务输出：至少保留最近这么多字节，按段落盘、整段丢弃。

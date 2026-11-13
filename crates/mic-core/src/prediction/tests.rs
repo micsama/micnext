@@ -384,3 +384,69 @@ fn tool_interrupted_run_has_no_sources() {
     );
     assert_eq!(sources(vec![input, answered]).unwrap().len(), 2);
 }
+
+/// 只发图片的输入也取材；图片跟在所属输入的文字之后，只带最近几张。
+#[test]
+fn images_follow_their_input_and_are_capped() {
+    let image = |id| {
+        ContentPart::Image(mic_message::ImageRef {
+            id: mic_message::ImageId(id),
+        })
+    };
+    let input = |id, parts| Message {
+        id: mic_message::MessageId(id),
+        session_id: SessionId(1),
+        body: MessageBody::UserInput {
+            person: mic_message::PersonId(1),
+            parts,
+        },
+        created_at: 0,
+        delivered_at: None,
+    };
+    let answer = Message {
+        id: mic_message::MessageId(3),
+        session_id: SessionId(1),
+        body: MessageBody::Reply {
+            model: "test".into(),
+            blocks: vec![ReplyBlock::Text {
+                text: "答".into(),
+                phase: None,
+            }],
+            stats: mic_message::ReplyStats {
+                model_ms: 0,
+                first_output_ms: None,
+                usage: None,
+            },
+        },
+        created_at: 0,
+        delivered_at: None,
+    };
+    let mut first = vec![ContentPart::Text {
+        text: "看图".into(),
+    }];
+    first.extend((1..=PREDICTION_IMAGES as i64).map(image));
+    let sources = sources(vec![input(1, first), answer, input(4, vec![image(100)])]).unwrap();
+    assert_eq!(sources.len(), 3);
+    let messages = prediction_messages(SessionId(1), &sources);
+    let MessageBody::UserInput { parts, .. } = &messages[0].body else {
+        panic!("预测输入应为带图片的用户消息");
+    };
+    let ids: Vec<i64> = parts
+        .iter()
+        .filter_map(|p| match p {
+            ContentPart::Image(r) => Some(r.id.0),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ids.len(), PREDICTION_IMAGES);
+    assert_eq!(ids.first(), Some(&2));
+    assert_eq!(ids.last(), Some(&100));
+    let ContentPart::Text { text } = parts.last().unwrap() else {
+        panic!("末尾应为指令文字");
+    };
+    assert!(text.starts_with("\n</对话记录>"));
+    let ContentPart::Text { text } = &parts[parts.len() - 3] else {
+        panic!("图片前应为所属输入的文字");
+    };
+    assert!(text.ends_with("AI：答\n\n用户："));
+}

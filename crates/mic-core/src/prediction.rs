@@ -15,8 +15,8 @@ use tokio_util::sync::CancellationToken;
 use crate::attempt::{stream_attempt, Caller, Facts};
 use crate::event::{Events, KernelEventKind};
 use crate::limits::{
-    PREDICTION_CHARS, PREDICTION_MESSAGES, PREDICTION_ROUNDS, PREDICTION_SOURCE_CHARS,
-    PREDICTION_TIMEOUT,
+    PREDICTION_CHARS, PREDICTION_IMAGES, PREDICTION_MESSAGES, PREDICTION_ROUNDS,
+    PREDICTION_SOURCE_CHARS, PREDICTION_TIMEOUT,
 };
 use crate::provider::{BuiltProvider, Factories};
 use crate::run::now_ms;
@@ -149,7 +149,7 @@ impl PredictionRuntime {
     }
 }
 
-/// 取材：最近几轮的文字输入与收尾回答。最后一条回复仍带工具调用（被工具打断等用户）时不预测。
+/// 取材：最近几轮带文字或图片的输入与收尾回答。最后一条回复仍带工具调用（被工具打断等用户）时不预测。
 fn sources(messages: Vec<Message>) -> Option<Vec<Message>> {
     let last_reply = messages.iter().rev().find_map(|m| match &m.body {
         MessageBody::Reply { blocks, .. } => Some(blocks),
@@ -159,9 +159,11 @@ fn sources(messages: Vec<Message>) -> Option<Vec<Message>> {
     let kept: Vec<Message> = messages
         .into_iter()
         .filter(|m| match &m.body {
-            MessageBody::UserInput { parts, .. } => parts
-                .iter()
-                .any(|p| matches!(p, ContentPart::Text { text } if !text.trim().is_empty())),
+            MessageBody::UserInput { parts, .. } => parts.iter().any(|p| match p {
+                ContentPart::Text { text } => !text.trim().is_empty(),
+                ContentPart::Image(_) => true,
+                _ => false,
+            }),
             MessageBody::Reply { blocks, .. } => reply_answer(blocks).is_some(),
             _ => false,
         })
@@ -171,7 +173,8 @@ fn sources(messages: Vec<Message>) -> Option<Vec<Message>> {
         .then_some(kept)
 }
 
-/// 生成与 trace 重建共用：把取材整理成一段对话记录，请模型以用户身份接下一句。
+/// 生成与 trace 重建共用：把取材整理成一段对话记录（用户图片随其文字之后，只带最近几张），
+/// 请模型以用户身份接下一句。`sources` 至少含一条用户输入。
 pub(crate) fn prediction_messages(session: SessionId, sources: &[Message]) -> Vec<Message> {
     let tail = |text: &str| {
         let len = text.chars().count();
@@ -179,11 +182,26 @@ pub(crate) fn prediction_messages(session: SessionId, sources: &[Message]) -> Ve
             .skip(len.saturating_sub(PREDICTION_SOURCE_CHARS))
             .collect::<String>()
     };
-    let transcript = sources
+    let mut images_left = sources
         .iter()
-        .filter_map(|message| match &message.body {
-            MessageBody::UserInput { parts, .. } => {
-                let text = parts
+        .filter_map(|m| match &m.body {
+            MessageBody::UserInput { parts, .. } => Some(parts),
+            _ => None,
+        })
+        .flatten()
+        .filter(|p| matches!(p, ContentPart::Image(_)))
+        .count();
+    let mut person = None;
+    let mut parts = Vec::new();
+    let mut transcript = String::from("<对话记录>");
+    for message in sources {
+        match &message.body {
+            MessageBody::UserInput {
+                person: who,
+                parts: input,
+            } => {
+                person = Some(*who);
+                let text = input
                     .iter()
                     .filter_map(|part| match part {
                         ContentPart::Text { text } => Some(text.as_str()),
@@ -191,24 +209,39 @@ pub(crate) fn prediction_messages(session: SessionId, sources: &[Message]) -> Ve
                     })
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                Some(format!("用户：{}", tail(&text)))
+                transcript.push_str(&format!("\n\n用户：{}", tail(&text)));
+                for part in input {
+                    if let ContentPart::Image(image) = part {
+                        images_left -= 1;
+                        if images_left < PREDICTION_IMAGES {
+                            parts.push(ContentPart::Text {
+                                text: std::mem::take(&mut transcript),
+                            });
+                            parts.push(ContentPart::Image(*image));
+                        }
+                    }
+                }
             }
             MessageBody::Reply { blocks, .. } => {
-                Some(format!("AI：{}", tail(&reply_answer(blocks)?)))
+                if let Some(answer) = reply_answer(blocks) {
+                    transcript.push_str(&format!("\n\nAI：{}", tail(&answer)));
+                }
             }
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
+            _ => {}
+        }
+    }
+    transcript.push_str(&format!(
+        "\n</对话记录>\n\n\
+         写出用户接下来最可能发的一句话，口吻和记录里的用户一致。\
+         只输出这句话本身，一行，最多 {PREDICTION_CHARS} 字；猜不出就什么都不输出。"
+    ));
+    parts.push(ContentPart::Text { text: transcript });
     vec![Message {
         id: mic_message::MessageId(0),
         session_id: session,
-        body: MessageBody::HarnessNote {
-            text: format!(
-                "<对话记录>\n{transcript}\n</对话记录>\n\n\
-                 写出用户接下来最可能发的一句话，口吻和记录里的用户一致。\
-                 只输出这句话本身，一行，最多 {PREDICTION_CHARS} 字；猜不出就什么都不输出。"
-            ),
+        body: MessageBody::UserInput {
+            person: person.expect("取材至少含一条用户输入"),
+            parts,
         },
         created_at: now_ms(),
         delivered_at: None,
@@ -222,9 +255,9 @@ async fn generate(
     job: &Job,
 ) -> Result<(), StoreError> {
     let snapshot = store.utility_model_snapshot().await?;
-    let model_id = match &snapshot {
-        ClaimedModel::Selected(m) => Some(m.id),
-        _ => None,
+    let (model_id, see_images) = match &snapshot {
+        ClaimedModel::Selected(m) => (Some(m.id), m.images),
+        _ => (None, true),
     };
     let Ok(BuiltProvider { provider, effort }) = crate::utility::provider(factories, snapshot)
     else {
@@ -239,12 +272,31 @@ async fn generate(
     if job.stop.is_cancelled() {
         return Ok(());
     }
+    let mut messages = prediction_messages(job.session, &sources);
+    let images = if !see_images {
+        crate::request::hide_images(&mut messages);
+        Default::default()
+    } else {
+        let ids = messages
+            .iter()
+            .filter_map(|m| match &m.body {
+                MessageBody::UserInput { parts, .. } => Some(parts),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|p| match p {
+                ContentPart::Image(image) => Some(image.id),
+                _ => None,
+            })
+            .collect();
+        store.images(job.session, ids).await?
+    };
     let request = ModelRequest {
         tool_choice: ToolChoice::None,
         system: "你负责预测用户在对话中的下一句输入。".into(),
-        messages: prediction_messages(job.session, &sources),
+        messages,
         tools: Vec::new(),
-        images: Default::default(),
+        images,
         cache_key: format!("prediction-{}", job.session.0),
         plain_after: None,
     };

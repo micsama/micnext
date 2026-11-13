@@ -351,17 +351,6 @@ export async function getInputLimits(): Promise<InputLimits> {
   return parseInputLimits(await request("GET", "/model-kinds"));
 }
 
-/** 取会话内图片原件。 */
-export async function fetchImage(sessionId: number, imageId: number): Promise<Blob> {
-  let res: Response;
-  try {
-    res = await fetch(`/api/sessions/${sessionId}/images/${imageId}`);
-  } catch {
-    throw new ApiError(0, "连不上服务，请确认 micnext 正在运行");
-  }
-  return (await ensureOk(res)).blob();
-}
-
 /** 消息或推送引用的文件原件；`path` 为 `/api` 下的下载路径，`onProgress` 收到已读字节数。 */
 export async function fetchFile(path: string, onProgress?: (received: number) => void): Promise<Blob> {
   let res: Response;

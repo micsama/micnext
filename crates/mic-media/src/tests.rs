@@ -4,6 +4,7 @@ use image::{DynamicImage, Rgba, RgbaImage};
 use mic_message::ImageFormat;
 
 use super::*;
+use crate::limits::THUMB_KEEP_BYTES;
 
 fn encode(image: DynamicImage, format: image::ImageFormat) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
@@ -65,4 +66,43 @@ fn rejects_garbage_and_oversize() {
         normalize(vec![0; MAX_IMAGE_BYTES + 1]).unwrap_err(),
         MediaError::TooManyBytes
     );
+}
+
+fn stored(image: DynamicImage, format: image::ImageFormat) -> ImageData {
+    normalize(encode(image, format)).unwrap()
+}
+
+#[test]
+fn thumbnail_shrinks_into_bounds() {
+    let thumb = thumbnail(&stored(gradient(2048, 1024, 255), image::ImageFormat::Png)).unwrap();
+    assert_eq!(thumb.format, ImageFormat::Jpeg);
+    assert_eq!(dimensions(&thumb.bytes), (1024, 512));
+}
+
+#[test]
+fn small_light_image_is_its_own_thumbnail() {
+    let image = stored(gradient(64, 48, 255), image::ImageFormat::Png);
+    assert_eq!(thumbnail(&image).unwrap(), image);
+}
+
+#[test]
+fn small_heavy_png_is_reencoded() {
+    let noise = DynamicImage::ImageRgba8(RgbaImage::from_fn(800, 600, |x, y| {
+        let v = x
+            .wrapping_mul(2_654_435_761)
+            .wrapping_add(y.wrapping_mul(40_503));
+        Rgba([v as u8, (v >> 8) as u8, (v >> 16) as u8, 255])
+    }));
+    let image = stored(noise, image::ImageFormat::Png);
+    assert!(image.bytes.len() > THUMB_KEEP_BYTES);
+    let thumb = thumbnail(&image).unwrap();
+    assert_eq!(thumb.format, ImageFormat::Jpeg);
+    assert_eq!(dimensions(&thumb.bytes), (800, 600));
+}
+
+#[test]
+fn transparent_thumbnail_stays_png() {
+    let thumb = thumbnail(&stored(gradient(2048, 1024, 128), image::ImageFormat::Png)).unwrap();
+    assert_eq!(thumb.format, ImageFormat::Png);
+    assert_eq!(dimensions(&thumb.bytes), (1024, 512));
 }

@@ -130,6 +130,10 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         )
         .route("/sessions/{id}/images/{image_id}", get(api::get_image))
         .route(
+            "/sessions/{id}/images/{image_id}/thumb",
+            get(api::get_thumbnail),
+        )
+        .route(
             "/sessions/{id}/messages/{message_id}/files/{index}",
             get(api::get_message_file),
         )

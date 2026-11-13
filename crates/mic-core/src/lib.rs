@@ -51,7 +51,7 @@ pub use jobs::{JobAccessError, JobOutput, JobView, StopJobOutcome};
 pub use kernel::{
     ContextOverview, EndpointDraft, Kernel, ModelDraft, PushSettings, SettingsBackup, StopOutcome,
 };
-pub use mic_media::MediaError;
+pub use mic_media::{thumbnail_rule, MediaError};
 pub use mic_store::SecretValue;
 pub use mic_store::{JobId, JobState};
 pub use mic_tool::ToolSpec;

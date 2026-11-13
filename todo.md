@@ -9,6 +9,7 @@
 | 实现完成，待验收 | 流式草稿随重连恢复并按调用时刻定位 | [B2](docs/blueprints/stream-draft-snapshot.md) |
 | 实现完成，待验收 | 新会话发送前可关闭凭据脱敏 | [B2](docs/blueprints/new-chat-settings.md)；[B1](docs/brainstorm/new-chat-reuse.md) |
 | 实现完成，待验收 | 手动修改会话标题（点击标题编辑） | [B2](docs/blueprints/session-rename.md) |
+| 待验收 | 聊天图片改为缩略图 + 浏览器原生加载与缓存 | [B2](docs/blueprints/image-thumbnail.md) |
 | 线上收集中（已开 HTTP/3，待开 Caddy 访问日志）；回归修复待验收；临时代码，查清后删除 | 慢的会话切换自动留证（分段耗时 + 旁证上报运行日志） | [B2](docs/blueprints/session-load-diagnostics.md) |
 | B2 待批准；混合负载测试先行 | 请求与数据库耗时观测 | [B2](docs/blueprints/storage-request-timing.md) |
 | 实现完成，待验收 | Web 改为登录制，取消 token（用户 dzmfg） | [B2](docs/blueprints/web-login.md) |

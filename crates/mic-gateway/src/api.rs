@@ -5,14 +5,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::body::Body;
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use mic_core::{IncomingPart, ParsedCommand, StopOutcome};
 use mic_message::limits::{MAX_FILES_PER_INPUT, MAX_FILE_BYTES};
-use mic_message::{FileRef, ImageId, MessageId, SessionId};
+use mic_message::{FileRef, ImageData, ImageId, MessageId, SessionId};
 use mic_store::{
     ModelId, NewSession, PersonaId, ReasoningEffort, RunId, Session, SessionCursor, SessionKind,
     SessionSummary, TagId, ToolScope,
@@ -542,20 +542,76 @@ async fn append(app: &App, session: SessionId, parts: Vec<IncomingPart>) -> Resu
 /// 会话内图片原件；id 不属于该会话与不存在同样返回 404。
 pub(crate) async fn get_image(
     State(app): State<Arc<App>>,
+    headers: HeaderMap,
     path: Result<Path<(i64, i64)>, PathRejection>,
 ) -> Result<Response, ApiError> {
+    let (id, data) = owned_image(&app, path).await?;
+    let etag = format!("\"{id}\"");
+    if cached(&headers, &etag) {
+        return Ok(not_modified(&etag));
+    }
+    Ok(image_response(&etag, data))
+}
+
+/// 聊天里展示用的缩略图；ETag 含缩略图规则，规则变了客户端会取新图。
+pub(crate) async fn get_thumbnail(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    path: Result<Path<(i64, i64)>, PathRejection>,
+) -> Result<Response, ApiError> {
+    let (id, data) = owned_image(&app, path).await?;
+    let etag = format!("\"{id}-{}\"", mic_core::thumbnail_rule());
+    if cached(&headers, &etag) {
+        return Ok(not_modified(&etag));
+    }
+    let thumb = app.kernel.thumbnail(data).await?;
+    Ok(image_response(&etag, thumb))
+}
+
+async fn owned_image(
+    app: &App,
+    path: Result<Path<(i64, i64)>, PathRejection>,
+) -> Result<(i64, ImageData), ApiError> {
     let Path((session, image)) = path.map_err(|_| ApiError::NotFound(IMAGE_NOT_FOUND))?;
     let data = app
         .kernel
         .image(SessionId(session), ImageId(image))
         .await?
         .ok_or(ApiError::NotFound(IMAGE_NOT_FOUND))?;
-    Ok(Response::builder()
+    Ok((image, data))
+}
+
+/// 图片内容由 id 决定永不改变；`no-cache` 让浏览器复用缓存前先过登录与归属检查。
+const IMAGE_CACHE_CONTROL: &str = "private, no-cache";
+
+fn cached(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| {
+            v.split(',')
+                .map(|tag| tag.trim().trim_start_matches("W/"))
+                .any(|tag| tag == etag || tag == "*")
+        })
+}
+
+fn not_modified(etag: &str) -> Response {
+    Response::builder()
+        .status(StatusCode::NOT_MODIFIED)
+        .header(header::ETAG, etag)
+        .header(header::CACHE_CONTROL, IMAGE_CACHE_CONTROL)
+        .body(Body::empty())
+        .expect("响应头合法")
+}
+
+fn image_response(etag: &str, data: ImageData) -> Response {
+    Response::builder()
         .header(header::CONTENT_TYPE, data.format.mime())
-        .header(header::CACHE_CONTROL, "no-store")
+        .header(header::ETAG, etag)
+        .header(header::CACHE_CONTROL, IMAGE_CACHE_CONTROL)
         .header("X-Content-Type-Options", "nosniff")
         .body(Body::from(data.bytes.to_vec()))
-        .expect("响应头静态合法"))
+        .expect("响应头合法")
 }
 
 /// 消息引用的文件原件；不属于该会话、序号越界与不存在同样返回 404。

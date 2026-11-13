@@ -548,6 +548,14 @@ impl Kernel {
         Ok(self.store.image(session_id, id).await?)
     }
 
+    /// 图片的展示用缩略图；入库图片都能解码，失败属内部错误。
+    pub async fn thumbnail(&self, image: ImageData) -> Result<ImageData, KernelError> {
+        tokio::task::spawn_blocking(move || mic_media::thumbnail(&image))
+            .await
+            .expect("缩略图任务不 panic")
+            .map_err(KernelError::Thumbnail)
+    }
+
     /// 消息引用的第 `index` 个文件（UserInput 只数文件部分）；不属于该会话或不存在为 `None`。
     pub async fn message_file(
         &self,

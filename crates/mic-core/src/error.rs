@@ -109,6 +109,8 @@ pub enum KernelError {
     Job(#[from] crate::JobAccessError),
     #[error(transparent)]
     Push(#[from] crate::PushError),
+    #[error("无法生成缩略图：{0}")]
+    Thumbnail(mic_media::MediaError),
     #[error("文件已清理")]
     FileCleaned,
     #[error("这次执行已无法继续")]

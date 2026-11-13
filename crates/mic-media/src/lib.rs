@@ -1,4 +1,4 @@
-//! 图片能力：格式识别、解码校验与规整。不理解渠道协议，不决定失败后的处理；
+//! 图片能力：格式识别、解码校验、规整与缩略图。不理解渠道协议，不决定失败后的处理；
 //! 接口为同步 CPU 计算，异步调用方自行放进 `spawn_blocking`。
 
 mod limits;
@@ -12,7 +12,10 @@ use image::{DynamicImage, ImageReader, Limits};
 use mic_message::limits::MAX_IMAGE_BYTES;
 use mic_message::{ImageData, ImageFormat};
 
-use crate::limits::{DECODE_MAX_ALLOC, JPEG_QUALITY, KEEP_BYTES, NORMALIZE_EDGE};
+use crate::limits::{
+    DECODE_MAX_ALLOC, JPEG_QUALITY, KEEP_BYTES, NORMALIZE_EDGE, THUMB_HEIGHT, THUMB_JPEG_QUALITY,
+    THUMB_KEEP_BYTES, THUMB_WIDTH,
+};
 
 /// 无法规整的原因；由调用方决定拒收还是占位。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -28,31 +31,59 @@ pub enum MediaError {
 }
 
 /// 规整为入库并发给模型的图片：PNG/JPEG/WebP、长边 ≤ `NORMALIZE_EDGE` 且字节 ≤ `KEEP_BYTES`
-/// 的原样保留；否则解码首帧，长边超限等比缩小，有实际透明像素编码 PNG，否则 JPEG。
+/// 的原样保留；否则解码首帧，长边超限等比缩小后重新编码。
 pub fn normalize(bytes: Vec<u8>) -> Result<ImageData, MediaError> {
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(MediaError::TooManyBytes);
     }
-    let mut image = decode(&bytes)?;
-    let edge = image.width().max(image.height());
+    let image = decode(&bytes)?;
+    let fits = image.width().max(image.height()) <= NORMALIZE_EDGE;
     if let Some(format) = sniff(&bytes) {
-        if edge <= NORMALIZE_EDGE && bytes.len() <= KEEP_BYTES {
+        if fits && bytes.len() <= KEEP_BYTES {
             return Ok(ImageData {
                 format,
                 bytes: bytes.into(),
             });
         }
     }
-    if edge > NORMALIZE_EDGE {
-        image = image.resize(NORMALIZE_EDGE, NORMALIZE_EDGE, FilterType::Lanczos3);
+    let image = if fits {
+        image
+    } else {
+        image.resize(NORMALIZE_EDGE, NORMALIZE_EDGE, FilterType::Lanczos3)
+    };
+    encode(&image, JPEG_QUALITY)
+}
+
+/// 聊天里展示用的缩略图：已在 `THUMB_WIDTH`×`THUMB_HEIGHT` 内且字节 ≤ `THUMB_KEEP_BYTES`
+/// 的原样返回；否则等比缩进该范围后重新编码。输入须是已规整入库的图片。
+pub fn thumbnail(image: &ImageData) -> Result<ImageData, MediaError> {
+    let decoded = decode(&image.bytes)?;
+    let fits = decoded.width() <= THUMB_WIDTH && decoded.height() <= THUMB_HEIGHT;
+    if fits && image.bytes.len() <= THUMB_KEEP_BYTES {
+        return Ok(image.clone());
     }
+    let decoded = if fits {
+        decoded
+    } else {
+        decoded.thumbnail(THUMB_WIDTH, THUMB_HEIGHT)
+    };
+    encode(&decoded, THUMB_JPEG_QUALITY)
+}
+
+/// 缩略图规则的标识：规则一变，标识随之变，供调用方区分不同规则产出的缩略图。
+pub fn thumbnail_rule() -> String {
+    format!("{THUMB_WIDTH}x{THUMB_HEIGHT}q{THUMB_JPEG_QUALITY}k{THUMB_KEEP_BYTES}")
+}
+
+/// 有实际透明像素编码 PNG，否则 JPEG。
+fn encode(image: &DynamicImage, quality: u8) -> Result<ImageData, MediaError> {
     let mut out = Cursor::new(Vec::new());
-    let (format, encoded) = if transparent(&image) {
+    let (format, encoded) = if transparent(image) {
         let encoded = image.write_to(&mut out, image::ImageFormat::Png);
         (ImageFormat::Png, encoded)
     } else {
         let encoded = DynamicImage::ImageRgb8(image.to_rgb8())
-            .write_with_encoder(JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY));
+            .write_with_encoder(JpegEncoder::new_with_quality(&mut out, quality));
         (ImageFormat::Jpeg, encoded)
     };
     encoded.map_err(|error| corrupt("encode", error))?;

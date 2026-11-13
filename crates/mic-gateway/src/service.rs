@@ -235,7 +235,8 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .layer(middleware::from_fn_with_state(app.clone(), auth::authorize))
         .route("/login", post(auth::login))
         .route("/logout", post(auth::logout))
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(middleware::from_fn(auth::same_origin));
     let router = Router::new()
         .nest("/api", api)
         .fallback(get(web::asset))

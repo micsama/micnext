@@ -81,3 +81,36 @@ fn password_change_rotates_key() {
             assert_eq!(verify(&b.session_key, &old, 0), None);
         });
 }
+
+/// 同 IP 其他端口、兄弟子域名发起的写请求被拒；本站页面与非浏览器客户端放行。
+#[test]
+fn writes_only_from_this_origin() {
+    let headers = |pairs: &[(&'static str, &'static str)]| {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(*k, HeaderValue::from_static(v));
+        }
+        h
+    };
+    assert!(from_this_origin(&headers(&[(
+        "sec-fetch-site",
+        "same-origin"
+    )])));
+    assert!(!from_this_origin(&headers(&[(
+        "sec-fetch-site",
+        "same-site"
+    )])));
+    assert!(!from_this_origin(&headers(&[(
+        "sec-fetch-site",
+        "cross-site"
+    )])));
+    assert!(from_this_origin(&headers(&[
+        ("host", "1.2.3.4"),
+        ("origin", "https://1.2.3.4"),
+    ])));
+    assert!(!from_this_origin(&headers(&[
+        ("host", "1.2.3.4"),
+        ("origin", "https://1.2.3.4:8001"),
+    ])));
+    assert!(from_this_origin(&headers(&[])));
+}

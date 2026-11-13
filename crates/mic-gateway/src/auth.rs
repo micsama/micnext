@@ -230,6 +230,30 @@ pub(crate) async fn authorize(
     Ok(res)
 }
 
+/// 写请求只接受本站页面发起：同站的其他源（同 IP 其他端口、兄弟子域名）会带上 cookie，`SameSite` 挡不住。
+pub(crate) async fn same_origin(req: Request, next: Next) -> Result<Response, ApiError> {
+    if !req.method().is_safe() && !from_this_origin(req.headers()) {
+        return Err(ApiError::Forbidden("请求不是从本站页面发起的".into()));
+    }
+    Ok(next.run(req).await)
+}
+
+/// 两个头都没有的是非浏览器客户端，不存在借用 cookie 的问题。
+fn from_this_origin(headers: &HeaderMap) -> bool {
+    match (headers.get("sec-fetch-site"), headers.get(header::ORIGIN)) {
+        (Some(site), _) => site == "same-origin",
+        (None, Some(origin)) => {
+            let host = headers.get(header::HOST).and_then(|h| h.to_str().ok());
+            origin
+                .to_str()
+                .ok()
+                .and_then(|o| o.split_once("://"))
+                .is_some_and(|(_, authority)| Some(authority) == host)
+        }
+        (None, None) => true,
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct LoginBody {

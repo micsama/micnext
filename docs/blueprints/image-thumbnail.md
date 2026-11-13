@@ -28,7 +28,7 @@
   - 新增 `GET /api/sessions/{id}/images/{image_id}/thumb`，归属检查和 404 语义与原图接口相同。
   - 两个图片接口改用上面的缓存头并支持 304。
 - **Web**：
-  - `HistoryImage` 改为纯展示组件，Trace 里的图片同样用它。
+  - `HistoryImage` 改为纯展示组件 `ChatImage`（参数为图片地址），消息、Trace 和文件附件里的图片共用它。
   - `fetchImage` 删除。
 
 ## 不做

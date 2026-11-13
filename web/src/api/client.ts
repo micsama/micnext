@@ -351,6 +351,9 @@ export async function getInputLimits(): Promise<InputLimits> {
   return parseInputLimits(await request("GET", "/model-kinds"));
 }
 
+/** 会话内图片原件地址；加 `/thumb` 为缩略图。 */
+export const imageUrl = (sessionId: number, imageId: number): string => `/api/sessions/${sessionId}/images/${imageId}`;
+
 /** 消息或推送引用的文件原件；`path` 为 `/api` 下的下载路径，`onProgress` 收到已读字节数。 */
 export async function fetchFile(path: string, onProgress?: (received: number) => void): Promise<Blob> {
   let res: Response;

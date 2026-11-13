@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { ContentPart, ExecOutcome, Message } from "../../api/types";
   import type { Usage } from "../../api/trace";
+  import { imageUrl } from "../../api/client";
   import { outcomeText, partsText } from "../outcome";
   import { isLong, jsonHtml } from "./trace-presentation";
   import Markdown from "../Markdown.svelte";
-  import HistoryImage from "../HistoryImage.svelte";
+  import ChatImage from "../ChatImage.svelte";
   import TraceCard from "./TraceCard.svelte";
 
   let { message, usage = null }: { message: Message; usage?: Usage | null } = $props();
@@ -38,7 +39,7 @@
 
 {#snippet media(items: ContentPart[])}
   {@const extra = items.filter((p) => "Image" in p || "File" in p)}
-  {#if extra.length}<div class="thumbs">{#each extra as p, i (i)}{#if "Image" in p}<HistoryImage sessionId={message.session_id} imageId={p.Image.id} />{:else if "File" in p}<span class="cap" title={p.File.path}>[文件：{p.File.path.split(/[\\/]/).at(-1)}]</span>{/if}{/each}</div>{/if}
+  {#if extra.length}<div class="thumbs">{#each extra as p, i (i)}{#if "Image" in p}<ChatImage src="{imageUrl(message.session_id, p.Image.id)}/thumb" full={imageUrl(message.session_id, p.Image.id)} />{:else if "File" in p}<span class="cap" title={p.File.path}>[文件：{p.File.path.split(/[\\/]/).at(-1)}]</span>{/if}{/each}</div>{/if}
 {/snippet}
 
 {#snippet result(title: string, outcome: ExecOutcome)}

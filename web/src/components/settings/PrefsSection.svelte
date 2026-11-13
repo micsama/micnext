@@ -30,28 +30,41 @@
   let status = $state<Partial<Record<Field, SaveState>>>({});
   const timers: Partial<Record<Field, ReturnType<typeof setTimeout>>> = {};
 
-  // 正在输入的字段不被服务端值覆盖。
+  /** 已提交、尚未从服务端读回的值。接口整份替换，每次提交都带上它们，且逐次串行，免得改了 B 把刚改的 A 冲掉。 */
+  const pending: Partial<SettingsInput> = {};
+  let queue = Promise.resolve();
+
+  // 正在输入或尚未读回的字段不被服务端值覆盖。
   $effect(() => {
     const next = pick(settings);
     untrack(() => {
-      for (const k of Object.keys(next) as Field[]) if (k !== editing) (draft[k] as unknown) = next[k];
+      for (const k of Object.keys(next) as Field[]) if (k !== editing && !(k in pending)) (draft[k] as unknown) = next[k];
     });
   });
 
-  async function save<K extends Field>(field: K, value: SettingsInput[K]) {
+  function save<K extends Field>(field: K, value: SettingsInput[K]) {
     editing = null;
     draft[field] = value;
-    if (value === settings[field]) return;
+    if (value === (field in pending ? pending[field] : settings[field])) return;
+    pending[field] = value;
     clearTimeout(timers[field]);
     status[field] = { kind: "saving" };
-    try {
-      await putSettings({ ...pick(settings), [field]: value });
-      await settingsStore.refresh();
+    queue = queue.then(async () => {
+      try {
+        await putSettings({ ...pick(settings), ...pending });
+      } catch (e) {
+        if (pending[field] === value) delete pending[field];
+        status[field] = { kind: "error", message: (e as Error).message };
+        return;
+      }
+      if (!(await settingsStore.refresh())) {
+        status[field] = { kind: "error", message: `已保存，但重新读取失败：${settingsStore.error}` };
+        return;
+      }
+      if (pending[field] === value) delete pending[field];
       status[field] = { kind: "saved" };
       timers[field] = setTimeout(() => delete status[field], 2000);
-    } catch (e) {
-      status[field] = { kind: "error", message: (e as Error).message };
-    }
+    });
   }
 
   const blurOnEnter = (e: KeyboardEvent) => {

@@ -1,7 +1,13 @@
-/** 等待 `ms` 毫秒；`signal` 中止时立即返回。 */
+/** 等待 `ms` 毫秒；`signal` 已中止或中止时立即返回。 */
 export function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
+    if (signal.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done);
   });
 }

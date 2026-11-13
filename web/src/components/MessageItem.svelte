@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { ContentPart, ExecOutcome, FileRef, Message } from "../api/types";
   import { toolResult, type ToolResult } from "./tool-results";
-  import { fetchFile } from "../api/client";
+  import { imageUrl } from "../api/client";
   import { formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import FileCard from "./FileCard.svelte";
-  import HistoryImage from "./HistoryImage.svelte";
+  import ChatImage from "./ChatImage.svelte";
   import { outcomeText } from "./outcome";
   import type { SessionView } from "../state/session.svelte";
   import ContextBoundaryView from "./ContextBoundaryView.svelte";
@@ -31,7 +31,7 @@
   const time = $derived(formatTime(message.created_at));
   const queued = $derived(view.isQueued(message.id));
   const basename = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
-  const fileLoad = (index: number) => (onProgress: (received: number) => void) => fetchFile(`/sessions/${message.session_id}/messages/${message.id}/files/${index}`, onProgress);
+  const filePath = (index: number) => `/sessions/${message.session_id}/messages/${message.id}/files/${index}`;
   const VERDICT = { Completed: "完成", Failed: "失败", Cancelled: "取消", TimedOut: "超时" } as const;
   const outcomeKind = (o: ExecOutcome) => ("Completed" in o ? "Completed" : "TimedOut" in o ? "TimedOut" : "Failed" in o ? "Failed" : "Cancelled");
 </script>
@@ -39,7 +39,7 @@
 {#snippet fileCards(files: FileRef[], cls: string)}
   <div class={["flex flex-wrap gap-2", cls]}>
     {#each files as file, i (i)}
-      <FileCard name={basename(file.path)} size={file.size_bytes} load={fileLoad(i)} />
+      <FileCard name={basename(file.path)} size={file.size_bytes} path={filePath(i)} />
     {/each}
   </div>
 {/snippet}
@@ -67,9 +67,9 @@
       <div class={["flex max-w-[85%] flex-wrap items-end justify-end gap-2", queued && "opacity-60"]}>
         {#each attachments as part, i (i)}
           {#if "Image" in part}
-            <HistoryImage sessionId={message.session_id} imageId={part.Image.id} />
+            <ChatImage src="{imageUrl(message.session_id, part.Image.id)}/thumb" full={imageUrl(message.session_id, part.Image.id)} />
           {:else if "File" in part}
-            <FileCard name={basename(part.File.path)} size={part.File.size_bytes} title={part.File.path} load={fileLoad(fileIndex(part))} />
+            <FileCard name={basename(part.File.path)} size={part.File.size_bytes} title={part.File.path} path={filePath(fileIndex(part))} />
           {/if}
         {/each}
       </div>

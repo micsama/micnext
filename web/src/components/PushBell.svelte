@@ -4,7 +4,6 @@
   import BellIcon from "@lucide/svelte/icons/bell";
   import XIcon from "@lucide/svelte/icons/x";
   import type { PushView } from "../api/pushes";
-  import { fetchFile } from "../api/client";
   import { formatAgo, formatTime } from "../lib/format";
   import Icon from "../lib/Icon.svelte";
   import { pushCenter } from "../state/pushes.svelte";
@@ -81,7 +80,7 @@
               {#if p.files.length > 0}
                 <div class="mt-2 flex flex-wrap gap-2">
                   {#each p.files as file, i (i)}
-                    <FileCard name={file.path.split(/[\\/]/).at(-1) ?? file.path} size={file.size_bytes} load={(onProgress) => fetchFile(`/pushes/${p.id}/files/${i}`, onProgress)} />
+                    <FileCard name={file.path.split(/[\\/]/).at(-1) ?? file.path} size={file.size_bytes} path={`/pushes/${p.id}/files/${i}`} />
                   {/each}
                 </div>
               {/if}

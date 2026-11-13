@@ -16,7 +16,16 @@ class SettingsStore {
     return this.settings !== null;
   }
 
-  async refresh(): Promise<void> {
+  private generation = 0;
+  private latest: Promise<boolean> = Promise.resolve(true);
+
+  /** 重新读取；并发时只提交最后发起的一次，返回它是否成功。 */
+  refresh(): Promise<boolean> {
+    this.latest = this.load(++this.generation);
+    return this.latest;
+  }
+
+  private async load(generation: number): Promise<boolean> {
     try {
       const [settings, personas, endpoints, models, inputLimits, utilityModel] = await Promise.all([
         getSettings(),
@@ -26,6 +35,7 @@ class SettingsStore {
         getInputLimits(),
         getUtilityModel(),
       ]);
+      if (generation !== this.generation) return this.latest;
       this.inputLimits = inputLimits;
       this.utilityModel = utilityModel;
       this.settings = settings;
@@ -34,8 +44,11 @@ class SettingsStore {
       this.models = models.items;
       this.defaultModelId = models.default_model_id;
       this.error = null;
+      return true;
     } catch (e) {
+      if (generation !== this.generation) return this.latest;
       this.error = (e as Error).message;
+      return false;
     }
   }
 

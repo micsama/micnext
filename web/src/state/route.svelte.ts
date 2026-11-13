@@ -1,6 +1,7 @@
 /** `/` 新会话、`/s/<id>[?m=<消息>]` 某会话（可定位到某条消息）、`/settings[/<分类>]` 设置（`/settings/models/<id>` 直达某模型单价）、`/developer[/<页签>]` 开发者诊断。 */
 export type DeveloperTab = "logs" | "sql" | "update";
-export type SettingsTab = "prefs" | "personas" | "tags" | "models" | "env" | "wechat" | "backup" | "account";
+const SETTINGS_TABS = ["prefs", "personas", "tags", "models", "env", "wechat", "backup", "account"] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
 export type Route =
   | { kind: "new" }
   | { kind: "schedules" }
@@ -16,7 +17,7 @@ function parse(path: string): Route {
   if (/^\/schedules\/?$/.test(path)) return { kind: "schedules" };
   const priced = /^\/settings\/models\/(\d+)\/?$/.exec(path);
   if (priced) return { kind: "settings", tab: "models", model: Number(priced[1]) };
-  const settings = /^\/settings(?:\/(prefs|personas|tags|models|env|wechat|backup))?\/?$/.exec(path);
+  const settings = new RegExp(`^/settings(?:/(${SETTINGS_TABS.join("|")}))?/?$`).exec(path);
   if (settings) return { kind: "settings", tab: (settings[1] ?? null) as SettingsTab | null, model: null };
   const trace = /^\/(?:s\/(\d+)\/)?trace\/?$/.exec(path);
   if (trace) {

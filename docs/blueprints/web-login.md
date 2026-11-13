@@ -26,7 +26,7 @@
   - 设置备份不包含 `web` 模块。
 - **会话 cookie**
   - 名称为 `micnext_session`，值为 `<到期毫秒>.<签名>`，签名用 `session_key` 对到期时间做 HMAC-SHA256。服务端不存会话。
-  - 属性：`HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`。不设 `Secure`：本机开发走 http，线上经 HTTPS 访问。
+  - 属性：`HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000`。线上经 HTTPS 访问；本机开发用 `http://localhost`（Chrome、Firefox 视为安全上下文，Safari 不接受，会登录不上）。
   - **续期**：鉴权通过的请求，如果 cookie 签发已超过 1 天，就在响应里重新下发一个 30 天的 cookie。这样最多每天续一次，不用每个请求都写。
 - **限速**：进程内只计全局的登录失败次数。10 分钟内失败满 10 次后，在这个窗口剩下的时间里，登录接口一律返回 429「登录尝试过多，请稍后再试」。成功登录不清零。
   - 改用常规密码后，可能出现弱密码；服务又经公网 IP 访问，所以需要这层保护。

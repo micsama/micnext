@@ -148,13 +148,15 @@ fn issue(key: &[u8], now: i64) -> HeaderValue {
     let sig = URL_SAFE_NO_PAD.encode(signature(key, expires_at));
     let max_age = SESSION_TTL.as_secs();
     HeaderValue::from_str(&format!(
-        "{COOKIE}={expires_at}.{sig}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age}"
+        "{COOKIE}={expires_at}.{sig}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={max_age}"
     ))
     .expect("cookie 只含 ASCII")
 }
 
 fn cleared() -> HeaderValue {
-    HeaderValue::from_static("micnext_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0")
+    HeaderValue::from_static(
+        "micnext_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0",
+    )
 }
 
 /// 签名相符且未过期时返回到期时刻。

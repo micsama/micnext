@@ -1,17 +1,13 @@
 <script lang="ts">
-  import SchedulesView from "./components/SchedulesView.svelte";
   import { globalStream } from "./state/global-stream.svelte";
   import { frontendBuild } from "./state/frontend-build.svelte";
   import Icon from "./lib/Icon.svelte";
-  import TraceView from "./components/developer/TraceView.svelte";
   import ChatView from "./components/ChatView.svelte";
   import NewChat from "./components/NewChat.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
   import SearchPalette from "./components/SearchPalette.svelte";
   import { searchPalette } from "./state/search.svelte";
   import { untrack } from "svelte";
-  import DeveloperView from "./components/developer/DeveloperView.svelte";
-  import SettingsView from "./components/settings/SettingsView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import { auth } from "./state/auth.svelte";
   import LoginView from "./components/LoginView.svelte";
@@ -72,6 +68,13 @@
   });
 </script>
 
+<!-- 按需加载的页面取不到时多半是服务已更新、旧文件不在了。 -->
+{#snippet pageLoadFailed()}
+  <div class="grid flex-1 place-items-center text-sm text-muted-foreground">
+    <p>页面加载失败，<button type="button" class="text-primary underline" onclick={() => location.reload()}>刷新重试</button></p>
+  </div>
+{/snippet}
+
 {#if !auth.loggedIn}
   <LoginView />
 {:else}
@@ -86,15 +89,31 @@
       <Sidebar activeSession={view?.info ?? null} executingRun={view?.executingRun ?? null} />
       <main class="flex min-w-0 flex-1 flex-col">
         {#if router.current.kind === "trace"}
-          <TraceView target={router.current.id} runTarget={router.current.run} />
+          {#await import("./components/developer/TraceView.svelte") then { default: TraceView }}
+            <TraceView target={router.current.id} runTarget={router.current.run} />
+          {:catch}
+            {@render pageLoadFailed()}
+          {/await}
         {:else if router.current.kind === "new"}
           <NewChat />
         {:else if router.current.kind === "schedules"}
-          <SchedulesView />
+          {#await import("./components/SchedulesView.svelte") then { default: SchedulesView }}
+            <SchedulesView />
+          {:catch}
+            {@render pageLoadFailed()}
+          {/await}
         {:else if router.current.kind === "settings"}
-          <SettingsView />
+          {#await import("./components/settings/SettingsView.svelte") then { default: SettingsView }}
+            <SettingsView />
+          {:catch}
+            {@render pageLoadFailed()}
+          {/await}
         {:else if router.current.kind === "developer"}
-          <DeveloperView />
+          {#await import("./components/developer/DeveloperView.svelte") then { default: DeveloperView }}
+            <DeveloperView />
+          {:catch}
+            {@render pageLoadFailed()}
+          {/await}
         {:else if view}
           {#key view}
             <ChatView {view} />

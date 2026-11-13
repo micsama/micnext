@@ -143,6 +143,28 @@
   onMount(() => void updater.refresh());
   const updatable = $derived(updater.status !== null && updater.status.state !== "unavailable");
   const updating = $derived(updater.running || updater.reconnecting);
+  let updateSuccess = $state<string | null>(null);
+  let wasUpdating = false;
+
+  $effect(() => {
+    const active = updating;
+    const status = updater.status;
+    const verdict = updater.verdict;
+    const finished = wasUpdating && status?.state === "up_to_date";
+    wasUpdating = active;
+    updateSuccess = null;
+    if (active || updater.error) return;
+    if (status?.state === "idle" && verdict && verdict.running === verdict.target) {
+      updateSuccess = "更新完成";
+    } else if (finished) {
+      updateSuccess = "已是最新";
+    }
+    if (finished || (status?.state === "idle" && verdict && verdict.running === verdict.target)) {
+      const timer = setTimeout(() => { updateSuccess = null; }, 5000);
+      return () => clearTimeout(timer);
+    }
+  });
+  const updateLabel = $derived(updating ? "正在更新，查看进度" : updateSuccess ?? "检查并更新");
 
   async function signOut() {
     if (!(await confirm.ask({ title: "退出登录？", description: "退出后需要重新输入密码。", action: "退出登录" }))) return;
@@ -411,11 +433,16 @@
     {#if updatable}
       <button
         type="button"
-        title={updating ? "正在更新，查看进度" : "检查并更新"}
-        aria-label={updating ? "正在更新，查看进度" : "检查并更新"}
+        title={updateLabel}
+        aria-label={updateLabel}
         onclick={quickUpdate}
-        class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground">
-        <Icon name={updating ? "loader" : "refresh"} class={updating ? "size-4 animate-spin" : "size-4"} />
+        class="rounded-md p-2 transition-colors {updating
+          ? 'bg-blue-500/15 text-blue-600 ring-1 ring-inset ring-blue-500/25 hover:bg-blue-500/20 dark:text-blue-400'
+          : updateSuccess
+            ? 'bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground'}">
+        <Icon name={updating ? "refresh" : updateSuccess ? "check" : "refresh"} class={updating ? "size-4 animate-spin" : "size-4"} />
+        <span class="sr-only" role="status">{updating ? "正在更新" : updateSuccess ?? ""}</span>
       </button>
     {/if}
     <button

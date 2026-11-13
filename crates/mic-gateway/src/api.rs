@@ -625,26 +625,39 @@ pub(crate) async fn get_message_file(
         .message_file(SessionId(session), MessageId(message), index)
         .await?
         .ok_or(ApiError::NotFound(FILE_NOT_FOUND))?;
-    Ok(file_response(&file, handle))
+    file_response(&file, handle).await
 }
 
-/// 内容由模型或用户提供：按扩展名给类型，`sandbox` 让直接打开的 HTML 拿不到同源权限。
-pub(crate) fn file_response(file: &FileRef, handle: tokio::fs::File) -> Response {
+/// 内容由模型或用户提供：按扩展名给类型。`sandbox` 让文档处于不透明源，脚本可运行但拿不到登录态；
+/// PDF 除外，Chrome 不在沙箱文档里渲染 PDF。带长度供浏览器下载显示进度。
+pub(crate) async fn file_response(
+    file: &FileRef,
+    handle: tokio::fs::File,
+) -> Result<Response, ApiError> {
     let name = std::path::Path::new(&file.path)
         .file_name()
         .map_or_else(|| file.path.clone(), |n| n.to_string_lossy().into_owned());
     let mime = mime_guess::from_path(&name).first_or_octet_stream();
-    Response::builder()
+    let length = handle
+        .metadata()
+        .await
+        .map_err(|e| ApiError::Unavailable(format!("读取文件 {} 失败：{e}", file.path)))?
+        .len();
+    let mut response = Response::builder()
         .header(header::CONTENT_TYPE, mime.as_ref())
+        .header(header::CONTENT_LENGTH, length)
         .header(header::CACHE_CONTROL, "no-store")
         .header("X-Content-Type-Options", "nosniff")
-        .header(header::CONTENT_SECURITY_POLICY, "sandbox")
         .header(
             header::CONTENT_DISPOSITION,
             format!("inline; filename*=UTF-8''{}", rfc5987(&name)),
-        )
+        );
+    if mime != mime_guess::mime::APPLICATION_PDF {
+        response = response.header(header::CONTENT_SECURITY_POLICY, "sandbox allow-scripts");
+    }
+    Ok(response
         .body(Body::from_stream(tokio_util::io::ReaderStream::new(handle)))
-        .expect("响应头均已编码")
+        .expect("响应头均已编码"))
 }
 
 fn rfc5987(name: &str) -> String {

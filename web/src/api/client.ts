@@ -354,33 +354,6 @@ export async function getInputLimits(): Promise<InputLimits> {
 /** 会话内图片原件地址；加 `/thumb` 为缩略图。 */
 export const imageUrl = (sessionId: number, imageId: number): string => `/api/sessions/${sessionId}/images/${imageId}`;
 
-/** 消息或推送引用的文件原件；`path` 为 `/api` 下的下载路径，`onProgress` 收到已读字节数。 */
-export async function fetchFile(path: string, onProgress?: (received: number) => void): Promise<Blob> {
-  let res: Response;
-  try {
-    res = await fetch(`/api${path}`);
-  } catch {
-    throw new ApiError(0, "连不上服务，请确认 micnext 正在运行");
-  }
-  await ensureOk(res);
-  if (!onProgress || !res.body) return res.blob();
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
-  let received = 0;
-  const reader = res.body.getReader();
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      received += value.byteLength;
-      onProgress(received);
-    }
-  } catch {
-    throw new ApiError(0, "下载中断，请重试");
-  }
-  return new Blob(chunks, { type: res.headers.get("Content-Type") ?? "" });
-}
-
 /** 诊断 SQL；`write` 时先备份整库再改主库。失败时 message 已是用户可读的原因。 */
 export async function runSql(sql: string, write = false): Promise<QueryResult> {
   return parseQueryResult(await request("POST", "/developer/sql", { sql, write }));

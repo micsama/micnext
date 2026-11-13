@@ -86,5 +86,5 @@ pub(crate) async fn file(
         .push_file(PushId(push), index)
         .await?
         .ok_or(ApiError::NotFound(FILE_NOT_FOUND))?;
-    Ok(file_response(&file, handle))
+    file_response(&file, handle).await
 }

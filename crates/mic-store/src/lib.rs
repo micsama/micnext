@@ -37,7 +37,8 @@ pub use backup::{
 pub use rusqlite;
 
 pub use diagnostic::{
-    Cell, ColumnSchema, DiagnosticError, DryRun, QueryResult, TableSchema, WriteResult,
+    Cell, ColumnSchema, DiagnosticError, DryRun, QueryResult, SqlDb, TableSchema, WriteResult,
+    MAIN_SQL_DB,
 };
 pub use error::{ContextCommandError, ModelSettingsError, SettingsError, StoreError};
 pub use jobs::{AgentActivity, Job, JobId, JobKind, JobState, NewAgentJob, NewToolJob};

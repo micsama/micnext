@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use mic_core::BoxError;
+use mic_store::MAIN_SQL_DB;
 use serde::de::IgnoredAny;
 use serde::Deserialize;
 
@@ -16,12 +18,16 @@ pub(crate) struct RawConfig {
     update_repo: Option<PathBuf>,
     /// 已迁到设置页，写了即报错指路。
     workdir: Option<IgnoredAny>,
+    #[serde(default)]
+    sql_databases: BTreeMap<String, PathBuf>,
 }
 
 pub(crate) struct Config {
     pub(crate) listen: SocketAddr,
     /// 一键更新的部署仓库；`None` = 不启用。
     pub(crate) update_repo: Option<PathBuf>,
+    /// SQL 页可切换的额外库：名字 → 路径。
+    pub(crate) sql_databases: BTreeMap<String, PathBuf>,
 }
 
 impl RawConfig {
@@ -38,29 +44,49 @@ impl RawConfig {
         })?;
         let update_repo = self
             .update_repo
-            .map(|repo| -> Result<PathBuf, BoxError> {
-                let repo = match repo.strip_prefix("~") {
-                    Ok(rest) if repo.to_str().is_some_and(|path| path.starts_with("~/")) => {
-                        let home = std::env::var_os("HOME")
-                            .filter(|home| !home.is_empty())
-                            .ok_or("环境变量 HOME 未设置，无法展开 [gateway] update_repo")?;
-                        PathBuf::from(home).join(rest)
-                    }
-                    _ => repo,
-                };
-                if !repo.is_absolute() {
+            .map(|repo| absolute(repo, "[gateway] update_repo"))
+            .transpose()?;
+        let sql_databases = self
+            .sql_databases
+            .into_iter()
+            .map(|(name, path)| {
+                if name == MAIN_SQL_DB
+                    || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
                     return Err(format!(
-                        "[gateway] update_repo 必须是绝对路径或以 ~/ 开头，展开后为 \"{}\"",
-                        repo.display()
+                        "[gateway.sql_databases] 的名字只能用字母、数字、下划线，且不能叫 {MAIN_SQL_DB}，当前为 \"{name}\""
                     )
                     .into());
                 }
-                Ok(repo)
+                let path = absolute(path, &format!("[gateway.sql_databases] {name}"))?;
+                Ok((name, path))
             })
-            .transpose()?;
+            .collect::<Result<_, BoxError>>()?;
         Ok(Config {
             listen,
             update_repo,
+            sql_databases,
         })
     }
+}
+
+/// 展开 `~/`，要求绝对路径。
+fn absolute(path: PathBuf, field: &str) -> Result<PathBuf, BoxError> {
+    let path = match path.strip_prefix("~") {
+        Ok(rest) if path.to_str().is_some_and(|p| p.starts_with("~/")) => {
+            let home = std::env::var_os("HOME")
+                .filter(|home| !home.is_empty())
+                .ok_or_else(|| format!("环境变量 HOME 未设置，无法展开 {field}"))?;
+            PathBuf::from(home).join(rest)
+        }
+        _ => path,
+    };
+    if !path.is_absolute() {
+        return Err(format!(
+            "{field} 必须是绝对路径或以 ~/ 开头，展开后为 \"{}\"",
+            path.display()
+        )
+        .into());
+    }
+    Ok(path)
 }

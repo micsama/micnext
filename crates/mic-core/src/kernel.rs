@@ -13,8 +13,8 @@ use mic_store::{
     InputDisposition, JobId, MessagePage, ModelCallId, ModelCallPurpose, ModelId, ModelView,
     ModelWrite, NewInputPart, NewNotice, NewSession, Peers, PendingDelivery, Persona, PersonaId,
     PushId, PushPage, QueryResult, ReasoningEffort, Resumable, RunId, SearchPage, SearchTerms,
-    Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, Store, StoreError,
-    TableSchema, Tag, TagId, TagName, TraceRunPage, TraceSession, WriteResult,
+    Session, SessionCursor, SessionKind, SessionPage, SessionSummary, Settings, SqlDb, Store,
+    StoreError, TableSchema, Tag, TagId, TagName, TraceRunPage, TraceSession, WriteResult,
 };
 use mic_tool::ToolSpec;
 use tokio::sync::mpsc;
@@ -1429,21 +1429,33 @@ impl Kernel {
         Ok(self.store.with_module_tx(f).await?)
     }
 
-    /// 开发者诊断：只读连接上的单条 SQL，凭据列读作 NULL。
-    pub async fn diagnostic_query(&self, sql: String) -> Result<QueryResult, KernelError> {
-        Ok(self.store.diagnostic_query(sql).await?)
+    /// 开发者诊断：只读连接上的单条 SQL，主库凭据列读作 NULL。
+    pub async fn diagnostic_query(
+        &self,
+        db: SqlDb,
+        sql: String,
+    ) -> Result<QueryResult, KernelError> {
+        Ok(self.store.diagnostic_query(db, sql).await?)
     }
 
-    pub async fn diagnostic_write(&self, sql: String) -> Result<WriteResult, KernelError> {
-        Ok(self.store.diagnostic_write(sql, now_ms()).await?)
+    pub async fn diagnostic_write(
+        &self,
+        db: SqlDb,
+        sql: String,
+    ) -> Result<WriteResult, KernelError> {
+        Ok(self.store.diagnostic_write(db, sql, now_ms()).await?)
     }
 
-    pub async fn review_sql(&self, sql: String) -> Result<crate::SqlReview, KernelError> {
-        crate::sql_review::review(&self.store, &self.factories, sql).await
+    pub async fn review_sql(
+        &self,
+        db: SqlDb,
+        sql: String,
+    ) -> Result<crate::SqlReview, KernelError> {
+        crate::sql_review::review(&self.store, &self.factories, db, sql).await
     }
 
-    pub async fn diagnostic_schema(&self) -> Result<Vec<TableSchema>, KernelError> {
-        Ok(self.store.diagnostic_schema().await?)
+    pub async fn diagnostic_schema(&self, db: SqlDb) -> Result<Vec<TableSchema>, KernelError> {
+        Ok(self.store.diagnostic_schema(db).await?)
     }
 }
 

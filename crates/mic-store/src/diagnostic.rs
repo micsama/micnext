@@ -1,10 +1,11 @@
 //! 开发者诊断：独立只读连接上执行单条只读 SQL，凭据列读作 NULL；
-//! 写入模式在业务连接上先备份再执行。
-//! 契约：docs/blueprints/archive/developer-diagnostics.md §三、docs/blueprints/archive/sql-write.md。
+//! 写入模式在业务连接上先备份再执行。额外库每次操作临时打开，规则相同。
+//! 契约：docs/blueprints/archive/developer-diagnostics.md §三、docs/blueprints/archive/sql-write.md、
+//! docs/blueprints/sql-databases.md。
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, TryLockError};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::time::Instant;
 
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
@@ -72,6 +73,16 @@ pub struct ColumnSchema {
     pub secret: bool,
 }
 
+/// 主库在备份文件名里的名字；额外库不能用。
+pub const MAIN_SQL_DB: &str = "micnext";
+
+/// 诊断操作的目标库。额外库来自启动配置的白名单，名字只含字母、数字、下划线。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SqlDb {
+    Main,
+    External { name: String, path: PathBuf },
+}
+
 /// 诊断查询错误；文案面向用户。
 #[derive(Debug, thiserror::Error)]
 pub enum DiagnosticError {
@@ -83,6 +94,8 @@ pub enum DiagnosticError {
     Rejected(String),
     #[error("当前数据库不支持诊断查询")]
     Unavailable,
+    #[error("打不开数据库 {0}")]
+    Open(String),
     #[error("备份失败，未执行：{0}")]
     Backup(String),
     #[error(transparent)]
@@ -110,10 +123,6 @@ impl Diagnostic {
             secrets,
             backups: path.with_file_name("sql-backups"),
         })
-    }
-
-    fn is_secret(&self, table: &str, column: &str) -> bool {
-        is_secret(&self.secrets, table, column)
     }
 }
 
@@ -170,47 +179,40 @@ fn touch(tables: &Mutex<BTreeSet<String>>, table: &str) {
 }
 
 impl Store {
-    /// 在只读连接上执行一条 SQL；同一时间只允许一个查询。
-    pub async fn diagnostic_query(&self, sql: String) -> Result<QueryResult, DiagnosticError> {
-        let diagnostic = self
-            .diagnostic
-            .clone()
-            .ok_or(DiagnosticError::Unavailable)?;
+    /// 只读执行一条 SQL；与其他诊断操作全局互斥。
+    pub async fn diagnostic_query(
+        &self,
+        db: SqlDb,
+        sql: String,
+    ) -> Result<QueryResult, DiagnosticError> {
+        let diagnostic = self.diagnostic()?;
         tokio::task::spawn_blocking(move || {
-            let conn = match diagnostic.conn.try_lock() {
-                Ok(conn) => conn,
-                Err(TryLockError::WouldBlock) => return Err(DiagnosticError::Busy),
-                Err(TryLockError::Poisoned(_)) => panic!("诊断连接锁中毒"),
-            };
-            let started = Instant::now();
-            let deadline = started + DIAGNOSTIC_TIMEOUT;
-            conn.progress_handler(
-                DIAGNOSTIC_PROGRESS_OPS,
-                Some(move || Instant::now() >= deadline),
-            )
-            .map_err(StoreError::from)?;
-            let result = run(&conn, &sql, started, false).map_err(|e| classify(e, deadline));
-            conn.progress_handler(DIAGNOSTIC_PROGRESS_OPS, None::<fn() -> bool>)
-                .map_err(StoreError::from)?;
-            result
+            let main = diagnostic.gate()?;
+            match &db {
+                SqlDb::Main => query(&main, &sql),
+                SqlDb::External { .. } => {
+                    let conn = db.open(false)?;
+                    conn.authorizer(Some(|ctx: AuthContext<'_>| authorize(&[], ctx)))
+                        .map_err(StoreError::from)?;
+                    query(&conn, &sql)
+                }
+            }
         })
         .await
         .expect("诊断查询任务 panic")
     }
 
-    /// 在业务连接上先备份整库，再在事务里执行一条增删改或查询。
+    /// 先备份整库，再在事务里执行一条增删改或查询。
     pub async fn diagnostic_write(
         &self,
+        db: SqlDb,
         sql: String,
         at: i64,
     ) -> Result<WriteResult, DiagnosticError> {
-        let diagnostic = self
-            .diagnostic
-            .clone()
-            .ok_or(DiagnosticError::Unavailable)?;
-        self.blocking(move |conn| {
-            let backup = backup(conn, &diagnostic.backups, at)?;
-            let (result, changes, _) = execute(conn, &diagnostic.secrets, &sql, true)?;
+        let diagnostic = self.diagnostic()?;
+        self.writable(db, move |conn, db| {
+            let backup = backup(conn, &diagnostic.backups, db.name(), at)?;
+            let (result, changes, _) = execute(conn, db.secrets(&diagnostic), &sql, true)?;
             Ok(WriteResult {
                 result,
                 changes,
@@ -221,15 +223,16 @@ impl Store {
     }
 
     /// 与写入同样授权执行后回滚，取影响行数和涉及表的 DDL。
-    pub async fn diagnostic_dry_run(&self, sql: String) -> Result<DryRun, DiagnosticError> {
-        let diagnostic = self
-            .diagnostic
-            .clone()
-            .ok_or(DiagnosticError::Unavailable)?;
-        self.blocking(move |conn| {
-            let (_, changes, tables) = execute(conn, &diagnostic.secrets, &sql, false)?;
+    pub async fn diagnostic_dry_run(
+        &self,
+        db: SqlDb,
+        sql: String,
+    ) -> Result<DryRun, DiagnosticError> {
+        let diagnostic = self.diagnostic()?;
+        self.writable(db, move |conn, db| {
+            let (_, changes, tables) = execute(conn, db.secrets(&diagnostic), &sql, false)?;
             let tables: Vec<String> = tables.into_iter().collect();
-            let ddl = ddl(conn, &tables).map_err(StoreError::from)?;
+            let ddl = ddl(conn, db, &tables).map_err(StoreError::from)?;
             Ok(DryRun {
                 changes,
                 tables,
@@ -239,35 +242,23 @@ impl Store {
         .await
     }
 
-    /// 全部用户表与视图的列；凭据列标记 `secret`。
-    pub async fn diagnostic_schema(&self) -> Result<Vec<TableSchema>, DiagnosticError> {
-        let diagnostic = self
-            .diagnostic
-            .clone()
-            .ok_or(DiagnosticError::Unavailable)?;
-        let rows = self
-            .call(|conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT m.name, p.name, p.type
-                     FROM sqlite_schema m JOIN pragma_table_info(m.name) p
-                     WHERE m.type IN ('table', 'view') AND m.name NOT LIKE 'sqlite_%'
-                     ORDER BY m.name, p.cid",
-                )?;
-                let rows = stmt
-                    .query_map([], |r| {
-                        Ok((
-                            r.get::<_, String>(0)?,
-                            r.get::<_, String>(1)?,
-                            r.get::<_, String>(2)?,
-                        ))
-                    })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                Ok(rows)
-            })
-            .await?;
+    /// 全部用户表与视图的列；主库按目录分组并标记凭据列。
+    pub async fn diagnostic_schema(&self, db: SqlDb) -> Result<Vec<TableSchema>, DiagnosticError> {
+        let diagnostic = self.diagnostic()?;
+        let rows = match &db {
+            SqlDb::Main => self.call(|conn| Ok(columns(conn)?)).await?,
+            SqlDb::External { .. } => {
+                let db = db.clone();
+                tokio::task::spawn_blocking(move || {
+                    Ok::<_, DiagnosticError>(columns(&db.open(false)?).map_err(StoreError::from)?)
+                })
+                .await
+                .expect("诊断表结构任务 panic")?
+            }
+        };
         let mut tables: Vec<TableSchema> = Vec::new();
         for (table, column, decl_type) in rows {
-            let secret = diagnostic.is_secret(&table, &column);
+            let secret = is_secret(db.secrets(&diagnostic), &table, &column);
             let column = ColumnSchema {
                 name: column,
                 decl_type,
@@ -275,17 +266,133 @@ impl Store {
             };
             match tables.last_mut() {
                 Some(last) if last.name == table => last.columns.push(column),
-                _ => tables.push(TableSchema {
-                    group: catalog(&table).map_or("其他", |entry| entry.1).into(),
-                    description: catalog(&table)
-                        .map_or("未登记的表或视图", |entry| entry.2)
-                        .into(),
-                    name: table,
-                    columns: vec![column],
-                }),
+                _ => {
+                    let (group, description) = describe(&db, &table);
+                    tables.push(TableSchema {
+                        group: group.into(),
+                        description: description.into(),
+                        name: table,
+                        columns: vec![column],
+                    })
+                }
             }
         }
         Ok(tables)
+    }
+
+    fn diagnostic(&self) -> Result<Arc<Diagnostic>, DiagnosticError> {
+        self.diagnostic.clone().ok_or(DiagnosticError::Unavailable)
+    }
+
+    /// 主库用业务连接，额外库临时以读写方式打开；都先取全局闸门。
+    async fn writable<R, F>(&self, db: SqlDb, f: F) -> Result<R, DiagnosticError>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut Connection, &SqlDb) -> Result<R, DiagnosticError> + Send + 'static,
+    {
+        let diagnostic = self.diagnostic()?;
+        match db {
+            SqlDb::Main => {
+                self.blocking(move |conn| {
+                    let _gate = diagnostic.gate()?;
+                    f(conn, &db)
+                })
+                .await
+            }
+            SqlDb::External { .. } => tokio::task::spawn_blocking(move || {
+                let _gate = diagnostic.gate()?;
+                let mut conn = db.open(true)?;
+                f(&mut conn, &db)
+            })
+            .await
+            .expect("诊断写入任务 panic"),
+        }
+    }
+}
+
+impl Diagnostic {
+    /// 全局同一时间只允许一个诊断操作；守卫同时是主库的只读连接。
+    fn gate(&self) -> Result<MutexGuard<'_, Connection>, DiagnosticError> {
+        match self.conn.try_lock() {
+            Ok(conn) => Ok(conn),
+            Err(TryLockError::WouldBlock) => Err(DiagnosticError::Busy),
+            Err(TryLockError::Poisoned(_)) => panic!("诊断连接锁中毒"),
+        }
+    }
+}
+
+impl SqlDb {
+    fn name(&self) -> &str {
+        match self {
+            SqlDb::Main => MAIN_SQL_DB,
+            SqlDb::External { name, .. } => name,
+        }
+    }
+
+    fn secrets<'a>(&self, diagnostic: &'a Diagnostic) -> &'a [SecretColumn] {
+        match self {
+            SqlDb::Main => &diagnostic.secrets,
+            SqlDb::External { .. } => &[],
+        }
+    }
+
+    /// 只用于额外库；不带 CREATE，文件不存在即报错。
+    fn open(&self, write: bool) -> Result<Connection, DiagnosticError> {
+        let SqlDb::External { name, path } = self else {
+            unreachable!("主库不临时打开")
+        };
+        let failed = |e: rusqlite::Error| DiagnosticError::Open(format!("{name}：{e}"));
+        let mode = if write {
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+        };
+        let conn = Connection::open_with_flags(path, mode | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+            .map_err(failed)?;
+        conn.busy_timeout(DIAGNOSTIC_TIMEOUT).map_err(failed)?;
+        conn.set_limit(Limit::SQLITE_LIMIT_LENGTH, DIAGNOSTIC_VALUE_BYTES)
+            .map_err(failed)?;
+        // 打开是惰性的，读一次 schema 让「不是数据库」等问题在这里暴露。
+        conn.query_row("SELECT count(*) FROM sqlite_schema", [], |_| Ok(()))
+            .map_err(failed)?;
+        Ok(conn)
+    }
+}
+
+fn query(conn: &Connection, sql: &str) -> Result<QueryResult, DiagnosticError> {
+    let started = Instant::now();
+    let deadline = started + DIAGNOSTIC_TIMEOUT;
+    conn.progress_handler(
+        DIAGNOSTIC_PROGRESS_OPS,
+        Some(move || Instant::now() >= deadline),
+    )
+    .map_err(StoreError::from)?;
+    let result = run(conn, sql, started, false).map_err(|e| classify(e, deadline));
+    conn.progress_handler(DIAGNOSTIC_PROGRESS_OPS, None::<fn() -> bool>)
+        .map_err(StoreError::from)?;
+    result
+}
+
+fn columns(conn: &Connection) -> rusqlite::Result<Vec<(String, String, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT m.name, p.name, p.type
+         FROM sqlite_schema m JOIN pragma_table_info(m.name) p
+         WHERE m.type IN ('table', 'view') AND m.name NOT LIKE 'sqlite_%'
+         ORDER BY m.name, p.cid",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect();
+    rows
+}
+
+/// 分组与说明只有主库登记；额外库平铺。
+fn describe(db: &SqlDb, table: &str) -> (&'static str, &'static str) {
+    match db {
+        SqlDb::Main => catalog(table).map_or(("其他", "未登记的表或视图"), |entry| {
+            (entry.1, entry.2)
+        }),
+        SqlDb::External { .. } => ("表与视图", ""),
     }
 }
 
@@ -331,25 +438,26 @@ fn execute(
     Ok((result, changes, tables))
 }
 
-fn backup(conn: &Connection, dir: &Path, at: i64) -> Result<String, DiagnosticError> {
+fn backup(conn: &Connection, dir: &Path, name: &str, at: i64) -> Result<String, DiagnosticError> {
     let failed =
         |e: &dyn std::fmt::Display| DiagnosticError::Backup(format!("{}：{e}", dir.display()));
     std::fs::create_dir_all(dir).map_err(|e| failed(&e))?;
-    let name = format!("micnext-{at}.db");
-    let path = dir.join(&name);
+    let file = format!("{name}-{at}.db");
+    let path = dir.join(&file);
     let target = path.to_str().ok_or_else(|| failed(&"路径不是 UTF-8"))?;
     conn.execute("VACUUM INTO ?1", [target])
         .map_err(|e| failed(&e))?;
-    prune(dir).map_err(|e| failed(&e))?;
-    Ok(name)
+    prune(dir, name).map_err(|e| failed(&e))?;
+    Ok(file)
 }
 
-/// 只留最近的若干份备份。
-fn prune(dir: &Path) -> std::io::Result<()> {
+/// 每个库只留最近的若干份备份；库名不含 `-`，前缀不会串库。
+fn prune(dir: &Path, name: &str) -> std::io::Result<()> {
+    let prefix = format!("{name}-");
     let mut stamps: Vec<i64> = std::fs::read_dir(dir)?
         .filter_map(|entry| {
             let name = entry.ok()?.file_name().into_string().ok()?;
-            name.strip_prefix("micnext-")?
+            name.strip_prefix(&prefix)?
                 .strip_suffix(".db")?
                 .parse()
                 .ok()
@@ -358,20 +466,22 @@ fn prune(dir: &Path) -> std::io::Result<()> {
     stamps.sort_unstable();
     let stale = stamps.len().saturating_sub(SQL_BACKUP_KEEP);
     for at in &stamps[..stale] {
-        std::fs::remove_file(dir.join(format!("micnext-{at}.db")))?;
+        std::fs::remove_file(dir.join(format!("{name}-{at}.db")))?;
     }
     Ok(())
 }
 
-fn ddl(conn: &Connection, tables: &[String]) -> rusqlite::Result<String> {
+fn ddl(conn: &Connection, db: &SqlDb, tables: &[String]) -> rusqlite::Result<String> {
     let mut stmt = conn.prepare(
         "SELECT sql FROM sqlite_schema WHERE tbl_name = ?1 AND sql IS NOT NULL
          ORDER BY type <> 'table', name",
     )?;
     let mut out = String::new();
     for table in tables {
-        let description = catalog(table).map_or("未登记的表或视图", |entry| entry.2);
-        out.push_str(&format!("-- {table}：{description}\n"));
+        match describe(db, table).1 {
+            "" => out.push_str(&format!("-- {table}\n")),
+            description => out.push_str(&format!("-- {table}：{description}\n")),
+        }
         for sql in stmt.query_map([table], |r| r.get::<_, String>(0))? {
             out.push_str(&sql?);
             out.push_str(";\n");

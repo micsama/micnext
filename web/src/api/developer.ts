@@ -127,6 +127,8 @@ export const parseSqlReview = (v: unknown): SqlReview => sqlReview(v, "把关结
 
 export const parseTables = (v: unknown): TableSchema[] => tables(v, "表结构");
 
+export const parseSqlDatabases = (v: unknown): string[] => arr(str)(v, "数据库列表");
+
 export const logEvents = Object.keys(logData) as readonly LogEvent["event"][];
 
 export function parseLogEvent(event: string, data: string): LogEvent {

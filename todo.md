@@ -35,3 +35,4 @@
 | 实现完成，待验收 | 设置里的环境变量 | [B2](docs/blueprints/env-vars.md) |
 | 实现完成，待验收 | 命令里的 Python 用固定的 uv venv | [B2](docs/blueprints/python-env.md)；[B1](docs/brainstorm/python-env.md) |
 | 实现完成，待验收 | 会话草稿保留与发送前图片预览 | [B2](docs/blueprints/composer-drafts-preview.md) |
+| 实现完成，待验收 | SQL 页可切换到白名单里的其他 SQLite 库（含写入与备份） | [B2](docs/blueprints/sql-databases.md) |

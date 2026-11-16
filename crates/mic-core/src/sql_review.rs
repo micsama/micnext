@@ -2,7 +2,7 @@
 //! 契约：docs/blueprints/archive/sql-write.md。
 
 use mic_message::{Message, MessageBody, MessageId, ReplyBlock, SessionId};
-use mic_store::Store;
+use mic_store::{SqlDb, Store};
 
 use crate::attempt::{stream_attempt, Facts};
 use crate::limits::SQL_REVIEW_TIMEOUT;
@@ -28,9 +28,14 @@ pub struct SqlReview {
 pub(crate) async fn review(
     store: &Store,
     factories: &Factories,
+    db: SqlDb,
     sql: String,
 ) -> Result<SqlReview, KernelError> {
-    let dry = store.diagnostic_dry_run(sql.clone()).await?;
+    let context = match &db {
+        SqlDb::Main => "micnext 是单用户的个人 agent，用 SQLite 存会话、消息、模型调用与设置。开发者要在运行中的主库上直接执行下面这条 SQL".to_owned(),
+        SqlDb::External { name, .. } => format!("{name} 是同机另一个服务的 SQLite 库，服务可能正在运行。开发者要直接执行下面这条 SQL"),
+    };
+    let dry = store.diagnostic_dry_run(db, sql.clone()).await?;
     let verdict = match crate::utility::provider(factories, store.utility_model_snapshot().await?) {
         Ok(built) => {
             let request = ModelRequest {
@@ -40,7 +45,7 @@ pub(crate) async fn review(
                     id: MessageId(0),
                     session_id: SessionId(0),
                     body: MessageBody::HarnessNote {
-                        text: prompt(&sql, &dry),
+                        text: prompt(&context, &sql, &dry),
                     },
                     created_at: now_ms(),
                     delivered_at: None,
@@ -73,9 +78,9 @@ pub(crate) async fn review(
     })
 }
 
-fn prompt(sql: &str, dry: &mic_store::DryRun) -> String {
+fn prompt(context: &str, sql: &str, dry: &mic_store::DryRun) -> String {
     format!(
-        "micnext 是单用户的个人 agent，用 SQLite 存会话、消息、模型调用与设置。开发者要在运行中的主库上直接执行下面这条 SQL，执行前会自动备份整库。\n\n\
+        "{context}，执行前会自动备份整库。\n\n\
          ```sql\n{sql}\n```\n\n\
          试运行（已回滚）：语句直接改动 {changes} 行，不含触发器；涉及表：{tables}。\n\n\
          涉及表的结构：\n```sql\n{ddl}```\n\n\

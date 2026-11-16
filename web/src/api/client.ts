@@ -17,6 +17,7 @@ import {
 import {
   parseLogHistory,
   parseQueryResult,
+  parseSqlDatabases,
   parseSqlReview,
   parseTables,
   parseUpdateStatus,
@@ -354,18 +355,23 @@ export async function getInputLimits(): Promise<InputLimits> {
 /** 会话内图片原件地址；加 `/thumb` 为缩略图。 */
 export const imageUrl = (sessionId: number, imageId: number): string => `/api/sessions/${sessionId}/images/${imageId}`;
 
-/** 诊断 SQL；`write` 时先备份整库再改主库。失败时 message 已是用户可读的原因。 */
-export async function runSql(sql: string, write = false): Promise<QueryResult> {
-  return parseQueryResult(await request("POST", "/developer/sql", { sql, write }));
+/** 诊断 SQL；`db` 为额外库名，`null` = 主库；`write` 时先备份整库再改库。失败时 message 已是用户可读的原因。 */
+export async function runSql(db: string | null, sql: string, write = false): Promise<QueryResult> {
+  return parseQueryResult(await request("POST", "/developer/sql", { sql, write, db }));
 }
 
 /** 写入前把关：试运行后回滚，再由杂活模型评估风险。 */
-export async function reviewSql(sql: string): Promise<SqlReview> {
-  return parseSqlReview(await request("POST", "/developer/sql/review", { sql }));
+export async function reviewSql(db: string | null, sql: string): Promise<SqlReview> {
+  return parseSqlReview(await request("POST", "/developer/sql/review", { sql, db }));
 }
 
-export async function getSqlSchema(): Promise<TableSchema[]> {
-  return parseTables(await request("GET", "/developer/sql/schema"));
+export async function getSqlSchema(db: string | null): Promise<TableSchema[]> {
+  return parseTables(await request("GET", db === null ? "/developer/sql/schema" : `/developer/sql/schema?db=${encodeURIComponent(db)}`));
+}
+
+/** 配置里的额外库名；空 = 只有主库。 */
+export async function getSqlDatabases(): Promise<string[]> {
+  return parseSqlDatabases(await request("GET", "/developer/sql/databases"));
 }
 
 export async function getLogHistory(): Promise<LogHistory> {

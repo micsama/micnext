@@ -16,3 +16,6 @@ owner = "dzmfg"
 # 网页一键更新：填部署仓库根目录（绝对路径或 ~/ 开头）；更新后以 <仓库>/target/release/micnext 原参数重启。
 # 需要代理时在启动 shell 里先开好，git/bun/cargo 沿用。
 # update_repo = "~/workspace/micnext"
+# 开发者诊断 SQL 页可切换的其他 SQLite 库（名字只用字母、数字、下划线；路径绝对或 ~/ 开头），可查可写，写前备份。
+# [gateway.sql_databases]
+# micjz = "~/workspace/micjz/micjz.db"

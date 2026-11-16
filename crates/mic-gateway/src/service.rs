@@ -1,4 +1,6 @@
+use std::collections::BTreeMap;
 use std::future::{Future, IntoFuture};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -34,6 +36,8 @@ pub(crate) struct App {
     /// `None` = 未配置 `update_repo`。
     pub(crate) updater: Option<Arc<Updater>>,
     pub(crate) login_failures: auth::LoginFailures,
+    /// SQL 页可切换的额外库：名字 → 路径。
+    pub(crate) sql_databases: BTreeMap<String, PathBuf>,
     /// 进程停止时结束所有 SSE 流。
     pub(crate) stop: CancellationToken,
 }
@@ -88,6 +92,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         logs,
         updater,
         login_failures: auth::LoginFailures::default(),
+        sql_databases: config.sql_databases,
         stop: stop.clone(),
     });
     let api = Router::new()
@@ -220,6 +225,7 @@ async fn serve(gateway: Gateway, kernel: Kernel, stop: CancellationToken) -> Res
         .route("/developer/sql", post(sql::query))
         .route("/developer/sql/schema", get(sql::schema))
         .route("/developer/sql/review", post(sql::review))
+        .route("/developer/sql/databases", get(sql::databases))
         // 临时诊断（session-load-diagnostics），排查完整体删除。
         .route(
             "/developer/session-load",

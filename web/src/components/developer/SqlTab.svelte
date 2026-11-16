@@ -1,7 +1,7 @@
 <script lang="ts">
   import hljs from "highlight.js/lib/common";
   import { onMount } from "svelte";
-  import { getSqlSchema, reviewSql, runSql } from "../../api/client";
+  import { getSqlDatabases, getSqlSchema, reviewSql, runSql } from "../../api/client";
   import type { Cell, QueryResult, SqlReview, SqlRisk, TableSchema } from "../../api/developer";
   import { copyText } from "../../lib/clipboard";
   import Icon from "../../lib/Icon.svelte";
@@ -9,6 +9,10 @@
   import { load, save } from "../../lib/storage";
 
   let sql = $state("");
+  /** 额外库名；`null` = micnext 主库。 */
+  let db = $state<string | null>(null);
+  let databases = $state.raw<string[]>([]);
+  const dbName = $derived(db ?? "micnext");
   let running = $state(false);
   let result = $state.raw<QueryResult | null>(null);
   let error = $state<string | null>(null);
@@ -63,12 +67,32 @@
     handle.addEventListener("pointerup", up, { once: true });
   }
 
+  function loadSchema() {
+    const target = db;
+    tables = null;
+    schemaError = null;
+    getSqlSchema(target).then(
+      (t) => target === db && (tables = t),
+      (e: unknown) => target === db && (schemaError = (e as Error).message),
+    );
+  }
+
   onMount(() => {
-    getSqlSchema().then(
-      (t) => (tables = t),
+    loadSchema();
+    getSqlDatabases().then(
+      (d) => (databases = d),
       (e: unknown) => (schemaError = (e as Error).message),
     );
   });
+
+  /** 换库后旧结果与把关都作废，SQL 保留。 */
+  function switchDb(next: string | null) {
+    db = next;
+    result = null;
+    review = null;
+    error = null;
+    loadSchema();
+  }
 
   /** 写入模式下先把关，确认后才执行。 */
   async function run(confirmed = false) {
@@ -79,11 +103,11 @@
     try {
       if (write && !confirmed) {
         review = null;
-        review = { sql: q, review: await reviewSql(q) };
+        review = { sql: q, review: await reviewSql(db, q) };
         return;
       }
       review = null;
-      result = await runSql(q, write);
+      result = await runSql(db, q, write);
       recent = pushRecent(RECENT_KEY, recent, q.trim(), 30);
     } catch (e) {
       if (confirmed) result = null;
@@ -139,7 +163,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `micnext-${new Date().toISOString().slice(0, 19).replaceAll(":", "")}.csv`;
+    a.download = `${dbName}-${new Date().toISOString().slice(0, 19).replaceAll(":", "")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -147,6 +171,19 @@
 
 <div class="flex min-h-0 flex-1 flex-col md:flex-row">
   <aside class="shrink-0 overflow-y-auto border-b p-3 text-xs max-md:max-h-40 md:w-60 md:border-r md:border-b-0">
+    {#if databases.length > 0}
+      <label class="mb-2 flex items-center gap-2 border-b pb-2">
+        <span class="text-muted-foreground">数据库</span>
+        <select
+          class="min-w-0 flex-1 rounded-md border bg-background px-1.5 py-0.5"
+          value={db ?? ""}
+          disabled={running}
+          onchange={(e) => switchDb(e.currentTarget.value || null)}>
+          <option value="">micnext</option>
+          {#each databases as name (name)}<option value={name}>{name}</option>{/each}
+        </select>
+      </label>
+    {/if}
     {#if recent.length > 0}
       <details open class="mb-2 border-b pb-2">
         <summary class="cursor-pointer text-muted-foreground">最近</summary>
@@ -171,7 +208,7 @@
       {#each tables.filter((t) => t.group === group) as t (t.name)}
         <details class="py-0.5">
           <summary class="cursor-pointer font-mono" title={t.description}>{t.name}</summary>
-          <p class="pl-4 text-muted-foreground">{t.description}</p>
+          {#if t.description}<p class="pl-4 text-muted-foreground">{t.description}</p>{/if}
           <ul class="pb-1 pl-4">
             {#each t.columns as c (c.name)}
               <li class="font-mono">
@@ -201,7 +238,9 @@
         {onkeydown}
         onscroll={(e) => backdrop && (backdrop.scrollTop = e.currentTarget.scrollTop)}
         spellcheck="false"
-        placeholder={write ? "输入一条 SQL，可增删改，如 UPDATE core_sessions SET … WHERE …" : "输入一条只读 SQL，如 SELECT * FROM core_sessions LIMIT 20"}
+        placeholder={db !== null
+          ? write ? `输入一条 SQL，可增删改 ${db}` : `输入一条只读 SQL，查询 ${db}`
+          : write ? "输入一条 SQL，可增删改，如 UPDATE core_sessions SET … WHERE …" : "输入一条只读 SQL，如 SELECT * FROM core_sessions LIMIT 20"}
         class="absolute inset-0 resize-none overflow-y-scroll bg-transparent p-3 break-words whitespace-pre-wrap text-transparent caret-foreground outline-none placeholder:text-muted-foreground"
       ></textarea>
     </div>
@@ -248,7 +287,8 @@
           onclick={() => result && downloadCsv(result)}><Icon name="arrowDown" class="size-3.5" />下载 CSV</button>
         {#if copyNote}<span>{copyNote}</span>{/if}
       {/if}
-      <span class="ml-auto">{write ? "写入主库：先把关，确认后备份再执行" : "只读连接；凭据列读作 NULL"}</span>
+      <span class="ml-auto"
+        >{write ? `写入 ${dbName}：先把关，确认后备份再执行` : db === null ? "只读连接；凭据列读作 NULL" : `只读连接 ${db}`}</span>
     </div>
     {#if pending}
       {@const risk = pending.risk ? RISK[pending.risk] : null}
@@ -260,7 +300,11 @@
         </p>
         {#if pending.reason}<p class="whitespace-pre-wrap">{pending.reason}</p>{/if}
         {#if pending.ai_error}<p class="text-xs text-muted-foreground">{pending.ai_error}</p>{/if}
-        <p class="text-xs text-destructive">确认后先备份整个数据库，再直接改主库。改动立即生效，已打开的页面不会自动刷新，部分设置可能要重启才生效；凭据列不可写。改错时，停服务后用备份文件替换 micnext.db。</p>
+        {#if db === null}
+          <p class="text-xs text-destructive">确认后先备份整个数据库，再直接改主库。改动立即生效，已打开的页面不会自动刷新，部分设置可能要重启才生效；凭据列不可写。改错时，停服务后用备份文件替换 micnext.db。</p>
+        {:else}
+          <p class="text-xs text-destructive">确认后先备份 {db} 整库，再直接改它。改动立即生效，对方服务可能有缓存；改错时，停掉对方服务后用 micnext 的 sql-backups 里的 {db}-*.db 替换原库。</p>
+        {/if}
         <div class="flex gap-2">
           <button
             type="button"

@@ -1,10 +1,10 @@
 # micnext：产品方向与后续工作
 
-**状态：现状索引（2026-10-26 更新）。已实现能力与验收记录以对应 B2 为准；本页记录剩余方向，不授权实现。**
+**状态：现状索引（2026-11-16 更新）。已实现能力与验收记录以对应 B2 为准；本页记录剩余方向，不授权实现。**
 
 ## 一、项目定位
 
-单人自用、单进程的 Rust agent：常驻 Gateway（Web）与微信 Channel，`-p` 一次性调试。支持在服务器上调用文件、shell 与网络工具。定时任务与推送已实现，可用于巡检、日报与提醒，仍在验收；长期记忆属于后续能力。
+单人自用、单进程的 Rust agent：常驻 Gateway（Web）与微信 Channel，`-p` 一次性调试。支持在服务器上调用文件、shell 与网络工具。定时任务与推送已实现，可用于巡检、日报与提醒，仍在验收；长期记忆在 [B1](long-term-memory.md) 讨论。
 
 按独立变化轴建模，边界解析成强类型，失败可见；不做分布式、多租户 SaaS、通用工作流编排。配置、存储与分层遵循仓库 AGENTS.md。
 
@@ -25,16 +25,7 @@
 
 ## 三、当前收尾
 
-[todo](../../todo.md) 是未关闭主题的状态索引；当前已实现项主要剩页面与真实环境验收：
-
-- [定时任务与推送](../blueprints/scheduled-tasks.md)：P1 已验收；P2 内核及调度修订、P3 页面已实现，待完成停机合并补记、恢复触发、页面操作及真实投递终态等剩余验收。
-- 微信与外部交互：[错误链日志](../blueprints/archive/external-error-observability.md)待真实环境验收；[统一文件消息](../blueprints/web-file-upload.md)的 Web 已验收、微信文件待验收；[微信收尾](../blueprints/wechat-wrap-up.md)已实现，待验收。
-- Web 与对话交互：[模型重试提示](../blueprints/model-retry-indicator.md)、[图片规整](../blueprints/image-normalize.md)、[侧栏状态与置顶](../blueprints/session-sidebar.md)、[ask_user](../blueprints/ask-user-question.md)均已实现，待验收。
-- [数据库转换移出二进制](../blueprints/archive/database-conversion.md)：已实现，待真实网页更新验收。
-
-继续延期或暂缓：[分时计价](../blueprints/offpeak-pricing.md)由 human 明确搁置，继续按高峰价计；[推送降级](push-fallback.md)暂缓。
-
-已关闭项见 [归档索引](../../todo-archive.md)。归档 B2 中明确延期的个别验收场景仍保留原记录，不因本次整理补记通过。
+未关闭主题及其状态只看 [todo](../../todo.md)，待人工验收的场景汇总在[验收清单](../acceptance.md)，本页不再抄录。已关闭项见[归档索引](../../todo-archive.md)。
 
 ## 四、后续方向与待收敛问题
 
@@ -47,13 +38,12 @@
 ### 其它后续能力
 
 - 后续优先方向（2026-10-28 记录，尚未批准实现）：
-  - 长期记忆：持久保存用户偏好、环境事实和项目决定，先收敛记忆读写与上下文加载规则；向量检索、自动提炼按实际需求另定。
+  - 长期记忆：跨会话常驻的少量事实（偏好、环境、纠正），与专题分工，见 [B1](long-term-memory.md)。
   - 执行与交付闭环：优先完成已有能力验收，核对执行结果、子 agent 回注后的继续处理、任务执行与渠道投递的结果区分，以及停止、重启和外部调用结果未知时的记录。以具体缺陷立项，不预设新增模块。
   - 外部信息入口：从日历、邮件、待办、文档中的真实任务选择首个接入，不先建设通用插件框架。
   - 浏览器操作：有登录后查询、填写与操作的具体需求时立项，明确登录状态、操作结果确认及失败处理。
   - Hook、通用插件系统和工作流编排暂不优先；以上方向形成独立 B2 后再进入 `todo.md`。
-- 微信出站媒体：入站能力已完成，出站仍只有文本；需先定模型侧发送文件能力，见 [微信 V2](wechat-v2.md)。
-- Skill、长期记忆、Hook、Webhook、其它 Provider 与浏览器/语音能力：路线想法，尚无本页授权的实现计划；按实际需求独立立项。
+- Hook、Webhook、其它 Provider 与语音能力：路线想法，尚无本页授权的实现计划；按实际需求独立立项。浏览器见 [本机浏览器 B1](local-browser-mcp.md)。
 - 代码整理：[10-19 审计](over-design-audit-2026-10-19.md) 保留候选；修改公开签名或删除公开类型均先走 B2。旧正交审查按现状重核，不作为新功能前置。
 
 原 v0–v3 是早期范围划分，实际已交叉交付；不再据此判断功能是否完成或强制实施顺序。早期依据保留在 [9-23 核对记录](cross-check-2026-09-23.md) 与 [历史架构草案](next-gen-architecture.md)。
@@ -67,7 +57,6 @@
 | 想法，以后做（2026-10-15） | trace「复制为 curl / 重新推理」：消息按记录还原，系统提示与工具清单用当前配置；工具清单视为固定，与历史工具调用对不上则拒绝重放 | [trace B1](run-trace.md#未来重放与复制为-curl) |
 | human 明确延期（2026-10-13） | 自建人设支持设置 emoji；当前统一使用 🎭，以后独立定义契约 | [记录](../blueprints/archive/web-ui.md#43-设置页与人设选择) |
 | 历史审查，余项须按现状重新核对；不作为实现前置 | 最小正交审查余项 | [`docs/brainstorm/orthogonality-review-2026-09-24.md`](orthogonality-review-2026-09-24.md) |
-| 已进入 `todo.md`，P1 已验收，P2/P3 待验收（2026-10-24） | 定时任务、运行记录与按需推送 | [B1](scheduled-tasks.md)、[B2](../blueprints/scheduled-tasks.md) |
 | 脱敏首版已完成（2026-10-24），规则待按实际漏遮、误遮优化；工具隔离仍待定 | 模型出站脱敏、工具隔离与授权：脱敏只求减少部分意外披露；工具隔离既有缺口仍待定。专用用户部署 human 进行中，服务器 bwrap 已验证可运行；访问与披露各自控制，候选未批准 | [B1](privacy-permissions.md)、[脱敏 B2](../blueprints/archive/outbound-redaction.md)；合并「工具授权」缺口（cross-check §四-8～9） |
 | 已知 bug，低优先级；human 明确延期（2026-10-10） | 微信 Markdown/表格部分引用无法精确定位时提供完整被引消息并注明；显示文字的精确还原后续再处理，不阻塞本轮引用验收 | [引用 B2](../blueprints/archive/wechat-quotes.md)；[样本事实](wechat-v2.md) §三 |
 | 想法，未定；现状够用（2026-10-12） | 日志页开关「落盘包含 DEBUG」：存 SQLite，跨重启有效，仅项目 crate，开启时页面提示。场景：新功能临时调试时复现与查看之间有重启；现状 DEBUG 只在内存实时可看，重启即丢 | [B2](../blueprints/archive/developer-log-history.md) |

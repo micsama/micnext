@@ -31,7 +31,6 @@
 | B2 待批准 | 专题：索引与 `topic` 工具（压缩时 fork 整理在 B1 讨论） | [B2](docs/blueprints/topics.md)；[B1](docs/brainstorm/topics.md) |
 | 实现完成，待验收 | 内置 skill；web-guide 扩为 micnext-guide（能力、架构、源码索引） | [B2](docs/blueprints/micnext-guide.md)；[前序 B2](docs/blueprints/builtin-skills.md) |
 | B1 待定 | 统一「轮」的口径 | [B1](docs/brainstorm/rounds.md) |
-| B1 讨论中 | 长期记忆（跨会话常驻的偏好、环境与纠正） | [B1](docs/brainstorm/long-term-memory.md) |
 | 实现完成，待验收 | 压缩后重新加载仍在用的 skill | [B2](docs/blueprints/skills-after-compaction.md)；[B1](docs/brainstorm/skills-after-compaction.md) |
 | 实现完成，待验收 | 设置里的环境变量 | [B2](docs/blueprints/env-vars.md) |
 | 实现完成，待验收 | 命令里的 Python 用固定的 uv venv | [B2](docs/blueprints/python-env.md)；[B1](docs/brainstorm/python-env.md) |

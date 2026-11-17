@@ -25,8 +25,8 @@ const DESCRIPTION: &str = "Run `bash -c` in the session's working directory, or 
     cwd and variables do not carry over. The result shows stdout, stderr and any non-zero exit \
     code, signal or timeout; `timeout` stops the whole command. Long output keeps only its \
     tail. In the background the call returns a job_id at once; output goes to a log read with \
-    `job_output`, and the exit arrives as a completion. Background commands must not daemonize \
-    themselves.";
+    `job_output`, and the exit arrives as a completion. Background jobs end if micnext restarts \
+    and are not resumed. Background commands must not daemonize themselves.";
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

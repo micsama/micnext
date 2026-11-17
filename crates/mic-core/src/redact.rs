@@ -227,7 +227,7 @@ impl Scrub<'_> {
     }
 }
 
-/// 16 字符以上留前 2 后 4（`ab…6789`），更短的整段遮住。
+/// 16 字符以上留前 2 后 4（`ab***6789`），更短的整段遮住。
 pub(crate) fn ends(secret: &str) -> String {
     let chars: Vec<char> = secret.chars().collect();
     if chars.len() < 16 {
@@ -235,7 +235,7 @@ pub(crate) fn ends(secret: &str) -> String {
     }
     let head: String = chars[..2].iter().collect();
     let tail: String = chars[chars.len() - 4..].iter().collect();
-    format!("{head}…{tail}")
+    format!("{head}***{tail}")
 }
 
 #[cfg(test)]

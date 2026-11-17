@@ -198,9 +198,9 @@ pub(crate) fn system_prompt(
     context.push(part(
         Environment,
         if window.plain_after.is_some() {
-            "凭据脱敏：用户临时关闭，新消息里的凭据是原文；更早内容仍遮蔽（如 `sk-a***wxyz`），重新开启后恢复。"
+            "凭据脱敏：用户临时关闭，新消息里的凭据是原文；更早内容仍遮蔽（如 `sk-ab***wxyz`），重新开启后恢复。"
         } else {
-            "凭据脱敏：凭据对你已遮蔽（如 `sk-a***wxyz`），本地是真实值；勿把遮蔽值当真值写回。"
+            "凭据脱敏：凭据对你已遮蔽（如 `sk-ab***wxyz`），本地是真实值；勿把遮蔽值当真值写回。"
         }
         .to_owned(),
     ));

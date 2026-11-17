@@ -15,13 +15,13 @@ fn masks_credentials_and_keeps_ordinary_text() {
     let cases = [
         (
             "key sk-proj-AbCdEfGh1234567890XyZw done",
-            "key sk-pr…XyZw done",
+            "key sk-pr***XyZw done",
         ),
         (
             "jwt eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlX3h4eA end",
-            "jwt eyJhb…h4eA end",
+            "jwt eyJhb***h4eA end",
         ),
-        ("auth Bearer abc123def456ghi789jk", "auth Bearer ab…89jk"),
+        ("auth Bearer abc123def456ghi789jk", "auth Bearer ab***89jk"),
         ("Authorization: Bearer abc123def456", "Authorization: ***"),
         (
             "curl -H 'Cookie: SESSDATA=abc; bili_jct=def' https://x",
@@ -33,16 +33,16 @@ fn masks_credentials_and_keeps_ordinary_text() {
         ),
         (
             "SESSDATA=1a2b3c4d%2C1712345678%2Cabcde%2A51CjBxyz&b=1",
-            "SESSDATA=1a…Bxyz&b=1",
+            "SESSDATA=1a***Bxyz&b=1",
         ),
-        ("raw 1a2b3c4d,1712345678,abcde*51CjBxyz", "raw 1a…Bxyz"),
+        ("raw 1a2b3c4d,1712345678,abcde*51CjBxyz", "raw 1a***Bxyz"),
         (
             "?access_key=0123456789abcdef0123&ts=1",
-            "?access_key=01…0123&ts=1",
+            "?access_key=01***0123&ts=1",
         ),
         (
             r#"{"OPENAI_API_KEY": "x9y8z7w6v5u4t3s2r1q0p"}"#,
-            r#"{"OPENAI_API_KEY": "x9…1q0p"}"#,
+            r#"{"OPENAI_API_KEY": "x9***1q0p"}"#,
         ),
         (r#"token = "1234567890""#, r#"token = "1234567890""#),
         (
@@ -144,7 +144,7 @@ fn request_keeps_protocol_fields_and_honors_plain_after() {
         plain_after: Some(mic_message::MessageId(1)),
     };
     request(&[("known", API_KEY)], &mut req);
-    assert_eq!(req.system, "env ghp_01…KLMN");
+    assert_eq!(req.system, "env ghp_01***KLMN");
     let MessageBody::Reply { blocks, .. } = &req.messages[0].body else {
         unreachable!()
     };
@@ -152,7 +152,7 @@ fn request_keeps_protocol_fields_and_honors_plain_after() {
         unreachable!()
     };
     assert_eq!(id, "call_1");
-    assert_eq!(args["command"], "curl -H 'x: ghp_01…KLMN'");
+    assert_eq!(args["command"], "curl -H 'x: ghp_01***KLMN'");
     let MessageBody::UserInput { parts, .. } = &req.messages[1].body else {
         unreachable!()
     };

@@ -9,7 +9,7 @@
 - 精确名单（始终开启）：没有固定格式、正则认不出的秘密，命中换成名字。目前是主密钥（`~/.config/micnext/master.key`，32 字节原始值）的 hex 与标准 base64 → `<MASTER_KEY>`，当前模型实例自己的 API key → `<API_KEY>`；长的先换。
 - 正则（默认对所有内容生效），只在明确是密钥的上下文里遮，裸 hex、裸 base64、自然语言里的密码不管：
   - 整段 `***`：PEM 私钥正文；`Cookie`、`Set-Cookie`、`Authorization`、`Proxy-Authorization` 头的整条值（含 JSON、`curl -H` 写法）。
-  - 留前 2 后 4（`sk-pr…XyZw`，厂商前缀原样保留）：服务商 token 前缀（`sk-`、`ghp_`、`github_pat_`、`xox?-`、`AKIA`、`AIza` 等）、JWT（`eyJ…` 三段）、`Bearer …`、B 站 SESSDATA（`%2C` 与 `,` 两种写法）、凭据字段赋值、连接串密码。
+  - 留前 2 后 4（`sk-pr***XyZw`，厂商前缀原样保留）：服务商 token 前缀（`sk-`、`ghp_`、`github_pat_`、`xox?-`、`AKIA`、`AIza` 等）、JWT（`eyJ…` 三段）、`Bearer …`、B 站 SESSDATA（`%2C` 与 `,` 两种写法）、凭据字段赋值、连接串密码。
   - 凭据字段：key 名含 `api_key`、`access_key`、`secret`、`token`、`passw`、`pwd`、`sess`、`jct`、`auth`，key 两侧可带引号，值 ≥16 字符、遇空白或 `"'`,;&` 截止，且须含数字（避开 `config.api_key` 这类代码）。
   - 不足 16 字符的值整段 `***`。
 - 临时明文（按会话）：`core_sessions.plain_after`（迁移 25，同时删掉迁移 24 的全局开关）。开启时记下会话当前最新消息 id 作水位，已开启再开不动；关闭清空。id 大于水位的消息不过正则，更早的消息与整个 system（含压缩摘要、原话）始终过正则；精确匹配不受影响。窗口读出水位经 `ModelRequest::plain_after` 交给脱敏层，下一次模型调用生效；标题生成不带水位。system 的 context 块按开关状态告诉模型当前脱敏情况。

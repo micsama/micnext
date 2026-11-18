@@ -67,7 +67,7 @@ enum Input {
     },
     FunctionCallOutput {
         call_id: String,
-        output: String,
+        output: Content,
     },
     Reasoning {
         summary: Vec<SummaryPart>,
@@ -137,7 +137,7 @@ pub(crate) fn request(
                 output,
             } => input.push(Input::FunctionCallOutput {
                 call_id: tool_call_id.to_owned(),
-                output: text_of(output)?,
+                output: user_content(output, &req.images)?,
             }),
         }
     }

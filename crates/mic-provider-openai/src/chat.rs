@@ -126,10 +126,17 @@ pub(crate) fn request(
             content: req.system.clone(),
         });
     }
+    // Chat 的 tool 消息只能是文本：工具图片改由同批回执之后的一条 user 消息携带。
+    let mut tool_images: Vec<UserPart> = Vec::new();
     for m in &req.messages {
         let Some(view) = m.model_view() else {
             continue;
         };
+        if !matches!(view, ModelView::Tool { .. }) && !tool_images.is_empty() {
+            messages.push(Message::User {
+                content: UserContent::Parts(std::mem::take(&mut tool_images)),
+            });
+        }
         messages.push(match view {
             ModelView::User(parts) => Message::User {
                 content: user_content(parts, &req.images)?,
@@ -140,10 +147,39 @@ pub(crate) fn request(
             ModelView::Tool {
                 tool_call_id,
                 output,
-            } => Message::Tool {
-                content: text_of(output)?,
-                tool_call_id: tool_call_id.to_owned(),
-            },
+            } => {
+                let (images, texts): (Vec<_>, Vec<_>) = output
+                    .into_iter()
+                    .partition(|p| matches!(p, ContentPart::Image(_)));
+                let mut content = text_of(texts)?;
+                if !images.is_empty() {
+                    content.push_str("\n(image attached in the following user message)");
+                }
+                for part in images {
+                    let ContentPart::Image(r) = part else {
+                        unreachable!("已按图片分区")
+                    };
+                    let img = req
+                        .images
+                        .get(&r.id)
+                        .expect("core 已按窗口引用加载全部图片原件");
+                    tool_images.push(UserPart::Text {
+                        text: format!("Image returned by tool call {tool_call_id}:"),
+                    });
+                    tool_images.push(UserPart::ImageUrl {
+                        image_url: ImageUrl { url: data_url(img) },
+                    });
+                }
+                Message::Tool {
+                    content,
+                    tool_call_id: tool_call_id.to_owned(),
+                }
+            }
+        });
+    }
+    if !tool_images.is_empty() {
+        messages.push(Message::User {
+            content: UserContent::Parts(tool_images),
         });
     }
     Ok(ChatRequest {

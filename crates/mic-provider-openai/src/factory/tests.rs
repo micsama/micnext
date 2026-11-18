@@ -286,6 +286,45 @@ fn reasoning_only_history_keeps_empty_content_across_models() {
     }
 }
 
+#[test]
+fn tool_images_ride_natively_on_responses_and_after_receipts_on_chat() {
+    let mut req = history();
+    let MessageBody::ToolResult {
+        outcome:
+            mic_message::ToolResultOutcome::Terminal(mic_message::ExecOutcome::Completed { output }),
+        ..
+    } = &mut req.messages[3].body
+    else {
+        unreachable!()
+    };
+    output.push(ContentPart::Image(ImageRef { id: ImageId(7) }));
+
+    let chat = Resolved {
+        model: "m".into(),
+        protocol: Protocol::Chat(Dialect::Generic),
+        max_tokens: None,
+        reasoning_effort: None,
+    };
+    let body =
+        serde_json::to_value(crate::chat::request(&chat, Dialect::Generic, &req).unwrap()).unwrap();
+    let messages = body["messages"].as_array().unwrap();
+    let tool = &messages[messages.len() - 2];
+    assert_eq!(tool["role"], "tool");
+    assert!(tool["content"].as_str().unwrap().starts_with("out"));
+    let user = messages.last().unwrap();
+    assert_eq!(user["role"], "user");
+    assert_eq!(user["content"][1]["type"], "image_url");
+
+    let responses = Resolved {
+        protocol: Protocol::Responses(Backend::Codex),
+        ..chat
+    };
+    let body = serde_json::to_value(crate::responses::request(&responses, &req).unwrap()).unwrap();
+    let output = body["input"].as_array().unwrap().last().unwrap();
+    assert_eq!(output["type"], "function_call_output");
+    assert_eq!(output["output"][1]["type"], "input_image");
+}
+
 #[tokio::test]
 async fn reasoning_presets_reach_both_protocols() {
     for (preset, name, protocol, effort, field) in [

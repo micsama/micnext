@@ -4,7 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use mic_message::{
-    header_legend, ContentPart, ImageData, ImageId, Message, MessageBody, ModelView, ReplyBlock,
+    header_legend, ContentPart, ExecOutcome, ImageData, ImageId, Message, MessageBody, ModelView,
+    ReplyBlock, ToolResultOutcome,
 };
 use mic_store::{ContextWindow, RunSettings};
 use mic_tool::ToolHandle;
@@ -98,30 +99,37 @@ impl SystemPrompt {
 
 const IMAGE_PLACEHOLDER: &str = "[图片：当前模型不支持查看]";
 
+/// 用户输入与工具结果里的图片片段。
+fn image_parts(body: &mut MessageBody) -> Option<&mut Vec<ContentPart>> {
+    match body {
+        MessageBody::UserInput { parts, .. } => Some(parts),
+        MessageBody::ToolResult {
+            outcome: ToolResultOutcome::Terminal(ExecOutcome::Completed { output }),
+            ..
+        } => Some(output),
+        _ => None,
+    }
+}
+
 pub(crate) fn hide_images(messages: &mut [Message]) {
-    for m in messages {
-        if let MessageBody::UserInput { parts, .. } = &mut m.body {
-            for part in parts
-                .iter_mut()
-                .filter(|p| matches!(p, ContentPart::Image(_)))
-            {
-                *part = ContentPart::Text {
-                    text: IMAGE_PLACEHOLDER.into(),
-                };
-            }
+    for parts in messages.iter_mut().filter_map(|m| image_parts(&mut m.body)) {
+        for part in parts
+            .iter_mut()
+            .filter(|p| matches!(p, ContentPart::Image(_)))
+        {
+            *part = ContentPart::Text {
+                text: IMAGE_PLACEHOLDER.into(),
+            };
         }
     }
 }
 
 /// 窗口内消息引用的图片 id。
-pub(crate) fn image_ids(window: &ContextWindow) -> Vec<ImageId> {
+pub(crate) fn image_ids(window: &mut ContextWindow) -> Vec<ImageId> {
     window
         .messages
-        .iter()
-        .filter_map(|m| match &m.body {
-            MessageBody::UserInput { parts, .. } => Some(parts),
-            _ => None,
-        })
+        .iter_mut()
+        .filter_map(|m| image_parts(&mut m.body))
         .flatten()
         .filter_map(|p| match p {
             ContentPart::Image(r) => Some(r.id),

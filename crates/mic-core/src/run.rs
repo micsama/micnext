@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mic_message::{
-    ExecFailureKind, ExecOutcome, ImageData, ImageId, MessageBody, MessageId, ReplyBlock,
-    SessionCommand, SessionId, ToolCallRef, ToolResultOutcome,
+    ContentPart, ExecFailureKind, ExecOutcome, ImageData, ImageId, MessageBody, MessageId,
+    ReplyBlock, SessionCommand, SessionId, ToolCallRef, ToolResultOutcome,
 };
 use mic_store::{
     ClaimedModel, ClaimedRun, ContextCommandError, ContextWindow, ModelCallContext,
@@ -748,26 +748,35 @@ impl Exec<'_> {
             let (name, args) = (call.name.clone(), call.args.clone());
             let started_at = now_ms();
             let task = running.spawn(async move {
+                let done = |outcome| (outcome, None);
                 if rejected {
-                    return ToolResultOutcome::Terminal(ExecOutcome::Failed {
+                    return done(ToolResultOutcome::Terminal(ExecOutcome::Failed {
                         kind: ExecFailureKind::Business,
                         message: NOT_ALONE.into(),
-                    });
+                    }));
                 }
                 match handle {
-                    None => ToolResultOutcome::Terminal(ExecOutcome::Failed {
+                    None => done(ToolResultOutcome::Terminal(ExecOutcome::Failed {
                         kind: ExecFailureKind::Input,
                         message: format!("unknown tool `{name}`"),
-                    }),
+                    })),
                     Some(tool) => match tool.invoke(&args, &running_ctx).await {
-                        Ok(ToolOutput::Terminal(outcome)) => ToolResultOutcome::Terminal(outcome),
-                        Ok(ToolOutput::Dispatched { exec_id }) => {
-                            ToolResultOutcome::Dispatched { exec_id }
+                        Ok(ToolOutput::Terminal(outcome)) => {
+                            done(ToolResultOutcome::Terminal(outcome))
                         }
-                        Err(e) => ToolResultOutcome::Terminal(ExecOutcome::Failed {
+                        Ok(ToolOutput::Dispatched { exec_id }) => {
+                            done(ToolResultOutcome::Dispatched { exec_id })
+                        }
+                        Ok(ToolOutput::Image { text, image }) => (
+                            ToolResultOutcome::Terminal(ExecOutcome::Completed {
+                                output: vec![ContentPart::Text { text }],
+                            }),
+                            Some(image),
+                        ),
+                        Err(e) => done(ToolResultOutcome::Terminal(ExecOutcome::Failed {
                             kind: e.kind,
                             message: e.message,
-                        }),
+                        })),
                     },
                 }
             });
@@ -788,7 +797,7 @@ impl Exec<'_> {
                         continue;
                     }
                 };
-                let (id, outcome) = match joined {
+                let (id, (outcome, image)) = match joined {
                     Ok(done) => done,
                     Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
                     Err(e) => {
@@ -802,7 +811,7 @@ impl Exec<'_> {
                                 message: STOPPED_TOOL.into(),
                             }),
                         };
-                        (e.id(), outcome)
+                        (e.id(), (outcome, None))
                     }
                 };
                 let returned_at = now_ms();
@@ -826,22 +835,44 @@ impl Exec<'_> {
                         ToolResultOutcome::Terminal(ExecOutcome::Completed { .. })
                     );
                 let publish = self.engine.events.publisher().await;
-                let message = self
-                    .engine
-                    .store
-                    .append(
-                        self.session.id,
-                        Some(self.run.id),
-                        MessageBody::ToolResult {
-                            call: call.reference,
-                            tool_name: call.name,
-                            tool_call_id: call.id,
-                            outcome,
-                            started_at: Some(started_at),
-                        },
-                        returned_at,
-                    )
-                    .await?;
+                let mut body = MessageBody::ToolResult {
+                    call: call.reference,
+                    tool_name: call.name,
+                    tool_call_id: call.id,
+                    outcome,
+                    started_at: Some(started_at),
+                };
+                let store = &self.engine.store;
+                let message = match image {
+                    None => {
+                        store
+                            .append(self.session.id, Some(self.run.id), body, returned_at)
+                            .await?
+                    }
+                    Some(image) => {
+                        store
+                            .append_with_image(
+                                self.session.id,
+                                Some(self.run.id),
+                                image,
+                                returned_at,
+                                move |image| {
+                                    if let MessageBody::ToolResult {
+                                        outcome:
+                                            ToolResultOutcome::Terminal(ExecOutcome::Completed {
+                                                output,
+                                            }),
+                                        ..
+                                    } = &mut body
+                                    {
+                                        output.push(ContentPart::Image(image));
+                                    }
+                                    body
+                                },
+                            )
+                            .await?
+                    }
+                };
                 publish.appended(self.session.id, self.channel, message);
             }
         }

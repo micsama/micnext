@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use mic_message::{ContentPart, ExecFailureKind, ExecOutcome};
+use mic_message::{ContentPart, ExecFailureKind, ExecOutcome, ImageData};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::{AbortOnDropHandle, TaskTracker};
 
@@ -43,6 +43,11 @@ pub enum ToolOutput {
     /// 已交给后台执行，结果日后以 `Completion` 回注。
     Dispatched {
         exec_id: String,
+    },
+    /// 带一张图片的完成结果；图片由 core 入库并以引用写进结果。
+    Image {
+        text: String,
+        image: ImageData,
     },
 }
 

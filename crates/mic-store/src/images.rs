@@ -9,7 +9,7 @@ use mic_message::{
 use rusqlite::{params, OptionalExtension};
 
 use crate::messages::insert_message;
-use crate::{InputDisposition, NewInputPart, NewNotice, Store, StoreError};
+use crate::{InputDisposition, NewInputPart, NewNotice, RunId, Store, StoreError};
 
 fn format_str(f: ImageFormat) -> &'static str {
     match f {
@@ -105,6 +105,43 @@ impl Store {
             }
             tx.commit()?;
             Ok(messages)
+        })
+        .await
+    }
+
+    /// 图片与引用它的消息同事务落库；`build` 拿到图片引用后产出消息体。
+    pub async fn append_with_image(
+        &self,
+        session_id: SessionId,
+        run: Option<RunId>,
+        image: ImageData,
+        at: i64,
+        build: impl FnOnce(ImageRef) -> MessageBody + Send + 'static,
+    ) -> Result<Message, StoreError> {
+        self.call(move |conn| {
+            let tx = conn.transaction()?;
+            tx.execute(
+                "INSERT INTO core_images (session_id, format, size_bytes, bytes)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    session_id.0,
+                    format_str(image.format),
+                    image.bytes.len() as i64,
+                    &*image.bytes
+                ],
+            )?;
+            let body = build(ImageRef {
+                id: ImageId(tx.last_insert_rowid()),
+            });
+            let id = insert_message(&tx, session_id, run, &body, at)?;
+            tx.commit()?;
+            Ok(Message {
+                id,
+                session_id,
+                body,
+                created_at: at,
+                delivered_at: None,
+            })
         })
         .await
     }

@@ -6,6 +6,7 @@
 
 | 状态 | 主题 | 蓝图 |
 |---|---|---|
+| 实现完成，待验收 | 让模型通过 read 读取本地图片 | [B2](docs/blueprints/read-image.md) |
 | 实现完成，待验收 | 流式草稿随重连恢复并按调用时刻定位 | [B2](docs/blueprints/stream-draft-snapshot.md) |
 | 实现完成，待验收 | 新会话发送前可关闭凭据脱敏 | [B2](docs/blueprints/new-chat-settings.md)；[B1](docs/brainstorm/new-chat-reuse.md) |
 | 实现完成，待验收 | 手动修改会话标题（点击标题编辑） | [B2](docs/blueprints/session-rename.md) |
